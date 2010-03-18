@@ -275,7 +275,7 @@ static void n810_tsc_setup(struct n800_s *s)
     s->ts.opaque = tsc2005_init(pintdav);
     s->ts.txrx = tsc2005_txrx;
 
-    tsc2005_set_transform(s->ts.opaque, &n810_pointercal);
+    tsc2005_set_transform(s->ts.opaque, &n810_pointercal, 400, 4000);
 }
 
 /* N810 Keyboard controller */
