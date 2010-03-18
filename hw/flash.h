@@ -1,3 +1,5 @@
+#include "sysemu.h"
+
 /* NOR flash devices */
 typedef struct pflash_t pflash_t;
 
@@ -40,7 +42,8 @@ uint32_t nand_getbuswidth(NANDFlashState *s);
 /* onenand.c */
 void onenand_base_update(void *opaque, target_phys_addr_t new);
 void onenand_base_unmap(void *opaque);
-void *onenand_init(uint32_t id, int regshift, qemu_irq irq);
+void *onenand_init(uint16_t man_id, uint16_t dev_id, uint16_t ver_id,
+                   int regshift, qemu_irq irq, DriveInfo *dinfo);
 void *onenand_raw_otp(void *opaque);
 
 /* ecc.c */

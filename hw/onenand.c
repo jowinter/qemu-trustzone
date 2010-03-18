@@ -22,6 +22,8 @@
 #include "flash.h"
 #include "irq.h"
 #include "blockdev.h"
+#include "sysemu.h"
+#include "hw.h"
 
 /* 11 for 2kB-page OneNAND ("2nd generation") and 10 for 1kB-page chips */
 #define PAGE_SHIFT	11
@@ -30,7 +32,11 @@
 #define BLOCK_SHIFT	(PAGE_SHIFT + 6)
 
 typedef struct {
-    uint32_t id;
+    struct {
+        uint16_t man;
+        uint16_t dev;
+        uint16_t ver;
+    } id;
     int shift;
     target_phys_addr_t base;
     qemu_irq intr;
@@ -127,6 +133,85 @@ static void onenand_intr_update(OneNANDState *s)
     qemu_set_irq(s->intr, ((s->intstatus >> 15) ^ (~s->config[0] >> 6)) & 1);
 }
 
+static void onenand_save_state(QEMUFile *f, void *opaque)
+{
+    OneNANDState *s = (OneNANDState *)opaque;
+    int i;
+
+    if (s->current == s->otp)
+        qemu_put_byte(f, 1);
+    else if (s->current == s->image)
+        qemu_put_byte(f, 2);
+    else
+        qemu_put_byte(f, 0);
+    qemu_put_sbe32(f, s->cycle);
+    qemu_put_sbe32(f, s->otpmode);
+    for (i = 0; i < 8; i++) {
+        qemu_put_be16(f, s->addr[i]);
+        qemu_put_be16(f, s->unladdr[i]);
+    }
+    qemu_put_sbe32(f, s->bufaddr);
+    qemu_put_sbe32(f, s->count);
+    qemu_put_be16(f, s->command);
+    qemu_put_be16(f, s->config[0]);
+    qemu_put_be16(f, s->config[1]);
+    qemu_put_be16(f, s->status);
+    qemu_put_be16(f, s->intstatus);
+    qemu_put_be16(f, s->wpstatus);
+    qemu_put_sbe32(f, s->secs_cur);
+    qemu_put_buffer(f, s->blockwp, s->blocks);
+    qemu_put_byte(f, s->ecc.cp);
+    qemu_put_be16(f, s->ecc.lp[0]);
+    qemu_put_be16(f, s->ecc.lp[1]);
+    qemu_put_be16(f, s->ecc.count);
+    qemu_put_buffer(f, s->otp, (64 + 2) << PAGE_SHIFT);
+}
+
+static int onenand_load_state(QEMUFile *f, void *opaque, int version_id)
+{
+    OneNANDState *s = (OneNANDState *)opaque;
+    int i;
+
+    if (version_id)
+        return -EINVAL;
+
+    switch (qemu_get_byte(f)) {
+        case 1:
+            s->current = s->otp;
+            break;
+        case 2:
+            s->current = s->image;
+            break;
+        default:
+            break;
+    }
+    s->cycle = qemu_get_sbe32(f);
+    s->otpmode = qemu_get_sbe32(f);
+    for (i = 0; i < 8; i++) {
+        s->addr[i] = qemu_get_be16(f);
+        s->unladdr[i] = qemu_get_be16(f);
+    }
+    s->bufaddr = qemu_get_sbe32(f);
+    s->count = qemu_get_sbe32(f);
+    s->command = qemu_get_be16(f);
+    s->config[0] = qemu_get_be16(f);
+    s->config[1] = qemu_get_be16(f);
+    s->status = qemu_get_be16(f);
+    s->intstatus = qemu_get_be16(f);
+    s->wpstatus = qemu_get_be16(f);
+    s->secs_cur = qemu_get_sbe32(f);
+    qemu_get_buffer(f, s->blockwp, s->blocks);
+    s->ecc.cp = qemu_get_byte(f);
+    s->ecc.lp[0] = qemu_get_be16(f);
+    s->ecc.lp[1] = qemu_get_be16(f);
+    s->ecc.count = qemu_get_be16(f);
+    qemu_get_buffer(f, s->otp, (64 + 2) << PAGE_SHIFT);
+
+    onenand_intr_update(s);
+
+    return 0;
+}
+
 /* Hot reset (Reset OneNAND command) or warm reset (RP pin low) */
 static void onenand_reset(OneNANDState *s, int cold)
 {
@@ -158,6 +243,11 @@ static void onenand_reset(OneNANDState *s, int cold)
     }
 }
 
+static void onenand_system_reset(void *opaque)
+{
+    onenand_reset(opaque, 1);
+}
+
 static inline int onenand_load_main(OneNANDState *s, int sec, int secn,
                 void *dest)
 {
@@ -174,14 +264,39 @@ static inline int onenand_load_main(OneNANDState *s, int sec, int secn,
 static inline int onenand_prog_main(OneNANDState *s, int sec, int secn,
                 void *src)
 {
-    if (s->bdrv_cur)
-        return bdrv_write(s->bdrv_cur, sec, src, secn) < 0;
-    else if (sec + secn > s->secs_cur)
-        return 1;
+    int result = 0;
 
-    memcpy(s->current + (sec << 9), src, secn << 9);
+    if (secn > 0) {
+        uint32_t size = (uint32_t)secn * 512;
+        const uint8_t *sp = (const uint8_t *)src;
+        uint8_t *dp = 0;
+        if (s->bdrv_cur) {
+            dp = qemu_malloc(size);
+            if (!dp || bdrv_read(s->bdrv_cur, sec, dp, secn) < 0) {
+                result = 1;
+            }
+        } else {
+            if (sec + secn > s->secs_cur) {
+                result = 1;
+            } else {
+                dp = (uint8_t *)s->current + (sec << 9);
+            }
+        }
+        if (!result) {
+            uint32_t i;
+            for (i = 0; i < size; i++) {
+                dp[i] &= sp[i];
+            }
+            if (s->bdrv_cur) {
+                result = bdrv_write(s->bdrv_cur, sec, dp, secn) < 0;
+            }
+        }
+        if (dp && s->bdrv_cur) {
+            qemu_free(dp);
+        }
+    }
 
-    return 0;
+    return result;
 }
 
 static inline int onenand_load_spare(OneNANDState *s, int sec, int secn,
@@ -204,35 +319,87 @@ static inline int onenand_load_spare(OneNANDState *s, int sec, int secn,
 static inline int onenand_prog_spare(OneNANDState *s, int sec, int secn,
                 void *src)
 {
-    uint8_t buf[512];
-
-    if (s->bdrv_cur) {
-        if (bdrv_read(s->bdrv_cur, s->secs_cur + (sec >> 5), buf, 1) < 0)
-            return 1;
-        memcpy(buf + ((sec & 31) << 4), src, secn << 4);
-        return bdrv_write(s->bdrv_cur, s->secs_cur + (sec >> 5), buf, 1) < 0;
-    } else if (sec + secn > s->secs_cur)
-        return 1;
-
-    memcpy(s->current + (s->secs_cur << 9) + (sec << 4), src, secn << 4);
- 
-    return 0;
+    int result = 0;
+    if (secn > 0) {
+        const uint8_t *sp = (const uint8_t *)src;
+        uint8_t *dp = 0, *dpp = 0;
+        if (s->bdrv_cur) {
+            dp = qemu_malloc(512);
+            if (!dp || bdrv_read(s->bdrv_cur,
+                                 s->secs_cur + (sec >> 5),
+                                 dp, 1) < 0) {
+                result = 1;
+            } else {
+                dpp = dp + ((sec & 31) << 4);
+            }
+        } else {
+            if (sec + secn > s->secs_cur) {
+                result = 1;
+            } else {
+                dpp = s->current + (s->secs_cur << 9) + (sec << 4);
+            }
+        }
+        if (!result) {
+            uint32_t i;
+            for (i = 0; i < (secn << 4); i++) {
+                dpp[i] &= sp[i];
+            }
+            if (s->bdrv_cur) {
+                result = bdrv_write(s->bdrv_cur, s->secs_cur + (sec >> 5),
+                                    dp, 1) < 0;
+            }
+        }
+        if (dp) {
+            qemu_free(dp);
+        }
+    }
+    return result;
 }
 
 static inline int onenand_erase(OneNANDState *s, int sec, int num)
 {
-    /* TODO: optimise */
-    uint8_t buf[512];
+    int result = 0;
 
-    memset(buf, 0xff, sizeof(buf));
-    for (; num > 0; num --, sec ++) {
-        if (onenand_prog_main(s, sec, 1, buf))
-            return 1;
-        if (onenand_prog_spare(s, sec, 1, buf))
-            return 1;
+    uint8_t *buf, *buf2;
+    buf = qemu_malloc(512);
+    if (buf) {
+        buf2 = qemu_malloc(512);
+        if (buf2) {
+            memset(buf, 0xff, 512);
+            for (; !result && num > 0; num--, sec++) {
+                if (s->bdrv_cur) {
+                    result = bdrv_write(s->bdrv_cur, sec, buf, 1);
+                    if (!result) {
+                        result = bdrv_read(s->bdrv_cur,
+                                           s->secs_cur + (sec >> 5),
+                                           buf2, 1) < 0;
+                        if (!result) {
+                            memcpy(buf2 + ((sec & 31) << 4), buf, 1 << 4);
+                            result = bdrv_write(s->bdrv_cur,
+                                                s->secs_cur + (sec >> 5),
+                                                buf2, 1) < 0;
+                        }
+                    }
+                } else {
+                    if (sec + 1 > s->secs_cur) {
+                        result = 1;
+                    } else {
+                        memcpy(s->current + (sec << 9), buf, 512);
+                        memcpy(s->current + (s->secs_cur << 9) + (sec << 4),
+                               buf, 1 << 4);
+                    }
+                }
+            }
+            qemu_free(buf2);
+        } else {
+            result = 1;
+        }
+        qemu_free(buf);
+    } else {
+        result = 1;
     }
 
-    return 0;
+    return result;
 }
 
 static void onenand_command(OneNANDState *s, int cmd)
@@ -292,6 +459,7 @@ static void onenand_command(OneNANDState *s, int cmd)
         SETADDR(ONEN_BUF_BLOCK, ONEN_BUF_PAGE)
 
         SETBUF_M()
+
         if (onenand_prog_main(s, sec, s->count, buf))
             s->status |= ONEN_ERR_CMD | ONEN_ERR_PROG;
 
@@ -452,12 +620,12 @@ static uint32_t onenand_read(void *opaque, target_phys_addr_t addr)
         return lduw_le_p(s->boot[0] + addr);
 
     case 0xf000:	/* Manufacturer ID */
-        return (s->id >> 16) & 0xff;
+        return s->id.man;
     case 0xf001:	/* Device ID */
-        return (s->id >>  8) & 0xff;
-    /* TODO: get the following values from a real chip!  */
+        return s->id.dev;
     case 0xf002:	/* Version ID */
-        return (s->id >>  0) & 0xff;
+        return s->id.ver;
+    /* TODO: get the following values from a real chip!  */
     case 0xf003:	/* Data Buffer size */
         return 1 << PAGE_SHIFT;
     case 0xf004:	/* Boot Buffer size */
@@ -540,9 +708,16 @@ static void onenand_write(void *opaque, target_phys_addr_t addr,
 
         case 0x0090:	/* Read Identification Data */
             memset(s->boot[0], 0, 3 << s->shift);
-            s->boot[0][0 << s->shift] = (s->id >> 16) & 0xff;
-            s->boot[0][1 << s->shift] = (s->id >>  8) & 0xff;
+            s->boot[0][0 << s->shift] = s->id.man & 0xff;
+            s->boot[0][1 << s->shift] = s->id.dev & 0xff;
             s->boot[0][2 << s->shift] = s->wpstatus & 0xff;
+            break;
+
+        case 0x0000:
+            /* ignore zero writes without error messages,
+             * linux omap2/3 kernel will issue these upon
+             * powerdown/reset sequence.
+             */
             break;
 
         default:
@@ -614,21 +789,23 @@ static CPUWriteMemoryFunc * const onenand_writefn[] = {
     onenand_write,
 };
 
-void *onenand_init(uint32_t id, int regshift, qemu_irq irq)
+void *onenand_init(uint16_t man_id, uint16_t dev_id, uint16_t ver_id,
+                   int regshift, qemu_irq irq, DriveInfo *dinfo)
 {
     OneNANDState *s = (OneNANDState *) qemu_mallocz(sizeof(*s));
-    DriveInfo *dinfo = drive_get(IF_MTD, 0, 0);
-    uint32_t size = 1 << (24 + ((id >> 12) & 7));
+    uint32_t size = 1 << (24 + ((dev_id >> 4) & 7));
     void *ram;
 
     s->shift = regshift;
     s->intr = irq;
     s->rdy = NULL;
-    s->id = id;
+    s->id.man = man_id;
+    s->id.dev = dev_id;
+    s->id.ver = ver_id;
     s->blocks = size >> BLOCK_SHIFT;
     s->secs = size >> 9;
     s->blockwp = qemu_malloc(s->blocks);
-    s->density_mask = (id & (1 << 11)) ? (1 << (6 + ((id >> 12) & 7))) : 0;
+    s->density_mask = (dev_id & 0x08) ? (1 << (6 + ((dev_id >> 4) & 7))) : 0;
     s->iomemtype = cpu_register_io_memory(onenand_readfn,
                     onenand_writefn, s, DEVICE_NATIVE_ENDIAN);
     if (!dinfo)
@@ -647,7 +824,16 @@ void *onenand_init(uint32_t id, int regshift, qemu_irq irq)
     s->data[1][0] = ram + ((0x0200 + (1 << (PAGE_SHIFT - 1))) << s->shift);
     s->data[1][1] = ram + ((0x8010 + (1 << (PAGE_SHIFT - 6))) << s->shift);
 
-    onenand_reset(s, 1);
+    onenand_system_reset(s);
+    qemu_register_reset(onenand_system_reset, s);
+
+    register_savevm(NULL, "onenand",
+                    ((regshift & 0x7f) << 24)
+                    | ((man_id & 0xff) << 16)
+                    | ((dev_id & 0xff) << 8)
+                    | (ver_id & 0xff),
+                    0,
+                    onenand_save_state, onenand_load_state, s);
 
     return s;
 }
