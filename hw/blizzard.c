@@ -71,7 +71,6 @@ typedef struct {
     uint8_t iformat;
     uint8_t source;
     DisplayState *state;
-    blizzard_fn_t *line_fn_tab[2];
     void *fb;
 
     uint8_t hssi_config[3];
@@ -117,7 +116,6 @@ typedef struct {
         uint16_t *ptr;
         int angle;
         int pitch;
-        blizzard_fn_t line_fn;
     } data;
 } BlizzardState;
 
@@ -135,6 +133,17 @@ static const int blizzard_iformat_bpp[0x10] = {
     0, 0, 0, 0, 0, 0,
 };
 
+#define DEPTH 8
+#include "blizzard_template.h"
+#define DEPTH 15
+#include "blizzard_template.h"
+#define DEPTH 16
+#include "blizzard_template.h"
+#define DEPTH 24
+#include "blizzard_template.h"
+#define DEPTH 32
+#include "blizzard_template.h"
+
 static inline void blizzard_rgb2yuv(int r, int g, int b,
                 int *y, int *u, int *v)
 {
@@ -149,8 +158,43 @@ static void blizzard_window(BlizzardState *s)
     int bypp[2];
     int bypl[3];
     int y;
-    blizzard_fn_t fn = s->data.line_fn;
+    blizzard_fn_t fn = 0;
 
+    /* FIXME: this is a hack - but nseries.c will use this function
+     * before correct DisplayState is initialized so we need a way to
+     * avoid drawing something when we actually have no clue about host bpp */
+	if (!s->state->listeners)
+		return;
+
+    switch (ds_get_bits_per_pixel(s->state)) {
+        case 8:
+            fn = s->data.angle
+                ? blizzard_draw_fn_r_8[s->iformat]
+                : blizzard_draw_fn_8[s->iformat];
+            break;
+        case 15:
+            fn = s->data.angle
+                ? blizzard_draw_fn_r_15[s->iformat]
+                : blizzard_draw_fn_15[s->iformat];
+            break;
+        case 16:
+            fn = s->data.angle
+                ? blizzard_draw_fn_r_16[s->iformat]
+                : blizzard_draw_fn_16[s->iformat];
+            break;
+        case 24:
+            fn = s->data.angle
+                ? blizzard_draw_fn_r_24[s->iformat]
+                : blizzard_draw_fn_24[s->iformat];
+            break;
+        case 32:
+            fn = s->data.angle
+                ? blizzard_draw_fn_r_32[s->iformat]
+                : blizzard_draw_fn_32[s->iformat];
+            break;
+        default:
+		break;
+    }
     if (!fn)
         return;
     if (s->mx[0] > s->data.x)
@@ -181,7 +225,6 @@ static int blizzard_transfer_setup(BlizzardState *s)
         return 0;
 
     s->data.angle = s->effect & 3;
-    s->data.line_fn = s->line_fn_tab[!!s->data.angle][s->iformat];
     s->data.x = s->ix[0];
     s->data.y = s->iy[0];
     s->data.dx = s->ix[1] - s->ix[0] + 1;
@@ -941,58 +984,19 @@ static void blizzard_screen_dump(void *opaque, const char *filename) {
         ppm_save(filename, s->state->surface);
 }
 
-#define DEPTH 8
-#include "blizzard_template.h"
-#define DEPTH 15
-#include "blizzard_template.h"
-#define DEPTH 16
-#include "blizzard_template.h"
-#define DEPTH 24
-#include "blizzard_template.h"
-#define DEPTH 32
-#include "blizzard_template.h"
-
 void *s1d13745_init(qemu_irq gpio_int)
 {
     BlizzardState *s = (BlizzardState *) qemu_mallocz(sizeof(*s));
 
     s->fb = qemu_malloc(0x180000);
+    /* Fill the framebuffer with white color here because the corresponding
+     * code in nseries.c is broken since the DisplayState change in QEMU.
+     * This is supposedly ok since nseries.c is the only user of blizzard.c */
+    memset(s->fb, 0xff, 0x180000);
 
     s->state = graphic_console_init(blizzard_update_display,
                                  blizzard_invalidate_display,
                                  blizzard_screen_dump, NULL, s);
-
-    switch (ds_get_bits_per_pixel(s->state)) {
-    case 0:
-        s->line_fn_tab[0] = s->line_fn_tab[1] =
-                qemu_mallocz(sizeof(blizzard_fn_t) * 0x10);
-        break;
-    case 8:
-        s->line_fn_tab[0] = blizzard_draw_fn_8;
-        s->line_fn_tab[1] = blizzard_draw_fn_r_8;
-        break;
-    case 15:
-        s->line_fn_tab[0] = blizzard_draw_fn_15;
-        s->line_fn_tab[1] = blizzard_draw_fn_r_15;
-        break;
-    case 16:
-        s->line_fn_tab[0] = blizzard_draw_fn_16;
-        s->line_fn_tab[1] = blizzard_draw_fn_r_16;
-        break;
-    case 24:
-        s->line_fn_tab[0] = blizzard_draw_fn_24;
-        s->line_fn_tab[1] = blizzard_draw_fn_r_24;
-        break;
-    case 32:
-        s->line_fn_tab[0] = blizzard_draw_fn_32;
-        s->line_fn_tab[1] = blizzard_draw_fn_r_32;
-        break;
-    default:
-        fprintf(stderr, "%s: Bad color depth\n", __FUNCTION__);
-        exit(1);
-    }
-
     blizzard_reset(s);
-
     return s;
 }
