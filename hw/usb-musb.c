@@ -8,7 +8,7 @@
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
  * published by the Free Software Foundation; either version 2 or
- * (at your option) version 3 of the License.
+ * (at your option) any later version of the License.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -307,7 +307,9 @@ struct MUSBState {
     uint16_t rx_intr;
     uint16_t rx_mask;
 
+#ifdef SETUPLEN_HACK
     int setup_len;
+#endif
     int session;
 
     uint8_t buf[0x8000];
@@ -315,15 +317,16 @@ struct MUSBState {
         /* Duplicating the world since 2008!...  probably we should have 32
          * logical, single endpoints instead.  */
     MUSBEndPoint ep[16];
-} *musb_init(qemu_irq *irqs)
+};
+
+void musb_reset(MUSBState *s)
 {
-    MUSBState *s = qemu_mallocz(sizeof(*s));
     int i;
 
-    s->irqs = irqs;
-
     s->faddr = 0x00;
+    s->devctl = 0;
     s->power = MGC_M_POWER_HSENAB;
+
     s->tx_intr = 0x0000;
     s->rx_intr = 0x0000;
     s->tx_mask = 0xffff;
@@ -331,6 +334,12 @@ struct MUSBState {
     s->intr = 0x00;
     s->mask = 0x06;
     s->idx = 0;
+
+#ifdef SETUPLEN_HACK
+    s->setup_len = 0;
+#endif
+    s->session = 0;
+    memset(s->buf, 0, sizeof(s->buf));
 
     /* TODO: _DW */
     s->ep[0].config = MGC_M_CONFIGDATA_SOFTCONE | MGC_M_CONFIGDATA_DYNFIFO;
@@ -341,6 +350,14 @@ struct MUSBState {
         s->ep[i].musb = s;
         s->ep[i].epnum = i;
     }
+}
+
+struct MUSBState *musb_init(qemu_irq *irqs)
+{
+    MUSBState *s = qemu_mallocz(sizeof(*s));
+
+    s->irqs = irqs;
+    musb_reset(s);
 
     usb_bus_new(&s->bus, NULL /* FIXME */);
     usb_register_port(&s->bus, &s->port, s, 0, NULL, musb_attach);
@@ -1481,7 +1498,7 @@ static void musb_writew(void *opaque, target_phys_addr_t addr, uint32_t value)
         musb_write_fifo(s->ep + ep, (value >> 8 ) & 0xff);
         musb_write_fifo(s->ep + ep, (value >> 16) & 0xff);
         musb_write_fifo(s->ep + ep, (value >> 24) & 0xff);
-            break;
+        break;
     default:
         TRACE("unknown register 0x%02x", (int) addr);
         break;
