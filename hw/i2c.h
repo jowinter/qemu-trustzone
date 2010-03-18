@@ -81,4 +81,16 @@ void tmp105_set(i2c_slave *i2c, int temp);
 /* lm832x.c */
 void lm832x_key_event(i2c_slave *i2c, int key, int state);
 
+/* twl4030.c */
+typedef struct {
+    int code;
+    int column;
+    int row;
+} TWL4030KeyMap;
+void *twl4030_init(i2c_bus *bus, qemu_irq irq1, qemu_irq irq2,
+                   const TWL4030KeyMap *keymap);
+void *twl5031_init(i2c_bus *bus, qemu_irq irq1, qemu_irq irq2,
+                   const TWL4030KeyMap *keymap);
+void twl4030_set_powerbutton_state(void *opaque, int pressed);
+
 #endif
