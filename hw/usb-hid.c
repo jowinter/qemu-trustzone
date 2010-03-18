@@ -857,7 +857,7 @@ static void usb_hid_handle_destroy(USBDevice *dev)
 
     switch(s->kind) {
     case USB_KEYBOARD:
-        qemu_remove_kbd_event_handler();
+        qemu_remove_kbd_event_handler(usb_keyboard_event, s);
         break;
     default:
         qemu_remove_mouse_event_handler(s->ptr.eh_entry);
