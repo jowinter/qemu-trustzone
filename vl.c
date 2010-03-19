@@ -626,7 +626,7 @@ static int bt_parse(const char *opt)
 #define FD_ALIAS "index=%d,if=floppy"
 #define PFLASH_ALIAS "if=pflash"
 #define MTD_ALIAS "if=mtd"
-#define SD_ALIAS "index=0,if=sd"
+#define SD_ALIAS "index=%d,if=sd"
 
 static int drive_init_func(QemuOpts *opts, void *opaque)
 {
@@ -1911,6 +1911,7 @@ int main(int argc, char **argv, char **envp)
     const char *incoming = NULL;
     int show_vnc_port = 0;
     int defconfig = 1;
+    int sd_device_index = 0;
 
 #ifdef CONFIG_SIMPLE_TRACE
     const char *trace_file = NULL;
@@ -2057,7 +2058,7 @@ int main(int argc, char **argv, char **envp)
                 drive_add(optarg, MTD_ALIAS);
                 break;
             case QEMU_OPTION_sd:
-                drive_add(optarg, SD_ALIAS);
+                drive_add(optarg, SD_ALIAS, sd_device_index++);
                 break;
             case QEMU_OPTION_pflash:
                 drive_add(optarg, PFLASH_ALIAS);
@@ -2902,7 +2903,7 @@ int main(int argc, char **argv, char **envp)
 
     if (default_sdcard) {
         /* we always create one sd slot, even if no card is in it */
-        drive_add(NULL, SD_ALIAS);
+        drive_add(NULL, SD_ALIAS, 0);
     }
 
     /* open the virtual block devices */
