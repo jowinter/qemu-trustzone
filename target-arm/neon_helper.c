@@ -735,8 +735,23 @@ uint64_t HELPER(neon_qshlu_s64)(CPUState *env, uint64_t valop, uint64_t shiftop)
     }} while (0)
 NEON_VOP_ENV(qrshl_u8, neon_u8, 4)
 NEON_VOP_ENV(qrshl_u16, neon_u16, 2)
-NEON_VOP_ENV(qrshl_u32, neon_u32, 1)
 #undef NEON_FN
+
+uint32_t HELPER(neon_qrshl_u32)(CPUState *env, uint32_t val, uint32_t shiftop)
+{
+    int8_t shift = (int8_t)shiftop;
+    if (shift < 0) {
+        val = ((uint64_t)val + (1 << (-1 - shift))) >> -shift;
+    } else {
+        uint32_t tmp = val;
+        val <<= shift;
+        if ((val >> shift) != tmp) {
+            SET_QC();
+            val = ~0;
+        }
+    }
+    return val;
+}
 
 uint64_t HELPER(neon_qrshl_u64)(CPUState *env, uint64_t val, uint64_t shiftop)
 {
@@ -763,7 +778,7 @@ uint64_t HELPER(neon_qrshl_u64)(CPUState *env, uint64_t val, uint64_t shiftop)
         dest = src1 << tmp; \
         if ((dest >> tmp) != src1) { \
             SET_QC(); \
-            dest = src1 >> 31; \
+            dest = (uint32_t)(1 << (sizeof(src1) * 8 - 1)) - (src1 > 0 ? 1 : 0); \
         } \
     }} while (0)
 NEON_VOP_ENV(qrshl_s8, neon_s8, 4)
@@ -779,7 +794,7 @@ uint64_t HELPER(neon_qrshl_s64)(CPUState *env, uint64_t valop, uint64_t shiftop)
     if (shift < 0) {
         val = (val + (1 << (-1 - shift))) >> -shift;
     } else {
-        int64_t tmp = val;;
+        int64_t tmp = val;
         val <<= shift;
         if ((val >> shift) != tmp) {
             SET_QC();
