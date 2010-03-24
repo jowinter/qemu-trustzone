@@ -4637,6 +4637,7 @@ static int disas_neon_data_insn(CPUState * env, DisasContext *s, uint32_t insn)
                     abort();
                 }
 
+                TCGV_UNUSED(tmp5);
                 for (pass = 0; pass < 2; pass++) {
                     if (size == 3) {
                         neon_load_reg64(cpu_V0, rm + pass);
@@ -4668,18 +4669,26 @@ static int disas_neon_data_insn(CPUState * env, DisasContext *s, uint32_t insn)
                         dead_tmp(tmp);
                         dead_tmp(tmp3);
                     }
-                    tmp = new_tmp();
+                    tmp4 = new_tmp();
                     if (op == 8) {
                         if (u) { /* VQSHRUN / VQRSHRUN */
-                            gen_neon_unarrow_sats(size - 1, tmp, cpu_V0);
+                            gen_neon_unarrow_sats(size - 1, tmp4, cpu_V0);
                         } else { /* VSHRN / VRSHRN */
-                            gen_neon_narrow(size - 1, tmp, cpu_V0);
+                            gen_neon_narrow(size - 1, tmp4, cpu_V0);
                         }
                     } else { /* VQSHRN / VQRSHRN */
-                        gen_neon_narrow_satu(size - 1, tmp, cpu_V0);
+                        if (u) {
+                            gen_neon_narrow_satu(size - 1, tmp4, cpu_V0);
+                        } else {
+                            gen_neon_narrow_sats(size - 1, tmp4, cpu_V0);
+                        }
                     }
-                    neon_store_reg(rd, pass, tmp);
+                    if (!pass) {
+                        tmp5 = tmp4;
+                    }
                 } /* for pass */
+                neon_store_reg(rd, 0, tmp5);
+                neon_store_reg(rd, 1, tmp4);
                 if (size == 3) {
                     tcg_temp_free_i64(tmp64);
                 } else {
