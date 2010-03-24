@@ -1191,9 +1191,13 @@ uint32_t HELPER(neon_narrow_sat_u32)(CPUState *env, uint64_t x)
 
 uint32_t HELPER(neon_narrow_sat_s32)(CPUState *env, uint64_t x)
 {
-    if ((int64_t)x != (int32_t)x) {
+    if ((int64_t)x < -2147483648ll) {
         SET_QC();
-        return (x >> 63) ^ 0x7fffffff;
+        return 0x80000000;
+    }
+    if ((int64_t)x > 2147483647ll) {
+        SET_QC();
+        return 0x7fffffff;
     }
     return x;
 }
