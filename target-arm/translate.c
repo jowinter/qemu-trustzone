@@ -3722,7 +3722,11 @@ static int disas_neon_ls_insn(CPUState * env, DisasContext *s, uint32_t insn)
                 return 1;
             size = (insn >> 6) & 3;
             nregs = ((insn >> 8) & 3) + 1;
-            stride = (insn & (1 << 5)) ? 2 : 1;
+            if (nregs == 1) {
+                stride = 0;
+            } else {
+                stride = (insn & (1 << 5)) ? 2 : 1;
+            }
             load_reg_var(s, addr, rn);
             for (reg = 0; reg < nregs; reg++) {
                 switch (size) {
@@ -3742,7 +3746,12 @@ static int disas_neon_ls_insn(CPUState * env, DisasContext *s, uint32_t insn)
                 default: /* Avoid compiler warnings.  */
                     abort();
                 }
-                tcg_gen_addi_i32(addr, addr, 1 << size);
+                if (stride && reg < nregs - 1) {
+                    tcg_gen_addi_i32(addr, addr, 1 << size);
+                } else if (!stride) {
+                    tcg_gen_st_i32(tmp, cpu_env, neon_reg_offset(rd + 1, 0));
+                    tcg_gen_st_i32(tmp, cpu_env, neon_reg_offset(rd + 1, 1));
+                }
                 tmp2 = new_tmp();
                 tcg_gen_mov_i32(tmp2, tmp);
                 neon_store_reg(rd, 0, tmp2);
