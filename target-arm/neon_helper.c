@@ -547,20 +547,33 @@ uint64_t HELPER(neon_rshl_s64)(uint64_t valop, uint64_t shiftop)
     }} while (0)
 NEON_VOP(rshl_u8, neon_u8, 4)
 NEON_VOP(rshl_u16, neon_u16, 2)
-NEON_VOP(rshl_u32, neon_u32, 1)
 #undef NEON_FN
+
+uint32_t HELPER(neon_rshl_u32)(uint32_t val, uint32_t shiftop)
+{
+    int8_t shift = (int8_t)shiftop;
+    if (shift >= 32 || shift < -32) {
+        val = 0;
+    } else if (shift == -32) {
+        val >>= shift - 1;
+    } else if (shift < 0) {
+        val = ((uint64_t)val + (1 << (-1 - shift))) >> -shift;
+    } else {
+        val <<= shift;
+    }
+    return val;
+}
 
 uint64_t HELPER(neon_rshl_u64)(uint64_t val, uint64_t shiftop)
 {
     int8_t shift = (uint8_t)shiftop;
-    if (shift >= 64 || shift < 64) {
+    if (shift >= 64 || shift < -64) {
         val = 0;
     } else if (shift == -64) {
         /* Rounding a 1-bit result just preserves that bit.  */
         val >>= 63;
     } if (shift < 0) {
         val = (val + ((uint64_t)1 << (-1 - shift))) >> -shift;
-        val >>= -shift;
     } else {
         val <<= shift;
     }
