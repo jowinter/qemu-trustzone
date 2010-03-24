@@ -301,7 +301,7 @@ USBDevice *usbdevice_create(const char *cmdline)
     }
 
     if (!usb->usbdevice_init) {
-        if (*params) {
+        if (params && *params) {
             error_report("usbdevice %s accepts no params", driver);
             return NULL;
         }
