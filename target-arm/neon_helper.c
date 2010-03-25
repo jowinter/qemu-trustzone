@@ -899,6 +899,30 @@ uint32_t HELPER(neon_mul_p8)(uint32_t op1, uint32_t op2)
     return result;
 }
 
+uint64_t HELPER(neon_mull_p8)(uint32_t op1, uint32_t op2)
+{
+    int i;
+    uint64_t result = 0;
+    uint8_t e1;
+    uint16_t e2, r;
+#define MULP8(n) \
+    e1 = (op1 >> n) & 0xff; \
+    e2 = (op2 >> n) & 0xff; \
+    for (i = 0, r = 0; e1; i++, e1 >>= 1) { \
+        if (e1 & 1) { \
+            r ^= e2 << i; \
+        } \
+    } \
+    result |= (uint64_t)r << (n * 2);
+
+    MULP8(0);
+    MULP8(8);
+    MULP8(16);
+    MULP8(24);
+#undef MULP8
+    return result;
+}
+
 #define NEON_FN(dest, src1, src2) dest = (src1 & src2) ? -1 : 0
 NEON_VOP(tst_u8, neon_u8, 4)
 NEON_VOP(tst_u16, neon_u16, 2)
