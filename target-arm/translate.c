@@ -4710,7 +4710,7 @@ static int disas_neon_data_insn(CPUState * env, DisasContext *s, uint32_t insn)
                         /* The shift is less than the width of the source
                            type, so we can just shift the whole register.  */
                         tcg_gen_shli_i64(cpu_V0, cpu_V0, shift);
-                        if (size < 2 || !u) {
+                        if (size < 2) {
                             uint64_t imm64;
                             if (size == 0) {
                                 imm = (0xffu >> (8 - shift));
@@ -4719,7 +4719,7 @@ static int disas_neon_data_insn(CPUState * env, DisasContext *s, uint32_t insn)
                                 imm = 0xffff >> (16 - shift);
                             }
                             imm64 = imm | (((uint64_t)imm) << 32);
-                            tcg_gen_andi_i64(cpu_V0, cpu_V0, imm64);
+                            tcg_gen_andi_i64(cpu_V0, cpu_V0, ~imm64);
                         }
                     }
                     neon_store_reg64(cpu_V0, rd + pass);
