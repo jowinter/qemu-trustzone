@@ -29,6 +29,11 @@ static inline float32 vfp_itos(uint32_t i)
         float32 s;
     } v;
 
+    /* flush-to-zero */
+    if (!(i & (0xff << 23))) {
+        i &= 1 << 31; /* make it +-0 */
+    }
+
     v.i = i;
     return v.s;
 }
@@ -558,7 +563,7 @@ uint64_t HELPER(neon_rshl_s64)(uint64_t valop, uint64_t shiftop)
         tmp < -(ssize_t)sizeof(src1) * 8) { \
         dest = 0; \
     } else if (tmp == -(ssize_t)sizeof(src1) * 8) { \
-        dest = src1 >> (tmp - 1); \
+        dest = src1 >> (-tmp - 1); \
     } else if (tmp < 0) { \
         dest = (src1 + (1 << (-1 - tmp))) >> -tmp; \
     } else { \
@@ -574,7 +579,7 @@ uint32_t HELPER(neon_rshl_u32)(uint32_t val, uint32_t shiftop)
     if (shift >= 32 || shift < -32) {
         val = 0;
     } else if (shift == -32) {
-        val >>= shift - 1;
+        val >>= 31;
     } else if (shift < 0) {
         val = ((uint64_t)val + (1 << (-1 - shift))) >> -shift;
     } else {
