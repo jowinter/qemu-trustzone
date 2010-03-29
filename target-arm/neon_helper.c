@@ -591,7 +591,7 @@ uint64_t HELPER(neon_rshl_u64)(uint64_t val, uint64_t shiftop)
     } else if (shift == -64) {
         /* Rounding a 1-bit result just preserves that bit.  */
         val >>= 63;
-    } if (shift < 0) {
+    } else if (shift < 0) {
         uint64_t r = ((uint64_t)1 << (-1 - shift));
         uint64_t lo = val + r;
         if (lo < val || lo < r) {
