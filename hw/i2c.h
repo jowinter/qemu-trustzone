@@ -58,6 +58,8 @@ int i2c_recv(i2c_bus *bus);
 void i2c_register_slave(I2CSlaveInfo *type);
 
 DeviceState *i2c_create_slave(i2c_bus *bus, const char *name, uint8_t addr);
+DeviceState *i2c_create_slave_noinit(i2c_bus *bus, const char *name,
+                                     uint8_t addr);
 
 /* max7310.c */
 void max7310_reset(i2c_slave *i2c);
