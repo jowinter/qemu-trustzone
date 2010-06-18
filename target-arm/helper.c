@@ -1577,15 +1577,86 @@ void HELPER(set_cp15)(CPUState *env, uint32_t insn, uint32_t val)
                 }
                 break;
             case 1: /* L2 cache.  */
-                /* Ignore writes to L2 lockdown/auxiliary registers.  */
+                switch (op2) {
+                case 0: /* L2 cache lockdown */
+                case 2: /* L2 cache auxiliary control */
+                    /* ignore */
+                    break;
+                default:
+                    goto bad_reg;
+                }
                 break;
             default:
                 goto bad_reg;
             }
             break;
         case 1: /* TCM memory region registers.  */
+        case 2:
             /* Not implemented.  */
             goto bad_reg;
+        case 12: /* performance monitor control */
+            if (arm_feature(env, ARM_FEATURE_V7)) {
+                switch (op2) {
+                case 0: /* performance monitor control */
+                    env->cp15.c9_pmcr_data = val;
+                    break;
+                case 1: /* count enable set */
+                case 2: /* count enable clear */
+                case 3: /* overflow flag status */
+                case 4: /* software increment */
+                case 5: /* performance counter selection */
+                    /* not implemented */
+                    goto bad_reg;
+                default:
+                    goto bad_reg;
+                }
+            } else {
+                goto bad_reg;
+            }
+            break;
+        case 13: /* performance counters */
+            if (arm_feature(env, ARM_FEATURE_V7)) {
+                switch (op2) {
+                case 0: /* cycle count */
+                case 1: /* event selection */
+                case 2: /* performance monitor count */
+                    /* not implemented */
+                    goto bad_reg;
+                default:
+                    goto bad_reg;
+                }
+            } else {
+                goto bad_reg;
+            }
+            break;
+        case 14: /* performance monitor control */
+            if (arm_feature(env, ARM_FEATURE_V7)) {
+                switch (op2) {
+                case 0: /* user enable */
+                    if ((env->uncached_cpsr & CPSR_M) == ARM_CPU_MODE_USR) {
+                        goto bad_reg;
+                    }
+                    env->cp15.c9_useren = val & 1;
+                    break;
+                case 1: /* interrupt enable set */
+                    if ((env->uncached_cpsr & CPSR_M) == ARM_CPU_MODE_USR) {
+                        goto bad_reg;
+                    }
+                    env->cp15.c9_inten |= val & 0xf;
+                    break;
+                case 2: /* interrupt enable clear */
+                    if ((env->uncached_cpsr & CPSR_M) == ARM_CPU_MODE_USR) {
+                        goto bad_reg;
+                    }
+                    env->cp15.c9_inten &= ~(val & 0xf);
+                    break;
+                default:
+                    goto bad_reg;
+                }
+            } else {
+                goto bad_reg;
+            }
+            break;
         default:
             goto bad_reg;
         }
@@ -1909,17 +1980,50 @@ uint32_t HELPER(get_cp15)(CPUState *env, uint32_t insn)
         goto bad_reg;
     case 9: /* Cache lockdown.  */
         switch (op1) {
-        case 0: /* L1 cache.  */
+        case 0:
             if (arm_feature(env, ARM_FEATURE_OMAPCP))
                 return 0;
-            switch (op2) {
-            case 0:
-                return env->cp15.c9_data;
-            case 1:
-                return env->cp15.c9_insn;
+            switch (crm) {
+            case 0: /* L1 cache */
+                switch (op2) {
+                case 0:
+                    return env->cp15.c9_data;
+                case 1:
+                    return env->cp15.c9_insn;
+                default:
+                    goto bad_reg;
+                }
+                break;
+            case 12:
+                switch (op2) {
+                case 0:
+                    return env->cp15.c9_pmcr_data;
+                default:
+                    goto bad_reg;
+                }
+                break;
+            case 14: /* performance monitor control */
+                if (arm_feature(env, ARM_FEATURE_V7)) {
+                    switch (op2) {
+                    case 0: /* user enable */
+                        return env->cp15.c9_useren;
+                    case 1: /* interrupt enable set */
+                    case 2: /* interrupt enable clear */
+                        if ((env->uncached_cpsr & CPSR_M) == ARM_CPU_MODE_USR) {
+                            goto bad_reg;
+                        }
+                        return env->cp15.c9_inten;
+                    default:
+                        goto bad_reg;
+                    }
+                } else {
+                    goto bad_reg;
+                }
+                break;
             default:
                 goto bad_reg;
             }
+            break;
         case 1: /* L2 cache */
             if (crm != 0)
                 goto bad_reg;
