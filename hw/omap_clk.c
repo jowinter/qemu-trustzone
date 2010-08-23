@@ -34,7 +34,8 @@ struct clk {
 #define CLOCK_IN_OMAP16XX	(1 << 13)
 #define CLOCK_IN_OMAP242X	(1 << 14)
 #define CLOCK_IN_OMAP243X	(1 << 15)
-#define CLOCK_IN_OMAP343X	(1 << 16)
+#define CLOCK_IN_OMAP34XX	(1 << 16)
+#define CLOCK_IN_OMAP36XX   (1 << 17)
     uint32_t flags;
     int id;
 
@@ -943,6 +944,623 @@ static struct clk omapctrl_clk = {
     .parent	= &core_l4_iclk,
 };
 
+/* OMAP3 Clocks */
+
+static struct clk omap3_sys_32k = {
+    .name	= "omap3_sys_32k",
+    .rate	= 32768,
+    .flags	= CLOCK_IN_OMAP34XX  | CLOCK_IN_OMAP36XX | ALWAYS_ENABLED,
+};
+
+static struct clk omap3_osc_sys_clk12 = {
+    .name	= "omap3_osc_sys_clk12",
+    .rate	= 12000000,
+    .flags	= CLOCK_IN_OMAP34XX  | CLOCK_IN_OMAP36XX | ALWAYS_ENABLED,
+};
+
+static struct clk omap3_osc_sys_clk13 = {
+    .name	= "omap3_osc_sys_clk13",
+    .rate	= 13000000,
+    .flags	= CLOCK_IN_OMAP34XX  | CLOCK_IN_OMAP36XX | ALWAYS_ENABLED,
+};
+
+static struct clk omap3_osc_sys_clk168 = {
+    .name	= "omap3_osc_sys_clk168",
+    .rate	= 16800000,
+    .flags	= CLOCK_IN_OMAP34XX  | CLOCK_IN_OMAP36XX | ALWAYS_ENABLED,
+};
+
+static struct clk omap3_osc_sys_clk192 = {
+    .name	= "omap3_osc_sys_clk192",
+    .rate	= 19200000,
+    .flags	= CLOCK_IN_OMAP34XX  | CLOCK_IN_OMAP36XX | ALWAYS_ENABLED,
+};
+
+static struct clk omap3_osc_sys_clk26 = {
+    .name	= "omap3_osc_sys_clk26",
+    .rate	= 26000000,
+    .flags	= CLOCK_IN_OMAP34XX  | CLOCK_IN_OMAP36XX | ALWAYS_ENABLED,
+};
+
+static struct clk omap3_osc_sys_clk384 = {
+    .name	= "omap3_osc_sys_clk384",
+    .rate	= 38400000,
+    .flags	= CLOCK_IN_OMAP34XX  | CLOCK_IN_OMAP36XX | ALWAYS_ENABLED,
+};
+
+/*Is the altclk is enabled in beagle board?*/
+static struct clk omap3_sys_altclk = {
+    .name	= "omap3_sys_altclk",
+    .rate	= 13000000,
+    .flags	= CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX,
+};
+
+/*PRM*/
+static struct clk omap3_sys_clk = {
+    .name	= "omap3_sys_clk",
+    .flags	= CLOCK_IN_OMAP34XX  | CLOCK_IN_OMAP36XX | ALWAYS_ENABLED,
+    .parent = &omap3_osc_sys_clk26,
+};
+
+static struct clk omap3_32k_fclk = {
+    .name	= "omap3_32k_fclk",
+    .rate	= 32768,
+    .flags	= CLOCK_IN_OMAP34XX  | CLOCK_IN_OMAP36XX | ALWAYS_ENABLED,
+    .parent = &omap3_sys_32k,
+};
+
+/*DPLL3:
+ *	Input: SYS_CLK
+ *   Output:
+ *           DPLL3_M2_CLK  (CORE_CLK)
+ *           DPLL3_M2*2_CLK   (CORE*2_CLK)
+ *           EMULE_CORE_ALWON_CLK
+ */
+static struct clk omap3_core_clk = {
+    .name	= "omap3_core_clk",
+    .flags	= CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX | ALWAYS_ENABLED,
+    .parent	= &omap3_sys_clk,	
+};
+
+static struct clk omap3_core2_clk = {
+    .name	= "omap3_core2_clk",
+    .flags	= CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX,
+    .parent	= &omap3_sys_clk,	
+};
+
+static struct clk omap3_emu_core_alwon_clk = {
+    .name	= "omap3_emu_core_alwon_clk",
+    .flags	= CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX,
+    .parent	= &omap3_sys_clk,	
+};
+
+/*DPLL1 : it is for MPU
+ *    Input:
+ *           reference clock: SYS_CLK
+ *           bypass clock : CORE_CLK from dpll3
+ *    Output:
+ *           MPU_CLK (DPLL_CLK_M2)
+ */
+static struct clk omap3_mpu_clk = {
+    .name	= "omap3_mpu_clk",
+    .flags	= CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX,
+    .parent	= &omap3_core_clk,	   /*between sys_clk and core_clk*/
+};
+
+/*DPLL2: it is for iva2*/
+static struct clk omap3_iva2_clk = {
+    .name	= "omap3_iva2_clk",
+    .flags	= CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX,
+    .parent	= &omap3_core_clk,	   /*between sys_clk and core_clk*/
+};
+
+/* DPLL4:
+ *      INPUT: SYS_CLK
+ *      OUTPUT:
+ *              M2: 96M_FCLK
+ *              M3: TO TV(54M_FCLK)
+ *              M4: DSS1_ALWON_CLK
+ *              M5: CAM_CLK
+ *              M6: EMUL_PER_ALWON_CLK
+ */
+static struct clk omap3_dpll4_inref = {
+    .name   = "omap3_dpll4_inref",
+    .flags  = CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX,
+    .parent = &omap3_sys_clk,
+};
+
+static struct clk omap3_96m_fclk = {
+    .name	= "omap3_96m_fclk",
+    .flags	= CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX,
+    .parent	= &omap3_dpll4_inref,
+};
+
+static struct clk omap3_54m_fclk = {
+    .name	= "omap3_54m_fclk",
+    .flags	= CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX,
+    .parent	= &omap3_dpll4_inref,
+};
+
+static struct clk omap3_dss1_alwon_fclk = {
+    .name	= "omap3_dss1_alwon_fclk",
+    .flags	= CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX,
+    .parent	= &omap3_dpll4_inref,
+};
+
+static struct clk omap3_cam_mclk = {
+    .name	= "omap3_cam_mclk",
+    .flags	= CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX,
+    .parent	= &omap3_dpll4_inref,
+};
+
+static struct clk omap3_per_alwon_clk = {
+    .name	= "omap3_per_alwon_clk",
+    .flags	= CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX,
+    .parent	= &omap3_dpll4_inref,
+};
+
+/* DPLL5:
+ *      INPUT: SYS_CLK
+ *      OUTPUT:
+ *              M2: 120M_FCLK
+ */
+static struct clk omap3_120m_fclk = {
+    .name	= "omap3_120m_fclk",
+    .flags	= CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX,
+    .parent	= &omap3_sys_clk,	 
+};
+
+/*CM*/
+static struct clk omap3_48m_fclk = {
+    .name	= "omap3_48m_fclk",
+    .flags	= CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX,
+    .parent	= &omap3_96m_fclk, /* omap3_96m_fclk and omap3_sys_altclk */
+    .divisor = 2,
+    .multiplier = 1, 
+};
+
+static struct clk omap3_12m_fclk = {
+    .name	= "omap3_12m_fclk",
+    .flags	= CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX,
+    .parent	= &omap3_96m_fclk, /*omap3_96m_fclk and omap3_sys_altclk */
+    .divisor = 8,
+    .multiplier = 1,
+};
+
+/*Common interface clock*/
+/*   Input: core_clk
+ *   Output:
+ *           l3x2_iclk
+ *           l3_iclk
+ *           l4_iclk
+ *           rm_iclk
+ */
+static struct clk omap3_l3x2_iclk = {
+    .name	= "omap3_l3x2_iclk",
+    .flags	= CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX | ALWAYS_ENABLED,
+    .parent	= &omap3_core_clk,
+};
+
+static struct clk omap3_l3_iclk = {
+    .name	= "omap3_l3_iclk",
+    .flags	= CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX | ALWAYS_ENABLED,
+    .parent	= &omap3_core_clk,
+};
+
+static struct clk omap3_l4_iclk = {
+    .name	= "omap3_l4_iclk",
+    .flags	= CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX | ALWAYS_ENABLED,
+    .parent	= &omap3_l3_iclk,
+};
+static struct clk omap3_rm_iclk = {
+    .name	= "omap3_rm_iclk",
+    .flags	= CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX | ALWAYS_ENABLED,
+    .parent	= &omap3_l4_iclk,
+};
+
+/*Core power domain clock*/
+/*   Input: cm_sys_clk
+ *            cm_32k_clk
+ *            120m_fclk
+ *            96m_fclk
+ *            48m_fclk
+ *            12m_fclk
+ *            l3_iclk
+ *            l4_iclk
+ *   Output:
+ *           gp10_fclk
+ *           gp11_fclk
+ *           core_32k_fclk
+ *           cpefuse_fclk
+ *           core_120M_fclk
+ *           usbttl_sap_fclk
+ *           core_96m_fclk
+ *           core_48m_flck
+ *           core_12m_fclk
+ *           core_l3_iclk
+ *           security_l3_iclk
+ *           core_l4_iclk
+ *           security_l4_iclk2
+ */
+static struct clk omap3_gp10_fclk = {
+    .name	= "omap3_gp10_fclk",
+    .flags	= CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX,
+    .parent	= &omap3_32k_fclk,   /*omap3_32k_fclk and omap3_sys_clk*/
+};
+
+static struct clk omap3_gp11_fclk = {
+    .name	= "omap3_gp11_fclk",
+    .flags	= CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX,
+    .parent	= &omap3_32k_fclk,   /*omap3_32k_fclk and omap3_sys_clk*/
+};
+
+static struct clk omap3_core_32k_fclk = {
+    .name	= "omap3_core_32k_fclk",
+    .flags	= CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX,
+    .parent	= &omap3_32k_fclk, 
+};
+
+static struct clk omap3_cpefuse_fclk = {
+    .name	= "omap3_cpefuse_fclk",
+    .flags	= CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX,
+    .parent	= &omap3_sys_clk, 
+};
+
+static struct clk omap3_core_120m_fclk = {
+    .name	= "omap3_core_120m_fclk",
+    .flags	= CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX,
+    .parent	= &omap3_120m_fclk, 
+};
+
+static struct clk omap3_core_96m_fclk = {
+    .name	= "omap3_core_96m_fclk",
+    .flags	= CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX,
+    .parent	= &omap3_96m_fclk,
+    .divisor = 1,
+    .multiplier = 1,
+};
+
+static struct clk omap3_core_48m_fclk = {
+    .name	= "omap3_core_48m_fclk",
+    .flags	= CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX,
+    .parent	= &omap3_48m_fclk, 
+};
+
+static struct clk omap3_core_12m_fclk = {
+    .name	= "omap3_core_12m_fclk",
+    .flags	= CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX,
+    .parent	= &omap3_12m_fclk, 
+};
+
+static struct clk omap3_core_l3_iclk = {
+    .name	= "omap3_core_l3_iclk",
+    .flags	= CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX | ALWAYS_ENABLED,
+    .parent	= &omap3_l3_iclk, 
+};
+
+static struct clk omap3_core_l4_iclk = {
+    .name	= "omap3_core_l4_iclk",
+    .flags	= CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX | ALWAYS_ENABLED,
+    .parent	= &omap3_l4_iclk, 
+};
+
+/* CORE_L3 interface clock based clocks */
+static struct clk omap3_sdrc_iclk = {
+    .name	= "omap3_sdrc_iclk",
+    .flags	= CLOCK_IN_OMAP34XX  | CLOCK_IN_OMAP36XX,
+    .parent	= &omap3_core_l3_iclk, 
+};
+
+
+/*WKUP Power Domain*/
+static struct clk omap3_wkup_32k_fclk = {
+    .name	= "omap3_wkup_32k_fclk",
+    .flags	= CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX,
+    .parent	= &omap3_32k_fclk, 
+};
+
+static struct clk omap3_wkup_l4_iclk = {
+    .name	= "omap3_wkup_l4_iclk",
+    .flags	= CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX,
+    .enabled = 1,
+    .parent	= &omap3_sys_clk, 
+};
+
+static struct clk omap3_gp1_fclk = {
+    .name	= "omap3_gp1_fclk",
+    .flags	= CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX,
+    .parent	= &omap3_32k_fclk,        /*omap3_32k_fclk and omap3_sys_clk*/
+};
+
+static struct clk omap3_gp12_fclk = {
+    .name	= "omap3_gp12_fclk",
+    .flags	= CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX,
+    .parent	= &omap3_32k_fclk,        /*SECURE_32K_FCLK -> 32-kHz oscillator */
+};
+
+/*PER Power Domain clock*/
+/*gp2-gp9 timer*/
+static struct clk omap3_gp2_fclk = {
+    .name	= "omap3_gp2_fclk",
+    .flags	= CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX,
+    .parent	= &omap3_32k_fclk,        /*omap3_32k_fclk and omap3_sys_clk*/
+};
+
+static struct clk omap3_gp3_fclk = {
+    .name	= "omap3_gp3_fclk",
+    .flags	= CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX,
+    .parent	= &omap3_32k_fclk,        /*omap3_32k_fclk and omap3_sys_clk*/
+};
+
+static struct clk omap3_gp4_fclk = {
+    .name	= "omap3_gp4_fclk",
+    .flags	= CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX,
+    .parent	= &omap3_32k_fclk,        /*omap3_32k_fclk and omap3_sys_clk*/
+};
+
+static struct clk omap3_gp5_fclk = {
+    .name	= "omap3_gp5_fclk",
+    .flags	= CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX,
+    .parent	= &omap3_32k_fclk,        /*omap3_32k_fclk and omap3_sys_clk*/
+};
+
+static struct clk omap3_gp6_fclk = {
+    .name	= "omap3_gp6_fclk",
+    .flags	= CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX,
+    .parent	= &omap3_32k_fclk,        /*omap3_32k_fclk and omap3_sys_clk*/
+};
+
+static struct clk omap3_gp7_fclk = {
+    .name	= "omap3_gp7_fclk",
+    .flags	= CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX,
+    .parent	= &omap3_32k_fclk,        /*omap3_32k_fclk and omap3_sys_clk*/
+};
+
+static struct clk omap3_gp8_fclk = {
+    .name	= "omap3_gp8_fclk",
+    .flags	= CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX,
+    .parent	= &omap3_32k_fclk,        /*omap3_32k_fclk and omap3_sys_clk*/
+};
+
+static struct clk omap3_gp9_fclk = {
+    .name	= "omap3_gp9_fclk",
+    .flags	= CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX,
+    .parent	= &omap3_32k_fclk,        /*omap3_32k_fclk and omap3_sys_clk*/
+};
+
+static struct clk omap3_per_96m_fclk = {
+    .name	= "omap3_per_96m_fclk",
+    .flags	= CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX,
+    .parent	= &omap3_96m_fclk,        
+};
+
+static struct clk omap3_per_48m_fclk = {
+    .name	= "omap3_per_48m_fclk",
+    .flags	= CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX,
+    .parent	= &omap3_48m_fclk,        
+};
+
+static struct clk omap3_per_l4_iclk = {
+    .name	= "omap3_per_l4_iclk",
+    .flags	= CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX,
+    .enabled = 1,
+    .parent	= &omap3_l4_iclk, 
+};
+
+/*UART Clocks*/
+static struct clk omap3_uart1_fclk = {
+    .name	= "omap3_uart1_fclk",
+    .flags	= CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX,
+    .parent	= &omap3_core_48m_fclk,        
+};
+
+static struct clk omap3_uart1_iclk = {
+    .name	= "omap3_uart1_iclk",
+    .flags	= CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX,
+    .parent	= &omap3_core_l4_iclk,        
+};
+
+static struct clk omap3_uart2_fclk = {
+    .name	= "omap3_uart2_fclk",
+    .flags	= CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX,
+    .parent	= &omap3_core_48m_fclk,        
+};
+
+static struct clk omap3_uart2_iclk = {
+    .name	= "omap3_uart2_iclk",
+    .flags	= CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX,
+    .parent	= &omap3_core_l4_iclk,        
+};
+
+static struct clk omap3_uart3_fclk = {
+    .name	= "omap3_uart3_fclk",
+    .flags	= CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX,
+    .parent	= &omap3_per_48m_fclk,        
+};
+
+static struct clk omap3_uart3_iclk = {
+    .name	= "omap3_uart3_iclk",
+    .flags	= CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX,
+    .parent	= &omap3_core_l4_iclk,
+};
+
+static struct clk omap3_uart4_fclk = {
+    .name	= "omap3_uart4_fclk",
+    .flags	= CLOCK_IN_OMAP36XX,
+    .parent	= &omap3_per_48m_fclk,
+};
+
+static struct clk omap3_uart4_iclk = {
+    .name	= "omap3_uart4_iclk",
+    .flags	= CLOCK_IN_OMAP36XX,
+    .parent	= &omap3_core_l4_iclk,        
+};
+
+/*INTC Clock*/
+static struct clk omap3_mpu_intc_fclk = {
+    .name	= "omap3_mpu_intc_fclk",
+    .flags	= CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX,
+    .divisor = 2,
+    .parent	= &omap3_mpu_clk,        
+};
+
+static struct clk omap3_mpu_intc_iclk = {
+    .name	= "omap3_mpu_intc_iclk",
+    .flags	= CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX,
+    .divisor = 2,
+    .parent	= &omap3_mpu_clk,        
+};
+
+/*SDMA clock*/
+static struct clk omap3_sdma_fclk = {
+    .name	= "omap3_sdma_fclk",
+    .flags	= CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX,
+    .parent	= &omap3_core_l3_iclk,        
+};
+
+static struct clk omap3_sdma_iclk = {
+    .name	= "omap3_sdma_iclk",
+    .flags	= CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX,
+    .parent	= &omap3_core_l4_iclk,        
+};
+
+/*CLKOUT*/
+static struct clk omap3_sys_clkout1 = {
+    .name   = "omap3_sys_clkout1",
+    .flags  = CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX,
+    .parent = &omap3_osc_sys_clk26, /* same parent as as SYS_CLK */
+};
+
+static struct clk omap3_sys_clkout2 = {
+    .name	= "omap3_sys_clkout2",
+    .flags	= CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX,
+    .parent	= &omap3_core_clk,        /*CORE_CLK CM_SYS_CLK CM_96M_FCLK 54 MHz clock*/
+};
+
+/*MMC Clock*/
+static struct clk omap3_mmc1_fclk = {
+    .name	= "omap3_mmc1_fclk",
+    .flags	= CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX,
+    .parent	= &omap3_per_96m_fclk,       
+};
+
+static struct clk omap3_mmc1_iclk = {
+    .name	= "omap3_mmc1_iclk",
+    .flags	= CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX,
+    .parent	= &omap3_per_l4_iclk,       
+};
+
+static struct clk omap3_mmc2_fclk = {
+    .name	= "omap3_mmc2_fclk",
+    .flags	= CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX,
+    .parent	= &omap3_per_96m_fclk,       
+};
+
+static struct clk omap3_mmc2_iclk = {
+    .name	= "omap3_mmc2_iclk",
+    .flags	= CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX,
+    .parent	= &omap3_per_l4_iclk,       
+};
+
+static struct clk omap3_mmc3_fclk = {
+    .name	= "omap3_mmc3_fclk",
+    .flags	= CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX,
+    .parent	= &omap3_per_96m_fclk,       
+};
+
+static struct clk omap3_mmc3_iclk = {
+    .name	= "omap3_mmc3_iclk",
+    .flags	= CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX,
+    .parent	= &omap3_per_l4_iclk,       
+};
+
+/*I2C Clocks*/
+static struct clk omap3_i2c1_fclk = {
+    .name	= "omap3_i2c1_fclk",
+    .flags	= CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX,
+    .parent	= &omap3_per_96m_fclk,       
+};
+
+static struct clk omap3_i2c1_iclk = {
+    .name	= "omap3_i2c1_iclk",
+    .flags	= CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX,
+    .parent	= &omap3_core_l4_iclk,       
+};
+
+static struct clk omap3_i2c2_fclk = {
+    .name	= "omap3_i2c2_fclk",
+    .flags	= CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX,
+    .parent	= &omap3_per_96m_fclk,       
+};
+
+static struct clk omap3_i2c2_iclk = {
+    .name	= "omap3_i2c2_iclk",
+    .flags	= CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX,
+    .parent	= &omap3_core_l4_iclk,       
+};
+
+static struct clk omap3_i2c3_fclk = {
+    .name	= "omap3_i2c3_fclk",
+    .flags	= CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX,
+    .parent	= &omap3_per_96m_fclk,       
+};
+
+static struct clk omap3_i2c3_iclk = {
+    .name	= "omap3_i2c3_iclk",
+    .flags	= CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX,
+    .parent	= &omap3_core_l4_iclk,
+};
+
+/* SPI clocks */
+static struct clk omap3_spi1_fclk = {
+    .name   = "omap3_spi1_fclk",
+    .flags  = CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX,
+    .parent = &omap3_core_48m_fclk,
+};
+
+static struct clk omap3_spi1_iclk = {
+    .name   = "omap3_spi1_iclk",
+    .flags  = CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX,
+    .parent = &omap3_core_l4_iclk,
+};
+
+static struct clk omap3_spi2_fclk = {
+    .name   = "omap3_spi2_fclk",
+    .flags  = CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX,
+    .parent = &omap3_core_48m_fclk,
+};
+
+static struct clk omap3_spi2_iclk = {
+    .name   = "omap3_spi2_iclk",
+    .flags  = CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX,
+    .parent = &omap3_core_l4_iclk,
+};
+
+static struct clk omap3_spi3_fclk = {
+    .name   = "omap3_spi3_fclk",
+    .flags  = CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX,
+    .parent = &omap3_core_48m_fclk,
+};
+
+static struct clk omap3_spi3_iclk = {
+    .name   = "omap3_spi3_iclk",
+    .flags  = CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX,
+    .parent = &omap3_core_l4_iclk,
+};
+
+static struct clk omap3_spi4_fclk = {
+    .name   = "omap3_spi4_fclk",
+    .flags  = CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX,
+    .parent = &omap3_core_48m_fclk,
+};
+
+static struct clk omap3_spi4_iclk = {
+    .name   = "omap3_spi4_iclk",
+    .flags  = CLOCK_IN_OMAP34XX | CLOCK_IN_OMAP36XX,
+    .parent = &omap3_core_l4_iclk,
+};
+
+
 static struct clk *onchip_clks[] = {
     /* OMAP 1 */
 
@@ -1086,6 +1704,97 @@ static struct clk *onchip_clks[] = {
     &dss_l4_iclk,
     &omapctrl_clk,
 
+    /* OMAP 3*/
+
+    &omap3_sys_32k,
+    &omap3_osc_sys_clk12,
+    &omap3_osc_sys_clk13,
+    &omap3_osc_sys_clk168,
+    &omap3_osc_sys_clk192,
+    &omap3_osc_sys_clk26,
+    &omap3_osc_sys_clk384,
+    &omap3_sys_altclk,
+    &omap3_sys_clk,
+    &omap3_32k_fclk,
+    &omap3_core_clk,
+    &omap3_core2_clk,
+    &omap3_emu_core_alwon_clk,
+    &omap3_mpu_clk,
+    &omap3_iva2_clk,
+    &omap3_dpll4_inref,
+    &omap3_96m_fclk,
+    &omap3_54m_fclk,
+    &omap3_dss1_alwon_fclk,
+    &omap3_cam_mclk,
+    &omap3_per_alwon_clk,
+    &omap3_120m_fclk,
+    &omap3_48m_fclk,
+    &omap3_12m_fclk,
+    &omap3_l3x2_iclk,
+    &omap3_l3_iclk,
+    &omap3_l4_iclk,
+    &omap3_rm_iclk,
+    &omap3_gp10_fclk,
+    &omap3_gp11_fclk,
+    &omap3_core_32k_fclk,
+    &omap3_cpefuse_fclk,
+    &omap3_core_120m_fclk,
+    &omap3_core_96m_fclk,
+    &omap3_core_48m_fclk,
+    &omap3_core_12m_fclk,
+    &omap3_core_l3_iclk,
+    &omap3_core_l4_iclk,
+    &omap3_sdrc_iclk,
+    &omap3_wkup_32k_fclk,
+    &omap3_wkup_l4_iclk,
+    &omap3_gp1_fclk,
+    &omap3_gp12_fclk,
+    &omap3_gp2_fclk,
+    &omap3_gp3_fclk,
+    &omap3_gp4_fclk,
+    &omap3_gp5_fclk,
+    &omap3_gp6_fclk,
+    &omap3_gp7_fclk,
+    &omap3_gp8_fclk,
+    &omap3_gp9_fclk,
+    &omap3_per_96m_fclk,
+    &omap3_per_48m_fclk,
+    &omap3_per_l4_iclk,
+    &omap3_uart1_fclk,
+    &omap3_uart1_iclk,
+    &omap3_uart2_fclk,
+    &omap3_uart2_iclk,
+    &omap3_uart3_fclk,
+    &omap3_uart3_iclk,
+    &omap3_uart4_fclk,
+    &omap3_uart4_iclk,
+    &omap3_mpu_intc_fclk,
+    &omap3_mpu_intc_iclk,
+    &omap3_sdma_fclk,
+    &omap3_sdma_iclk,
+    &omap3_sys_clkout1,
+    &omap3_sys_clkout2,
+    &omap3_mmc1_fclk,
+    &omap3_mmc1_iclk,
+    &omap3_mmc2_fclk,
+    &omap3_mmc2_iclk,
+    &omap3_mmc3_fclk,
+    &omap3_mmc3_iclk,
+    &omap3_i2c1_fclk,
+    &omap3_i2c1_iclk,
+    &omap3_i2c2_fclk,
+    &omap3_i2c2_iclk,
+    &omap3_i2c3_fclk,
+    &omap3_i2c3_iclk,
+    &omap3_spi1_fclk,
+    &omap3_spi1_iclk,
+    &omap3_spi2_fclk,
+    &omap3_spi2_iclk,
+    &omap3_spi3_fclk,
+    &omap3_spi3_iclk,
+    &omap3_spi4_fclk,
+    &omap3_spi4_iclk,
+
     NULL
 };
 
@@ -1228,7 +1937,9 @@ void omap_clk_init(struct omap_mpu_state_s *mpu)
     else if (cpu_is_omap2430(mpu))
         flag = CLOCK_IN_OMAP243X;
     else if (cpu_is_omap3430(mpu))
-        flag = CLOCK_IN_OMAP243X;
+        flag = CLOCK_IN_OMAP34XX;
+    else if (cpu_is_omap3630(mpu))
+        flag = CLOCK_IN_OMAP36XX;
     else
         return;
 
