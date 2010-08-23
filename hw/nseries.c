@@ -30,8 +30,18 @@
 #include "flash.h"
 #include "hw.h"
 #include "bt.h"
+#include "net.h"
 #include "loader.h"
 #include "blockdev.h"
+
+//#define MIPID_DEBUG
+
+#ifdef MIPID_DEBUG
+#define TRACE_MIPID(fmt, ...) \
+    fprintf(stderr, "%s@%d: " fmt "\n", __FUNCTION__, __LINE__, ##__VA_ARGS__)
+#else
+#define TRACE_MIPID(...)
+#endif
 
 /* Nokia N8x0 support */
 struct n800_s {
@@ -137,7 +147,7 @@ static void n8x0_gpio_setup(struct n800_s *s)
     qemu_irq *mmc_cs = qemu_allocate_irqs(n800_mmc_cs_cb, s->cpu->mmc, 1);
     omap2_gpio_out_set(s->cpu->gpif, N8X0_MMC_CS_GPIO, mmc_cs[0]);
 
-    qemu_irq_lower(omap2_gpio_in_get(s->cpu->gpif, N800_BAT_COVER_GPIO)[0]);
+    qemu_irq_lower(omap2_gpio_in_get(s->cpu->gpif, N800_BAT_COVER_GPIO));
 }
 
 #define MAEMO_CAL_HEADER(...)				\
@@ -167,10 +177,10 @@ static void n8x0_nand_setup(struct n800_s *s)
 
     /* Either 0x40 or 0x48 are OK for the device ID */
     s->nand = onenand_init(NAND_MFR_SAMSUNG, 0x48, 0, 1,
-                           omap2_gpio_in_get(s->cpu->gpif,N8X0_ONENAND_GPIO)[0],
+                           omap2_gpio_in_get(s->cpu->gpif,N8X0_ONENAND_GPIO),
                            drive_get(IF_MTD, 0, 0));
     omap_gpmc_attach(s->cpu->gpmc, N8X0_ONENAND_CS, 0, onenand_base_update,
-                     onenand_base_unmap, s->nand);
+                     onenand_base_unmap, s->nand, 0);
     otp_region = onenand_raw_otp(s->nand);
 
     memcpy(otp_region + 0x000, n8x0_cal_wlan_mac, sizeof(n8x0_cal_wlan_mac));
@@ -181,7 +191,7 @@ static void n8x0_nand_setup(struct n800_s *s)
 static void n8x0_i2c_setup(struct n800_s *s)
 {
     DeviceState *dev;
-    qemu_irq tmp_irq = omap2_gpio_in_get(s->cpu->gpif, N8X0_TMP105_GPIO)[0];
+    qemu_irq tmp_irq = omap2_gpio_in_get(s->cpu->gpif, N8X0_TMP105_GPIO);
 
     /* Attach the CPU on one end of our I2C bus.  */
     s->i2c = omap_i2c_bus(s->cpu->i2c[0]);
@@ -250,8 +260,8 @@ static void n800_tsc_kbd_setup(struct n800_s *s)
     /* XXX: are the three pins inverted inside the chip between the
      * tsc and the cpu (N4111)?  */
     qemu_irq penirq = NULL;	/* NC */
-    qemu_irq kbirq = omap2_gpio_in_get(s->cpu->gpif, N800_TSC_KP_IRQ_GPIO)[0];
-    qemu_irq dav = omap2_gpio_in_get(s->cpu->gpif, N800_TSC_TS_GPIO)[0];
+    qemu_irq kbirq = omap2_gpio_in_get(s->cpu->gpif, N800_TSC_KP_IRQ_GPIO);
+    qemu_irq dav = omap2_gpio_in_get(s->cpu->gpif, N800_TSC_TS_GPIO);
 
     s->ts.chip = tsc2301_init(penirq, kbirq, dav);
     s->ts.opaque = s->ts.chip->opaque;
@@ -270,7 +280,7 @@ static void n800_tsc_kbd_setup(struct n800_s *s)
 
 static void n810_tsc_setup(struct n800_s *s)
 {
-    qemu_irq pintdav = omap2_gpio_in_get(s->cpu->gpif, N810_TSC_TS_GPIO)[0];
+    qemu_irq pintdav = omap2_gpio_in_get(s->cpu->gpif, N810_TSC_TS_GPIO);
 
     s->ts.opaque = tsc2005_init(pintdav);
     s->ts.txrx = tsc2005_txrx;
@@ -362,7 +372,7 @@ static int n810_keys[0x80] = {
 
 static void n810_kbd_setup(struct n800_s *s)
 {
-    qemu_irq kbd_irq = omap2_gpio_in_get(s->cpu->gpif, N810_KEYBOARD_GPIO)[0];
+    qemu_irq kbd_irq = omap2_gpio_in_get(s->cpu->gpif, N810_KEYBOARD_GPIO);
     DeviceState *dev;
     int i;
 
@@ -378,6 +388,7 @@ static void n810_kbd_setup(struct n800_s *s)
      * should happen in n8x0_i2c_setup and s->kbd be initialised here.  */
     dev = i2c_create_slave(s->i2c, "lm8323", N810_LM8323_ADDR);
     qdev_connect_gpio_out(dev, 0, kbd_irq);
+    s->kbd = (void *)dev;
 }
 
 /* LCD MIPI DBI-C controller (URAL) */
@@ -399,12 +410,19 @@ struct mipid_s {
     int onoff;
     int gamma;
     uint32_t id;
+    
+    int n900;
+    int cabc;
+    int brightness;
+    int ctrl;
 };
 
-static void mipid_reset(struct mipid_s *s)
+static void mipid_reset(void *opaque)
 {
-    if (!s->sleep)
-        fprintf(stderr, "%s: Display off\n", __FUNCTION__);
+    struct mipid_s *s = opaque;
+    
+    //if (!s->sleep)
+    //    fprintf(stderr, "%s: Display off\n", __FUNCTION__);
 
     s->pm = 0;
     s->cmd = 0;
@@ -429,6 +447,11 @@ static uint32_t mipid_txrx(void *opaque, uint32_t cmd, int len)
     struct mipid_s *s = (struct mipid_s *) opaque;
     uint8_t ret;
 
+    if (s->n900 && len == 10) {
+        cmd >>= 1;
+        len--;
+    }
+    
     if (len > 9)
         hw_error("%s: FIXME: bad SPI word width %i\n", __FUNCTION__, len);
 
@@ -443,16 +466,20 @@ static uint32_t mipid_txrx(void *opaque, uint32_t cmd, int len)
 
     switch (s->cmd) {
     case 0x00:	/* NOP */
+        TRACE_MIPID("NOP");
         break;
 
     case 0x01:	/* SWRESET */
+        TRACE_MIPID("SWRESET");
         mipid_reset(s);
         break;
 
     case 0x02:	/* BSTROFF */
+        TRACE_MIPID("BSTROFF");
         s->booster = 0;
         break;
     case 0x03:	/* BSTRON */
+        TRACE_MIPID("BSTRON");
         s->booster = 1;
         break;
 
@@ -461,6 +488,8 @@ static uint32_t mipid_txrx(void *opaque, uint32_t cmd, int len)
         s->resp[0] = (s->id >> 16) & 0xff;
         s->resp[1] = (s->id >>  8) & 0xff;
         s->resp[2] = (s->id >>  0) & 0xff;
+        TRACE_MIPID("RDDID 0x%02x 0x%02x 0x%02x",
+                    s->resp[0], s->resp[1], s->resp[2]);
         break;
 
     case 0x06:	/* RD_RED */
@@ -468,6 +497,7 @@ static uint32_t mipid_txrx(void *opaque, uint32_t cmd, int len)
         /* XXX the bootloader sometimes issues RD_BLUE meaning RDDID so
          * for the bootloader one needs to change this.  */
     case 0x08:	/* RD_BLUE */
+        TRACE_MIPID("RD_RED/GREEN_BLUE 0x01");
         s->p = 0;
         /* TODO: return first pixel components */
         s->resp[0] = 0x01;
@@ -481,83 +511,101 @@ static uint32_t mipid_txrx(void *opaque, uint32_t cmd, int len)
         s->resp[2] = (s->vscr << 7) | (s->invert << 5) |
                 (s->onoff << 2) | (s->te << 1) | (s->gamma >> 2);
         s->resp[3] = s->gamma << 6;
+        TRACE_MIPID("RDDST 0x%02x 0x%02x 0x%02x 0x%02x",
+                    s->resp[0], s->resp[1], s->resp[2], s->resp[3]);
         break;
 
     case 0x0a:	/* RDDPM */
         s->p = 0;
         s->resp[0] = (s->onoff << 2) | (s->normal << 3) | (s->sleep << 4) |
                 (s->partial << 5) | (s->sleep << 6) | (s->booster << 7);
+        TRACE_MIPID("RDDPM 0x%02x", s->resp[0]);
         break;
     case 0x0b:	/* RDDMADCTR */
         s->p = 0;
         s->resp[0] = 0;
+        TRACE_MIPID("RDDMACTR 0x%02x", s->resp[0]);
         break;
     case 0x0c:	/* RDDCOLMOD */
         s->p = 0;
         s->resp[0] = 5;	/* 65K colours */
+        TRACE_MIPID("RDDCOLMOD 0x%02x", s->resp[0]);
         break;
     case 0x0d:	/* RDDIM */
         s->p = 0;
         s->resp[0] = (s->invert << 5) | (s->vscr << 7) | s->gamma;
+        TRACE_MIPID("RDDIM 0x%02x", s->resp[0]);
         break;
     case 0x0e:	/* RDDSM */
         s->p = 0;
         s->resp[0] = s->te << 7;
+        TRACE_MIPID("RDDSM 0x%02x", s->resp[0]);
         break;
     case 0x0f:	/* RDDSDR */
         s->p = 0;
         s->resp[0] = s->selfcheck;
+        TRACE_MIPID("RDDSDR 0x%02x", s->resp[0]);
         break;
 
     case 0x10:	/* SLPIN */
+        TRACE_MIPID("SLPIN");
         s->sleep = 1;
         break;
     case 0x11:	/* SLPOUT */
+        TRACE_MIPID("SLPOUT");
         s->sleep = 0;
         s->selfcheck ^= 1 << 6;	/* POFF self-diagnosis Ok */
         break;
 
     case 0x12:	/* PTLON */
+        TRACE_MIPID("PTLON");
         s->partial = 1;
         s->normal = 0;
         s->vscr = 0;
         break;
     case 0x13:	/* NORON */
+        TRACE_MIPID("NORON");
         s->partial = 0;
         s->normal = 1;
         s->vscr = 0;
         break;
 
     case 0x20:	/* INVOFF */
+        TRACE_MIPID("INVOFF");
         s->invert = 0;
         break;
     case 0x21:	/* INVON */
+        TRACE_MIPID("INVON");
         s->invert = 1;
         break;
 
     case 0x22:	/* APOFF */
     case 0x23:	/* APON */
+        TRACE_MIPID("APON/OFF");
         goto bad_cmd;
 
     case 0x25:	/* WRCNTR */
+        TRACE_MIPID("WRCNTR");
         if (s->pm < 0)
             s->pm = 1;
         goto bad_cmd;
 
     case 0x26:	/* GAMSET */
-        if (!s->pm)
+        if (!s->pm) {
             s->gamma = ffs(s->param[0] & 0xf) - 1;
-        else if (s->pm < 0)
+            TRACE_MIPID("GAMSET 0x%02x", s->gamma);
+        } else if (s->pm < 0) {
             s->pm = 1;
+        }
         break;
 
     case 0x28:	/* DISPOFF */
+        TRACE_MIPID("DISPOFF");
         s->onoff = 0;
-        fprintf(stderr, "%s: Display off\n", __FUNCTION__);
         break;
     case 0x29:	/* DISPON */
+        TRACE_MIPID("DISPON");
         s->onoff = 1;
-        fprintf(stderr, "%s: Display on\n", __FUNCTION__);
         break;
 
     case 0x2a:	/* CASET */
@@ -570,19 +618,24 @@ static uint32_t mipid_txrx(void *opaque, uint32_t cmd, int len)
         goto bad_cmd;
 
     case 0x34:	/* TEOFF */
+        TRACE_MIPID("TEOFF");
         s->te = 0;
         break;
     case 0x35:	/* TEON */
-        if (!s->pm)
+        if (!s->pm) {
             s->te = 1;
-        else if (s->pm < 0)
+            TRACE_MIPID("TEON 0x%02x", s->param[0] & 0xff);
+        } else if (s->pm < 0) {
             s->pm = 1;
+        }
         break;
 
     case 0x36:	/* MADCTR */
+        TRACE_MIPID("MADCTR");
         goto bad_cmd;
 
     case 0x37:	/* VSCSAD */
+        TRACE_MIPID("VSCSAD");
         s->partial = 0;
         s->normal = 0;
         s->vscr = 1;
@@ -590,16 +643,91 @@ static uint32_t mipid_txrx(void *opaque, uint32_t cmd, int len)
 
     case 0x38:	/* IDMOFF */
     case 0x39:	/* IDMON */
-    case 0x3a:	/* COLMOD */
+        TRACE_MIPID("IDMON/OFF");
         goto bad_cmd;
-
+    case 0x3a:	/* COLMOD */
+        if (!s->pm) {
+            TRACE_MIPID("COLMOD 0x%02x", s->param[0] & 0xff);
+        } else if (s->pm < 0) {
+            s->pm = 1;
+        }
+        break;
+    
+    case 0x51: /* WRITE_BRIGHTNESS */
+        if (s->n900) {
+            if (!s->pm) {
+                s->brightness = s->param[0] & 0xff;
+                TRACE_MIPID("WRITE_BRIGHTNESS 0x%02x", s->brightness);
+            } else if (s->pm < 0) {
+                s->pm = 1;
+            }
+        } else {
+            goto bad_cmd;
+        }
+        break;
+    case 0x52: /* READ_BRIGHTNESS */
+        if (s->n900) {
+            s->p = 0;
+            s->resp[0] = s->brightness;
+            TRACE_MIPID("READ_BRIGHTNESS 0x%02x", s->resp[0]);
+        } else {
+            goto bad_cmd;
+        }
+        break;
+    case 0x53: /* WRITE_CTRL */
+        if (s->n900) {
+            if (!s->pm) {
+                s->ctrl = s->param[0] & 0xff;
+                TRACE_MIPID("WRITE_CTRL 0x%02x", s->ctrl);
+            } else if (s->pm < 0) {
+                s->pm = 1;
+            }
+        } else {
+            goto bad_cmd;
+        }
+        break;
+    case 0x54: /* READ_CTRL */
+        if (s->n900) {
+            s->p = 0;
+            s->resp[0] = s->ctrl;
+            TRACE_MIPID("READ_CTRL 0x%02x", s->resp[0]);
+        } else {
+            goto bad_cmd;
+        }
+        break;
+    case 0x55: /* WRITE_CABC */
+        if (s->n900) {
+            if (!s->pm) {
+                s->cabc = s->param[0] & 0xff;
+                TRACE_MIPID("WRITE_CABC 0x%02x", s->cabc);
+            } else if (s->pm < 0) {
+                s->pm = 1;
+            }
+        } else {
+            goto bad_cmd;
+        }
+        break;
+    case 0x56: /* READ_CABC */
+        if (s->n900) {
+            s->p = 0;
+            s->resp[0] = s->cabc;
+            TRACE_MIPID("READ_CABC 0x%02x", s->resp[0]);
+        } else {
+            goto bad_cmd;
+        }
+        break;
+            
     case 0xb0:	/* CLKINT / DISCTL */
     case 0xb1:	/* CLKEXT */
-        if (s->pm < 0)
+        if (!s->pm) {
+            TRACE_MIPID("CLKINT/EXT");
+        } else if (s->pm < 0) {
             s->pm = 2;
+        }
         break;
 
     case 0xb4:	/* FRMSEL */
+        TRACE_MIPID("FRMSEL");
         break;
 
     case 0xb5:	/* FRM8SEL */
@@ -614,11 +742,15 @@ static uint32_t mipid_txrx(void *opaque, uint32_t cmd, int len)
         s->p = 0;
         s->resp[0] = 0;
         s->resp[1] = 1;
+        TRACE_MIPID("??? 0x%02x 0x%02x", s->resp[0], s->resp[1]);
         break;
 
     case 0xc2:	/* IFMOD */
-        if (s->pm < 0)
-            s->pm = 2;
+        if (!s->pm) {
+            TRACE_MIPID("IFMOD");
+        } else if (s->pm < 0) {
+            s->pm = (s->n900) ? 3 : 2;
+        }
         break;
 
     case 0xc6:	/* PWRCTL */
@@ -632,19 +764,22 @@ static uint32_t mipid_txrx(void *opaque, uint32_t cmd, int len)
     case 0xda:	/* RDID1 */
         s->p = 0;
         s->resp[0] = (s->id >> 16) & 0xff;
+        TRACE_MIPID("RDID1 0x%02x", s->resp[0]);
         break;
     case 0xdb:	/* RDID2 */
         s->p = 0;
         s->resp[0] = (s->id >>  8) & 0xff;
+        TRACE_MIPID("RDID2 0x%02x", s->resp[0]);
         break;
     case 0xdc:	/* RDID3 */
         s->p = 0;
         s->resp[0] = (s->id >>  0) & 0xff;
+        TRACE_MIPID("RDID3 0x%02x", s->resp[0]);
         break;
 
     default:
     bad_cmd:
-        fprintf(stderr, "%s: unknown command %02x\n", __FUNCTION__, s->cmd);
+        fprintf(stderr, "%s: unknown command 0x%02x\n", __FUNCTION__, s->cmd);
         break;
     }
 
@@ -657,6 +792,8 @@ static void *mipid_init(void)
 
     s->id = 0x838f03;
     mipid_reset(s);
+    
+    qemu_register_reset(mipid_reset, s);
 
     return s;
 }
@@ -727,9 +864,9 @@ static void n8x0_dss_setup(struct n800_s *s)
 
 static void n8x0_cbus_setup(struct n800_s *s)
 {
-    qemu_irq dat_out = omap2_gpio_in_get(s->cpu->gpif, N8X0_CBUS_DAT_GPIO)[0];
-    qemu_irq retu_irq = omap2_gpio_in_get(s->cpu->gpif, N8X0_RETU_GPIO)[0];
-    qemu_irq tahvo_irq = omap2_gpio_in_get(s->cpu->gpif, N8X0_TAHVO_GPIO)[0];
+    qemu_irq dat_out = omap2_gpio_in_get(s->cpu->gpif, N8X0_CBUS_DAT_GPIO);
+    qemu_irq retu_irq = omap2_gpio_in_get(s->cpu->gpif, N8X0_RETU_GPIO);
+    qemu_irq tahvo_irq = omap2_gpio_in_get(s->cpu->gpif, N8X0_TAHVO_GPIO);
 
     CBus *cbus = cbus_init(dat_out);
 
@@ -744,15 +881,14 @@ static void n8x0_cbus_setup(struct n800_s *s)
 static void n8x0_uart_setup(struct n800_s *s)
 {
     CharDriverState *radio = uart_hci_init(
-                    omap2_gpio_in_get(s->cpu->gpif,
-                            N8X0_BT_HOST_WKUP_GPIO)[0]);
+                    omap2_gpio_in_get(s->cpu->gpif, N8X0_BT_HOST_WKUP_GPIO));
 
     omap2_gpio_out_set(s->cpu->gpif, N8X0_BT_RESET_GPIO,
                     csrhci_pins_get(radio)[csrhci_pin_reset]);
     omap2_gpio_out_set(s->cpu->gpif, N8X0_BT_WKUP_GPIO,
                     csrhci_pins_get(radio)[csrhci_pin_wakeup]);
 
-    omap_uart_attach(s->cpu->uart[BT_UART], radio);
+    omap_uart_attach(s->cpu->uart[BT_UART], radio, "bt-uart");
 }
 
 static void n8x0_usb_power_cb(void *opaque, int line, int level)
@@ -764,15 +900,15 @@ static void n8x0_usb_power_cb(void *opaque, int line, int level)
 
 static void n8x0_usb_setup(struct n800_s *s)
 {
-    qemu_irq tusb_irq = omap2_gpio_in_get(s->cpu->gpif, N8X0_TUSB_INT_GPIO)[0];
+    qemu_irq tusb_irq = omap2_gpio_in_get(s->cpu->gpif, N8X0_TUSB_INT_GPIO);
     qemu_irq tusb_pwr = qemu_allocate_irqs(n8x0_usb_power_cb, s, 1)[0];
     TUSBState *tusb = tusb6010_init(tusb_irq);
 
     /* Using the NOR interface */
     omap_gpmc_attach(s->cpu->gpmc, N8X0_USB_ASYNC_CS,
-                    tusb6010_async_io(tusb), NULL, NULL, tusb);
+                     tusb6010_async_io(tusb), NULL, NULL, tusb, 0);
     omap_gpmc_attach(s->cpu->gpmc, N8X0_USB_SYNC_CS,
-                    tusb6010_sync_io(tusb), NULL, NULL, tusb);
+                     tusb6010_sync_io(tusb), NULL, NULL, tusb, 0);
 
     s->usb = tusb;
     omap2_gpio_out_set(s->cpu->gpif, N8X0_TUSB_ENABLE_GPIO, tusb_pwr);
@@ -1021,7 +1157,7 @@ static void n8x0_boot_init(void *opaque)
 
     /* If the machine has a slided keyboard, open it */
     if (s->kbd)
-        qemu_irq_raise(omap2_gpio_in_get(s->cpu->gpif, N810_SLIDE_GPIO)[0]);
+        qemu_irq_raise(omap2_gpio_in_get(s->cpu->gpif, N810_SLIDE_GPIO));
 }
 
 #define OMAP_TAG_NOKIA_BT	0x4e01
@@ -1241,7 +1377,7 @@ static int n8x0_atag_setup(void *p, int model)
     stw_raw(w ++, 24);				/* u16 len */
     strcpy((void *) w, "hw-build");		/* char component[12] */
     w += 6;
-    strcpy((void *) w, "QEMU " QEMU_VERSION);	/* char version[12] */
+    strcpy((void *) w, "QEMU");	/* char version[12] */
     w += 6;
 
     tag = (model == 810) ? "1.1.10-qemu" : "1.1.6-qemu";
@@ -1310,6 +1446,7 @@ static void n8x0_init(ram_addr_t ram_size, const char *boot_device,
         n810_tsc_setup(s);
         n810_kbd_setup(s);
     }
+    cursor_hide = 0; // who wants to use touchscreen without a pointer?
     n8x0_spi_setup(s);
     n8x0_dss_setup(s);
     n8x0_cbus_setup(s);
@@ -1409,10 +1546,989 @@ static QEMUMachine n810_machine = {
     .init = n810_init,
 };
 
+#define N900_SDRAM_SIZE (256 * 1024 * 1024)
+#define N900_ONENAND_CS 0
+#define N900_ONENAND_BUFSIZE (0xc000 << 1)
+#define N900_SMC_CS 1
+
+#define N900_ONENAND_GPIO       65
+#define N900_CAMFOCUS_GPIO      68
+#define N900_CAMLAUNCH_GPIO     69
+#define N900_SLIDE_GPIO         71
+#define N900_PROXIMITY_GPIO     89
+#define N900_HEADPHONE_EN_GPIO  98
+#define N900_TSC2005_IRQ_GPIO   100
+#define N900_TSC2005_RESET_GPIO 104
+#define N900_CAMCOVER_GPIO      110
+#define N900_KBLOCK_GPIO        113
+#define N900_HEADPHONE_GPIO     177
+#define N900_LIS302DL_INT2_GPIO 180
+#define N900_LIS302DL_INT1_GPIO 181
+
+//#define DEBUG_BQ2415X
+//#define DEBUG_TPA6130
+//#define DEBUG_LIS302DL
+
+#define N900_TRACE(fmt, ...) \
+    fprintf(stderr, "%s@%d: " fmt "\n", __FUNCTION__, __LINE__, ##__VA_ARGS__)
+
+#ifdef DEBUG_BQ2415X
+#define TRACE_BQ2415X(fmt, ...) N900_TRACE(fmt, ##__VA_ARGS__)
+#else
+#define TRACE_BQ2415X(...)
+#endif
+#ifdef DEBUG_TPA6130
+#define TRACE_TPA6130(fmt, ...) N900_TRACE(fmt, ##__VA_ARGS__)
+#else
+#define TRACE_TPA6130(...)
+#endif
+#ifdef DEBUG_LIS302DL
+#define TRACE_LIS302DL(fmt, ...) N900_TRACE(fmt, ##__VA_ARGS__)
+#else
+#define TRACE_LIS302DL(...)
+#endif
+
+static uint32_t ssi_read(void *opaque, target_phys_addr_t addr)
+{
+    switch (addr) {
+        case 0x00: /* REVISION */
+            return 0x10;
+        case 0x14: /* SYSSTATUS */
+            return 1; /* RESETDONE */
+        default:
+            break;
+    }
+    //printf("%s: addr= " OMAP_FMT_plx "\n", __FUNCTION__, addr);
+    return 0;
+}
+
+static void ssi_write(void *opaque, target_phys_addr_t addr, uint32_t value)
+{
+    //printf("%s: addr=" OMAP_FMT_plx ", value=0x%08x\n", __FUNCTION__, addr, value);
+}
+
+static CPUReadMemoryFunc *ssi_read_func[] = {
+    ssi_read,
+    ssi_read,
+    ssi_read,
+};
+
+static CPUWriteMemoryFunc *ssi_write_func[] = {
+    ssi_write,
+    ssi_write,
+    ssi_write,
+};
+
+typedef struct LIS302DLState_s {
+    i2c_slave i2c;
+    int firstbyte;
+    uint8_t reg;
+
+    qemu_irq irq[2];
+    int8_t axis_max, axis_step;
+    int noise, dr_test_ack;
+
+    uint8_t ctrl1, ctrl2, ctrl3;
+    struct {
+        uint8_t cfg, src, ths, dur;
+    } ff_wu[2];
+    struct {
+        uint8_t cfg, src, thsy_x, thsz;
+        uint8_t timelimit, latency, window;
+    } click;
+    
+    int32_t x, y, z;
+} LIS302DLState;
+
+static void lis302dl_interrupt_update(LIS302DLState *s)
+{
+#ifdef DEBUG_LIS302DL
+    static const char *rules[8] = {
+        "GND", "FF_WU_1", "FF_WU_2", "FF_WU_1|2", "DR",
+        "???", "???", "CLICK"
+    };
+#endif
+    int active = (s->ctrl3 & 0x80) ? 0 : 1;
+    int cond, latch;
+    int i;
+    for (i = 0; i < 2; i++) {
+        switch ((s->ctrl3 >> (i * 3)) & 0x07) {
+            case 0:
+                cond = 0;
+                break;
+            case 1:
+                cond = s->ff_wu[0].src & 0x40;
+                latch = s->ff_wu[0].cfg & 0x40;
+                break;
+            case 2:
+                cond = s->ff_wu[1].src & 0x40;
+                latch = s->ff_wu[1].cfg & 0x40;
+                break;
+            case 3:
+                cond = ((s->ff_wu[0].src | s->ff_wu[1].src) & 0x40);
+                latch = ((s->ff_wu[0].cfg | s->ff_wu[1].cfg) & 0x40);
+                break;
+            case 4:
+                cond = (((s->ff_wu[0].src | s->ff_wu[1].src) & 0x3f) &
+                        (((s->ctrl1 & 0x01) ? 0x03 : 0x00) |
+                         ((s->ctrl1 & 0x02) ? 0x0c : 0x00) |
+                         ((s->ctrl1 & 0x04) ? 0x30 : 0x00)));
+                latch = 0;
+                break;
+            case 7:
+                cond = s->click.src & 0x40;
+                latch = s->click.cfg & 0x40;
+                break;
+            default:
+                TRACE_LIS302DL("unsupported irq config (%d)",
+                               (s->ctrl3 >> (i * 3)) & 0x07);
+                cond = 0;
+                latch = 0;
+                break;
+        }
+        TRACE_LIS302DL("%s: %s irq%d", rules[(s->ctrl3 >> (i * 3)) & 0x07],
+                       cond ? (latch ? "activate" : "pulse") : "deactivate",
+                       i);
+        qemu_set_irq(s->irq[i], cond ? active : !active);
+        if (cond && !latch) {
+            qemu_set_irq(s->irq[i], !active);
+        }
+    }
+}
+
+static void lis302dl_trigger(LIS302DLState *s, int axis, int value)
+{
+    if (value > s->axis_max) value = s->axis_max;
+    if (value < -s->axis_max) value = -s->axis_max;
+    switch (axis) {
+        case 0: s->x = value; break;
+        case 1: s->y = value; break;
+        case 2: s->z = value; break;
+        default: break;
+    }
+    uint8_t bit = 0x02 << (axis << 1); /* over threshold */
+    s->ff_wu[0].src |= bit;
+    s->ff_wu[1].src |= bit;
+    
+    int i = 0;
+    for (; i < 2; i++) {
+        if (s->ff_wu[i].src & 0x3f) {
+            if (s->ff_wu[i].cfg & 0x80) {
+                if ((s->ff_wu[i].cfg & 0x3f) == (s->ff_wu[i].src & 0x3f)) {
+                    s->ff_wu[i].src |= 0x40;
+                }
+            } else {
+                if (s->ff_wu[i].src & s->ff_wu[i].cfg & 0x3f) {
+                    s->ff_wu[i].src |= 0x40;
+                }
+            }
+        }
+        TRACE_LIS302DL("FF_WU_%d: CFG=0x%02x, SRC=0x%02x",
+                       i, s->ff_wu[i].cfg, s->ff_wu[i].src);
+    }
+    
+    lis302dl_interrupt_update(s);
+}
+
+void lis302dl_step(void *opaque, int axis, int high, int activate)
+{
+    TRACE_LIS302DL("axis=%d, high=%d, activate=%d", axis, high, activate);
+    LIS302DLState *s = opaque;
+    if (activate) {
+        int v = 0;
+        switch (axis) {
+            case 0: v = s->x + (high ? s->axis_step : -s->axis_step); break;
+            case 1: v = s->y + (high ? s->axis_step : -s->axis_step); break;
+            case 2: v = s->z + (high ? s->axis_step : -s->axis_step); break;
+            default: break;
+        }
+        if (v > s->axis_max) v = -(s->axis_max - s->axis_step);
+        if (v < -s->axis_max) v = s->axis_max - s->axis_step;
+        lis302dl_trigger(s, axis, v);
+    }
+}
+
+static int lis302dl_change(DeviceState *dev, const char *target,
+                           const char *arg)
+{
+    LIS302DLState *s = (LIS302DLState *)dev;
+    int axis;
+    if (!strcmp(target, "x")) {
+        axis = 0;
+    } else if (!strcmp(target, "y")) {
+        axis = 1;
+    } else if (!strcmp(target, "z")) {
+        axis = 2;
+    } else {
+        return -1;
+    }
+    int value = 0;
+    if (sscanf(arg, "%d", &value) != 1) {
+        return -1;
+    }
+    lis302dl_trigger(s, axis, value);
+    return 0;
+}
+
+static void lis302dl_reset(DeviceState *ds)
+{
+    LIS302DLState *s = FROM_I2C_SLAVE(LIS302DLState, I2C_SLAVE_FROM_QDEV(ds));
+    
+    s->firstbyte = 0;
+    s->reg = 0;
+
+    s->noise = 4;
+    s->dr_test_ack = 0;
+
+    s->ctrl1 = 0x03;
+    s->ctrl2 = 0x00;
+    s->ctrl3 = 0x00;
+
+    memset(s->ff_wu, 0x00, sizeof(s->ff_wu));
+    memset(&s->click, 0x00, sizeof(s->click));
+    
+    s->x = 0;
+    s->y = -s->axis_max;
+    s->z = 0;
+
+    lis302dl_interrupt_update(s);
+}
+
+static void lis302dl_event(i2c_slave *i2c, enum i2c_event event)
+{
+    LIS302DLState *s = FROM_I2C_SLAVE(LIS302DLState, i2c);
+    if (event == I2C_START_SEND)
+        s->firstbyte = 1;
+}
+
+static uint8_t lis302dl_readcoord(LIS302DLState *s, int coord)
+{
+    int v;
+
+    switch (coord) {
+        case 0:
+            v = s->x;
+            break;
+        case 1:
+            v = s->y;
+            break;
+        case 2:
+            v = s->z;
+            break;
+        default:
+            hw_error("%s: unknown axis %d", __FUNCTION__, coord);
+            break;
+    }
+    if (s->ctrl1 & 0x10) {
+        switch (coord) {
+            case 0:
+                v -= s->noise;
+                break;
+            case 1:
+            case 2:
+                v += s->noise;
+                break;
+            default:
+                break;
+        }
+        if (++s->noise == 32) {
+            s->noise = 4;
+        }
+        int dr1 = ((s->ctrl3 & 0x07) == 4);
+        int dr2 = (((s->ctrl3 >> 3) & 0x07) == 4);
+        if (!s->dr_test_ack++) {
+            if (dr1) {
+                qemu_irq_pulse(s->irq[0]);
+            }
+            if (dr2) {
+                qemu_irq_pulse(s->irq[1]);
+            }
+        } else if (s->dr_test_ack == 1 + (dr1 + dr2) * 3) {
+            s->dr_test_ack = 0;
+        }
+    }
+    return (uint8_t)v;
+}
+
+static int lis302dl_rx(i2c_slave *i2c)
+{
+    LIS302DLState *s = FROM_I2C_SLAVE(LIS302DLState, i2c);
+    int value = -1;
+    int n = 0;
+    switch (s->reg) {
+        case 0x0f:
+            value = 0x3b;
+            TRACE_LIS302DL("WHOAMI = 0x%02x", value);
+            break;
+        case 0x20:
+            value = s->ctrl1;
+            TRACE_LIS302DL("CTRL1 = 0x%02x", value);
+            break;
+        case 0x21:
+            value = s->ctrl2;
+            TRACE_LIS302DL("CTRL2 = 0x%02x", value);
+            break;
+        case 0x22:
+            value = s->ctrl3;
+            TRACE_LIS302DL("CTRL3 = 0x%02x", value);
+            break;
+        case 0x29:
+            value = lis302dl_readcoord(s, 0);
+            TRACE_LIS302DL("X = 0x%02x", value);
+            break;
+        case 0x2b:
+            value = lis302dl_readcoord(s, 1);
+            TRACE_LIS302DL("Y = 0x%02x", value);
+            break;
+        case 0x2d:
+            value = lis302dl_readcoord(s, 2);
+            TRACE_LIS302DL("Z = 0x%02x", value);
+            break;
+        case 0x34: n++;
+        case 0x30:
+            value = s->ff_wu[n].cfg;
+            TRACE_LIS302DL("FF_WU%d.CFG = 0x%02x", n + 1, value);
+            break;
+        case 0x35: n++;
+        case 0x31:
+            value = s->ff_wu[n].src;
+            TRACE_LIS302DL("FF_WU%d.SRC = 0x%02x", n + 1, value);
+            s->ff_wu[n].src = 0; //&= ~0x40;
+            lis302dl_interrupt_update(s);
+            break;
+        case 0x36: n++;
+        case 0x32:
+            value = s->ff_wu[n].ths;
+            TRACE_LIS302DL("FF_WU%d.THS = 0x%02x", n + 1, value);
+            break;
+        case 0x37: n++;
+        case 0x33:
+            value = s->ff_wu[n].dur;
+            TRACE_LIS302DL("FF_WU%d.DUR = 0x%02x", n + 1, value);
+            break;
+        case 0x38:
+            value = s->click.cfg;
+            TRACE_LIS302DL("CLICK_CFG = 0x%02x", value);
+            break;
+        case 0x39:
+            value = s->click.src;
+            TRACE_LIS302DL("CLICK_SRC = 0x%02x", value);
+            s->click.src &= ~0x40;
+            lis302dl_interrupt_update(s);
+            break;
+        case 0x3b:
+            value = s->click.thsy_x;
+            TRACE_LIS302DL("CLICK_THSY_X = 0x%02x", value);
+            break;
+        case 0x3c:
+            value = s->click.thsz;
+            TRACE_LIS302DL("CLICK_THSZ = 0x%02x", value);
+            break;
+        case 0x3d:
+            value = s->click.timelimit;
+            TRACE_LIS302DL("CLICK_TIMELIMIT = 0x%02x", value);
+            break;
+        case 0x3e:
+            value = s->click.latency;
+            TRACE_LIS302DL("CLICK_LATENCY = 0x%02x", value);
+            break;
+        case 0x3f:
+            value = s->click.window;
+            TRACE_LIS302DL("CLICK_WINDOW = 0x%02x", value);
+            break;
+        default:
+            TRACE_LIS302DL("unknown register 0x%02x", s->reg);
+            value = 0;
+            break;
+    }
+    s->reg++;
+    return value;
+}
+
+static int lis302dl_tx(i2c_slave *i2c, uint8_t data)
+{
+    LIS302DLState *s = FROM_I2C_SLAVE(LIS302DLState, i2c);
+    if (s->firstbyte) {
+        s->reg = data;
+        s->firstbyte = 0;
+    } else {
+        int n = 0;
+        switch (s->reg) {
+            case 0x20:
+                TRACE_LIS302DL("CTRL1 = 0x%02x", data);
+                s->ctrl1 = data;
+                break;
+            case 0x21:
+                TRACE_LIS302DL("CTRL2 = 0x%02x", data);
+                s->ctrl2 = data;
+                break;
+            case 0x22:
+                TRACE_LIS302DL("CTRL3 = 0x%02x", data);
+                s->ctrl3 = data;
+                lis302dl_interrupt_update(s);
+                break;
+            case 0x34: n++;
+            case 0x30:
+                TRACE_LIS302DL("FF_WU%d.CFG = 0x%02x", n + 1, data);
+                s->ff_wu[n].cfg = data;
+                break;
+            case 0x36: n++;
+            case 0x32:
+                TRACE_LIS302DL("FF_WU%d.THS = 0x%02x", n + 1, data);
+                s->ff_wu[n].ths = data;
+                break;
+            case 0x37: n++;
+            case 0x33:
+                TRACE_LIS302DL("FF_WU%d.DUR = 0x%02x", n + 1, data);
+                s->ff_wu[n].dur = data;
+                break;
+            case 0x38:
+                TRACE_LIS302DL("CLICK_CFG = 0x%02x", data);
+                s->click.cfg = data;
+                break;
+            case 0x39:
+                TRACE_LIS302DL("CLICK_SRC = 0x%02x", data);
+                s->click.src = data;
+                break;
+            case 0x3b:
+                TRACE_LIS302DL("CLICK_THSY_X = 0x%02x", data);
+                s->click.thsy_x = data;
+                break;
+            case 0x3c:
+                TRACE_LIS302DL("CLICK_THSZ = 0x%02x", data);
+                s->click.thsz = data;
+                break;
+            case 0x3d:
+                TRACE_LIS302DL("CLICK_TIMELIMIT = 0x%02x", data);
+                s->click.timelimit = data;
+                break;
+            case 0x3e:
+                TRACE_LIS302DL("CLICK_LATENCY = 0x%02x", data);
+                s->click.latency = data;
+                break;
+            case 0x3f:
+                TRACE_LIS302DL("CLICK_WINDOW = 0x%02x", data);
+                s->click.window = data;
+                break;
+            default:
+                TRACE_LIS302DL("unknown register 0x%02x (value 0x%02x)",
+                               s->reg, data);
+                break;
+        }
+        s->reg++;
+    }
+    return 1;
+}
+
+static int lis302dl_init(i2c_slave *i2c)
+{
+    LIS302DLState *s = FROM_I2C_SLAVE(LIS302DLState, i2c);
+    s->axis_max = 58;
+    s->axis_step = s->axis_max;// / 2;
+    qdev_init_gpio_out(&i2c->qdev, s->irq, 2);
+    return 0;
+}
+
+static I2CSlaveInfo lis302dl_info = {
+    .qdev.name = "lis302dl",
+    .qdev.size = sizeof(LIS302DLState),
+    .qdev.reset = lis302dl_reset,
+    .qdev.change = lis302dl_change,
+    .qdev.props = (Property[]) {
+        DEFINE_PROP_INT32("x", LIS302DLState, x, 0),
+        DEFINE_PROP_INT32("y", LIS302DLState, y, 0),
+        DEFINE_PROP_INT32("z", LIS302DLState, z, 0),
+        DEFINE_PROP_END_OF_LIST(),
+    },
+    .init = lis302dl_init,
+    .event = lis302dl_event,
+    .recv = lis302dl_rx,
+    .send = lis302dl_tx
+};
+
+typedef struct BQ2415XState_s {
+    i2c_slave i2c;
+    int firstbyte;
+    uint8 reg;
+    
+    uint8 st_ctrl;
+    uint8 ctrl;
+    uint8 bat_v;
+    uint8 tcc;
+} BQ2415XState;
+
+static void bq2415x_reset(DeviceState *ds)
+{
+    BQ2415XState *s = FROM_I2C_SLAVE(BQ2415XState, I2C_SLAVE_FROM_QDEV(ds));
+    
+    s->firstbyte = 0;
+    s->reg = 0;
+
+    s->st_ctrl = 0x50 | 0x80; // 40
+    s->ctrl = 0x30;
+    s->bat_v = 0x0a;
+    s->tcc = 0xa1; // 89
+}
+
+static void bq2415x_event(i2c_slave *i2c, enum i2c_event event)
+{
+    BQ2415XState *s = FROM_I2C_SLAVE(BQ2415XState, i2c);
+    if (event == I2C_START_SEND)
+        s->firstbyte = 1;
+}
+
+static int bq2415x_rx(i2c_slave *i2c)
+{
+    BQ2415XState *s = FROM_I2C_SLAVE(BQ2415XState, i2c);
+    int value = -1;
+    switch (s->reg) {
+        case 0x00:
+            value = s->st_ctrl;
+            TRACE_BQ2415X("st_ctrl = 0x%02x", value);
+            break;
+        case 0x01:
+            value = s->ctrl;
+            TRACE_BQ2415X("ctrl = 0x%02x", value);
+            break;
+        case 0x02:
+            value = s->bat_v;
+            TRACE_BQ2415X("bat_v = 0x%02x", value);
+            break;
+        case 0x03:
+        case 0x3b:
+            value = 0x49;
+            TRACE_BQ2415X("id = 0x%02x", value);
+            break;
+        case 0x04:
+            value = s->tcc;
+            TRACE_BQ2415X("tcc = 0x%02x", value);
+            break;
+        default:
+            TRACE_BQ2415X("unknown register 0x%02x", s->reg);
+            value = 0;
+            break;
+    }
+    s->reg++;
+    return value;
+}
+
+static int bq2415x_tx(i2c_slave *i2c, uint8_t data)
+{
+    BQ2415XState *s = FROM_I2C_SLAVE(BQ2415XState, i2c);
+    if (s->firstbyte) {
+        s->reg = data;
+        s->firstbyte = 0;
+    } else {
+        switch (s->reg) {
+            case 0x00:
+                TRACE_BQ2415X("st_ctrl = 0x%02x", data);
+                s->st_ctrl = (s->st_ctrl & 0x3f) | (data & 0x40) | 0x80;
+                break;
+            case 0x01:
+                TRACE_BQ2415X("ctrl = 0x%02x", data);
+                s->ctrl = data;
+                break;
+            case 0x02:
+                TRACE_BQ2415X("bat_v = 0x%02x", data);
+                s->bat_v = data;
+                break;
+            case 0x04:
+                TRACE_BQ2415X("tcc = 0x%02x", data);
+                s->tcc = data | 0x80;
+                break;
+            default:
+                TRACE_BQ2415X("unknown register 0x%02x (value 0x%02x)",
+                              s->reg, data);
+                break;
+        }
+        s->reg++;
+    }
+    return 1;
+}
+
+static int bq2415x_init(i2c_slave *i2c)
+{
+    return 0;
+}
+
+static I2CSlaveInfo bq2415x_info = {
+    .qdev.name = "bq2415x",
+    .qdev.size = sizeof(BQ2415XState),
+    .qdev.reset = bq2415x_reset,
+    .init = bq2415x_init,
+    .event = bq2415x_event,
+    .recv = bq2415x_rx,
+    .send = bq2415x_tx
+};
+
+typedef struct tpa6130_s {
+    i2c_slave i2c;
+    int firstbyte;
+    int reg;
+    uint8_t data[3];
+} TPA6130State;
+
+static void tpa6130_reset(DeviceState *ds)
+{
+    TPA6130State *s = FROM_I2C_SLAVE(TPA6130State, I2C_SLAVE_FROM_QDEV(ds));
+    s->firstbyte = 0;
+    s->reg = 0;
+    memset(s->data, 0, sizeof(s->data));
+}
+
+static void tpa6130_event(i2c_slave *i2c, enum i2c_event event)
+{
+    TPA6130State *s = FROM_I2C_SLAVE(TPA6130State, i2c);
+    if (event == I2C_START_SEND)
+        s->firstbyte = 1;
+}
+
+static int tpa6130_rx(i2c_slave *i2c)
+{
+    TPA6130State *s = FROM_I2C_SLAVE(TPA6130State, i2c);
+    int value = 0;
+    switch (s->reg) {
+        case 1 ... 3:
+            value = s->data[s->reg - 1];
+            TRACE_TPA6130("reg %d = 0x%02x", s->reg, value);
+            break;
+        case 4: /* VERSION */
+            value = 0x01;
+            TRACE_TPA6130("version = 0x%02x", value);
+            break;
+        default:
+            TRACE_TPA6130("unknown register 0x%02x", s->reg);
+            break;
+    }
+    s->reg++;
+    return value;
+}
+
+static int tpa6130_tx(i2c_slave *i2c, uint8_t data)
+{
+    TPA6130State *s = FROM_I2C_SLAVE(TPA6130State, i2c);
+    if (s->firstbyte) {
+        s->reg = data;
+        s->firstbyte = 0;
+    } else {
+        switch (s->reg) {
+            case 1 ... 3:
+                TRACE_TPA6130("reg %d = 0x%02x", s->reg, data);
+                s->data[s->reg - 1] = data;
+                break;
+            default:
+                TRACE_TPA6130("unknown register 0x%02x", s->reg);
+                break;
+        }
+        s->reg++;
+    }
+    return 1;
+}
+
+static void tpa6130_irq(void *opaque, int n, int level)
+{
+    if (n) {
+        hw_error("%s: unknown interrupt source %d\n", __FUNCTION__, n);
+    } else {
+        /* headphone enable */
+        TRACE_TPA6130("enable = %d", level);
+    }
+}
+
+static int tpa6130_init(i2c_slave *i2c)
+{
+    qdev_init_gpio_in(&i2c->qdev, tpa6130_irq, 1);
+    return 0;
+}
+
+static I2CSlaveInfo tpa6130_info = {
+    .qdev.name = "tpa6130",
+    .qdev.size = sizeof(TPA6130State),
+    .qdev.reset = tpa6130_reset,
+    .init = tpa6130_init,
+    .event = tpa6130_event,
+    .recv = tpa6130_rx,
+    .send = tpa6130_tx
+};
+
+struct n900_s {
+    struct omap_mpu_state_s *cpu;
+    void *twl4030;
+    void *nand;
+    void *lcd;
+    struct mipid_s *mipid;
+    void *tsc2005;
+    DeviceState *bq2415x;
+    DeviceState *tpa6130;
+    DeviceState *lis302dl;
+    DeviceState *smc;
+#ifdef CONFIG_GLES2
+    void *gles2;
+#endif
+    int extended_key;
+    int slide_open;
+    int camera_cover_open;
+    int headphone_connected;
+};
+
+/* this takes care of the keys which are not located on the
+ * n900 keypad (note that volume up/down keys are handled by
+ * the keypad eventhough the keys are not located on the keypad)
+ * as well as triggering some other hardware button/switch-like
+ * events that are mapped to the host keyboard:
+ *
+ * escape ... power
+ * f1 ....... keypad slider open/close
+ * f2 ....... keypad lock
+ * f3 ....... camera lens cover open/close
+ * f4 ....... camera focus
+ * f5 ....... camera take picture
+ * f6 ....... stereo headphone connect/disconnect
+ * kp1 ...... decrease accelerometer x axis value
+ * kp2 ...... increase accelerometer x axis value
+ * kp4 ...... decrease accelerometer y axis value
+ * kp5 ...... increase accelerometer y axis value
+ * kp7 ...... decrease accelerometer z axis value
+ * kp8 ...... increase accelerometer z axis value
+ */
+static void n900_key_handler(void *opaque, int keycode)
+{
+    struct n900_s *s = opaque;
+    if (!s->extended_key && keycode == 0xe0) {
+        s->extended_key = 0x80;
+    } else {
+        int release = keycode & 0x80;
+        keycode = (keycode & 0x7f) | s->extended_key;
+        s->extended_key = 0;
+        switch (keycode) {
+            case 0x01: /* escape */
+                twl4030_set_powerbutton_state(s->twl4030, !release);
+                break;
+            case 0x3b: /* f1 */
+                if (release) {
+                    s->slide_open = !s->slide_open;
+                    qemu_set_irq(omap2_gpio_in_get(s->cpu->gpif,
+                                                   N900_SLIDE_GPIO),
+                                 !s->slide_open);
+                }
+                break;
+            case 0x3c: /* f2 */
+                qemu_set_irq(omap2_gpio_in_get(s->cpu->gpif,
+                                               N900_KBLOCK_GPIO),
+                             !!release);
+                break;
+            case 0x3d: /* f3 */
+                if (release) {
+                    s->camera_cover_open = !s->camera_cover_open;
+                    qemu_set_irq(omap2_gpio_in_get(s->cpu->gpif,
+                                                   N900_CAMCOVER_GPIO),
+                                 s->camera_cover_open);
+                }
+                break;
+            case 0x3e: /* f4 */
+                qemu_set_irq(omap2_gpio_in_get(s->cpu->gpif,
+                                               N900_CAMFOCUS_GPIO),
+                             !!release);
+                break;
+            case 0x3f: /* f5 */
+                qemu_set_irq(omap2_gpio_in_get(s->cpu->gpif,
+                                               N900_CAMLAUNCH_GPIO),
+                             !!release);
+                break;
+            case 0x40: /* f6 */
+                if (release) {
+                    s->headphone_connected = !s->headphone_connected;
+                    qemu_set_irq(omap2_gpio_in_get(s->cpu->gpif,
+                                                   N900_HEADPHONE_GPIO),
+                                 !s->headphone_connected);
+                }
+                break;
+            case 0x4f ... 0x50: /* kp1,2 */
+                lis302dl_step(s->lis302dl, 0, keycode - 0x4f, !release);
+                break;
+            case 0x4b ... 0x4c: /* kp4,5 */
+                lis302dl_step(s->lis302dl, 1, keycode - 0x4b, !release);
+                break;
+            case 0x47 ... 0x48: /* kp7,8 */
+                lis302dl_step(s->lis302dl, 2, keycode - 0x47, !release);
+                break;
+            default:
+                break;
+        }
+    }
+}
+
+static void n900_reset(void *opaque)
+{
+    struct n900_s *s = opaque;
+    omap_gpmc_attach(s->cpu->gpmc, N900_ONENAND_CS, 0, onenand_base_update,
+                     onenand_base_unmap, s->nand, 0);
+    omap_gpmc_attach(s->cpu->gpmc, N900_SMC_CS, smc91c111_iomemtype(s->smc),
+                     NULL, NULL, s->smc, 0);
+    qemu_irq_raise(omap2_gpio_in_get(s->cpu->gpif, N900_KBLOCK_GPIO));
+    qemu_irq_raise(omap2_gpio_in_get(s->cpu->gpif, N900_HEADPHONE_GPIO));
+    qemu_irq_raise(omap2_gpio_in_get(s->cpu->gpif, N900_CAMLAUNCH_GPIO));
+    qemu_irq_raise(omap2_gpio_in_get(s->cpu->gpif, N900_CAMFOCUS_GPIO));
+    qemu_irq_lower(omap2_gpio_in_get(s->cpu->gpif, N900_CAMCOVER_GPIO));
+    qemu_irq_lower(omap2_gpio_in_get(s->cpu->gpif, N900_SLIDE_GPIO));
+    s->slide_open = 1;
+    s->camera_cover_open = 0;
+    s->headphone_connected = 0;
+    omap3_boot_rom_emu(s->cpu);
+}
+
+static const TWL4030KeyMap n900_twl4030_keymap[] = {
+    {0x10, 0, 0}, /* Q */
+    {0x11, 0, 1}, /* W */
+    {0x12, 0, 2}, /* E */
+    {0x13, 0, 3}, /* R */
+    {0x14, 0, 4}, /* T */
+    {0x15, 0, 5}, /* Y */
+    {0x16, 0, 6}, /* U */
+    {0x17, 0, 7}, /* I */
+    {0x18, 1, 0}, /* O */
+    {0x20, 1, 1}, /* D */
+    {0x34, 1, 2}, /* . */
+    {0x2f, 1, 3}, /* V */
+    {0xd0, 1, 4}, /* DOWN */
+    {0x41, 1, 7}, /* F7 -- volume/zoom down */
+    {0x19, 2, 0}, /* P */
+    {0x21, 2, 1}, /* F */
+    {0xc8, 2, 2}, /* UP */
+    {0x30, 2, 3}, /* B */
+    {0xcd, 2, 4}, /* RIGHT */
+    {0x42, 2, 7}, /* F8 -- volume/zoom up */
+    {0x33, 3, 0}, /* , */
+    {0x22, 3, 1}, /* G */
+    {0x1c, 3, 2}, /* ENTER */
+    {0x31, 3, 3}, /* N */
+    {0x0e, 4, 0}, /* BACKSPACE */
+    {0x23, 4, 1}, /* H */
+    {0x32, 4, 3}, /* M */
+    {0x1d, 4, 4}, /* LEFTCTRL */
+    {0x24, 5, 1}, /* J */
+    {0x2c, 5, 2}, /* Z */
+    {0x39, 5, 3}, /* SPACE */
+    {0x38, 5, 4}, /* LEFTALT -- "fn" */
+    {0x1e, 6, 0}, /* A */
+    {0x25, 6, 1}, /* K */
+    {0x2d, 6, 2}, /* X */
+    {0x39, 6, 3}, /* SPACE */
+    {0x2a, 6, 4}, /* LEFTSHIFT */
+    {0x1f, 7, 0}, /* S */
+    {0x26, 7, 1}, /* L */
+    {0x2e, 7, 2}, /* C */
+    {0xcb, 7, 3}, /* LEFT */
+    //    {0x10, 0xff, 2}, /* F9 */
+    //    {0x10, 0xff, 4}, /* F10 */
+    //    {0x10, 0xff, 5}, /* F11 */
+    {-1, -1, -1}
+};
+
+static MouseTransformInfo n900_pointercal = {
+    .x = 800,
+    .y = 480,
+    .a = {14114,  18, -2825064,  34,  -8765, 32972906, 65536},
+};
+
+static void n900_init(ram_addr_t ram_size,
+                      const char *boot_device,
+                      const char *kernel_filename,
+                      const char *kernel_cmdline,
+                      const char *initrd_filename,
+                      const char *cpu_model)
+{
+    struct n900_s *s = qemu_mallocz(sizeof(*s));
+    DriveInfo *dmtd = drive_get(IF_MTD, 0, 0);
+    DriveInfo *dsd  = drive_get(IF_SD, 0, 0);
+
+    if (!dmtd && !dsd) {
+        hw_error("%s: SD or NAND image required", __FUNCTION__);
+    }
+#if MAX_SERIAL_PORTS < 3
+#error MAX_SERIAL_PORTS must be at least 3!
+#endif
+    s->cpu = omap3_mpu_init(omap3430, N900_SDRAM_SIZE,
+                            serial_hds[1], serial_hds[2],
+                            serial_hds[0], NULL);
+    s->lcd = omap3_lcd_panel_init(s->cpu->dss);
+    omap_lcd_panel_attach(s->cpu->dss, omap3_lcd_panel_get(s->lcd));
+
+    s->tsc2005 = tsc2005_init(omap2_gpio_in_get(s->cpu->gpif,
+                                                N900_TSC2005_IRQ_GPIO));
+    tsc2005_set_transform(s->tsc2005, &n900_pointercal, 600, 1500);
+    omap_mcspi_attach(s->cpu->mcspi[0], tsc2005_txrx, s->tsc2005, 0);
+    cursor_hide = 0; // who wants to use touchscreen without a pointer?
+
+    s->mipid = mipid_init();
+    s->mipid->n900 = 1;
+    s->mipid->id = 0x101234;
+    omap_mcspi_attach(s->cpu->mcspi[0], mipid_txrx, s->mipid, 2);
+
+    s->nand = onenand_init(NAND_MFR_SAMSUNG, 0x40, 0x121, 1, 
+                           omap2_gpio_in_get(s->cpu->gpif, N900_ONENAND_GPIO),
+                           dmtd);
+
+    if (dsd) {
+        omap3_mmc_attach(s->cpu->omap3_mmc[1], dsd, 0, 1);
+    }
+    if ((dsd = drive_get(IF_SD, 0, 1)) != NULL) {
+        omap3_mmc_attach(s->cpu->omap3_mmc[0], dsd, 0, 0);
+        //qemu_irq_raise(omap2_gpio_in_get(s->cpu->gpif, N900_SDCOVER_GPIO));
+    }
+
+    cpu_register_physical_memory(0x48058000, 0x3c00,
+                                 cpu_register_io_memory(ssi_read_func,
+                                                        ssi_write_func,
+                                                        0,
+                                                        DEVICE_NATIVE_ENDIAN));
+
+    s->twl4030 = twl4030_init(omap_i2c_bus(s->cpu->i2c[0]),
+                              s->cpu->irq[0][OMAP_INT_3XXX_SYS_NIRQ],
+                              NULL, n900_twl4030_keymap);
+    s->bq2415x = i2c_create_slave(omap_i2c_bus(s->cpu->i2c[1]),
+                                  "bq2415x", 0x6b);
+    s->tpa6130 = i2c_create_slave(omap_i2c_bus(s->cpu->i2c[1]),
+                                  "tpa6130", 0x60);
+    omap2_gpio_out_set(s->cpu->gpif, N900_HEADPHONE_EN_GPIO,
+                       qdev_get_gpio_in(s->tpa6130, 0));
+    i2c_bus *i2c3 = omap_i2c_bus(s->cpu->i2c[2]);
+    s->lis302dl = i2c_create_slave(i2c3, "lis302dl", 0x1d);
+    qdev_connect_gpio_out(s->lis302dl, 0,
+                          omap2_gpio_in_get(s->cpu->gpif,
+                                            N900_LIS302DL_INT1_GPIO));
+    qdev_connect_gpio_out(s->lis302dl, 1,
+                          omap2_gpio_in_get(s->cpu->gpif,
+                                            N900_LIS302DL_INT2_GPIO));
+
+    s->smc = smc91c111_init_lite(&nd_table[0], /*0x08000000,*/
+                                 omap2_gpio_in_get(s->cpu->gpif, 54));
+
+    qemu_add_kbd_event_handler(n900_key_handler, s);
+
+    qemu_register_reset(n900_reset, s);
+    n900_reset(s);
+}
+
+static QEMUMachine n900_machine = {
+    .name = "n900",
+    .desc = "Nokia N900 (OMAP3)",
+    .init = n900_init,
+};
+
+static void nseries_register_devices(void)
+{
+    i2c_register_slave(&bq2415x_info);
+    i2c_register_slave(&tpa6130_info);
+    i2c_register_slave(&lis302dl_info);
+}
+
 static void nseries_machine_init(void)
 {
     qemu_register_machine(&n800_machine);
     qemu_register_machine(&n810_machine);
+    qemu_register_machine(&n900_machine);
 }
 
+device_init(nseries_register_devices);
 machine_init(nseries_machine_init);
