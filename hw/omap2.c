@@ -17,7 +17,6 @@
  * You should have received a copy of the GNU General Public License along
  * with this program; if not, see <http://www.gnu.org/licenses/>.
  */
-
 #include "blockdev.h"
 #include "hw.h"
 #include "arm-misc.h"
@@ -586,7 +585,8 @@ static CPUWriteMemoryFunc * const omap_eac_writefn[] = {
 };
 
 static struct omap_eac_s *omap_eac_init(struct omap_target_agent_s *ta,
-                qemu_irq irq, qemu_irq *drq, omap_clk fclk, omap_clk iclk)
+                                        qemu_irq irq, qemu_irq *drq,
+                                        omap_clk fclk, omap_clk iclk)
 {
     int iomemtype;
     struct omap_eac_s *s = (struct omap_eac_s *)
@@ -798,7 +798,7 @@ static struct omap_sti_s *omap_sti_init(struct omap_target_agent_s *ta,
 #define L4TA(n)		(n)
 #define L4TAO(n)	((n) + 39)
 
-static const struct omap_l4_region_s omap_l4_region[125] = {
+static const struct omap_l4_region_s omap2_l4_region[125] = {
     [  1] = { 0x40800,  0x800, 32          }, /* Initiator agent */
     [  2] = { 0x41000, 0x1000, 32          }, /* Link agent */
     [  0] = { 0x40000,  0x800, 32          }, /* Address and protection */
@@ -926,7 +926,7 @@ static const struct omap_l4_region_s omap_l4_region[125] = {
     [124] = { 0xb3000, 0x1000, 32 | 16 | 8 }, /* L4TA39 */
 };
 
-static const struct omap_l4_agent_info_s omap_l4_agent_info[54] = {
+static const struct omap2_l4_agent_info_s omap2_l4_agent_info[54] = {
     { 0,           0, 3, 2 }, /* L4IA initiatior agent */
     { L4TAO(1),    3, 2, 1 }, /* Control and pinout module */
     { L4TAO(2),    5, 2, 1 }, /* 32K timer */
@@ -983,10 +983,10 @@ static const struct omap_l4_agent_info_s omap_l4_agent_info[54] = {
     { L4TA(39),  123, 2, 1 }, /* HDQ/1-Wire */
 };
 
-#define omap_l4ta(bus, cs)	\
-    omap_l4ta_get(bus, omap_l4_region, omap_l4_agent_info, L4TA(cs))
-#define omap_l4tao(bus, cs)	\
-    omap_l4ta_get(bus, omap_l4_region, omap_l4_agent_info, L4TAO(cs))
+#define omap_l4ta(bus, cs) \
+    omap2_l4ta_init(bus, omap2_l4_region, omap2_l4_agent_info, L4TA(cs))
+#define omap_l4tao(bus, cs) \
+    omap2_l4ta_init(bus, omap2_l4_region, omap2_l4_agent_info, L4TAO(cs))
 
 /* Power, Reset, and Clock Management */
 struct omap_prcm_s {
@@ -1784,8 +1784,9 @@ static void omap_prcm_coldreset(struct omap_prcm_s *s)
 }
 
 static struct omap_prcm_s *omap_prcm_init(struct omap_target_agent_s *ta,
-                qemu_irq mpu_int, qemu_irq dsp_int, qemu_irq iva_int,
-                struct omap_mpu_state_s *mpu)
+                                          qemu_irq mpu_int, qemu_irq dsp_int,
+                                          qemu_irq iva_int,
+                                          struct omap_mpu_state_s *mpu)
 {
     int iomemtype;
     struct omap_prcm_s *s = (struct omap_prcm_s *)
@@ -2158,7 +2159,8 @@ static void omap_sysctl_reset(struct omap_sysctl_s *s)
 }
 
 static struct omap_sysctl_s *omap_sysctl_init(struct omap_target_agent_s *ta,
-                omap_clk iclk, struct omap_mpu_state_s *mpu)
+                                              omap_clk iclk,
+                                              struct omap_mpu_state_s *mpu)
 {
     int iomemtype;
     struct omap_sysctl_s *s = (struct omap_sysctl_s *)
@@ -2259,11 +2261,12 @@ struct omap_mpu_state_s *omap2420_mpu_init(unsigned long sdram_size,
                     (sram_base = qemu_ram_alloc(NULL, "omap2.sram",
                                                 s->sram_size)) | IO_MEM_RAM);
 
-    s->l4 = omap_l4_init(OMAP2_L4_BASE, 54);
+    s->l4 = omap_l4_init(OMAP2_L4_BASE, 54, 125);
 
     /* Actually mapped at any 2K boundary in the ARM11 private-peripheral if */
     cpu_irq = arm_pic_init_cpu(s->env);
-    s->ih[0] = omap2_inth_init(0x480fe000, 0x1000, 3, &s->irq[0],
+    s->ih[0] = omap2_inth_init(s,
+                    0x480fe000, 0x1000, 3, &s->irq[0],
                     cpu_irq[ARM_PIC_CPU_IRQ], cpu_irq[ARM_PIC_CPU_FIQ],
                     omap_findclk(s, "mpu_intc_fclk"),
                     omap_findclk(s, "mpu_intc_iclk"));
@@ -2363,8 +2366,8 @@ struct omap_mpu_state_s *omap2420_mpu_init(unsigned long sdram_size,
     omap_tap_init(omap_l4ta(s->l4, 2), s);
 
     s->synctimer = omap_synctimer_init(omap_l4tao(s->l4, 2), s,
-                    omap_findclk(s, "clk32-kHz"),
-                    omap_findclk(s, "core_l4_iclk"));
+                                       omap_findclk(s, "clk32-kHz"),
+                                       omap_findclk(s, "core_l4_iclk"));
 
     s->i2c[0] = omap2_i2c_init(omap_l4tao(s->l4, 5),
                     s->irq[0][OMAP_INT_24XX_I2C1_IRQ],
@@ -2381,12 +2384,12 @@ struct omap_mpu_state_s *omap2420_mpu_init(unsigned long sdram_size,
     gpio_clks[1] = omap_findclk(s, "gpio2_dbclk");
     gpio_clks[2] = omap_findclk(s, "gpio3_dbclk");
     gpio_clks[3] = omap_findclk(s, "gpio4_dbclk");
-    s->gpif = omap2_gpio_init(omap_l4ta(s->l4, 3),
+    s->gpif = omap2_gpio_init(s, omap_l4ta(s->l4, 3),
                     &s->irq[0][OMAP_INT_24XX_GPIO_BANK1],
                     gpio_clks, omap_findclk(s, "gpio_iclk"), 4);
 
     s->sdrc = omap_sdrc_init(0x68009000);
-    s->gpmc = omap_gpmc_init(0x6800a000, s->irq[0][OMAP_INT_24XX_GPMC_IRQ]);
+    s->gpmc = omap_gpmc_init(s, 0x6800a000, s->irq[0][OMAP_INT_24XX_GPMC_IRQ]);
 
     dinfo = drive_get(IF_SD, 0, 0);
     if (!dinfo) {
@@ -2398,18 +2401,18 @@ struct omap_mpu_state_s *omap2420_mpu_init(unsigned long sdram_size,
                     &s->drq[OMAP24XX_DMA_MMC1_TX],
                     omap_findclk(s, "mmc_fclk"), omap_findclk(s, "mmc_iclk"));
 
-    s->mcspi[0] = omap_mcspi_init(omap_l4ta(s->l4, 35), 4,
+    s->mcspi[0] = omap_mcspi_init(omap_l4ta(s->l4, 35), s, 4,
                     s->irq[0][OMAP_INT_24XX_MCSPI1_IRQ],
                     &s->drq[OMAP24XX_DMA_SPI1_TX0],
                     omap_findclk(s, "spi1_fclk"),
                     omap_findclk(s, "spi1_iclk"));
-    s->mcspi[1] = omap_mcspi_init(omap_l4ta(s->l4, 36), 2,
+    s->mcspi[1] = omap_mcspi_init(omap_l4ta(s->l4, 36), s, 2,
                     s->irq[0][OMAP_INT_24XX_MCSPI2_IRQ],
                     &s->drq[OMAP24XX_DMA_SPI2_TX0],
                     omap_findclk(s, "spi2_fclk"),
                     omap_findclk(s, "spi2_iclk"));
 
-    s->dss = omap_dss_init(omap_l4ta(s->l4, 10), 0x68000800,
+    s->dss = omap_dss_init(omap_l4ta(s->l4, 10), s,
                     /* XXX wire M_IRQ_25, D_L2_IRQ_30 and I_IRQ_13 together */
                     s->irq[0][OMAP_INT_24XX_DSS_IRQ], s->drq[OMAP24XX_DMA_DSS],
                     omap_findclk(s, "dss_clk1"), omap_findclk(s, "dss_clk2"),
