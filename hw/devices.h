@@ -68,4 +68,6 @@ qemu_irq tc6393xb_l3v_get(TC6393xbState *s);
 void sm501_init(uint32_t base, uint32_t local_mem_bytes, qemu_irq irq,
                 CharDriverState *chr);
 
+/* nseries.c */
+void lis302dl_step(void *opaque, int axis, int high, int activate);
 #endif
