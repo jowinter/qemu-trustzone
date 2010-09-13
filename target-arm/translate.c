@@ -5917,6 +5917,10 @@ static void disas_arm_insn(CPUState * env, DisasContext *s)
         }
         if ((insn & 0x0d70f000) == 0x0550f000)
             return; /* PLD */
+        if ((insn & 0x0c70f000) == 0x0450f000) {
+            ARCH(7);
+            return; /* PLI */
+        }
         else if ((insn & 0x0ffffdff) == 0x01010000) {
             ARCH(6);
             /* setend */
