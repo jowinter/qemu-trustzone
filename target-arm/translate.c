@@ -2501,9 +2501,6 @@ static int disas_cp_insn(CPUState *env, DisasContext *s, uint32_t insn)
     TCGv tmp, tmp2;
     uint32_t rd = (insn >> 12) & 0xf;
     uint32_t cp = (insn >> 8) & 0xf;
-    if (IS_USER(s)) {
-        return 1;
-    }
 
     if (insn & ARM_CP_RW_BIT) {
         if (!env->cp[cp].cp_read)
@@ -5916,7 +5913,7 @@ static int disas_coproc_insn(CPUState * env, DisasContext *s, uint32_t insn)
 	} else if (arm_feature(env, ARM_FEATURE_XSCALE)) {
 	    return disas_dsp_insn(env, s, insn);
 	}
-	return 1;
+	goto board;
     case 10:
     case 11:
 	return disas_vfp_insn (env, s, insn);

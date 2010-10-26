@@ -540,20 +540,6 @@ int cpu_arm_handle_mmu_fault (CPUState *env, target_ulong address, int rw,
 }
 
 /* These should probably raise undefined insn exceptions.  */
-void HELPER(set_cp)(CPUState *env, uint32_t insn, uint32_t val)
-{
-    int op1 = (insn >> 8) & 0xf;
-    cpu_abort(env, "cp%i insn %08x\n", op1, insn);
-    return;
-}
-
-uint32_t HELPER(get_cp)(CPUState *env, uint32_t insn)
-{
-    int op1 = (insn >> 8) & 0xf;
-    cpu_abort(env, "cp%i insn %08x\n", op1, insn);
-    return 0;
-}
-
 void HELPER(set_cp15)(CPUState *env, uint32_t insn, uint32_t val)
 {
     cpu_abort(env, "cp15 insn %08x\n", insn);
@@ -1307,31 +1293,6 @@ target_phys_addr_t cpu_get_phys_page_debug(CPUState *env, target_ulong addr)
         return -1;
 
     return phys_addr;
-}
-
-void HELPER(set_cp)(CPUState *env, uint32_t insn, uint32_t val)
-{
-    int cp_num = (insn >> 8) & 0xf;
-    int cp_info = (insn >> 5) & 7;
-    int src = (insn >> 16) & 0xf;
-    int operand = insn & 0xf;
-
-    if (env->cp[cp_num].cp_write)
-        env->cp[cp_num].cp_write(env->cp[cp_num].opaque,
-                                 cp_info, src, operand, val);
-}
-
-uint32_t HELPER(get_cp)(CPUState *env, uint32_t insn)
-{
-    int cp_num = (insn >> 8) & 0xf;
-    int cp_info = (insn >> 5) & 7;
-    int dest = (insn >> 16) & 0xf;
-    int operand = insn & 0xf;
-
-    if (env->cp[cp_num].cp_read)
-        return env->cp[cp_num].cp_read(env->cp[cp_num].opaque,
-                                       cp_info, dest, operand);
-    return 0;
 }
 
 /* Return basic MPU access permission bits.  */

@@ -202,7 +202,8 @@ static const int pxa2xx_cp_reg_map[0x10] = {
     [0xa] = ICPR2,
 };
 
-static uint32_t pxa2xx_pic_cp_read(void *opaque, int op2, int reg, int crm)
+static uint32_t pxa2xx_pic_cp_read(void *opaque, int op2, int reg, int crm,
+                                   void *retaddr)
 {
     target_phys_addr_t offset;
 
@@ -216,7 +217,7 @@ static uint32_t pxa2xx_pic_cp_read(void *opaque, int op2, int reg, int crm)
 }
 
 static void pxa2xx_pic_cp_write(void *opaque, int op2, int reg, int crm,
-                uint32_t value)
+                uint32_t value, void *retaddr)
 {
     target_phys_addr_t offset;
 

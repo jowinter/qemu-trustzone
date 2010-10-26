@@ -57,9 +57,11 @@
 #define ARMV7M_EXCP_SYSTICK 15
 
 typedef void ARMWriteCPFunc(void *opaque, int cp_info,
-                            int srcreg, int operand, uint32_t value);
+                            int srcreg, int operand, uint32_t value,
+                            void *retaddr);
 typedef uint32_t ARMReadCPFunc(void *opaque, int cp_info,
-                               int dstreg, int operand);
+                               int dstreg, int operand,
+                               void *retaddr);
 
 struct arm_boot_info;
 
