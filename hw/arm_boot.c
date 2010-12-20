@@ -44,6 +44,14 @@ static uint32_t smpboot[] = {
   0 /* privbase: Private memory region base address.  */
 };
 
+/* Alternate entry point for secondary CPUs. Branch to standard system
+ * reset vector
+ */
+static uint32_t smpboot_alternate[] = {
+    0xe51ff004, /* ldr pc, [pc, #-4] */
+    0           /* real boot vector for secondary CPUs */
+};
+
 #define WRITE_WORD(p, value) do { \
     stl_phys_notdirty(p, value);  \
     p += 4;                       \
@@ -280,7 +288,17 @@ void arm_load_kernel(CPUState *env, struct arm_boot_info *info)
                                info->smp_loader_start);
         }
         info->initrd_size = initrd_size;
+    } else {
+        if (info->nb_cpus > 1) {
+            smpboot_alternate[1] = entry;
+            for (n = 0; n < sizeof(smpboot_alternate) / 4; n++) {
+                smpboot[n] = tswap32(smpboot_alternate[n]);
+            }
+            rom_add_blob_fixed("smpboot", smpboot_alternate, sizeof(smpboot_alternate),
+                               info->smp_loader_start);
+        }
     }
+
     info->is_linux = is_linux;
 
     for (; env; env = env->next_cpu) {
