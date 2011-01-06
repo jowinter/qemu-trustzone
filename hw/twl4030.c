@@ -737,6 +737,9 @@ static void twl4030_4a_write(TWL4030NodeState *s, uint8_t addr, uint8_t value)
         case 0xbc: /* BCIIMR2A */
             s->reg_data[addr] = value & 0x0f;
             break;
+        case 0xc6: /* BCISIHCTRL */
+            s->reg_data[addr] = value & 0x07;
+            break;
 
         /* KEYPAD region */
 
