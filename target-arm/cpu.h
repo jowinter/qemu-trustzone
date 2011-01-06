@@ -161,6 +161,9 @@ typedef struct CPUARMState {
         int pending_exception;
     } v7m;
 
+    /* Minimal set of debug coprocessor state (cp14) */
+    uint32_t cp14_dbgdidr;
+
     /* Thumb-2 EE state.  */
     uint32_t teecr;
     uint32_t teehbr;

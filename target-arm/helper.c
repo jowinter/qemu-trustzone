@@ -232,6 +232,10 @@ void cpu_reset(CPUARMState *env)
     memset(env, 0, offsetof(CPUARMState, breakpoints));
     if (id)
         cpu_reset_model_id(env, id);
+    /* DBGDIDR : we implement nothing, and just mirror the main ID
+     * register's Variant and Revision fields.
+     */
+    env->cp14_dbgdidr = (id >> 16 & 0xf0) | 0xf;
 #if defined (CONFIG_USER_ONLY)
     env->uncached_cpsr = ARM_CPU_MODE_USR;
     /* For user mode we must enable access to coprocessors */
