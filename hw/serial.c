@@ -969,6 +969,19 @@ SerialState *serial_mm_init (target_phys_addr_t base, int it_shift,
     return s;
 }
 
+SerialState *serial_mm_init_nomap(int it_shift, int baudbase,
+                                  CharDriverState *chr, int be,
+                                  qemu_irq **irq,
+                                  CPUReadMemoryFunc *const **read,
+                                  CPUWriteMemoryFunc *const **write)
+{
+    SerialState *s = serial_mm_init(0, it_shift, NULL, baudbase, chr, 0, be);
+    *irq = &s->irq;
+    *read = be ? serial_mm_read_be : serial_mm_read_le;
+    *write = be ? serial_mm_write_be : serial_mm_write_le;
+    return s;
+}
+
 static ISADeviceInfo serial_isa_info = {
     .qdev.name  = "isa-serial",
     .qdev.size  = sizeof(ISASerialState),

@@ -2201,9 +2201,6 @@ static void omap2_mpu_reset(void *opaque)
     omap_synctimer_reset(mpu->synctimer);
     omap_sdrc_reset(mpu->sdrc);
     omap_gpmc_reset(mpu->gpmc);
-    omap_uart_reset(mpu->uart[0]);
-    omap_uart_reset(mpu->uart[1]);
-    omap_uart_reset(mpu->uart[2]);
     omap_mmc_reset(mpu->mmc);
     cpu_reset(mpu->env);
 }
@@ -2283,30 +2280,46 @@ struct omap_mpu_state_s *omap2420_mpu_init(unsigned long sdram_size,
     soc_dma_port_add_mem_ram(s->dma, q2_base, OMAP2_Q2_BASE, s->sdram_size);
     soc_dma_port_add_mem_ram(s->dma, sram_base, OMAP2_SRAM_BASE, s->sram_size);
 
-    s->uart[0] = omap2_uart_init(omap_l4ta(s->l4, 19),
-                    s->irq[0][OMAP_INT_24XX_UART1_IRQ],
-                    omap_findclk(s, "uart1_fclk"),
-                    omap_findclk(s, "uart1_iclk"),
-                    s->drq[OMAP24XX_DMA_UART1_TX],
-                    s->drq[OMAP24XX_DMA_UART1_RX],
-                    "uart1",
-                    serial_hds[0]);
-    s->uart[1] = omap2_uart_init(omap_l4ta(s->l4, 20),
-                    s->irq[0][OMAP_INT_24XX_UART2_IRQ],
-                    omap_findclk(s, "uart2_fclk"),
-                    omap_findclk(s, "uart2_iclk"),
-                    s->drq[OMAP24XX_DMA_UART2_TX],
-                    s->drq[OMAP24XX_DMA_UART2_RX],
-                    "uart2",
-                    serial_hds[0] ? serial_hds[1] : NULL);
-    s->uart[2] = omap2_uart_init(omap_l4ta(s->l4, 21),
-                    s->irq[0][OMAP_INT_24XX_UART3_IRQ],
-                    omap_findclk(s, "uart3_fclk"),
-                    omap_findclk(s, "uart3_iclk"),
-                    s->drq[OMAP24XX_DMA_UART3_TX],
-                    s->drq[OMAP24XX_DMA_UART3_RX],
-                    "uart3",
-                    serial_hds[0] && serial_hds[1] ? serial_hds[2] : NULL);
+    s->uart[0] = qdev_create(NULL, "omap_uart");
+    s->uart[0]->id = "uart1";
+    qdev_prop_set_uint32(s->uart[0], "mmio_size", 0x1000);
+    qdev_prop_set_uint32(s->uart[0], "baudrate",
+                         omap_clk_getrate(omap_findclk(s, "uart1_fclk")) / 16);
+    qdev_prop_set_chr(s->uart[0], "chardev", serial_hds[0]);
+    qdev_init_nofail(s->uart[0]);
+    SysBusDevice *busdev = sysbus_from_qdev(s->uart[0]);
+    sysbus_connect_irq(busdev, 0, s->irq[0][OMAP_INT_24XX_UART1_IRQ]);
+    sysbus_connect_irq(busdev, 1, s->drq[OMAP24XX_DMA_UART1_TX]);
+    sysbus_connect_irq(busdev, 2, s->drq[OMAP24XX_DMA_UART1_RX]);
+    sysbus_mmio_map(busdev, 0, omap_l4_base(omap_l4ta(s->l4, 19), 0));
+
+    s->uart[1] = qdev_create(NULL, "omap_uart");
+    s->uart[1]->id = "uart2";
+    qdev_prop_set_uint32(s->uart[1], "mmio_size", 0x1000);
+    qdev_prop_set_uint32(s->uart[1], "baudrate",
+                         omap_clk_getrate(omap_findclk(s, "uart2_fclk")) / 16);
+    qdev_prop_set_chr(s->uart[1], "chardev",
+                      serial_hds[0] ? serial_hds[1] : NULL);
+    qdev_init_nofail(s->uart[1]);
+    busdev = sysbus_from_qdev(s->uart[1]);
+    sysbus_connect_irq(busdev, 0, s->irq[0][OMAP_INT_24XX_UART2_IRQ]);
+    sysbus_connect_irq(busdev, 1, s->drq[OMAP24XX_DMA_UART2_TX]);
+    sysbus_connect_irq(busdev, 2, s->drq[OMAP24XX_DMA_UART2_RX]);
+    sysbus_mmio_map(busdev, 0, omap_l4_base(omap_l4ta(s->l4, 20), 0));
+
+    s->uart[2] = qdev_create(NULL, "omap_uart");
+    s->uart[2]->id = "uart3";
+    qdev_prop_set_uint32(s->uart[2], "mmio_size", 0x1000);
+    qdev_prop_set_uint32(s->uart[2], "baudrate",
+                         omap_clk_getrate(omap_findclk(s, "uart3_fclk")) / 16);
+    qdev_prop_set_chr(s->uart[2], "chardev",
+                      serial_hds[0] && serial_hds[1] ? serial_hds[2] : NULL);
+    qdev_init_nofail(s->uart[2]);
+    busdev = sysbus_from_qdev(s->uart[2]);
+    sysbus_connect_irq(busdev, 0, s->irq[0][OMAP_INT_24XX_UART3_IRQ]);
+    sysbus_connect_irq(busdev, 1, s->drq[OMAP24XX_DMA_UART3_TX]);
+    sysbus_connect_irq(busdev, 2, s->drq[OMAP24XX_DMA_UART3_RX]);
+    sysbus_mmio_map(busdev, 0, omap_l4_base(omap_l4ta(s->l4, 21), 0));
 
     s->gptimer[0] = omap_gp_timer_init(omap_l4ta(s->l4, 7),
                     s->irq[0][OMAP_INT_24XX_GPTIMER1],
@@ -2366,7 +2379,7 @@ struct omap_mpu_state_s *omap2420_mpu_init(unsigned long sdram_size,
     s->i2c = qdev_create(NULL, "omap_i2c");
     qdev_prop_set_int32(s->i2c, "mpu_model", s->mpu_model);
     qdev_init_nofail(s->i2c);
-    SysBusDevice *busdev = sysbus_from_qdev(s->i2c);
+    busdev = sysbus_from_qdev(s->i2c);
     sysbus_connect_irq(busdev, 0, s->irq[0][OMAP_INT_24XX_I2C1_IRQ]);
     sysbus_connect_irq(busdev, 1, s->drq[OMAP24XX_DMA_I2C1_TX]);
     sysbus_connect_irq(busdev, 2, s->drq[OMAP24XX_DMA_I2C1_RX]);

@@ -3628,9 +3628,6 @@ static void omap1_mpu_reset(void *opaque)
     omap_dpll_reset(mpu->dpll[0]);
     omap_dpll_reset(mpu->dpll[1]);
     omap_dpll_reset(mpu->dpll[2]);
-    omap_uart_reset(mpu->uart[0]);
-    omap_uart_reset(mpu->uart[1]);
-    omap_uart_reset(mpu->uart[2]);
     omap_mmc_reset(mpu->mmc);
     omap_mpuio_reset(mpu->mpuio);
     omap_uwire_reset(mpu->microwire);
@@ -3858,24 +3855,46 @@ struct omap_mpu_state_s *omap310_mpu_init(unsigned long sdram_size,
 
     omap_tcmi_init(0xfffecc00, s);
 
-    s->uart[0] = omap_uart_init(0xfffb0000, s->irq[1][OMAP_INT_UART1],
-                    omap_findclk(s, "uart1_ck"),
-                    omap_findclk(s, "uart1_ck"),
-                    s->drq[OMAP_DMA_UART1_TX], s->drq[OMAP_DMA_UART1_RX],
-                    "uart1",
-                    serial_hds[0]);
-    s->uart[1] = omap_uart_init(0xfffb0800, s->irq[1][OMAP_INT_UART2],
-                    omap_findclk(s, "uart2_ck"),
-                    omap_findclk(s, "uart2_ck"),
-                    s->drq[OMAP_DMA_UART2_TX], s->drq[OMAP_DMA_UART2_RX],
-                    "uart2",
-                    serial_hds[0] ? serial_hds[1] : NULL);
-    s->uart[2] = omap_uart_init(0xfffb9800, s->irq[0][OMAP_INT_UART3],
-                    omap_findclk(s, "uart3_ck"),
-                    omap_findclk(s, "uart3_ck"),
-                    s->drq[OMAP_DMA_UART3_TX], s->drq[OMAP_DMA_UART3_RX],
-                    "uart3",
-                    serial_hds[0] && serial_hds[1] ? serial_hds[2] : NULL);
+    s->uart[0] = qdev_create(NULL, "omap_uart");
+    s->uart[0]->id = "uart1";
+    qdev_prop_set_uint32(s->uart[0], "mmio_size", 0x400);
+    qdev_prop_set_uint32(s->uart[0], "baudrate",
+                         omap_clk_getrate(omap_findclk(s, "uart1_ck")) / 16);
+    qdev_prop_set_chr(s->uart[0], "chardev", serial_hds[0]);
+    qdev_init_nofail(s->uart[0]);
+    SysBusDevice *busdev = sysbus_from_qdev(s->uart[0]);
+    sysbus_connect_irq(busdev, 0, s->irq[1][OMAP_INT_UART1]);
+    sysbus_connect_irq(busdev, 1, s->drq[OMAP_DMA_UART1_TX]);
+    sysbus_connect_irq(busdev, 2, s->drq[OMAP_DMA_UART1_RX]);
+    sysbus_mmio_map(busdev, 0, 0xfffb0000);
+
+    s->uart[1] = qdev_create(NULL, "omap_uart");
+    s->uart[1]->id = "uart2";
+    qdev_prop_set_uint32(s->uart[1], "mmio_size", 0x400);
+    qdev_prop_set_uint32(s->uart[1], "baudrate",
+                         omap_clk_getrate(omap_findclk(s, "uart2_ck")) / 16);
+    qdev_prop_set_chr(s->uart[1], "chardev",
+                      serial_hds[0] ? serial_hds[1] : NULL);
+    qdev_init_nofail(s->uart[1]);
+    busdev = sysbus_from_qdev(s->uart[1]);
+    sysbus_connect_irq(busdev, 0, s->irq[1][OMAP_INT_UART2]);
+    sysbus_connect_irq(busdev, 1, s->drq[OMAP_DMA_UART2_TX]);
+    sysbus_connect_irq(busdev, 2, s->drq[OMAP_DMA_UART2_RX]);
+    sysbus_mmio_map(busdev, 0, 0xfffb0800);
+
+    s->uart[2] = qdev_create(NULL, "omap_uart");
+    s->uart[2]->id = "uart3";
+    qdev_prop_set_uint32(s->uart[2], "mmio_size", 0x400);
+    qdev_prop_set_uint32(s->uart[2], "baudrate",
+                         omap_clk_getrate(omap_findclk(s, "uart3_ck")) / 16);
+    qdev_prop_set_chr(s->uart[2], "chardev",
+                      serial_hds[0] && serial_hds[1] ? serial_hds[2] : NULL);
+    qdev_init_nofail(s->uart[2]);
+    busdev = sysbus_from_qdev(s->uart[2]);
+    sysbus_connect_irq(busdev, 0, s->irq[1][OMAP_INT_UART3]);
+    sysbus_connect_irq(busdev, 1, s->drq[OMAP_DMA_UART3_TX]);
+    sysbus_connect_irq(busdev, 2, s->drq[OMAP_DMA_UART3_RX]);
+    sysbus_mmio_map(busdev, 0, 0xfffb9800);
 
     s->dpll[0] = omap_dpll_init(0xfffecf00, omap_findclk(s, "dpll1"));
     s->dpll[1] = omap_dpll_init(0xfffed000, omap_findclk(s, "dpll2"));
@@ -3910,7 +3929,7 @@ struct omap_mpu_state_s *omap310_mpu_init(unsigned long sdram_size,
     s->i2c = qdev_create(NULL, "omap_i2c");
     qdev_prop_set_int32(s->i2c, "mpu_model", s->mpu_model);
     qdev_init_nofail(s->i2c);
-    SysBusDevice *busdev = sysbus_from_qdev(s->i2c);
+    busdev = sysbus_from_qdev(s->i2c);
     sysbus_connect_irq(busdev, 0, s->irq[1][OMAP_INT_I2C]);
     sysbus_connect_irq(busdev, 1, s->drq[OMAP_DMA_I2C_TX]);
     sysbus_connect_irq(busdev, 2, s->drq[OMAP_DMA_I2C_RX]);

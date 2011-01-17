@@ -875,17 +875,7 @@ struct omap_dma_lcd_channel_s {
 #define OMAP3XXX_DMA_UART4_RX         82
 
 /* omap_uart.c */
-struct omap_uart_s;
-struct omap_uart_s *omap_uart_init(target_phys_addr_t base,
-                qemu_irq irq, omap_clk fclk, omap_clk iclk,
-                qemu_irq txdma, qemu_irq rxdma,
-                const char *label, CharDriverState *chr);
-struct omap_uart_s *omap2_uart_init(struct omap_target_agent_s *ta,
-                qemu_irq irq, omap_clk fclk, omap_clk iclk,
-                qemu_irq txdma, qemu_irq rxdma,
-                const char *label, CharDriverState *chr);
-void omap_uart_reset(struct omap_uart_s *s);
-void omap_uart_attach(struct omap_uart_s *s, CharDriverState *chr,
+void omap_uart_attach(DeviceState *qdev, CharDriverState *chr,
                       const char *label);
 
 /* omap_gptimer.c */
@@ -1050,7 +1040,7 @@ struct omap_mpu_state_s {
     unsigned long sram_size;
 
     /* MPUI-TIPB peripherals */
-    struct omap_uart_s *uart[4];
+    DeviceState *uart[4];
     DeviceState *gpio;
     struct omap_mcbsp_s *mcbsp1;
     struct omap_mcbsp_s *mcbsp3;
