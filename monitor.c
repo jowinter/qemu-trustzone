@@ -1067,8 +1067,10 @@ static int do_change(Monitor *mon, const QDict *qdict, QObject **ret_data)
 
     if (strcmp(device, "vnc") == 0) {
         ret = do_change_vnc(mon, target, arg);
-    } else {
+    } else if (bdrv_find(device)) {
         ret = do_change_block(mon, device, target, arg);
+    } else {
+        ret = do_change_qdev(mon, device, target, arg);
     }
 
     return ret;

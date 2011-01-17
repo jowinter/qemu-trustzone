@@ -146,6 +146,8 @@ BusState *qdev_get_child_bus(DeviceState *dev, const char *name);
 typedef int (*qdev_initfn)(DeviceState *dev, DeviceInfo *info);
 typedef int (*qdev_event)(DeviceState *dev);
 typedef void (*qdev_resetfn)(DeviceState *dev);
+typedef int (*qdev_changefn)(DeviceState *dev, const char *target,
+                             const char *arg);
 
 struct DeviceInfo {
     const char *name;
@@ -158,6 +160,7 @@ struct DeviceInfo {
 
     /* callbacks */
     qdev_resetfn reset;
+    qdev_changefn change;
 
     /* device state */
     const VMStateDescription *vmsd;
@@ -216,6 +219,8 @@ void do_info_qtree(Monitor *mon);
 void do_info_qdm(Monitor *mon);
 int do_device_add(Monitor *mon, const QDict *qdict, QObject **ret_data);
 int do_device_del(Monitor *mon, const QDict *qdict, QObject **ret_data);
+int do_change_qdev(Monitor *mon, const char *device, const char *target,
+                   const char *arg);
 
 /*** qdev-properties.c ***/
 
