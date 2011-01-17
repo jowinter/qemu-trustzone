@@ -952,6 +952,7 @@ DSIHost *omap_dsi_host(DeviceState *dev);
 void omap_rfbi_attach(DeviceState *dev, int cs, const struct rfbi_chip_s *chip);
 void omap_lcd_panel_attach(DeviceState *dev);
 void omap_digital_panel_attach(DeviceState *dev);
+void omap_lcd_panel_invalidate_display(void *opaque);
 
 /* omap_lcdc.c */
 struct omap_lcd_panel_s;
