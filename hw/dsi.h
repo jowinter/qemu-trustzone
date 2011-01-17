@@ -36,6 +36,7 @@ typedef void (*dsi_write_cb)(DSIDevice *dev, uint32_t data, int len);
 typedef uint32_t (*dsi_read_cb)(DSIDevice *dev, uint32_t data, int len);
 typedef int (*dsi_blt_cb)(DSIDevice *dev, void *data, int width, int height,
                           int col_pitch, int row_pitch, int format);
+typedef void (*dsi_bltdone_cb)(DSIDevice *dev);
 
 /* common device callbacks */
 typedef void (*dsi_common_write_cb)(DSICommonDevice *dev, uint32_t data,
@@ -57,6 +58,7 @@ typedef struct {
     dsi_write_cb write;
     dsi_read_cb read;
     dsi_blt_cb blt;
+    dsi_bltdone_cb bltdone;
 } DSIDeviceInfo;
 
 typedef struct {
@@ -109,6 +111,7 @@ void dsi_long_write(DSIHost *host, uint32_t header, uint32_t payload,
                     uint32_t counter);
 int dsi_blt(DSIHost *host, int vc, void *data, int width, int height,
             int col_pitch, int row_pitch, int format);
+void dsi_bltdone(DSIHost *host, int vc);
 
 /* device -> host functions */
 void dsi_te_trigger(const DSIDevice *dev);

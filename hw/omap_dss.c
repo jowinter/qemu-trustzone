@@ -182,6 +182,7 @@ struct omap_dss_s {
     
     struct {
         DSIHost *host;
+        QEMUTimer *xfer_timer;
         qemu_irq drq[4];
         /* protocol engine registers */
         uint32_t sysconfig;
@@ -397,12 +398,28 @@ static void omap_rfbi_transfer_start(struct omap_dss_s *s)
     omap_dss_framedone(s);
 }
 
+static void omap_dsi_transfer_stop(void *opaque)
+{
+    struct omap_dss_s *s = opaque;
+    int i;
+    qemu_del_timer(s->dsi.xfer_timer);
+    for (i = 0; i < 4; i++) {
+        if ((s->dsi.vc[i].ctrl & 1) &&       /* VC_EN */
+            ((s->dsi.vc[i].te >> 30) & 3)) { /* TE_START | TE_EN */
+            TRACEDSI("TE data transfer ready, signaling framedone");
+            s->dsi.vc[i].te = 0; /* transfer complete */
+            omap_dss_framedone(s);
+            dsi_bltdone(s->dsi.host, i);
+        }
+    }
+}
+
 static void omap_dsi_transfer_start(struct omap_dss_s *s, int ch)
 {
     if (((s->dispc.control >> 11) & 1) && /* STALLMODE */
         (s->dsi.ctrl & 1) &&              /* IF_EN */
         (s->dsi.vc[ch].ctrl & 1) &&       /* VC_EN */
-        (s->dsi.vc[ch].te >> 30) & 3) {   /* TE_START | TE_EN */
+        ((s->dsi.vc[ch].te >> 30) & 3)) { /* TE_START | TE_EN */
         TRACEDSI("start TE data transfer on channel %d for %d bytes",
                  ch, s->dsi.vc[ch].te & 0xffffff);
         TRACEDSI("vc%d   irqenable=0x%08x", ch, s->dsi.vc[ch].irqen);
@@ -414,9 +431,9 @@ static void omap_dsi_transfer_start(struct omap_dss_s *s, int ch)
         } else {
             const int format = (s->dispc.plane[0].attr >> 1) & 0xf;
             const int col_pitch = omap_lcd_Bpp[format] +
-            (s->dispc.plane[0].colinc - 1);
+                                  (s->dispc.plane[0].colinc - 1);
             const int row_pitch = (s->dispc.plane[0].nx * col_pitch) +
-            (s->dispc.plane[0].rowinc - 1);
+                                  (s->dispc.plane[0].rowinc - 1);
             target_phys_addr_t len = row_pitch * s->dispc.plane[0].ny;
             void *data = cpu_physical_memory_map(s->dispc.plane[0].addr[0],
                                                  &len, 0);
@@ -430,8 +447,14 @@ static void omap_dsi_transfer_start(struct omap_dss_s *s, int ch)
             if (data) {
                 cpu_physical_memory_unmap(data, len, 0, 0);
             }
-            s->dsi.vc[ch].te = 0; /* transfer complete */
-            omap_dss_framedone(s);
+            /* We cannot signal transfer complete immediately since some
+             * display drivers assume transfer takes some time. Instead,
+             * setup a small delay and report transfer complete a bit
+             * later. */
+            s->dsi.vc[ch].ctrl &= ~(0x11 << 16); /* TX/RX fifo not full */
+            qemu_mod_timer(s->dsi.xfer_timer,
+                           qemu_get_clock(vm_clock)
+                           + get_ticks_per_sec() / 1000);
         }
     }
 }
@@ -2465,6 +2488,8 @@ static int omap_dss_init(SysBusDevice *dev)
         s->dsi.host = dsi_init_host(&dev->qdev, "omap3_dsi",
                                     omap_dsi_te_trigger,
                                     omap_dss_linefn);
+        s->dsi.xfer_timer = qemu_new_timer(vm_clock, omap_dsi_transfer_stop,
+                                           s);
         sysbus_init_mmio(dev, 0x400,
                          cpu_register_io_memory(omap_dsi_readfn,
                                                 omap_dsi_writefn, s,
