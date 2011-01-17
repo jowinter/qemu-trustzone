@@ -1041,18 +1041,8 @@ void omap3_mmc_attach(DeviceState *dev, BlockDriverState *bs,
                       int is_spi, int is_mmc);
 
 /* omap_i2c.c */
-struct omap_i2c_s;
-struct omap_i2c_s *omap_i2c_init(target_phys_addr_t base,
-                                 qemu_irq irq, qemu_irq *dma, omap_clk clk);
-struct omap_i2c_s *omap2_i2c_init(struct omap_target_agent_s *ta,
-                                  qemu_irq irq, qemu_irq *dma, omap_clk fclk,
-                                  omap_clk iclk);
-struct omap_i2c_s *omap3_i2c_init(struct omap_target_agent_s *ta,
-                                  struct omap_mpu_state_s *mpu,
-                                  qemu_irq irq, qemu_irq *dma, omap_clk fclk,
-                                  omap_clk iclk, int fifosize);
-void omap_i2c_reset(struct omap_i2c_s *s);
-i2c_bus *omap_i2c_bus(struct omap_i2c_s *s);
+SysBusDevice *omap_i2c_create(int mpu_model);
+i2c_bus *omap_i2c_bus(SysBusDevice *omap_i2c, int n);
 
 /* omap_spi.c */
 struct omap_mcspi_s;
@@ -1153,7 +1143,7 @@ struct omap_mpu_state_s {
     struct omap_uwire_s *microwire;
     struct omap_pwl_s *pwl;
     struct omap_pwt_s *pwt;
-    struct omap_i2c_s *i2c[3];
+    SysBusDevice *i2c;
     struct omap_rtc_s *rtc;
     struct omap_mcbsp_s *mcbsp2;
     struct omap_lpg_s *led[2];

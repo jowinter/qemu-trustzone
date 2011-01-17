@@ -26,6 +26,7 @@
 #include "pc.h"
 #include "blockdev.h"
 #include "range.h"
+#include "sysbus.h"
 
 /* Should signal the TCMI/GPMC */
 uint32_t omap_badwidth_read8(void *opaque, target_phys_addr_t addr)
@@ -3636,7 +3637,6 @@ static void omap1_mpu_reset(void *opaque)
     omap_uwire_reset(mpu->microwire);
     omap_pwl_reset(mpu->pwl);
     omap_pwt_reset(mpu->pwt);
-    omap_i2c_reset(mpu->i2c[0]);
     omap_rtc_reset(mpu->rtc);
     omap_mcbsp_reset(mpu->mcbsp1);
     omap_mcbsp_reset(mpu->mcbsp2);
@@ -3904,8 +3904,12 @@ struct omap_mpu_state_s *omap310_mpu_init(unsigned long sdram_size,
     s->pwl = omap_pwl_init(0xfffb5800, omap_findclk(s, "armxor_ck"));
     s->pwt = omap_pwt_init(0xfffb6000, omap_findclk(s, "armxor_ck"));
 
-    s->i2c[0] = omap_i2c_init(0xfffb3800, s->irq[1][OMAP_INT_I2C],
-                    &s->drq[OMAP_DMA_I2C_RX], omap_findclk(s, "mpuper_ck"));
+    s->i2c = omap_i2c_create(s->mpu_model);
+    SysBusDevice *busdev = sysbus_from_qdev(s->i2c);
+    sysbus_connect_irq(busdev, 0, s->irq[1][OMAP_INT_I2C]);
+    sysbus_connect_irq(busdev, 1, s->drq[OMAP_DMA_I2C_TX]);
+    sysbus_connect_irq(busdev, 2, s->drq[OMAP_DMA_I2C_RX]);
+    sysbus_mmio_map(busdev, 0, 0xfffb3800);
 
     s->rtc = omap_rtc_init(0xfffb4800, &s->irq[1][OMAP_INT_RTC_TIMER],
                     omap_findclk(s, "clk32-kHz"));

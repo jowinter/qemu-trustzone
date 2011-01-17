@@ -53,7 +53,6 @@ struct n800_s {
         uint32_t (*txrx)(void *opaque, uint32_t value, int len);
         uWireSlave *chip;
     } ts;
-    i2c_bus *i2c;
 
     int keymap[0x80];
     i2c_slave *kbd;
@@ -192,16 +191,14 @@ static void n8x0_i2c_setup(struct n800_s *s)
 {
     DeviceState *dev;
     qemu_irq tmp_irq = omap2_gpio_in_get(s->cpu->gpif, N8X0_TMP105_GPIO);
-
-    /* Attach the CPU on one end of our I2C bus.  */
-    s->i2c = omap_i2c_bus(s->cpu->i2c[0]);
+    i2c_bus *i2c = omap_i2c_bus(s->cpu->i2c, 0);
 
     /* Attach a menelaus PM chip */
-    dev = i2c_create_slave(s->i2c, "twl92230", N8X0_MENELAUS_ADDR);
+    dev = i2c_create_slave(i2c, "twl92230", N8X0_MENELAUS_ADDR);
     qdev_connect_gpio_out(dev, 3, s->cpu->irq[0][OMAP_INT_24XX_SYS_NIRQ]);
 
     /* Attach a TMP105 PM chip (A0 wired to ground) */
-    dev = i2c_create_slave(s->i2c, "tmp105", N8X0_TMP105_ADDR);
+    dev = i2c_create_slave(i2c, "tmp105", N8X0_TMP105_ADDR);
     qdev_connect_gpio_out(dev, 0, tmp_irq);
 }
 
@@ -386,7 +383,8 @@ static void n810_kbd_setup(struct n800_s *s)
 
     /* Attach the LM8322 keyboard to the I2C bus,
      * should happen in n8x0_i2c_setup and s->kbd be initialised here.  */
-    dev = i2c_create_slave(s->i2c, "lm8323", N810_LM8323_ADDR);
+    dev = i2c_create_slave(omap_i2c_bus(s->cpu->i2c, 0),
+                           "lm8323", N810_LM8323_ADDR);
     qdev_connect_gpio_out(dev, 0, kbd_irq);
     s->kbd = (void *)dev;
 }
@@ -2483,16 +2481,15 @@ static void n900_init(ram_addr_t ram_size,
                                                         0,
                                                         DEVICE_NATIVE_ENDIAN));
 
-    s->twl4030 = twl4030_init(omap_i2c_bus(s->cpu->i2c[0]),
+    s->twl4030 = twl4030_init(omap_i2c_bus(s->cpu->i2c, 0),
                               s->cpu->irq[0][OMAP_INT_3XXX_SYS_NIRQ],
                               NULL, n900_twl4030_keymap);
-    s->bq2415x = i2c_create_slave(omap_i2c_bus(s->cpu->i2c[1]),
-                                  "bq2415x", 0x6b);
-    s->tpa6130 = i2c_create_slave(omap_i2c_bus(s->cpu->i2c[1]),
-                                  "tpa6130", 0x60);
+    i2c_bus *i2c2 = omap_i2c_bus(s->cpu->i2c, 1);
+    s->bq2415x = i2c_create_slave(i2c2, "bq2415x", 0x6b);
+    s->tpa6130 = i2c_create_slave(i2c2, "tpa6130", 0x60);
     omap2_gpio_out_set(s->cpu->gpif, N900_HEADPHONE_EN_GPIO,
                        qdev_get_gpio_in(s->tpa6130, 0));
-    i2c_bus *i2c3 = omap_i2c_bus(s->cpu->i2c[2]);
+    i2c_bus *i2c3 = omap_i2c_bus(s->cpu->i2c, 2);
     s->lis302dl = i2c_create_slave(i2c3, "lis302dl", 0x1d);
     qdev_connect_gpio_out(s->lis302dl, 0,
                           omap2_gpio_in_get(s->cpu->gpif,
