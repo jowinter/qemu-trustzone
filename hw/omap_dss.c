@@ -2306,6 +2306,11 @@ static void omap_dsi_write(void *opaque, target_phys_addr_t addr,
         TRACEDSI("DSI_COMPLEXIO_CFG_2 = 0x%08x", value);
         s->dsi.complexio_cfg2 = (value & 0xfffcffff)
                                 | (s->dsi.complexio_cfg2 & (3 << 16));
+        if (((value >> 5) & 3)) {
+            s->dsi.complexio_irqst |= (1 << 30); /* ULPSACTIVENOT_ALL0_IRQ */
+            s->dsi.irqst |= (1 << 10);           /* COMPLEXIO_ERR_IRQ */
+            omap_dss_interrupt_update(s);
+        }
         break;
     case 0x080: /* DSI_VM_TIMING4 */
         TRACEDSI("DSI_VM_TIMING4 = 0x%08x", value);
