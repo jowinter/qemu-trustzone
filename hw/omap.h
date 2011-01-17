@@ -102,7 +102,8 @@ void omap_sdrc_write_mcfg(struct omap_sdrc_s *s, uint32_t value, uint32_t cs);
 /* omap_gpmc.c */
 struct omap_gpmc_s;
 struct omap_gpmc_s *omap_gpmc_init(struct omap_mpu_state_s *mpu,
-                                   target_phys_addr_t base, qemu_irq irq);
+                                   target_phys_addr_t base,
+                                   qemu_irq irq, qemu_irq drq);
 void omap_gpmc_reset(struct omap_gpmc_s *s);
 void omap_gpmc_attach(struct omap_gpmc_s *s, int cs, DeviceState *dev,
                       int mmio_index, int devicetype);

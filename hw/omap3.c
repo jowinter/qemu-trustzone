@@ -4194,8 +4194,8 @@ struct omap_mpu_state_s *omap3_mpu_init(int model, int emulate_bootrom,
 
     s->sdrc = omap_sdrc_init(0x6d000000);
     
-    s->gpmc = omap_gpmc_init(s, 0x6e000000, s->irq[0][OMAP_INT_3XXX_GPMC_IRQ]);
-    
+    s->gpmc = omap_gpmc_init(s, 0x6e000000, s->irq[0][OMAP_INT_3XXX_GPMC_IRQ],
+                             s->drq[OMAP3XXX_DMA_GPMC]);
 
     s->uart[0] = qdev_create(NULL, "omap_uart");
     s->uart[0]->id = "uart1";
