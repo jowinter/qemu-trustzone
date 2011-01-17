@@ -34,7 +34,7 @@
 #define BEAGLE_NAND_CS       0
 #define BEAGLE_SMC_CS        1
 #define BEAGLE_NAND_PAGESIZE 0x800
-#define BEAGLE_SDRAM_SIZE    (128 * 1024 * 1024) /* 128MB */
+#define BEAGLE_SDRAM_SIZE    (256 * 1024 * 1024) /* 256MB */
 #define BEAGLE_XM_SDRAM_SIZE (512 * 1024 * 1024) /* 512MB */
 /* GPIO ID pins are used to identify which beagle variant we have */
 #define BEAGLE_GPIO_ID1      171
