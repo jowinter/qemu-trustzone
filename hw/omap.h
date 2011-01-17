@@ -493,8 +493,8 @@ int l4_register_io_memory(CPUReadMemoryFunc * const *mem_read,
 #define OMAP_INT_3XXX_SDMA_IRQ3     15 /* System DMA request 3 */
 #define OMAP_INT_3XXX_MCBSP1_IRQ    16 /* MCBSP module 1 IRQ */
 #define OMAP_INT_3XXX_MCBSP2_IRQ    17 /* MCBSP module 2 IRQ */
-/* IRQ18 is reserved */
-/* IRQ19 is reserved */
+#define OMAP_INT_3XXX_SR1_IRQ       18 /* SmartReflex 1 */
+#define OMAP_INT_3XXX_SR2_IRQ       19 /* SmartReflex 2 */
 #define OMAP_INT_3XXX_GPMC_IRQ      20 /* General-purpose memory controller module */ 
 #define OMAP_INT_3XXX_SGX_IRQ       21 /* 2D/3D graphics module */
 #define OMAP_INT_3XXX_MCBSP3_IRQ    22 /* MCBSP module 3 */
@@ -555,7 +555,7 @@ int l4_register_io_memory(CPUReadMemoryFunc * const *mem_read,
 #define OMAP_INT_3XXX_EHCI_IRQ      77 /* EHCI controller HSUSB MP Host interrupt */
 #define OMAP_INT_3XXX_TLL_IRQ       78 /* HSUSB MP TLL interrupt */
 /* IRQ79 is reserved */
-/* IRQ80 is reserved */
+#define OMAP_INT_3XXX_UART4_IRQ     80 /* UART module 4 (OMAP3630 only) */
 #define OMAP_INT_3XXX_MCBSP5_IRQ_TX 81 /* MCBSP module 5 transmit */
 #define OMAP_INT_3XXX_MCBSP5_IRQ_RX 82 /* MCBSP module 5 receive */
 #define OMAP_INT_3XXX_MMC1_IRQ      83 /* MMC/SD module 1 */
@@ -872,6 +872,8 @@ struct omap_dma_lcd_channel_s {
 #define OMAP3XXX_DMA_MMC3_RX          78
 #define OMAP3XXX_DMA_USIM_TX          79
 #define OMAP3XXX_DMA_USIM_RX          80
+#define OMAP3XXX_DMA_UART4_TX         81
+#define OMAP3XXX_DMA_UART4_RX         82
 
 /* omap_gpio.c */
 struct omap_gpio_s;
@@ -979,13 +981,7 @@ struct rfbi_chip_s {
     void (*block)(void *opaque, int dc, void *buf, size_t len, int pitch);
     uint16_t (*read)(void *opaque, int dc);
 };
-struct dsi_chip_s {
-    void *opaque;
-    void (*write)(void *opaque, uint32_t data, int len);
-    uint32_t (*read)(void *opaque, uint32_t data, int len);
-    /*void (*block)(void *opaque, void *buf, size_t len);*/
-    void (*block_fake)(void *opaque, const struct omap_dss_dispc_s *dispc);
-};
+struct dsi_chip_s;
 struct omap_dss_panel_s {
     void *opaque;
     void (*controlupdate)(void *opaque,
@@ -994,15 +990,17 @@ struct omap_dss_panel_s {
 extern const int omap_lcd_Bpp[0x10];
 void omap_dss_reset(struct omap_dss_s *s);
 struct omap_dss_s *omap_dss_init(struct omap_target_agent_s *ta,
+                                 struct omap_mpu_state_s *mpu,
                                  qemu_irq irq, qemu_irq drq,
                                  omap_clk fck1, omap_clk fck2, omap_clk ck54m,
                                  omap_clk ick1, omap_clk ick2);
 struct omap_dss_s *omap3_dss_init(struct omap_target_agent_s *ta,
+                                  struct omap_mpu_state_s *mpu,
                                   qemu_irq irq, qemu_irq line_trigger,
                                   qemu_irq dma0, qemu_irq dma1,
                                   qemu_irq dma2, qemu_irq dma3);
 void omap_rfbi_attach(struct omap_dss_s *s, int cs, const struct rfbi_chip_s *chip);
-void omap_dsi_attach(struct omap_dss_s *s, int vc, const struct dsi_chip_s *chip);
+void omap_dsi_attach(struct omap_dss_s *s, int vc, struct dsi_chip_s *chip);
 void omap_lcd_panel_attach(struct omap_dss_s *s, const struct omap_dss_panel_s *p);
 
 /* omap_lcdc.c */
@@ -1045,12 +1043,14 @@ void omap3_mmc_attach(DeviceState *dev, BlockDriverState *bs,
 /* omap_i2c.c */
 struct omap_i2c_s;
 struct omap_i2c_s *omap_i2c_init(target_phys_addr_t base,
-                qemu_irq irq, qemu_irq *dma, omap_clk clk);
+                                 qemu_irq irq, qemu_irq *dma, omap_clk clk);
 struct omap_i2c_s *omap2_i2c_init(struct omap_target_agent_s *ta,
-                qemu_irq irq, qemu_irq *dma, omap_clk fclk, omap_clk iclk);
+                                  qemu_irq irq, qemu_irq *dma, omap_clk fclk,
+                                  omap_clk iclk);
 struct omap_i2c_s *omap3_i2c_init(struct omap_target_agent_s *ta,
-                qemu_irq irq, qemu_irq *dma, omap_clk fclk, omap_clk iclk,
-                int fifosize);
+                                  struct omap_mpu_state_s *mpu,
+                                  qemu_irq irq, qemu_irq *dma, omap_clk fclk,
+                                  omap_clk iclk, int fifosize);
 void omap_i2c_reset(struct omap_i2c_s *s);
 i2c_bus *omap_i2c_bus(struct omap_i2c_s *s);
 
@@ -1091,7 +1091,7 @@ void usb_ohci_init_omap(target_phys_addr_t base, uint32_t region_size,
 # define cpu_is_omap2420(cpu)		(cpu->mpu_model == omap2420)
 # define cpu_is_omap2430(cpu)		(cpu->mpu_model == omap2430)
 # define cpu_is_omap3430(cpu)		(cpu->mpu_model == omap3430)
-# define cpu_is_omap3530(cpu)       (cpu->mpu_model == omap3530)
+# define cpu_is_omap3630(cpu)       (cpu->mpu_model == omap3630)
 
 # define cpu_is_omap15xx(cpu)		\
         (cpu_is_omap310(cpu) || cpu_is_omap1510(cpu))
@@ -1104,7 +1104,7 @@ void usb_ohci_init_omap(target_phys_addr_t base, uint32_t region_size,
         (cpu_is_omap15xx(cpu) || cpu_is_omap16xx(cpu))
 # define cpu_class_omap2(cpu)		cpu_is_omap24xx(cpu)
 # define cpu_class_omap3(cpu)		\
-        (cpu_is_omap3430(cpu) || cpu_is_omap3530(cpu))
+        (cpu_is_omap3430(cpu) || cpu_is_omap3630(cpu))
 
 struct omap_mpu_state_s {
     enum omap_mpu_model {
@@ -1118,7 +1118,7 @@ struct omap_mpu_state_s {
         omap2423,
         omap2430,
         omap3430,
-        omap3530,
+        omap3630,
     } mpu_model;
 
     CPUState *env;
@@ -1141,7 +1141,7 @@ struct omap_mpu_state_s {
     unsigned long sram_size;
 
     /* MPUI-TIPB peripherals */
-    struct omap_uart_s *uart[3];
+    struct omap_uart_s *uart[4];
     struct omap_gpio_s *gpio;
     struct omap_mcbsp_s *mcbsp1;
     struct omap_mcbsp_s *mcbsp3;
@@ -1233,10 +1233,12 @@ struct omap_mpu_state_s *omap2420_mpu_init(unsigned long sdram_size,
                 const char *core);
 
 /* omap3.c */
-struct omap_mpu_state_s *omap3530_mpu_init(unsigned long sdram_size,
-                                           CharDriverState *chr_uart1,
-                                           CharDriverState *chr_uart2,
-                                           CharDriverState *chr_uart3);
+struct omap_mpu_state_s *omap3_mpu_init(int model,
+                                        unsigned long sdram_size,
+                                        CharDriverState *chr_uart1,
+                                        CharDriverState *chr_uart2,
+                                        CharDriverState *chr_uart3,
+                                        CharDriverState *chr_uart4);
 void omap3_set_mem_type(struct omap_mpu_state_s *s, int bootfrom);
 
 /* omap3_boot.c */
