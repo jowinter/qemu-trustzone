@@ -176,9 +176,10 @@ static void n8x0_nand_setup(struct n800_s *s)
     char *otp_region;
 
     /* Either 0x40 or 0x48 are OK for the device ID */
+    DriveInfo *dinfo = drive_get(IF_MTD, 0, 0);
     s->nand = onenand_create(NAND_MFR_SAMSUNG, 0x48, 0, 1,
                              omap2_gpio_in_get(s->cpu->gpif,N8X0_ONENAND_GPIO),
-                             drive_get(IF_MTD, 0, 0));
+                             dinfo ? dinfo->bdrv : NULL);
     omap_gpmc_attach(s->cpu->gpmc, N8X0_ONENAND_CS, s->nand, 0, 0);
     otp_region = onenand_raw_otp(s->nand);
 
@@ -2451,13 +2452,13 @@ static void n900_init(ram_addr_t ram_size,
     s->nand = onenand_create(NAND_MFR_SAMSUNG, 0x40, 0x121, 1, 
                              omap2_gpio_in_get(s->cpu->gpif,
                                                N900_ONENAND_GPIO),
-                             dmtd);
+                             dmtd ? dmtd->bdrv : NULL);
 
     if (dsd) {
-        omap3_mmc_attach(s->cpu->omap3_mmc[1], dsd, 0, 1);
+        omap3_mmc_attach(s->cpu->omap3_mmc[1], dsd->bdrv, 0, 1);
     }
     if ((dsd = drive_get(IF_SD, 0, 1)) != NULL) {
-        omap3_mmc_attach(s->cpu->omap3_mmc[0], dsd, 0, 0);
+        omap3_mmc_attach(s->cpu->omap3_mmc[0], dsd->bdrv, 0, 0);
         //qemu_irq_raise(omap2_gpio_in_get(s->cpu->gpif, N900_SDCOVER_GPIO));
     }
 
