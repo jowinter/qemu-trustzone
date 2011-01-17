@@ -429,7 +429,10 @@ static void serial_ioport_write(void *opaque, uint32_t addr, uint32_t val)
             qemu_del_timer(s->fifo_timeout_timer);
             s->timeout_ipending=0;
             fifo_clear(s,RECV_FIFO);
-            s->lsr &= ~UART_LSR_DR;
+            if ((s->lsr & UART_LSR_DR)) {
+                s->lsr &= ~(UART_LSR_DR | UART_LSR_BI);
+                qemu_chr_accept_input(s->chr);
+            }
         }
 
         if (val & UART_FCR_XFR) {
