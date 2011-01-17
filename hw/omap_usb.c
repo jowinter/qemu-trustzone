@@ -442,8 +442,10 @@ static void omap3_hsusb_tll_write(void *opaque, target_phys_addr_t addr,
         case 0x00: /* USBTLL_REVISION */
         case 0x14: /* USBTLL_SYSSTATUS */
             OMAP_RO_REGV(addr, value);
+            break;
         case 0x10: /* USBTLL_SYSCONFIG */
             s->tll_sysconfig = value & 0xFFFFFEE0;;
+            break;
         default:
             OMAP_BAD_REGV(addr, value);
             break;
