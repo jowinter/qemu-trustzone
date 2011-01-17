@@ -228,8 +228,11 @@ static void omap_mcspi_transfer_run(OMAPSPIBusState *s, int chnum)
     ch->tx = 0;
     ch->status |= 1 << 2;               /* EOT */
     ch->status |= 1 << 1;               /* TXS */
-    if (trm != 2)
+    if (trm != 2) {
         ch->status |= 1;                /* RXS */
+    } else {
+        ch->status &= ~1;               /* RXS */
+    }
 
 intr_update:
     if ((ch->status & 1) &&	trm != 2 &&                     /* RXS */
