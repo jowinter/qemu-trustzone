@@ -21,6 +21,8 @@
  */
 #include "hw.h"
 #include "omap.h"
+#include "sysbus.h"
+#include "spi.h"
 
 //#define SPI_DEBUG
 
@@ -36,7 +38,8 @@
 #define SPI_REV_OMAP3430 0x21
 #define IS_OMAP3_SPI(s) ((s)->revision >= SPI_REV_OMAP3430)
 
-struct omap_mcspi_s {
+typedef struct omap_mcspi_bus_s {
+    SPIBus *bus;
     qemu_irq irq;
     int chnum;
     uint8_t revision;
@@ -61,8 +64,6 @@ struct omap_mcspi_s {
     struct omap_mcspi_ch_s {
         qemu_irq txdrq;
         qemu_irq rxdrq;
-        uint32_t (*txrx)(void *opaque, uint32_t, int);
-        void *opaque;
 
         uint32_t tx;
         uint32_t rx;
@@ -70,15 +71,22 @@ struct omap_mcspi_s {
         uint32_t config;
         uint32_t status;
         uint32_t control;
-    } ch[0];
-};
+    } *ch;
+} OMAPSPIBusState;
 
-static inline void omap_mcspi_interrupt_update(struct omap_mcspi_s *s)
+typedef struct omap_mcspi_s {
+    SysBusDevice busdev;
+    int mpu_model;
+    int buscount;
+    OMAPSPIBusState *bus;
+} OMAPSPIState;
+
+static inline void omap_mcspi_interrupt_update(OMAPSPIBusState *s)
 {
     qemu_set_irq(s->irq, s->irqst & s->irqen);
 }
 
-static inline void omap_mcspi_dmarequest_update(struct omap_mcspi_s *s,
+static inline void omap_mcspi_dmarequest_update(OMAPSPIBusState *s,
                                                 int chnum)
 {
     struct omap_mcspi_ch_s *ch = &s->ch[chnum];
@@ -106,7 +114,7 @@ static inline void omap_mcspi_dmarequest_update(struct omap_mcspi_s *s,
     }
 }
 
-static void omap_mcspi_fifo_reset(struct omap_mcspi_s *s)
+static void omap_mcspi_fifo_reset(OMAPSPIBusState *s)
 {
     struct omap_mcspi_ch_s *ch;
 
@@ -155,7 +163,7 @@ static void omap_mcspi_fifo_put(struct omap_mcspi_fifo_s *s, int wl,
     }
 }
 
-static void omap_mcspi_transfer_run(struct omap_mcspi_s *s, int chnum)
+static void omap_mcspi_transfer_run(OMAPSPIBusState *s, int chnum)
 {
     struct omap_mcspi_ch_s *ch = s->ch + chnum;
     int trm = (ch->config >> 12) & 3;
@@ -171,51 +179,49 @@ static void omap_mcspi_transfer_run(struct omap_mcspi_s *s, int chnum)
 
     if (!(s->control & 1) ||        /* SINGLE */
         (ch->config & (1 << 20))) { /* FORCE */
-        if (ch->txrx) {
-            wl = 1 + (0x1f & (ch->config >> 7)); /* WL */
-            if (!IS_OMAP3_SPI(s) || s->fifo_ch != chnum ||
-                !((ch->config >> 27) & 3)) {     /* FFER | FFEW */
-                ch->rx = ch->txrx(ch->opaque, ch->tx, wl);
-            } else {
-                switch ((ch->config >> 27) & 3) {
-                case 1: /* !FFER, FFEW */
+        wl = 1 + (0x1f & (ch->config >> 7)); /* WL */
+        if (!IS_OMAP3_SPI(s) || s->fifo_ch != chnum ||
+            !((ch->config >> 27) & 3)) {     /* FFER | FFEW */
+            ch->rx = spi_txrx(s->bus, chnum, ch->tx, wl);
+        } else {
+            switch ((ch->config >> 27) & 3) {
+            case 1: /* !FFER, FFEW */
+                if (trm != 1)
+                    ch->tx = omap_mcspi_fifo_get(&s->tx_fifo, wl);
+                ch->rx = spi_txrx(s->bus, chnum, ch->tx, wl);
+                s->fifo_wcnt--;
+                break;
+            case 2: /* FFER, !FFEW */
+                ch->rx = spi_txrx(s->bus, chnum, ch->tx, wl);
+                if (trm != 2)
+                    omap_mcspi_fifo_put(&s->rx_fifo, wl, ch->rx);
+                s->fifo_wcnt--;
+                break;
+            case 3: /* FFER, FFEW */
+                while (s->rx_fifo.len < s->rx_fifo.size &&
+                       s->tx_fifo.len && s->fifo_wcnt) {
                     if (trm != 1)
                         ch->tx = omap_mcspi_fifo_get(&s->tx_fifo, wl);
-                    ch->rx = ch->txrx(ch->opaque, ch->tx, wl);
-                    s->fifo_wcnt--;
-                    break;
-                case 2: /* FFER, !FFEW */
-                    ch->rx = ch->txrx(ch->opaque, ch->tx, wl);
+                    ch->rx = spi_txrx(s->bus, chnum, ch->tx, wl);
                     if (trm != 2)
                         omap_mcspi_fifo_put(&s->rx_fifo, wl, ch->rx);
                     s->fifo_wcnt--;
-                    break;
-                case 3: /* FFER, FFEW */
-                    while (s->rx_fifo.len < s->rx_fifo.size &&
-                           s->tx_fifo.len && s->fifo_wcnt) {
-                        if (trm != 1)
-                            ch->tx = omap_mcspi_fifo_get(&s->tx_fifo, wl);
-                        ch->rx = ch->txrx(ch->opaque, ch->tx, wl);
-                        if (trm != 2)
-                            omap_mcspi_fifo_put(&s->rx_fifo, wl, ch->rx);
-                        s->fifo_wcnt--;
-                    }
-                    break;
-                default:
-                    break;
                 }
-                if ((ch->config & (1 << 28)) &&        /* FFER */
-                    s->rx_fifo.len >= s->rx_fifo.size)
-                    ch->status |= 1 << 6;              /* RXFFF */
-                ch->status &= ~(1 << 5);               /* RXFFE */
-                ch->status &= ~(1 << 4);               /* TXFFF */
-                if ((ch->config & (1 << 27)) &&        /* FFEW */
-                    !s->tx_fifo.len)
-                    ch->status |= 1 << 3;              /* TXFFE */
-                if (!s->fifo_wcnt &&
-                    ((s->xferlevel >> 16) & 0xffff))   /* WCNT */
-                    s->irqst |= 1 << 17;               /* EOW */
+                break;
+            default:
+                break;
             }
+            if ((ch->config & (1 << 28)) &&        /* FFER */
+                s->rx_fifo.len >= s->rx_fifo.size)
+                ch->status |= 1 << 6;              /* RXFFF */
+            ch->status &= ~(1 << 5);               /* RXFFE */
+            ch->status &= ~(1 << 4);               /* TXFFF */
+            if ((ch->config & (1 << 27)) &&        /* FFEW */
+                !s->tx_fifo.len)
+                ch->status |= 1 << 3;              /* TXFFE */
+            if (!s->fifo_wcnt &&
+                ((s->xferlevel >> 16) & 0xffff))   /* WCNT */
+                s->irqst |= 1 << 17;               /* EOW */
         }
     }
 
@@ -241,7 +247,7 @@ intr_update:
     omap_mcspi_dmarequest_update(s, chnum);
 }
 
-void omap_mcspi_reset(struct omap_mcspi_s *s)
+static void omap_mcspi_bus_reset(OMAPSPIBusState *s)
 {
     int ch;
 
@@ -268,7 +274,7 @@ void omap_mcspi_reset(struct omap_mcspi_s *s)
 
 static uint32_t omap_mcspi_read(void *opaque, target_phys_addr_t addr)
 {
-    struct omap_mcspi_s *s = (struct omap_mcspi_s *) opaque;
+    OMAPSPIBusState *s = (OMAPSPIBusState *) opaque;
     int ch = 0;
     uint32_t ret;
 
@@ -394,7 +400,7 @@ static uint32_t omap_mcspi_read(void *opaque, target_phys_addr_t addr)
 static void omap_mcspi_write(void *opaque, target_phys_addr_t addr,
                              uint32_t value)
 {
-    struct omap_mcspi_s *s = (struct omap_mcspi_s *) opaque;
+    OMAPSPIBusState *s = (OMAPSPIBusState *) opaque;
     uint32_t old;
     int ch = 0;
 
@@ -416,7 +422,7 @@ static void omap_mcspi_write(void *opaque, target_phys_addr_t addr,
     case 0x10:	/* MCSPI_SYSCONFIG */
         TRACE("SYSCONFIG = 0x%08x", value);
         if (value & (1 << 1))				/* SOFTRESET */
-            omap_mcspi_reset(s);
+            omap_mcspi_bus_reset(s);
         s->sysconfig = value & 0x31d;
         break;
 
@@ -570,39 +576,70 @@ static CPUWriteMemoryFunc * const omap_mcspi_writefn[] = {
     omap_mcspi_write,
 };
 
-struct omap_mcspi_s *omap_mcspi_init(struct omap_target_agent_s *ta,
-                                     struct omap_mpu_state_s *mpu,
-                                     int chnum, qemu_irq irq, qemu_irq *drq,
-                                     omap_clk fclk, omap_clk iclk)
+static void omap_mcspi_reset(DeviceState *qdev)
 {
-    struct omap_mcspi_s *s = qemu_mallocz(sizeof(*s) +
-        chnum * sizeof(struct omap_mcspi_ch_s));
-    struct omap_mcspi_ch_s *ch = s->ch;
-
-    s->irq = irq;
-    s->chnum = chnum;
-    /* revision was hardcoded as 0x91 in original code -- odd */
-    s->revision = cpu_class_omap3(mpu) ? SPI_REV_OMAP3430 : SPI_REV_OMAP2420;
-    while (chnum --) {
-        ch->txdrq = *drq ++;
-        ch->rxdrq = *drq ++;
-        ch ++;
+    int i;
+    OMAPSPIState *s = FROM_SYSBUS(OMAPSPIState, sysbus_from_qdev(qdev));
+    for (i = 0; i < s->buscount; i++) {
+        omap_mcspi_bus_reset(&s->bus[i]);
     }
-    omap_mcspi_reset(s);
-
-    omap_l4_attach(ta, 0, l4_register_io_memory(omap_mcspi_readfn,
-                                                omap_mcspi_writefn, s));
-    return s;
 }
 
-void omap_mcspi_attach(struct omap_mcspi_s *s,
-                       uint32_t (*txrx)(void *opaque, uint32_t, int),
-                       void *opaque,
-                       int chipselect)
+static int omap_mcspi_init(SysBusDevice *busdev)
 {
-    if (chipselect < 0 || chipselect >= s->chnum)
-        hw_error("%s: Bad chipselect %i\n", __FUNCTION__, chipselect);
-
-    s->ch[chipselect].txrx = txrx;
-    s->ch[chipselect].opaque = opaque;
+    int i, j;
+    OMAPSPIBusState *bs;
+    OMAPSPIState *s = FROM_SYSBUS(OMAPSPIState, busdev);
+    
+    s->buscount = (s->mpu_model < omap3430) ? 2 : 4;
+    s->bus = qemu_mallocz(s->buscount * sizeof(*s->bus));
+    for (i = 0; i < s->buscount; i++) {
+        bs = &s->bus[i];
+        if (s->mpu_model < omap3430) {
+            bs->revision = SPI_REV_OMAP2420;
+            bs->chnum = i ? 2 : 4;
+        } else {
+            bs->revision = SPI_REV_OMAP3430;
+            bs->chnum = (i > 2) ? 1 : (i ? 2 : 4);
+        }
+        sysbus_init_irq(busdev, &bs->irq);
+        bs->bus = spi_init_bus(&busdev->qdev, NULL, bs->chnum);
+        bs->ch = qemu_mallocz(bs->chnum * sizeof(*bs->ch));
+        for (j = 0; j < bs->chnum; j++) {
+            sysbus_init_irq(busdev, &bs->ch[j].txdrq);
+            sysbus_init_irq(busdev, &bs->ch[j].rxdrq);
+        }
+        sysbus_init_mmio(busdev, 0x1000,
+                         cpu_register_io_memory(omap_mcspi_readfn,
+                                                omap_mcspi_writefn, bs,
+                                                DEVICE_NATIVE_ENDIAN));
+    }
+    return 0;
 }
+
+SPIBus *omap_mcspi_bus(DeviceState *qdev, int bus_number)
+{
+    OMAPSPIState *s = FROM_SYSBUS(OMAPSPIState, sysbus_from_qdev(qdev));
+    if (bus_number < s->buscount) {
+        return s->bus[bus_number].bus;
+    }
+    hw_error("%s: invalid bus number %d\n", __FUNCTION__, bus_number);
+}
+
+static SysBusDeviceInfo omap_mcspi_info = {
+    .init = omap_mcspi_init,
+    .qdev.name = "omap_mcspi",
+    .qdev.size = sizeof(OMAPSPIState),
+    .qdev.reset = omap_mcspi_reset,
+    .qdev.props = (Property[]) {
+        DEFINE_PROP_INT32("mpu_model", OMAPSPIState, mpu_model, 0),
+        DEFINE_PROP_END_OF_LIST()
+    }
+};
+
+static void omap_mcspi_register_device(void)
+{
+    sysbus_register_withprop(&omap_mcspi_info);
+}
+
+device_init(omap_mcspi_register_device)

@@ -25,6 +25,7 @@
 #include "console.h"
 #include "omap.h"	/* For I2SCodec and uWireSlave */
 #include "devices.h"
+#include "spi.h"
 
 #define TSC_DATA_REGISTERS_PAGE		0x0
 #define TSC_CONTROL_REGISTERS_PAGE	0x1
@@ -35,9 +36,7 @@
 #define TSC_CUT_RESOLUTION(value, p)	((value) >> (16 - resolution[p]))
 
 typedef struct {
-    qemu_irq pint;
-    qemu_irq kbint;
-    qemu_irq davint;
+    qemu_irq irq[3]; /* pint, kbint, davint */
     QEMUTimer *timer;
     QEMUSoundCard card;
     uWireSlave chip;
@@ -49,7 +48,7 @@ typedef struct {
     int x, y;
     int pressure;
 
-    int state, page, offset, irq;
+    int state, page, offset, pint;
     uint16_t command, dav;
 
     int busy;
@@ -93,6 +92,11 @@ typedef struct {
         int intr;
     } kb;
 } TSC210xState;
+
+typedef struct {
+    SPIDevice spi;
+    TSC210xState tsc210x;
+} TSC2301State;
 
 static const int resolution[4] = { 12, 8, 10, 12 };
 
@@ -160,7 +164,7 @@ static void tsc210x_reset(TSC210xState *s)
     s->nextfunction = 0;
     s->ref = 0;
     s->timing = 0;
-    s->irq = 0;
+    s->pint = 0;
     s->dav = 0;
 
     s->audio_ctrl1 = 0x0000;
@@ -204,9 +208,15 @@ static void tsc210x_reset(TSC210xState *s)
     s->kb.mode = 3;
     s->kb.intr = 0;
 
-    qemu_set_irq(s->pint, !s->irq);
-    qemu_set_irq(s->davint, !s->dav);
-    qemu_irq_raise(s->kbint);
+    qemu_set_irq(s->irq[0], !s->pint);
+    qemu_set_irq(s->irq[2], !s->dav);
+    qemu_irq_raise(s->irq[1]);
+}
+
+static void tsc2301_reset(DeviceState *qdev)
+{
+    tsc210x_reset(&FROM_SPI_DEVICE(TSC2301State,
+                                   SPI_DEVICE_FROM_QDEV(qdev))->tsc210x);
 }
 
 typedef struct {
@@ -383,7 +393,7 @@ static uint16_t tsc2102_data_register_read(TSC210xState *s, int reg)
         if ((s->model & 0xff00) == 0x2300) {
             if (s->kb.intr && (s->kb.mode & 2)) {
                 s->kb.intr = 0;
-                qemu_irq_raise(s->kbint);
+                qemu_irq_raise(s->irq[1]);
             }
             return s->kb.down;
         }
@@ -609,7 +619,7 @@ static void tsc2102_control_register_write(
             s->kb.debounce = (value >> 11) & 7;
             if (s->kb.intr && s->kb.scan) {
                 s->kb.intr = 0;
-                qemu_irq_raise(s->kbint);
+                qemu_irq_raise(s->irq[1]);
             }
         }
         return;
@@ -819,9 +829,9 @@ static void tsc210x_pin_update(TSC210xState *s)
     if (!s->enabled)
         pin_state = 0;
 
-    if (pin_state != s->irq) {
-        s->irq = pin_state;
-        qemu_set_irq(s->pint, !s->irq);
+    if (pin_state != s->pint) {
+        s->pint = pin_state;
+        qemu_set_irq(s->irq[0], !s->pint);
     }
 
     switch (s->nextfunction) {
@@ -879,7 +889,7 @@ static uint16_t tsc210x_read(TSC210xState *s)
     case TSC_DATA_REGISTERS_PAGE:
         ret = tsc2102_data_register_read(s, s->offset);
         if (!s->dav)
-            qemu_irq_raise(s->davint);
+            qemu_irq_raise(s->irq[2]);
         break;
     case TSC_CONTROL_REGISTERS_PAGE:
         ret = tsc2102_control_register_read(s, s->offset);
@@ -933,9 +943,9 @@ static void tsc210x_write(TSC210xState *s, uint16_t value)
     }
 }
 
-uint32_t tsc210x_txrx(void *opaque, uint32_t value, int len)
+static uint32_t tsc2301_txrx(SPIDevice *spidev, uint32_t value, int len)
 {
-    TSC210xState *s = opaque;
+    TSC210xState *s = &FROM_SPI_DEVICE(TSC2301State, spidev)->tsc210x;
     uint32_t ret = 0;
 
     if (len != 16)
@@ -964,7 +974,7 @@ static void tsc210x_timer_tick(void *opaque)
     s->busy = 0;
     s->dav |= mode_regs[s->function];
     tsc210x_pin_update(s);
-    qemu_irq_lower(s->davint);
+    qemu_irq_lower(s->irq[2]);
 }
 
 static void tsc210x_touchscreen_event(void *opaque,
@@ -1017,7 +1027,7 @@ static void tsc210x_save(QEMUFile *f, void *opaque)
     qemu_put_byte(f, s->offset);
     qemu_put_byte(f, s->command);
 
-    qemu_put_byte(f, s->irq);
+    qemu_put_byte(f, s->pint);
     qemu_put_be16s(f, &s->dav);
 
     qemu_put_timer(f, s->timer);
@@ -1063,7 +1073,7 @@ static int tsc210x_load(QEMUFile *f, void *opaque, int version_id)
     s->offset = qemu_get_byte(f);
     s->command = qemu_get_byte(f);
 
-    s->irq = qemu_get_byte(f);
+    s->pint = qemu_get_byte(f);
     qemu_get_be16s(f, &s->dav);
 
     qemu_get_timer(f, s->timer);
@@ -1094,8 +1104,8 @@ static int tsc210x_load(QEMUFile *f, void *opaque, int version_id)
         qemu_get_be16s(f, &s->filter_data[i]);
 
     s->busy = qemu_timer_pending(s->timer);
-    qemu_set_irq(s->pint, !s->irq);
-    qemu_set_irq(s->davint, !s->dav);
+    qemu_set_irq(s->irq[0], !s->pint);
+    qemu_set_irq(s->irq[2], !s->dav);
 
     return 0;
 }
@@ -1112,7 +1122,7 @@ uWireSlave *tsc2102_init(qemu_irq pint)
     s->pressure = 0;
     s->precision = s->nextprecision = 0;
     s->timer = qemu_new_timer(vm_clock, tsc210x_timer_tick, s);
-    s->pint = pint;
+    s->irq[0] = pint;
     s->model = 0x2102;
     s->name = "tsc2102";
 
@@ -1149,21 +1159,16 @@ uWireSlave *tsc2102_init(qemu_irq pint)
     return &s->chip;
 }
 
-uWireSlave *tsc2301_init(qemu_irq penirq, qemu_irq kbirq, qemu_irq dav)
+static int tsc2301_init(SPIDevice *spidev)
 {
-    TSC210xState *s;
+    TSC210xState *s = &FROM_SPI_DEVICE(TSC2301State, spidev)->tsc210x;
 
-    s = (TSC210xState *)
-            qemu_mallocz(sizeof(TSC210xState));
-    memset(s, 0, sizeof(TSC210xState));
     s->x = 400;
     s->y = 240;
     s->pressure = 0;
     s->precision = s->nextprecision = 0;
     s->timer = qemu_new_timer(vm_clock, tsc210x_timer_tick, s);
-    s->pint = penirq;
-    s->kbint = kbirq;
-    s->davint = dav;
+    qdev_init_gpio_out(&spidev->qdev, s->irq, 3);
     s->model = 0x2301;
     s->name = "tsc2301";
 
@@ -1186,17 +1191,27 @@ uWireSlave *tsc2301_init(qemu_irq penirq, qemu_irq kbirq, qemu_irq dav)
     s->codec.in.fifo = s->in_fifo;
     s->codec.out.fifo = s->out_fifo;
 
-    tsc210x_reset(s);
-
     qemu_add_mouse_event_handler(tsc210x_touchscreen_event, s, 1,
                     "QEMU TSC2301-driven Touchscreen");
 
     AUD_register_card(s->name, &s->card);
 
-    qemu_register_reset((void *) tsc210x_reset, s);
     register_savevm(NULL, s->name, -1, 0, tsc210x_save, tsc210x_load, s);
 
-    return &s->chip;
+    return 0;
+}
+
+static SPIDeviceInfo tsc2301_info = {
+    .init = tsc2301_init,
+    .txrx = tsc2301_txrx,
+    .qdev.name = "tsc2301",
+    .qdev.size = sizeof(TSC2301State),
+    .qdev.reset = tsc2301_reset,
+};
+
+static void tsc210x_register_devices(void)
+{
+    spi_register_device(&tsc2301_info);
 }
 
 I2SCodec *tsc210x_codec(uWireSlave *chip)
@@ -1273,6 +1288,14 @@ void tsc210x_set_transform(uWireSlave *chip,
 #endif
 }
 
+void tsc2301_set_transform(DeviceState *qdev, MouseTransformInfo *info)
+{
+    tsc210x_set_transform(
+        &FROM_SPI_DEVICE(TSC2301State,
+                         SPI_DEVICE_FROM_QDEV(qdev))->tsc210x.chip,
+        info);
+}
+
 void tsc210x_key_event(uWireSlave *chip, int key, int down)
 {
     TSC210xState *s = (TSC210xState *) chip->opaque;
@@ -1284,10 +1307,19 @@ void tsc210x_key_event(uWireSlave *chip, int key, int down)
 
     if (down && (s->kb.down & ~s->kb.mask) && !s->kb.intr) {
         s->kb.intr = 1;
-        qemu_irq_lower(s->kbint);
+        qemu_irq_lower(s->irq[1]);
     } else if (s->kb.intr && !(s->kb.down & ~s->kb.mask) &&
                     !(s->kb.mode & 1)) {
         s->kb.intr = 0;
-        qemu_irq_raise(s->kbint);
+        qemu_irq_raise(s->irq[1]);
     }
 }
+
+void tsc2301_key_event(DeviceState *qdev, int key, int down)
+{
+    TSC2301State *s = FROM_SPI_DEVICE(TSC2301State,
+                                      SPI_DEVICE_FROM_QDEV(qdev));
+    tsc210x_key_event(&s->tsc210x.chip, key, down);
+}
+
+device_init(tsc210x_register_devices)

@@ -4032,7 +4032,8 @@ static void omap3_reset(void *opaque)
 {
     struct omap_mpu_state_s *s = opaque;
     int i;
-    
+
+    cpu_reset(s->env);
     omap_inth_reset(s->ih[0]);
     omap_dma_reset(s->dma);
     omap3_cm_reset(s->omap3_cm);
@@ -4052,10 +4053,6 @@ static void omap3_reset(void *opaque)
     if (s->mpu_model == omap3630) {
         omap_uart_reset(s->uart[3]);
     }
-    for (i = 0; i < 4; i++) {
-        omap_mcspi_reset(s->mcspi[i]);
-    }
-    cpu_reset(s->env);
 }
 
 static const struct dma_irq_map omap3_dma_irq_map[] = {
@@ -4300,7 +4297,9 @@ struct omap_mpu_state_s *omap3_mpu_init(int model,
     sysbus_connect_irq(busdev, 2, s->drq[OMAP3XXX_DMA_MMC3_RX]);
     sysbus_mmio_map(busdev,0,omap_l4_base(omap3_l4ta_init(s->l4, L4A_MMC3),0));
     
-    s->i2c = omap_i2c_create(s->mpu_model);
+    s->i2c = qdev_create(NULL, "omap_i2c");
+    qdev_prop_set_int32(s->i2c, "mpu_model", s->mpu_model);
+    qdev_init_nofail(s->i2c);
     busdev = sysbus_from_qdev(s->i2c);
     sysbus_connect_irq(busdev, 0, s->irq[0][OMAP_INT_3XXX_I2C1_IRQ]);
     sysbus_connect_irq(busdev, 1, s->drq[OMAP3XXX_DMA_I2C1_TX]);
@@ -4338,31 +4337,41 @@ struct omap_mpu_state_s *omap3_mpu_init(int model,
     sysbus_mmio_map(busdev, 1, omap_l4_base(usbhost_ta, 0));
     sysbus_mmio_map(busdev, 2, omap_l4_base(usbhost_ta, 2));
 
-    s->mcspi[0] = omap_mcspi_init(omap3_l4ta_init(s->l4, L4A_MCSPI1), s, 4,
-                                  s->irq[0][OMAP_INT_3XXX_MCSPI1_IRQ],
-                                  &s->drq[OMAP3XXX_DMA_SPI1_TX0],
-                                  omap_findclk(s, "omap3_spi1_fclk"),
-                                  omap_findclk(s, "omap3_spi1_iclk"));
-    s->mcspi[1] = omap_mcspi_init(omap3_l4ta_init(s->l4, L4A_MCSPI2), s, 2,
-                                  s->irq[0][OMAP_INT_3XXX_MCSPI2_IRQ],
-                                  &s->drq[OMAP3XXX_DMA_SPI2_TX0],
-                                  omap_findclk(s, "omap3_spi2_fclk"),
-                                  omap_findclk(s, "omap3_spi2_iclk"));
-    drqs[0] = s->drq[OMAP3XXX_DMA_SPI3_TX0];
-    drqs[1] = s->drq[OMAP3XXX_DMA_SPI3_RX0];
-    drqs[2] = s->drq[OMAP3XXX_DMA_SPI3_TX1];
-    drqs[3] = s->drq[OMAP3XXX_DMA_SPI3_RX1];
-    s->mcspi[2] = omap_mcspi_init(omap3_l4ta_init(s->l4, L4A_MCSPI3), s, 2,
-                                  s->irq[0][OMAP_INT_3XXX_MCSPI3_IRQ],
-                                  drqs,
-                                  omap_findclk(s, "omap3_spi3_fclk"),
-                                  omap_findclk(s, "omap3_spi3_iclk"));
-    s->mcspi[3] = omap_mcspi_init(omap3_l4ta_init(s->l4, L4A_MCSPI4), s, 1,
-                                  s->irq[0][OMAP_INT_3XXX_MCSPI4_IRQ],
-                                  &s->drq[OMAP3XXX_DMA_SPI4_TX0],
-                                  omap_findclk(s, "omap3_spi4_fclk"),
-                                  omap_findclk(s, "omap3_spi4_iclk"));
-
+    s->mcspi = qdev_create(NULL, "omap_mcspi");
+    qdev_prop_set_int32(s->mcspi, "mpu_model", s->mpu_model);
+    qdev_init_nofail(s->mcspi);
+    busdev = sysbus_from_qdev(s->mcspi);
+    sysbus_connect_irq(busdev, 0, s->irq[0][OMAP_INT_3XXX_MCSPI1_IRQ]);
+    sysbus_connect_irq(busdev, 1, s->drq[OMAP3XXX_DMA_SPI1_TX0]);
+    sysbus_connect_irq(busdev, 2, s->drq[OMAP3XXX_DMA_SPI1_RX0]);
+    sysbus_connect_irq(busdev, 3, s->drq[OMAP3XXX_DMA_SPI1_TX1]);
+    sysbus_connect_irq(busdev, 4, s->drq[OMAP3XXX_DMA_SPI1_RX1]);
+    sysbus_connect_irq(busdev, 5, s->drq[OMAP3XXX_DMA_SPI1_TX2]);
+    sysbus_connect_irq(busdev, 6, s->drq[OMAP3XXX_DMA_SPI1_RX2]);
+    sysbus_connect_irq(busdev, 7, s->drq[OMAP3XXX_DMA_SPI1_TX3]);
+    sysbus_connect_irq(busdev, 8, s->drq[OMAP3XXX_DMA_SPI1_RX3]);
+    sysbus_connect_irq(busdev, 9, s->irq[0][OMAP_INT_3XXX_MCSPI2_IRQ]);
+    sysbus_connect_irq(busdev, 10, s->drq[OMAP3XXX_DMA_SPI2_TX0]);
+    sysbus_connect_irq(busdev, 11, s->drq[OMAP3XXX_DMA_SPI2_RX0]);
+    sysbus_connect_irq(busdev, 12, s->drq[OMAP3XXX_DMA_SPI2_TX1]);
+    sysbus_connect_irq(busdev, 13, s->drq[OMAP3XXX_DMA_SPI2_RX1]);
+    sysbus_connect_irq(busdev, 14, s->irq[0][OMAP_INT_3XXX_MCSPI3_IRQ]);
+    sysbus_connect_irq(busdev, 15, s->drq[OMAP3XXX_DMA_SPI3_TX0]);
+    sysbus_connect_irq(busdev, 16, s->drq[OMAP3XXX_DMA_SPI3_RX0]);
+    sysbus_connect_irq(busdev, 17, s->drq[OMAP3XXX_DMA_SPI3_TX1]);
+    sysbus_connect_irq(busdev, 18, s->drq[OMAP3XXX_DMA_SPI3_RX1]);
+    sysbus_connect_irq(busdev, 19, s->irq[0][OMAP_INT_3XXX_MCSPI4_IRQ]);
+    sysbus_connect_irq(busdev, 20, s->drq[OMAP3XXX_DMA_SPI4_TX0]);
+    sysbus_connect_irq(busdev, 21, s->drq[OMAP3XXX_DMA_SPI4_RX0]);
+    sysbus_mmio_map(busdev, 0,
+                    omap_l4_base(omap3_l4ta_init(s->l4, L4A_MCSPI1), 0));
+    sysbus_mmio_map(busdev, 1,
+                    omap_l4_base(omap3_l4ta_init(s->l4, L4A_MCSPI2), 0));
+    sysbus_mmio_map(busdev, 2,
+                    omap_l4_base(omap3_l4ta_init(s->l4, L4A_MCSPI3), 0));
+    sysbus_mmio_map(busdev, 3,
+                    omap_l4_base(omap3_l4ta_init(s->l4, L4A_MCSPI4), 0));
+    
     qemu_register_reset(omap3_reset, s);
     return s;
 }

@@ -22,6 +22,7 @@
 #include "qemu-timer.h"
 #include "console.h"
 #include "devices.h"
+#include "spi.h"
 
 //#define TSC2005_DEBUG
 
@@ -35,6 +36,7 @@
 #define TSC_CUT_RESOLUTION(value, p)	((value) >> (16 - (p ? 12 : 10)))
 
 typedef struct {
+    SPIDevice spi;
     qemu_irq pint;	/* Combination of the nPENIRQ and DAV signals */
     QEMUTimer *timer;
     uint16_t model;
@@ -326,8 +328,10 @@ static void tsc2005_pin_update(TSC2005State *s)
     }
 }
 
-static void tsc2005_reset(TSC2005State *s)
+static void tsc2005_reset(DeviceState *qdev)
 {
+    TSC2005State *s = FROM_SPI_DEVICE(TSC2005State,
+                                      SPI_DEVICE_FROM_QDEV(qdev));
     s->state = 0;
     s->pin_func = 0;
     s->enabled = 0;
@@ -350,9 +354,8 @@ static void tsc2005_reset(TSC2005State *s)
     tsc2005_pin_update(s);
 }
 
-static uint8_t tsc2005_txrx_word(void *opaque, uint8_t value)
+static uint8_t tsc2005_txrx_word(TSC2005State *s, uint8_t value)
 {
-    TSC2005State *s = opaque;
     uint32_t ret = 0;
     TRACE("value = 0x%08x, state=%d", value, s->state + 1);
     switch (s->state ++) {
@@ -360,7 +363,7 @@ static uint8_t tsc2005_txrx_word(void *opaque, uint8_t value)
         if (value & 0x80) {
             /* Command */
             if (value & (1 << 1)) {
-                tsc2005_reset(s);
+                tsc2005_reset(&s->spi.qdev);
             } else {
                 s->nextfunction = (value >> 3) & 0xf;
                 s->nextprecision = (value >> 2) & 1;
@@ -415,14 +418,15 @@ static uint8_t tsc2005_txrx_word(void *opaque, uint8_t value)
     return ret;
 }
 
-uint32_t tsc2005_txrx(void *opaque, uint32_t value, int len)
+static uint32_t tsc2005_txrx(SPIDevice *spidev, uint32_t value, int len)
 {
+    TSC2005State *s = FROM_SPI_DEVICE(TSC2005State, spidev);
     uint32_t ret = 0;
     TRACE("value=0x%08x, len=%d", value, len);
     len &= ~7;
     while (len > 0) {
         len -= 8;
-        ret |= tsc2005_txrx_word(opaque, (value >> len) & 0xff) << len;
+        ret |= tsc2005_txrx_word(s, (value >> len) & 0xff) << len;
     }
 
     return ret;
@@ -579,18 +583,16 @@ static int tsc2005_load(QEMUFile *f, void *opaque, int version_id)
     return 0;
 }
 
-void *tsc2005_init(qemu_irq pintdav)
+static int tsc2005_init(SPIDevice *spidev)
 {
-    TSC2005State *s;
+    TSC2005State *s = FROM_SPI_DEVICE(TSC2005State, spidev);
 
-    s = (TSC2005State *)
-            qemu_mallocz(sizeof(TSC2005State));
     s->x = 400;
     s->y = 240;
     s->pressure = 0;
     s->precision = s->nextprecision = 0;
     s->timer = qemu_new_timer(vm_clock, tsc2005_timer_tick, s);
-    s->pint = pintdav;
+    qdev_init_gpio_out(&spidev->qdev, &s->pint, 1);
     s->model = 0x2005;
 
     s->tr[0] = 0;
@@ -605,15 +607,12 @@ void *tsc2005_init(qemu_irq pintdav)
     s->z1_cons = 400;
     s->z2_cons = 4000;
 
-    tsc2005_reset(s);
-
     qemu_add_mouse_event_handler(tsc2005_touchscreen_event, s, 1,
                     "QEMU TSC2005-driven Touchscreen");
 
-    qemu_register_reset((void *) tsc2005_reset, s);
     register_savevm(NULL, "tsc2005", -1, 0, tsc2005_save, tsc2005_load, s);
 
-    return s;
+    return 0;
 }
 
 /*
@@ -621,10 +620,11 @@ void *tsc2005_init(qemu_irq pintdav)
  * from the touchscreen.  Assuming 12-bit precision was used during
  * tslib calibration.
  */
-void tsc2005_set_transform(void *opaque, MouseTransformInfo *info,
+void tsc2005_set_transform(DeviceState *qdev, MouseTransformInfo *info,
                            int z1_cons, int z2_cons)
 {
-    TSC2005State *s = (TSC2005State *) opaque;
+    TSC2005State *s = FROM_SPI_DEVICE(TSC2005State,
+                                      SPI_DEVICE_FROM_QDEV(qdev));
 
     /* This version assumes touchscreen X & Y axis are parallel or
      * perpendicular to LCD's  X & Y axis in some way.  */
@@ -658,3 +658,18 @@ void tsc2005_set_transform(void *opaque, MouseTransformInfo *info,
     s->z1_cons = z1_cons;
     s->z2_cons = z2_cons;
 }
+
+static SPIDeviceInfo tsc2005_info = {
+    .init = tsc2005_init,
+    .txrx = tsc2005_txrx,
+    .qdev.name = "tsc2005",
+    .qdev.size = sizeof(TSC2005State),
+    .qdev.reset = tsc2005_reset,
+};
+
+static void tsc2005_register_device(void)
+{
+    spi_register_device(&tsc2005_info);
+}
+
+device_init(tsc2005_register_device)

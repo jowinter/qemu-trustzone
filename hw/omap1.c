@@ -3907,7 +3907,9 @@ struct omap_mpu_state_s *omap310_mpu_init(unsigned long sdram_size,
     s->pwl = omap_pwl_init(0xfffb5800, omap_findclk(s, "armxor_ck"));
     s->pwt = omap_pwt_init(0xfffb6000, omap_findclk(s, "armxor_ck"));
 
-    s->i2c = omap_i2c_create(s->mpu_model);
+    s->i2c = qdev_create(NULL, "omap_i2c");
+    qdev_prop_set_int32(s->i2c, "mpu_model", s->mpu_model);
+    qdev_init_nofail(s->i2c);
     SysBusDevice *busdev = sysbus_from_qdev(s->i2c);
     sysbus_connect_irq(busdev, 0, s->irq[1][OMAP_INT_I2C]);
     sysbus_connect_irq(busdev, 1, s->drq[OMAP_DMA_I2C_TX]);

@@ -55,7 +55,7 @@ typedef struct omap_i2c_bus_s {
 
 typedef struct omap_i2c_s {
     SysBusDevice busdev;
-    uint8_t revision;
+    int32_t mpu_model;
     int buscount;
     OMAPI2CBusState *bus;
 } OMAPI2CState;
@@ -717,18 +717,26 @@ static const VMStateDescription vmstate_omap_i2c_bus = {
 static int omap_i2c_init(SysBusDevice *dev)
 {
     int i;
+    uint8_t rev;
     OMAPI2CState *s = FROM_SYSBUS(OMAPI2CState, dev);
-    if (s->revision < OMAP2_INTR_REV) {
+    if (s->mpu_model < omap2410) {
+        rev = OMAP1_INTR_REV;
         s->buscount = 1;
-    } else if (s->revision < OMAP3_INTR_REV) {
+    }  else if (s->mpu_model < omap3430) {
+        rev = OMAP2_INTR_REV;
         s->buscount = 2;
     } else {
         s->buscount = 3;
+        if (s->mpu_model < omap3630) {
+            rev = OMAP3_INTR_REV;
+        } else {
+            rev = OMAP3630_INTR_REV;
+        }
     }
-    s->bus = qemu_mallocz(s->buscount * sizeof(OMAPI2CBusState));
+    s->bus = qemu_mallocz(s->buscount * sizeof(*s->bus));
     for (i = 0; i < s->buscount; i++) {
-        s->bus[i].revision = s->revision;
-        if (s->revision < OMAP3_INTR_REV) {
+        s->bus[i].revision = rev;
+        if (rev < OMAP3_INTR_REV) {
             s->bus[i].fifosize = 4;
         } else {
             s->bus[i].fifosize = (i < 2) ? 8 : 64;
@@ -736,7 +744,7 @@ static int omap_i2c_init(SysBusDevice *dev)
         sysbus_init_irq(dev, &s->bus[i].irq);
         sysbus_init_irq(dev, &s->bus[i].drq[0]);
         sysbus_init_irq(dev, &s->bus[i].drq[1]);
-        sysbus_init_mmio(dev, (s->revision < OMAP2_INTR_REV) ? 0x800 : 0x1000,
+        sysbus_init_mmio(dev, (rev < OMAP2_INTR_REV) ? 0x800 : 0x1000,
                          cpu_register_io_memory(omap_i2c_readfn,
                                                 omap_i2c_writefn, &s->bus[i],
                                                 DEVICE_NATIVE_ENDIAN));
@@ -761,7 +769,7 @@ static SysBusDeviceInfo omap_i2c_info = {
     .qdev.size = sizeof(OMAPI2CState),
     .qdev.reset = omap_i2c_reset,
     .qdev.props = (Property[]) {
-        DEFINE_PROP_UINT8("revision", OMAPI2CState, revision, OMAP1_INTR_REV),
+        DEFINE_PROP_INT32("mpu_model", OMAPI2CState, mpu_model, 0),
         DEFINE_PROP_END_OF_LIST()
     }
 };
@@ -769,20 +777,6 @@ static SysBusDeviceInfo omap_i2c_info = {
 static void omap_i2c_register_devices(void)
 {
     sysbus_register_withprop(&omap_i2c_info);
-}
-
-DeviceState *omap_i2c_create(int mpu_model)
-{
-    uint8 revision;
-    if (mpu_model < omap3430) {
-        revision = (mpu_model < omap2410) ? OMAP1_INTR_REV : OMAP2_INTR_REV;
-    } else {
-        revision = (mpu_model < omap3630) ? OMAP3_INTR_REV : OMAP3630_INTR_REV;
-    }
-    DeviceState *dev= qdev_create(NULL, "omap_i2c");
-    qdev_prop_set_uint8(dev, "revision", revision);
-    qdev_init_nofail(dev);
-    return dev;
 }
 
 i2c_bus *omap_i2c_bus(DeviceState *omap_i2c, int n)
