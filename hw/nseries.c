@@ -2347,8 +2347,6 @@ static void n900_key_handler(void *opaque, int keycode)
 static void n900_reset(void *opaque)
 {
     struct n900_s *s = opaque;
-    omap_gpmc_attach(s->cpu->gpmc, N900_ONENAND_CS, s->nand, 0, 0);
-    omap_gpmc_attach(s->cpu->gpmc, N900_SMC_CS, s->smc, 0, 0);
     s->slide_open = 1;
     s->camera_cover_open = 0;
     s->headphone_connected = 0;
@@ -2454,6 +2452,7 @@ static void n900_init(ram_addr_t ram_size,
     s->nand = onenand_create(NAND_MFR_SAMSUNG, 0x40, 0x121, 1, 
                              qdev_get_gpio_in(s->cpu->gpio, N900_ONENAND_GPIO),
                              dmtd ? dmtd->bdrv : NULL);
+    omap_gpmc_attach(s->cpu->gpmc, 0, s->nand, 0, 0);
 
     if (dsd) {
         omap3_mmc_attach(s->cpu->omap3_mmc[1], dsd->bdrv, 0, 1);
@@ -2498,6 +2497,7 @@ static void n900_init(ram_addr_t ram_size,
         qdev_init_nofail(s->smc);
         sysbus_connect_irq(sysbus_from_qdev(s->smc), 0,
                            qdev_get_gpio_in(s->cpu->gpio, 54));
+        omap_gpmc_attach(s->cpu->gpmc, 1, s->smc, 0, 0);
     } else {
         hw_error("%s: no NIC for smc91c111\n", __FUNCTION__);
     }
