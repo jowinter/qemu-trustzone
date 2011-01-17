@@ -2393,15 +2393,18 @@ static const TWL4030KeyMap n900_twl4030_keymap[] = {
     {0x23, 4, 1}, /* H */
     {0x32, 4, 3}, /* M */
     {0x1d, 4, 4}, /* LEFTCTRL */
+    {0x9d, 4, 4}, /* RIGHTCTRL */
     {0x24, 5, 1}, /* J */
     {0x2c, 5, 2}, /* Z */
     {0x39, 5, 3}, /* SPACE */
     {0x38, 5, 4}, /* LEFTALT -- "fn" */
+    {0xb8, 5, 4}, /* RIGHTALT -- "fn" */
     {0x1e, 6, 0}, /* A */
     {0x25, 6, 1}, /* K */
     {0x2d, 6, 2}, /* X */
     {0x39, 6, 3}, /* SPACE */
     {0x2a, 6, 4}, /* LEFTSHIFT */
+    {0x36, 6, 4}, /* RIGHTSHIFT */
     {0x1f, 7, 0}, /* S */
     {0x26, 7, 1}, /* L */
     {0x2e, 7, 2}, /* C */
