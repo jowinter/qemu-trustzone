@@ -87,10 +87,17 @@ typedef struct {
     int column;
     int row;
 } TWL4030KeyMap;
+typedef enum twl4030_adc_type {
+    TWL4030_ADC_RT,
+    TWL4030_ADC_GP,
+    TWL4030_ADC_BCI
+} twl4030_adc_type;
+typedef uint16_t (*twl4030_madc_callback)(twl4030_adc_type type, int ch);
 void *twl4030_init(i2c_bus *bus, qemu_irq irq1, qemu_irq irq2,
                    const TWL4030KeyMap *keymap);
 void *twl5031_init(i2c_bus *bus, qemu_irq irq1, qemu_irq irq2,
                    const TWL4030KeyMap *keymap);
 void twl4030_set_powerbutton_state(void *opaque, int pressed);
+void twl4030_madc_attach(void *opaque, twl4030_madc_callback cb);
 
 #endif

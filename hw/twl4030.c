@@ -76,6 +76,7 @@ struct TWL4030State {
     int extended_key;
     uint8_t twl5031;
     uint8_t twl5031_aciid;
+    twl4030_madc_callback madc_cb;
 
     int key_cfg;
     int key_tst;
@@ -477,10 +478,30 @@ static uint8_t twl4030_4a_read(TWL4030NodeState *s, uint8_t addr)
         case 0x62:
         case 0x64 ... 0x67:
             return s->reg_data[addr];
-        case 0x17 ... 0x36: /* RT conversion registers */
-        case 0x37 ... 0x56: /* GP conversion registers */
-        case 0x57 ... 0x60: /* BCI conversion registers */
-            return (addr & 1) ? 0xc0 : 0xff;
+        case 0x17 ... 0x36: /* RT conversion result */
+            if (s->twl4030->madc_cb) {
+                uint16_t x = s->twl4030->madc_cb(TWL4030_ADC_RT,
+                                                 (addr - 0x17) >> 1);
+                return (addr & 1) ? (uint8_t)((x & 3) << 6)
+                                  : (uint8_t)((x >> 2) & 0xff);
+            }
+            return s->reg_data[addr];
+        case 0x37 ... 0x56: /* GP conversion result */
+            if (s->twl4030->madc_cb) {
+                uint16_t x = s->twl4030->madc_cb(TWL4030_ADC_GP,
+                                                 (addr - 0x37) >> 1);
+                return (addr & 1) ? (uint8_t)((x & 3) << 6)
+                                  : (uint8_t)((x >> 2) & 0xff);
+            }
+            return s->reg_data[addr];
+        case 0x57 ... 0x60: /* BCI conversion result */
+            if (s->twl4030->madc_cb) {
+                uint16_t x = s->twl4030->madc_cb(TWL4030_ADC_BCI,
+                                                 (addr - 0x57) >> 1);
+                return (addr & 1) ? (uint8_t)((x & 3) << 6)
+                                  : (uint8_t)((x >> 2) & 0xff);
+            }
+            return s->reg_data[addr];
         case 0x61: /* MADC_ISR1 */
         case 0x63: /* MADC_ISR2 */
             {
@@ -592,6 +613,9 @@ static void twl4030_4a_write(TWL4030NodeState *s, uint8_t addr, uint8_t value)
                 s->reg_data[0x63] |= 2 << (addr - 0x12); /* SW1_ISR/SW2_ISR */
                 twl4030_interrupt_update(s->twl4030);
             }
+            break;
+        case 0x17 ... 0x60: /* conversion results */
+            /* read-only, ignore */
             break;
         case 0x61: /* MADC_ISR1 */
         case 0x63: /* MADC_ISR2 */
@@ -1708,6 +1732,17 @@ void twl4030_set_powerbutton_state(void *opaque, int pressed)
         }
         s->i2c[3]->reg_data[0x45] &= ~0x01;        /* STS_PWON */
     }
+}
+
+void twl4030_madc_attach(void *opaque, twl4030_madc_callback cb)
+{
+    TWL4030State *s = opaque;
+    if (s->madc_cb) {
+        fprintf(stderr,
+                "%s: warning - overriding previously registered callback\n",
+                __FUNCTION__);
+    }
+    s->madc_cb = cb;
 }
 
 static void twl4030_register_devices(void)
