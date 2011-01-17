@@ -873,26 +873,6 @@ struct omap_dma_lcd_channel_s {
 #define OMAP3XXX_DMA_UART4_TX         81
 #define OMAP3XXX_DMA_UART4_RX         82
 
-/* omap_gpio.c */
-struct omap_gpio_s;
-struct omap_gpio_s *omap_gpio_init(target_phys_addr_t base,
-                                   qemu_irq irq, omap_clk clk);
-void omap_gpio_reset(struct omap_gpio_s *s);
-qemu_irq *omap_gpio_in_get(struct omap_gpio_s *s);
-void omap_gpio_out_set(struct omap_gpio_s *s, int line, qemu_irq handler);
-
-struct omap_gpif_s;
-struct omap_gpif_s *omap2_gpio_init(struct omap_mpu_state_s *mpu,
-                                    struct omap_target_agent_s *ta,
-                                    qemu_irq *irq, omap_clk *fclk,
-                                    omap_clk iclk, int modules);
-struct omap_gpif_s *omap3_gpio_init(struct omap_mpu_state_s *mpu,
-                                    struct omap_target_agent_s **ta,
-                                    qemu_irq *irq);
-void omap_gpif_reset(struct omap_gpif_s *s);
-qemu_irq omap2_gpio_in_get(struct omap_gpif_s *s, int line);
-void omap2_gpio_out_set(struct omap_gpif_s *s, int line, qemu_irq handler);
-
 /* omap_uart.c */
 struct omap_uart_s;
 struct omap_uart_s *omap_uart_init(target_phys_addr_t base,
@@ -1079,7 +1059,7 @@ struct omap_mpu_state_s {
 
     /* MPUI-TIPB peripherals */
     struct omap_uart_s *uart[4];
-    struct omap_gpio_s *gpio;
+    DeviceState *gpio;
     struct omap_mcbsp_s *mcbsp1;
     struct omap_mcbsp_s *mcbsp3;
 
@@ -1139,8 +1119,6 @@ struct omap_mpu_state_s {
     struct omap_sdrc_s *sdrc;
     struct omap_gpmc_s *gpmc;
     struct omap_sysctl_s *sysc;
-
-    struct omap_gpif_s *gpif;
 
     struct omap_mcspi_s *mcspi[4];
 

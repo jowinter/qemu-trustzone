@@ -19,11 +19,10 @@
  */
 #include "hw.h"
 #include "omap.h"
+#include "sysbus.h"
 
-/* General-Purpose I/O of OMAP1 */
 struct omap_gpio_s {
     qemu_irq irq;
-    qemu_irq *in;
     qemu_irq handler[16];
 
     uint16_t inputs;
@@ -35,9 +34,44 @@ struct omap_gpio_s {
     uint16_t pins;
 };
 
+struct omap2_gpio_s {
+    qemu_irq irq[2];
+    qemu_irq wkup;
+    qemu_irq *handler;
+    
+    uint8_t revision;
+    uint8_t config[2];
+    uint32_t inputs;
+    uint32_t outputs;
+    uint32_t dir;
+    uint32_t level[2];
+    uint32_t edge[2];
+    uint32_t mask[2];
+    uint32_t wumask;
+    uint32_t ints[2];
+    uint32_t debounce;
+    uint8_t delay;
+};
+
+struct omap_gpif_s {
+    SysBusDevice busdev;
+    int mpu_model;
+    union {
+        struct omap_gpio_s omap1;
+        struct {
+            int modulecount;
+            struct omap2_gpio_s *modules;
+            qemu_irq *handler;
+            int autoidle;
+            int gpo;
+        } omap2;
+    } regs;
+};
+
+/* General-Purpose I/O of OMAP1 */
 static void omap_gpio_set(void *opaque, int line, int level)
 {
-    struct omap_gpio_s *s = (struct omap_gpio_s *) opaque;
+    struct omap_gpio_s *s = &((struct omap_gpif_s *)opaque)->regs.omap1;
     uint16_t prev = s->inputs;
 
     if (level)
@@ -160,7 +194,7 @@ static CPUWriteMemoryFunc * const omap_gpio_writefn[] = {
     omap_badwidth_write16,
 };
 
-void omap_gpio_reset(struct omap_gpio_s *s)
+static void omap_gpio_reset(struct omap_gpio_s *s)
 {
     s->inputs = 0;
     s->outputs = ~0;
@@ -171,56 +205,7 @@ void omap_gpio_reset(struct omap_gpio_s *s)
     s->pins = ~0;
 }
 
-struct omap_gpio_s *omap_gpio_init(target_phys_addr_t base,
-                                   qemu_irq irq, omap_clk clk)
-{
-    int iomemtype;
-    struct omap_gpio_s *s = qemu_mallocz(sizeof(*s));
-
-    s->irq = irq;
-    s->in = qemu_allocate_irqs(omap_gpio_set, s, 16);
-    omap_gpio_reset(s);
-
-    iomemtype = cpu_register_io_memory(omap_gpio_readfn,
-                    omap_gpio_writefn, s, DEVICE_NATIVE_ENDIAN);
-    cpu_register_physical_memory(base, 0x1000, iomemtype);
-
-    return s;
-}
-
-qemu_irq *omap_gpio_in_get(struct omap_gpio_s *s)
-{
-    return s->in;
-}
-
-void omap_gpio_out_set(struct omap_gpio_s *s, int line, qemu_irq handler)
-{
-    if (line >= 16 || line < 0)
-        hw_error("%s: No GPIO line %i\n", __FUNCTION__, line);
-    s->handler[line] = handler;
-}
-
-/* General-Purpose Interface of OMAP2 */
-struct omap2_gpio_s {
-    qemu_irq irq[2];
-    qemu_irq wkup;
-    qemu_irq *in;
-    qemu_irq handler[32];
-
-    uint8_t revision;
-    uint8_t config[2];
-    uint32_t inputs;
-    uint32_t outputs;
-    uint32_t dir;
-    uint32_t level[2];
-    uint32_t edge[2];
-    uint32_t mask[2];
-    uint32_t wumask;
-    uint32_t ints[2];
-    uint32_t debounce;
-    uint8_t delay;
-};
-
+/* General-Purpose Interface of OMAP2/3 */
 static inline void omap2_gpio_module_int_update(struct omap2_gpio_s *s,
                                                 int line)
 {
@@ -271,8 +256,9 @@ static inline void omap2_gpio_module_int(struct omap2_gpio_s *s, int line)
 
 static void omap2_gpio_module_set(void *opaque, int line, int level)
 {
-    struct omap2_gpio_s *s = (struct omap2_gpio_s *) opaque;
-
+    struct omap_gpif_s *p = opaque;
+    struct omap2_gpio_s *s = &p->regs.omap2.modules[line >> 5];
+    line &= 31;
     if (level) {
         if (s->dir & (1 << line) & ((~s->inputs & s->edge[0]) | s->level[1]))
             omap2_gpio_module_int(s, line);
@@ -584,43 +570,20 @@ static CPUWriteMemoryFunc * const omap2_gpio_module_writefn[] = {
     omap2_gpio_module_write,
 };
 
-static void omap2_gpio_module_init(struct omap_mpu_state_s *mpu,
-                                   struct omap2_gpio_s *s,
-                                   struct omap_target_agent_s *ta, int region,
-                                   qemu_irq mpu_irq, qemu_irq dsp_irq,
-                                   qemu_irq wkup_irq,
-                                   omap_clk fclk, omap_clk iclk)
-{
-    int iomemtype;
-
-    s->revision = cpu_class_omap3(mpu) ? 0x25 : 0x18;
-    s->irq[0] = mpu_irq;
-    s->irq[1] = dsp_irq;
-    s->wkup = wkup_irq;
-    s->in = qemu_allocate_irqs(omap2_gpio_module_set, s, 32);
-
-    iomemtype = l4_register_io_memory(omap2_gpio_module_readfn,
-                                      omap2_gpio_module_writefn, s);
-    omap_l4_attach(ta, region, iomemtype);
-}
-
-struct omap_gpif_s {
-    struct omap2_gpio_s module[6];
-    int modules;
-
-    int autoidle;
-    int gpo;
-};
-
-void omap_gpif_reset(struct omap_gpif_s *s)
+static void omap_gpif_reset(DeviceState *dev)
 {
     int i;
-
-    for (i = 0; i < s->modules; i ++)
-        omap2_gpio_module_reset(s->module + i);
-
-    s->autoidle = 0;
-    s->gpo = 0;
+    struct omap_gpif_s *s = FROM_SYSBUS(struct omap_gpif_s,
+                                        sysbus_from_qdev(dev));
+    if (s->mpu_model < omap2410) {
+        omap_gpio_reset(&s->regs.omap1);
+    } else {
+        for (i = 0; i < s->regs.omap2.modulecount; i++) {
+            omap2_gpio_module_reset(&s->regs.omap2.modules[i]);
+        }
+        s->regs.omap2.autoidle = 0;
+        s->regs.omap2.gpo = 0;
+    }
 }
 
 static uint32_t omap_gpif_top_read(void *opaque, target_phys_addr_t addr)
@@ -632,7 +595,7 @@ static uint32_t omap_gpif_top_read(void *opaque, target_phys_addr_t addr)
         return 0x18;
 
     case 0x10:	/* IPGENERICOCPSPL_SYSCONFIG */
-        return s->autoidle;
+        return s->regs.omap2.autoidle;
 
     case 0x14:	/* IPGENERICOCPSPL_SYSSTATUS */
         return 0x01;
@@ -641,7 +604,7 @@ static uint32_t omap_gpif_top_read(void *opaque, target_phys_addr_t addr)
         return 0x00;
 
     case 0x40:	/* IPGENERICOCPSPL_GPO */
-        return s->gpo;
+        return s->regs.omap2.gpo;
 
     case 0x50:	/* IPGENERICOCPSPL_GPI */
         return 0x00;
@@ -666,12 +629,12 @@ static void omap_gpif_top_write(void *opaque, target_phys_addr_t addr,
 
     case 0x10:	/* IPGENERICOCPSPL_SYSCONFIG */
         if (value & (1 << 1))					/* SOFTRESET */
-            omap_gpif_reset(s);
-        s->autoidle = value & 1;
+            omap_gpif_reset(&s->busdev.qdev);
+        s->regs.omap2.autoidle = value & 1;
         break;
 
     case 0x40:	/* IPGENERICOCPSPL_GPO */
-        s->gpo = value & 1;
+        s->regs.omap2.gpo = value & 1;
         break;
 
     default:
@@ -692,57 +655,67 @@ static CPUWriteMemoryFunc * const omap_gpif_top_writefn[] = {
     omap_gpif_top_write,
 };
 
-struct omap_gpif_s *omap2_gpio_init(struct omap_mpu_state_s *mpu,
-                                     struct omap_target_agent_s *ta,
-                                     qemu_irq *irq, omap_clk *fclk,
-                                     omap_clk iclk, int modules)
-{
-    int iomemtype, i;
-    struct omap_gpif_s *s = qemu_mallocz(sizeof(*s));
-    int region[4] = { 0, 2, 4, 5 };
-
-    s->modules = modules;
-    for (i = 0; i < modules; i ++)
-        omap2_gpio_module_init(mpu, s->module + i, ta, region[i],
-                               irq[i], NULL, NULL, fclk[i], iclk);
-
-    omap_gpif_reset(s);
-
-    iomemtype = l4_register_io_memory(omap_gpif_top_readfn,
-                                      omap_gpif_top_writefn, s);
-    omap_l4_attach(ta, 1, iomemtype);
-
-    return s;
-}
-
-struct omap_gpif_s *omap3_gpio_init(struct omap_mpu_state_s *mpu,
-                                    struct omap_target_agent_s **ta,
-                                    qemu_irq *irq)
+static int omap_gpio_init(SysBusDevice *dev)
 {
     int i;
-    struct omap_gpif_s *s = qemu_mallocz(sizeof(*s));
-
-    s->modules = 6;
-    for (i = 0; i < s->modules; i++) {
-        omap2_gpio_module_init(mpu, s->module + i, ta[i], 0, irq[i],
-                               NULL, NULL, NULL, NULL);
+    struct omap_gpif_s *s = FROM_SYSBUS(struct omap_gpif_s, dev);
+    if (s->mpu_model < omap2410) {
+        qdev_init_gpio_in(&dev->qdev, omap_gpio_set, 16);
+        qdev_init_gpio_out(&dev->qdev, s->regs.omap1.handler, 16);
+        sysbus_init_irq(dev, &s->regs.omap1.irq);
+        sysbus_init_mmio(dev, 0x1000,
+                         cpu_register_io_memory(omap_gpio_readfn,
+                                                omap_gpio_writefn,
+                                                &s->regs.omap1,
+                                                DEVICE_NATIVE_ENDIAN));
+    } else {
+        if (s->mpu_model < omap3430) {
+            s->regs.omap2.modulecount = (s->mpu_model < omap2430) ? 4 : 5;
+            sysbus_init_mmio(dev, 0x1000,
+                             cpu_register_io_memory(omap_gpif_top_readfn,
+                                                    omap_gpif_top_writefn, s,
+                                                    DEVICE_NATIVE_ENDIAN));
+        } else {
+            s->regs.omap2.modulecount = 6;
+        }
+        s->regs.omap2.modules = qemu_mallocz(s->regs.omap2.modulecount *
+                                             sizeof(struct omap2_gpio_s));
+        s->regs.omap2.handler = qemu_mallocz(s->regs.omap2.modulecount * 32 *
+                                             sizeof(qemu_irq));
+        qdev_init_gpio_in(&dev->qdev, omap2_gpio_module_set,
+                          s->regs.omap2.modulecount * 32);
+        qdev_init_gpio_out(&dev->qdev, s->regs.omap2.handler,
+                           s->regs.omap2.modulecount * 32);
+        for (i = 0; i < s->regs.omap2.modulecount; i++) {
+            struct omap2_gpio_s *m = &s->regs.omap2.modules[i];
+            m->revision = (s->mpu_model < omap3430) ? 0x18 : 0x25;
+            m->handler = &s->regs.omap2.handler[i * 32];
+            sysbus_init_irq(dev, &m->irq[0]); /* mpu irq */
+            sysbus_init_irq(dev, &m->irq[1]); /* dsp irq */
+            sysbus_init_irq(dev, &m->wkup);
+            sysbus_init_mmio(dev, 0x1000,
+                             cpu_register_io_memory(omap2_gpio_module_readfn,
+                                                    omap2_gpio_module_writefn,
+                                                    m, DEVICE_NATIVE_ENDIAN));
+        }
     }
-
-    omap_gpif_reset(s);
-
-    return s;
+    return 0;
 }
 
-qemu_irq omap2_gpio_in_get(struct omap_gpif_s *s, int line)
+static SysBusDeviceInfo omap_gpio_info = {
+    .init = omap_gpio_init,
+    .qdev.name = "omap_gpio",
+    .qdev.size = sizeof(struct omap_gpif_s),
+    .qdev.reset = omap_gpif_reset,
+    .qdev.props = (Property[]) {
+        DEFINE_PROP_INT32("mpu_model", struct omap_gpif_s, mpu_model, 0),
+        DEFINE_PROP_END_OF_LIST()
+    }
+};
+
+static void omap_gpio_register_device(void)
 {
-    if (line >= s->modules * 32 || line < 0)
-        hw_error("%s: No GPIO line %i\n", __FUNCTION__, line);
-    return s->module[line >> 5].in[line & 31];
+    sysbus_register_withprop(&omap_gpio_info);
 }
 
-void omap2_gpio_out_set(struct omap_gpif_s *s, int line, qemu_irq handler)
-{
-    if (line >= s->modules * 32 || line < 0)
-        hw_error("%s: No GPIO line %i\n", __FUNCTION__, line);
-    s->module[line >> 5].handler[line & 31] = handler;
-}
+device_init(omap_gpio_register_device)

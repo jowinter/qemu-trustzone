@@ -4046,7 +4046,6 @@ static void omap3_reset(void *opaque)
     omap_synctimer_reset(s->synctimer);
     omap_sdrc_reset(s->sdrc);
     omap_gpmc_reset(s->gpmc);
-    omap_gpif_reset(s->gpif);
     for (i = 0; i < 3; i++) {
         omap_uart_reset(s->uart[i]);
     }
@@ -4083,8 +4082,6 @@ struct omap_mpu_state_s *omap3_mpu_init(int model,
     ram_addr_t sram_base, q2_base;
     qemu_irq *cpu_irq;
     qemu_irq drqs[4];
-    qemu_irq gpio_irq[6];
-    struct omap_target_agent_s *gpio_ta[6];
     int i;
 
     if (model != omap3430 && model != omap3630) {
@@ -4253,19 +4250,28 @@ struct omap_mpu_state_s *omap3_mpu_init(int model,
     sysbus_mmio_map(busdev, 3, omap_l4_base(ta, 4));
     sysbus_mmio_map(busdev, 4, omap_l4_base(ta, 0));
 
-    gpio_ta[0] = omap3_l4ta_init(s->l4, L4A_GPIO1);
-    gpio_ta[1] = omap3_l4ta_init(s->l4, L4A_GPIO2);
-    gpio_ta[2] = omap3_l4ta_init(s->l4, L4A_GPIO3);
-    gpio_ta[3] = omap3_l4ta_init(s->l4, L4A_GPIO4);
-    gpio_ta[4] = omap3_l4ta_init(s->l4, L4A_GPIO5);
-    gpio_ta[5] = omap3_l4ta_init(s->l4, L4A_GPIO6);
-    gpio_irq[0] = s->irq[0][OMAP_INT_3XXX_GPIO1_MPU_IRQ];
-    gpio_irq[1] = s->irq[0][OMAP_INT_3XXX_GPIO2_MPU_IRQ];
-    gpio_irq[2] = s->irq[0][OMAP_INT_3XXX_GPIO3_MPU_IRQ];
-    gpio_irq[3] = s->irq[0][OMAP_INT_3XXX_GPIO4_MPU_IRQ];
-    gpio_irq[4] = s->irq[0][OMAP_INT_3XXX_GPIO5_MPU_IRQ];
-    gpio_irq[5] = s->irq[0][OMAP_INT_3XXX_GPIO6_MPU_IRQ];
-    s->gpif = omap3_gpio_init(s, gpio_ta, gpio_irq);
+    s->gpio = qdev_create(NULL, "omap_gpio");
+    qdev_prop_set_int32(s->gpio, "mpu_model", s->mpu_model);
+    qdev_init_nofail(s->gpio);
+    busdev = sysbus_from_qdev(s->gpio);
+    sysbus_connect_irq(busdev, 0, s->irq[0][OMAP_INT_3XXX_GPIO1_MPU_IRQ]);
+    sysbus_connect_irq(busdev, 3, s->irq[0][OMAP_INT_3XXX_GPIO2_MPU_IRQ]);
+    sysbus_connect_irq(busdev, 6, s->irq[0][OMAP_INT_3XXX_GPIO3_MPU_IRQ]);
+    sysbus_connect_irq(busdev, 9, s->irq[0][OMAP_INT_3XXX_GPIO4_MPU_IRQ]);
+    sysbus_connect_irq(busdev, 12, s->irq[0][OMAP_INT_3XXX_GPIO5_MPU_IRQ]);
+    sysbus_connect_irq(busdev, 15, s->irq[0][OMAP_INT_3XXX_GPIO6_MPU_IRQ]);
+    sysbus_mmio_map(busdev, 0,
+                    omap_l4_base(omap3_l4ta_init(s->l4, L4A_GPIO1), 0));
+    sysbus_mmio_map(busdev, 1,
+                    omap_l4_base(omap3_l4ta_init(s->l4, L4A_GPIO2), 0));
+    sysbus_mmio_map(busdev, 2,
+                    omap_l4_base(omap3_l4ta_init(s->l4, L4A_GPIO3), 0));
+    sysbus_mmio_map(busdev, 3,
+                    omap_l4_base(omap3_l4ta_init(s->l4, L4A_GPIO4), 0));
+    sysbus_mmio_map(busdev, 4,
+                    omap_l4_base(omap3_l4ta_init(s->l4, L4A_GPIO5), 0));
+    sysbus_mmio_map(busdev, 5,
+                    omap_l4_base(omap3_l4ta_init(s->l4, L4A_GPIO6), 0));
 
     omap_tap_init(omap3_l4ta_init(s->l4, L4A_TAP), s);
 
