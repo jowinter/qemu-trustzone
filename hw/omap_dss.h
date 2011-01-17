@@ -81,4 +81,18 @@ struct omap_dss_dispc_s {
     uint16_t palette[256];
 };
 
+struct dsi_chip_s {
+    void *opaque;
+    
+    // host -> device
+    void (*write)(void *opaque, uint32_t data, int len);
+    uint32_t (*read)(void *opaque, uint32_t data, int len);
+    int (*blt)(void *opaque, const struct omap_dss_dispc_s *dispc);
+    
+    // device -> host
+    void (*te_trigger)(struct omap_dss_s *dss, struct dsi_chip_s *chip);
+    
+    uint16_t max_return_size;
+};
+
 void omap_dss_lcd_framedone(void *opaque); /* should point to omap_dss_s */
