@@ -1895,6 +1895,8 @@ static void omap3_prm_write(void *opaque, target_phys_addr_t addr,
             s->gr.prm_ldo_abb_setup |= value & 3; /* clear OPP_CHANGE */
             if (value & 4) { /* OPP_CHANGE */
                 omap3_prm_ldo_update(s);
+                s->ocp.prm_irqstatus_mpu |= (1 << 26); /*ABB_LDO_TRANXDONE_ST*/
+                omap3_prm_int_update(s);
             }
             break;
         case 0x12f4:
