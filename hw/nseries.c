@@ -2041,10 +2041,11 @@ typedef struct BQ2415XState_s {
     int firstbyte;
     uint8 reg;
     
-    uint8 st_ctrl;
-    uint8 ctrl;
-    uint8 bat_v;
-    uint8 tcc;
+    uint8_t id;
+    uint8_t st_ctrl;
+    uint8_t ctrl;
+    uint8_t bat_v;
+    uint8_t tcc;
 } BQ2415XState;
 
 static void bq2415x_reset(DeviceState *ds)
@@ -2086,7 +2087,7 @@ static int bq2415x_rx(i2c_slave *i2c)
             break;
         case 0x03:
         case 0x3b:
-            value = 0x49;
+            value = s->id;
             TRACE_BQ2415X("id = 0x%02x", value);
             break;
         case 0x04:
@@ -2145,6 +2146,10 @@ static I2CSlaveInfo bq2415x_info = {
     .qdev.name = "bq2415x",
     .qdev.size = sizeof(BQ2415XState),
     .qdev.reset = bq2415x_reset,
+    .qdev.props = (Property[]) {
+        DEFINE_PROP_UINT8("id", BQ2415XState, id, 0x49),
+        DEFINE_PROP_END_OF_LIST(),
+    },
     .init = bq2415x_init,
     .event = bq2415x_event,
     .recv = bq2415x_rx,
