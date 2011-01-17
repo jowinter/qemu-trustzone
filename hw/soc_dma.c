@@ -20,6 +20,7 @@
 #include "qemu-common.h"
 #include "qemu-timer.h"
 #include "soc_dma.h"
+#include "hw.h"
 
 static void transfer_mem2mem(struct soc_dma_ch_s *ch)
 {
@@ -229,7 +230,7 @@ void soc_dma_reset(struct soc_dma_s *soc)
 {
     struct dma_s *s = (struct dma_s *) soc;
 
-    s->soc.drqbmp = 0;
+    memset(s->soc.drqst, 0, sizeof(s->soc.drqst));
     s->ch_enable_mask = 0;
     s->enabled_count = 0;
     soc_dma_ch_freq_update(s);
