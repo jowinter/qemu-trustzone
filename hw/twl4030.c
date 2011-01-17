@@ -70,6 +70,8 @@ struct TWL4030NodeState {
 struct TWL4030State {
     qemu_irq irq1;
     qemu_irq irq2;
+    QEMUTimer *alarm_timer;
+    QEMUTimer *periodic_timer;
     const TWL4030KeyMap *keymap;
     int extended_key;
     uint8_t twl5031;
@@ -787,7 +789,7 @@ static void twl4030_4a_write(TWL4030NodeState *s, uint8_t addr, uint8_t value)
 static inline struct tm *twl4030_gettime(void)
 {
     time_t epoch_time = time(NULL);
-    return localtime(&epoch_time);
+    return gmtime(&epoch_time);//localtime(&epoch_time);
 }
 
 static uint8_t twl4030_4b_read(TWL4030NodeState *s, uint8_t addr)
@@ -958,6 +960,98 @@ static uint8_t twl4030_4b_read(TWL4030NodeState *s, uint8_t addr)
     return 0;
 }
 
+static void twl4030_setup_alarm(TWL4030NodeState *s)
+{
+    if (s->reg_data[0x2b] & 0x08) { /* IT_ALARM */
+        struct tm a = {
+            .tm_sec = ((s->reg_data[0x23] >> 4) & 7) * 10
+                      + (s->reg_data[0x23] & 0x0f),
+            .tm_min = ((s->reg_data[0x24] >> 4) & 7) * 10
+                      + (s->reg_data[0x24] & 0x0f),
+            .tm_hour = ((s->reg_data[0x29] & 0x08)
+                        ? (s->reg_data[0x25] >> 7) * 12 : 0)
+                       + ((s->reg_data[0x25] >> 4) & 3) * 10
+                       + (s->reg_data[0x25] & 0x0f),
+            .tm_mday = ((s->reg_data[0x26] >> 4) & 3) * 10
+                       + (s->reg_data[0x26] & 0x0f),
+            .tm_mon = ((s->reg_data[0x27] >> 4) & 1) * 10
+                      + (s->reg_data[0x27] & 0x0f)
+                      - 1,
+            .tm_year = (s->reg_data[0x28] >> 4) * 10
+                       + (s->reg_data[0x28] & 0x0f)
+                       + 100,
+            .tm_isdst = -1,
+            .tm_zone = NULL,
+            .tm_gmtoff = 0
+        };
+        TRACE_RTC("enable alarm on %02d/%02d/%04d at %02d:%02d:%02d (UTC)",
+                  a.tm_mday, a.tm_mon + 1, a.tm_year + 1900,
+                  a.tm_hour, a.tm_min, a.tm_sec);
+        time_t at = mktime(&a);
+        if (at < 0) {
+            TRACE_RTC("unable to parse alarm calendar time");
+        } else {
+            time_t ct = time(NULL);
+            at += localtime(&ct)->tm_gmtoff;
+            int64_t delta = (int64_t)difftime(at, ct);
+            if (delta <= 0) {
+                TRACE_RTC("alarm is in the past");
+            } else {
+                TRACE_RTC("new alarm interrupt in %" PRId64 " seconds", delta);
+                qemu_mod_timer(s->twl4030->alarm_timer,
+                               qemu_get_clock(vm_clock)
+                               + get_ticks_per_sec() * delta);
+            }
+        }
+    } else {
+        qemu_del_timer(s->twl4030->alarm_timer);
+    }
+}
+
+static void twl4030_setup_periodic(TWL4030NodeState *s)
+{
+    if (s->reg_data[0x2b] & 0x04) { /* IT_TIMER */
+        uint32_t t = 0;
+        switch (s->reg_data[0x2b] & 3) {
+            case 0: t = 1; break;
+            case 1: t = 60; break;
+            case 2: t = 60 * 60; break;
+            case 3: t = 24 * 60 * 60; break;
+        }
+        TRACE_RTC("new periodic interrupt in %u seconds", t);
+        qemu_mod_timer(s->twl4030->periodic_timer,
+                       qemu_get_clock(vm_clock) + get_ticks_per_sec() * t);
+    } else {
+        qemu_del_timer(s->twl4030->periodic_timer);
+    }
+}
+
+static void twl4030_alarm(void *opaque)
+{
+    TWL4030State *s = opaque;
+    s->i2c[3]->reg_data[0x2a] |= 0x40;      /* RTC_STATUS_REG |= ALARM */
+    if (s->i2c[3]->reg_data[0x33] & 0xc0) { /* RTC_IT_RISING|RTC_IT_FALLING */
+        TRACE_RTC("triggering RTC alarm interrupt");
+        s->i2c[3]->reg_data[0x2e] |= 0x08;  /* PWR_ISR1 |= RTC_IT */
+        s->i2c[3]->reg_data[0x30] |= 0x08;  /* PWR_ISR2 |= RTC_IT */
+        twl4030_interrupt_update(s);
+    }
+    qemu_del_timer(s->alarm_timer);
+}
+
+static void twl4030_periodic(void *opaque)
+{
+    TWL4030State *s = opaque;
+    uint8_t b = 0x04 << (s->i2c[3]->reg_data[0x2b] & 3);
+    s->i2c[3]->reg_data[0x2a] |= b;         /* TODO: when are these cleared? */
+    if (s->i2c[3]->reg_data[0x33] & 0xc0) { /* RTC_IT_RISING|RTC_IT_FALLING */
+        TRACE_RTC("triggering RTC periodic interrupt");
+        s->i2c[3]->reg_data[0x2e] |= 0x08;  /* PWR_ISR1 |= RTC_IT */
+        s->i2c[3]->reg_data[0x30] |= 0x08;  /* PWR_ISR2 |= RTC_IT */
+        twl4030_interrupt_update(s);
+    }
+    twl4030_setup_periodic(s->i2c[3]);
+}
 
 static void twl4030_4b_write(TWL4030NodeState *s, uint8_t addr, uint8_t value)
 {
@@ -966,34 +1060,68 @@ static void twl4030_4b_write(TWL4030NodeState *s, uint8_t addr, uint8_t value)
 	TRACE("addr=0x%02x, value=0x%02x", addr, value);
     switch (addr) {
         case 0x1c: /* SECONDS_REG */
+            TRACE_RTC("SECONDS_REG = 0x%02x", value);
+            s->reg_data[addr] = value & 0x7f;
+            break;
         case 0x1d: /* MINUTES_REG */
-        case 0x23: /* ALARM_SECONDS_REG */
-        case 0x24: /* ALARM_MINUTES_REG */
+            TRACE_RTC("MINUTES_REG = 0x%02x", value);
             s->reg_data[addr] = value & 0x7f;
             break;
         case 0x1e: /* HOURS_REG */
-        case 0x25: /* ALARM_HOURS_REG */
+            TRACE_RTC("HOURS_REG = 0x%02x", value);
             s->reg_data[addr] = value & 0xbf;
             break;
         case 0x1f: /* DAYS_REG */
-        case 0x26: /* ALARM_DAYS_REG */
+            TRACE_RTC("DAYS_REG = 0x%02x", value);
             s->reg_data[addr] = value & 0x3f;
             break;
         case 0x20: /* MONTHS_REG */
-        case 0x27: /* ALARM_MONTHS_REG */
+            TRACE_RTC("MONTHS_REG = 0x%02x", value);
             s->reg_data[addr] = value & 0x1f;
             break;
         case 0x21: /* YEARS_REG */
-        case 0x28: /* ALARM_YEARS_REG */
+            TRACE_RTC("YEARS_REG = 0x%02x", value);
             s->reg_data[addr] = value;
             break;
         case 0x22: /* WEEKS_REG */
+            TRACE_RTC("WEEKS_REG = 0x%02x", value);
             s->reg_data[addr] = value & 0x07;
+            break;
+        case 0x23: /* ALARM_SECONDS_REG */
+            TRACE_RTC("ALARM_SECONDS_REG = 0x%02x", value);
+            s->reg_data[addr] = value & 0x7f;
+            twl4030_setup_alarm(s);
+            break;
+        case 0x24: /* ALARM_MINUTES_REG */
+            TRACE_RTC("ALARM_MINUTES_REG = 0x%02x", value);
+            s->reg_data[addr] = value & 0x7f;
+            twl4030_setup_alarm(s);
+            break;
+        case 0x25: /* ALARM_HOURS_REG */
+            TRACE_RTC("ALARM_HOURS_REG = 0x%02x", value);
+            s->reg_data[addr] = value & 0xbf;
+            twl4030_setup_alarm(s);
+            break;
+        case 0x26: /* ALARM_DAYS_REG */
+            TRACE_RTC("ALARM_DAYS_REG = 0x%02x", value);
+            s->reg_data[addr] = value & 0x3f;
+            twl4030_setup_alarm(s);
+            break;
+        case 0x27: /* ALARM_MONTHS_REG */
+            TRACE_RTC("ALARM_MONTHS_REG = 0x%02x", value);
+            s->reg_data[addr] = value & 0x1f;
+            twl4030_setup_alarm(s);
+            break;
+        case 0x28: /* ALARM_YEARS_REG */
+            TRACE_RTC("ALARM_YEARS_REG = 0x%02x", value);
+            s->reg_data[addr] = value;
+            twl4030_setup_alarm(s);
             break;
         case 0x29: /* RTC_CTRL_REG */
             TRACE_RTC("RTC_CTRL_REG = 0x%02x", value);
             s->reg_data[addr] = value & 0x3f;
-            s->reg_data[0x2a] = (s->reg_data[0x2a] & ~0x01) | (value & 0x01);
+            s->reg_data[0x2a] = (s->reg_data[0x2a] & ~0x02) |
+                                ((value & 0x01) << 1);
             if (value & 0x40) { /* GET_TIME */
                 struct tm *t = twl4030_gettime();
                 s->reg_data[0x1c] = ((t->tm_sec / 10) << 4) | (t->tm_sec % 10);
@@ -1028,7 +1156,16 @@ static void twl4030_4b_write(TWL4030NodeState *s, uint8_t addr, uint8_t value)
             break;
         case 0x2b: /* RTC_INTERRUPTS_REG */
             TRACE_RTC("RTC_INTERRUPTS_REG = 0x%02x", value);
-            s->reg_data[addr] = value & 0x0f;
+            {
+                uint8_t change = s->reg_data[addr] ^ value;
+                s->reg_data[addr] = value & 0x0f;
+                if (change & 0x08) { /* IT_ALARM */
+                    twl4030_setup_alarm(s);
+                }
+                if (change & 0x04) { /* IT_TIMER */
+                    twl4030_setup_periodic(s);
+                }
+            }
             break;
         case 0x2c: /* RTC_COMP_LSB_REG */
         case 0x2d: /* RTC_COMP_MSB_REG */
@@ -1464,6 +1601,9 @@ static int twl4030_tx(i2c_slave *i2c, uint8_t data)
 static void twl4030_reset(void *opaque)
 {
     TWL4030State *s = opaque;
+    
+    qemu_del_timer(s->alarm_timer);
+    qemu_del_timer(s->periodic_timer);
 
     twl4030_node_reset(s->i2c[0], addr_48_reset_values);
     twl4030_node_reset(s->i2c[1], addr_49_reset_values);
@@ -1473,7 +1613,7 @@ static void twl4030_reset(void *opaque)
     s->extended_key = 0;
     s->key_cfg = 0;
     s->key_tst = 0;
-
+    
     memset(s->seq_mem, 0, sizeof(s->seq_mem));
 
     /* TODO: indicate correct reset reason */
@@ -1524,6 +1664,9 @@ void *twl4030_init(i2c_bus *bus, qemu_irq irq1, qemu_irq irq2,
     s->key_cfg = 0;
     s->key_tst = 0;
     s->keymap = keymap;
+    
+    s->alarm_timer = qemu_new_timer(vm_clock, twl4030_alarm, s);
+    s->periodic_timer = qemu_new_timer(vm_clock, twl4030_periodic, s);
 
     int i;
     for (i = 0; i < 4; i++) {
