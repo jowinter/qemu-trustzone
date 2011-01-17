@@ -1016,7 +1016,8 @@ static void twl4030_setup_alarm(TWL4030NodeState *s)
         } else {
             /* fix alarm time to utc */
             struct timezone tz;
-            if (!gettimeofday(NULL, &tz)) {
+            struct timeval tv;
+            if (!gettimeofday(&tv, &tz)) {
                 at -= tz.tz_minuteswest * 60;
             }
             int64_t delta = (int64_t)difftime(at, time(NULL));
