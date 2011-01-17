@@ -280,16 +280,20 @@ static void omap_uart_write(void *opaque, target_phys_addr_t addr,
     }
 }
 
+/* NOTE: some OMAP models do not work properly with 16-bit or 32-bit access
+ * to the UART registers but we ignore that since modelling the faulty
+ * behavior would be mostly useless. */
+
 static CPUReadMemoryFunc * const omap_uart_readfn[] = {
     omap_uart_read,
     omap_uart_read,
-    omap_badwidth_read8,
+    omap_uart_read,
 };
 
 static CPUWriteMemoryFunc * const omap_uart_writefn[] = {
     omap_uart_write,
     omap_uart_write,
-    omap_badwidth_write8,
+    omap_uart_write,
 };
 
 static int omap_uart_init(SysBusDevice *busdev)
