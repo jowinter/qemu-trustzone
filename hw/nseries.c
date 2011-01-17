@@ -2242,7 +2242,6 @@ struct n900_s {
     struct omap_mpu_state_s *cpu;
     void *twl4030;
     DeviceState *nand;
-    void *lcd;
     struct mipid_s *mipid;
     void *tsc2005;
     DeviceState *bq2415x;
@@ -2436,8 +2435,7 @@ static void n900_init(ram_addr_t ram_size,
     s->cpu = omap3_mpu_init(omap3430, N900_SDRAM_SIZE,
                             serial_hds[1], serial_hds[2],
                             serial_hds[0], NULL);
-    s->lcd = omap3_lcd_panel_init(s->cpu->dss);
-    omap_lcd_panel_attach(s->cpu->dss, omap3_lcd_panel_get(s->lcd));
+    omap_lcd_panel_attach(s->cpu->dss);
 
     s->tsc2005 = tsc2005_init(omap2_gpio_in_get(s->cpu->gpif,
                                                 N900_TSC2005_IRQ_GPIO));

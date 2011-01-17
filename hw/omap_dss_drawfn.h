@@ -263,8 +263,8 @@ static const drawfn glue(omap_dss_drawfn_, DEPTH)[0x10] = {
     (drawfn)glue(omap_dss_draw_line24b_, DEPTH),
     NULL, /* YUV2 4:2:2 */
     NULL, /* UYVY 4:2:2 */
-    NULL, /* ARGB32 */
-    NULL, /* RGBA32 */
+    (drawfn)glue(omap_dss_draw_line24a_, DEPTH), /* FIXME: handle alpha */
+    (drawfn)glue(omap_dss_draw_line24c_, DEPTH), /* FIXME: handle alpha */
     (drawfn)glue(omap_dss_draw_line24c_, DEPTH),
     NULL,
 };

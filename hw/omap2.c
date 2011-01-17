@@ -2201,7 +2201,6 @@ static void omap2_mpu_reset(void *opaque)
     omap_synctimer_reset(mpu->synctimer);
     omap_sdrc_reset(mpu->sdrc);
     omap_gpmc_reset(mpu->gpmc);
-    omap_dss_reset(mpu->dss);
     omap_uart_reset(mpu->uart[0]);
     omap_uart_reset(mpu->uart[1]);
     omap_uart_reset(mpu->uart[2]);
@@ -2411,13 +2410,18 @@ struct omap_mpu_state_s *omap2420_mpu_init(unsigned long sdram_size,
                     omap_findclk(s, "spi2_fclk"),
                     omap_findclk(s, "spi2_iclk"));
 
-    s->dss = omap_dss_init(omap_l4ta(s->l4, 10), s,
-                    /* XXX wire M_IRQ_25, D_L2_IRQ_30 and I_IRQ_13 together */
-                    s->irq[0][OMAP_INT_24XX_DSS_IRQ], s->drq[OMAP24XX_DMA_DSS],
-                    omap_findclk(s, "dss_clk1"), omap_findclk(s, "dss_clk2"),
-                    omap_findclk(s, "dss_54m_clk"),
-                    omap_findclk(s, "dss_l3_iclk"),
-                    omap_findclk(s, "dss_l4_iclk"));
+    s->dss = qdev_create(NULL, "omap_dss");
+    qdev_prop_set_int32(s->dss, "mpu_model", s->mpu_model);
+    qdev_init_nofail(s->dss);
+    busdev = sysbus_from_qdev(s->dss);
+    sysbus_connect_irq(busdev, 0, s->irq[0][OMAP_INT_24XX_DSS_IRQ]);
+    sysbus_connect_irq(busdev, 1, s->drq[OMAP24XX_DMA_DSS]);
+    struct omap_target_agent_s *ta = omap_l4ta(s->l4, 10);
+    sysbus_mmio_map(busdev, 0, omap_l4_base(ta, 0));
+    sysbus_mmio_map(busdev, 1, omap_l4_base(ta, 1));
+    sysbus_mmio_map(busdev, 2, omap_l4_base(ta, 2));
+    sysbus_mmio_map(busdev, 3, omap_l4_base(ta, 3));
+    sysbus_mmio_map(busdev, 4, 0x68000800);
 
     omap_sti_init(omap_l4ta(s->l4, 18), 0x54000000,
                     s->irq[0][OMAP_INT_24XX_STI], omap_findclk(s, "emul_ck"),

@@ -18,14 +18,10 @@
  * You should have received a copy of the GNU General Public License along
  * with this program; if not, see <http://www.gnu.org/licenses/>.
  */
-#include "hw.h"
 #include "console.h"
 #include "omap.h"
-#include "qemu-common.h"
-#include "qemu-timer.h"
-#include "sysemu.h"
-#include "devices.h"
-#include "omap_dss.h"
+#include "sysbus.h"
+#include "dsi.h"
 
 //#define OMAP_DSS_DEBUG
 #define OMAP_DSS_DEBUG_DISPC
@@ -82,20 +78,91 @@
 
 #define OMAP_DSI_RX_FIFO_SIZE 32
 
+struct omap_dss_plane_s {
+    int enable;
+    int bpp;
+    int posx;
+    int posy;
+    int nx;
+    int ny;
+    
+    int rotation_flag;
+    int gfx_format;
+    int gfx_channel;
+    
+    target_phys_addr_t addr[3]; /* BA0, BA1, TABLE_BA */
+    
+    uint32_t attr;
+    uint32_t tresh;
+    int rowinc;
+    int colinc;
+    int wininc;
+    
+    uint32_t preload;
+    
+    /* following used for planes 1 and 2 only (VID1 and VID2) */
+    uint32_t fir;
+    uint32_t fir_coef_h[8];
+    uint32_t fir_coef_hv[8];
+    uint32_t fir_coef_v[8];
+    uint32_t conv_coef[5];
+    uint32_t picture_size;
+    uint32_t accu[2];
+};
+
+struct omap_dss_panel_s {
+    int attached;
+    int invalidate;
+    DisplayState *ds;
+    struct {
+        uint32_t control;
+        uint32_t width;
+        uint32_t height;
+        struct omap_dss_plane_s gfx;
+        struct omap_dss_plane_s vid1;
+        struct omap_dss_plane_s vid2;
+        uint32_t *gfx_palette;
+        uint32_t gfx_palette_size;
+    } shadow;
+};
+
 struct omap_dss_s {
+    SysBusDevice busdev;
+    int32_t mpu_model;
     qemu_irq irq;
     qemu_irq drq;
     
-    struct omap_mpu_state_s *mpu;
-
     uint32_t autoidle;
     uint32_t control;
     uint32_t sdi_control;
     uint32_t pll_control;
     uint32_t dss_status;
     
-    struct omap_dss_dispc_s dispc;
-    const struct omap_dss_panel_s *dig, *lcd;
+    struct omap_dss_panel_s dig, lcd;
+
+    struct {
+        QEMUTimer *lcdframer;
+        
+        uint8_t rev;
+        uint32_t idlemode;
+        uint32_t irqst;
+        uint32_t irqen;
+        uint32_t control;
+        uint32_t config;
+        uint32_t capable;
+        uint32_t timing[4];
+        uint32_t line;
+        uint32_t bg[2];
+        uint32_t trans[2];
+        uint32_t size_dig;
+        uint32_t size_lcd;
+        uint32_t global_alpha;
+        uint32_t cpr_coef_r;
+        uint32_t cpr_coef_g;
+        uint32_t cpr_coef_b;
+        
+        struct omap_dss_plane_s plane[3]; /* GFX, VID1, VID2 */
+    } dispc;
     
     struct {
         int idlemode;
@@ -114,6 +181,7 @@ struct omap_dss_s {
     } rfbi;
     
     struct {
+        DSIHost *host;
         qemu_irq drq[4];
         /* protocol engine registers */
         uint32_t sysconfig;
@@ -150,7 +218,6 @@ struct omap_dss_s {
             uint32_t rx_fifo[OMAP_DSI_RX_FIFO_SIZE];
             int rx_fifo_pos;
             int rx_fifo_len;
-            struct dsi_chip_s *chip;
         } vc[4];
         /* phy registers */
         uint32_t phy_cfg0;
@@ -164,8 +231,38 @@ struct omap_dss_s {
     } dsi;
 };
 
+#include "pixel_ops.h"
+#include "framebuffer.h"
+#define DEPTH 8
+#include "omap_dss_drawfn.h"
+#define DEPTH 15
+#include "omap_dss_drawfn.h"
+#define DEPTH 16
+#include "omap_dss_drawfn.h"
+#define DEPTH 24
+#include "omap_dss_drawfn.h"
+#define DEPTH 32
+#include "omap_dss_drawfn.h"
+#undef DEPTH
+
+static drawfn omap_dss_linefn(const DeviceState *dev, int format, int bpp)
+{
+    switch (bpp) {
+        case 8:  return omap_dss_drawfn_8[format];
+        case 15: return omap_dss_drawfn_15[format];
+        case 16: return omap_dss_drawfn_16[format];
+        case 24: return omap_dss_drawfn_24[format];
+        case 32: return omap_dss_drawfn_32[format];
+        default:
+            hw_error("%s: unsupported host display color depth: %d\n",
+                     __FUNCTION__, bpp);
+            break;
+    }
+    return NULL;
+}
+
 /* Bytes(!) per pixel */
-const int omap_lcd_Bpp[0x10] = {
+static const int omap_lcd_Bpp[0x10] = {
     0,  /* 0x0: BITMAP1 (CLUT) */
     0,  /* 0x1: BITMAP2 (CLUT) */
     0,  /* 0x2: BITMAP4 (CLUT) */
@@ -196,22 +293,12 @@ static void omap_dss_interrupt_update(struct omap_dss_s *s)
                  | (s->dispc.irqst & s->dispc.irqen));
 }
 
-void omap_dss_lcd_framedone(void *opaque)
+static void omap_dss_framedone(void *opaque)
 {
     struct omap_dss_s *s = (struct omap_dss_s *)opaque;
-    if (s->dispc.control & 1) { /* LCDENABLE */
+    if (s->dispc.control & 3) { /* DIGITALENABLE | LCDENABLE */
         if ((s->dispc.control & (1 << 11))) { /* STALLMODE */
             s->dispc.control &= ~1; /* LCDENABLE */
-            if ((s->dsi.ctrl & 1)) { /* IF_EN */
-                int n = 0;
-                for (; n < 4; n++) {
-                    if ((s->dsi.vc[n].ctrl & 1) &&       /* VC_EN */
-                        (s->dsi.vc[n].te & (3 << 30))) { /* TE_START | TE_EN */
-                        s->dsi.vc[n].te = 0;   /* TE_START,TE_EN,TE_SIZE = 0 */
-                        s->dsi.irqst |= 1 << 16; /* TE_TRIGGER_IRQ */
-                    }
-                }
-            }
             if ((s->rfbi.control & 1)) { /* ENABLE */
                 s->rfbi.pixels = 0;
                 s->rfbi.busy = 0;
@@ -231,23 +318,14 @@ void omap_dss_lcd_framedone(void *opaque)
     }
 }
 
-static void omap_dsi_te_trigger(struct omap_dss_s *s, struct dsi_chip_s *chip)
+static void omap_dsi_te_trigger(DeviceState *dev, int vc)
 {
-    int i;
-    if ((s->dsi.ctrl & 1)) { /* IF_EN */
-        for (i = 0; i < 4; i++) {
-            if ((s->dsi.vc[i].ctrl & 1) && /* VC_EN */
-                s->dsi.vc[i].chip == chip) {
-                if ((s->dsi.vc[i].te & (3 << 30))) { /* TE_START | TE_EN */
-                    s->dsi.vc[i].te = 0;
-                    s->dispc.control &= ~1; /* LCDENABLE */
-                    s->dispc.irqst |= 1; /* FRAMEDONE */
-                }
-                s->dsi.irqst |= 1 << 16; /* TE_TRIGGER_IRQ */
-                omap_dss_interrupt_update(s);
-                break;
-            }
-        }
+    struct omap_dss_s *s = FROM_SYSBUS(struct omap_dss_s,
+                                       sysbus_from_qdev(dev));
+    if ((s->dsi.ctrl & 1) &&        /* IF_EN */
+        (s->dsi.vc[vc].ctrl & 1)) { /* VC_EN */
+        s->dsi.irqst |= 1 << 16;    /* TE_TRIGGER_IRQ */
+        omap_dss_interrupt_update(s);
     }
 }
 
@@ -255,9 +333,9 @@ static void omap_rfbi_transfer_stop(struct omap_dss_s *s)
 {
     if (!s->rfbi.busy)
         return;
-    
+
     /* TODO: in non-Bypass mode we probably need to just deassert the DRQ.  */
-    
+
     s->rfbi.busy = 0;
     s->rfbi.control &= ~0x10; /* ITE */
 }
@@ -270,23 +348,23 @@ static void omap_rfbi_transfer_start(struct omap_dss_s *s)
     int pitch;
     static void *bounce_buffer;
     static target_phys_addr_t bounce_len;
-    
+
     if (!s->rfbi.enable || s->rfbi.busy)
         return;
-    
+
     if (s->rfbi.control & (1 << 1)) {				/* BYPASS */
         /* TODO: in non-Bypass mode we probably need to just assert the
          * DRQ and wait for DMA to write the pixels.  */
         hw_error("%s: Bypass mode unimplemented", __FUNCTION__);
     }
-    
+
     if (!(s->dispc.control & (1 << 11))) /* STALLMODE */
         return;
-    
+
     s->rfbi.busy = 1;
-    
+
     len = s->rfbi.pixels * 2;
-    
+
     data_addr = s->dispc.plane[0].addr[0];
     data = cpu_physical_memory_map(data_addr, &len, 0);
     if (data && len != s->rfbi.pixels * 2) {
@@ -301,22 +379,22 @@ static void omap_rfbi_transfer_start(struct omap_dss_s *s)
         data = bounce_buffer;
         cpu_physical_memory_read(data_addr, data, len);
     }
-    
+
     /* TODO: negative values */
     pitch = s->dispc.plane[0].nx + (s->dispc.plane[0].rowinc - 1) / 2;
-    
+
     if ((s->rfbi.control & (1 << 2)) && s->rfbi.chip[0])
         s->rfbi.chip[0]->block(s->rfbi.chip[0]->opaque, 1, data, len, pitch);
     if ((s->rfbi.control & (1 << 3)) && s->rfbi.chip[1])
         s->rfbi.chip[1]->block(s->rfbi.chip[1]->opaque, 1, data, len, pitch);
-    
+
     if (data != bounce_buffer) {
         cpu_physical_memory_unmap(data, len, 0, len);
     }
-    
+
     omap_rfbi_transfer_stop(s);
-    
-    omap_dss_lcd_framedone(s);
+
+    omap_dss_framedone(s);
 }
 
 static void omap_dsi_transfer_start(struct omap_dss_s *s, int ch)
@@ -330,18 +408,198 @@ static void omap_dsi_transfer_start(struct omap_dss_s *s, int ch)
         TRACEDSI("vc%d   irqenable=0x%08x", ch, s->dsi.vc[ch].irqen);
         TRACEDSI("dsi   irqenable=0x%08x", s->dsi.irqen);
         TRACEDSI("dispc irqenable=0x%08x", s->dispc.irqen);
-        if (!s->dsi.vc[ch].chip) {
-            TRACEDSI("ERROR - no DSI chip attached on channel %d", ch);
+        int tx_dma = (s->dsi.vc[ch].ctrl >> 21) & 7; /* DMA_TX_REQ_NB */
+        if (tx_dma < 4) {
+            qemu_irq_raise(s->dsi.drq[tx_dma]);
         } else {
-            int tx_dma = (s->dsi.vc[ch].ctrl >> 21) & 7; /* DMA_TX_REQ_NB */
-            if (tx_dma < 4) {
-                qemu_irq_raise(s->dsi.drq[tx_dma]);
+            const int format = (s->dispc.plane[0].attr >> 1) & 0xf;
+            const int col_pitch = omap_lcd_Bpp[format] +
+            (s->dispc.plane[0].colinc - 1);
+            const int row_pitch = (s->dispc.plane[0].nx * col_pitch) +
+            (s->dispc.plane[0].rowinc - 1);
+            target_phys_addr_t len = row_pitch * s->dispc.plane[0].ny;
+            void *data = cpu_physical_memory_map(s->dispc.plane[0].addr[0],
+                                                 &len, 0);
+            if (!data || len != row_pitch * s->dispc.plane[0].ny) {
+                fprintf(stderr, "%s: unable to map contiguous frame buffer\n",
+                        __FUNCTION__);
             } else {
-                if (s->dsi.vc[ch].chip->blt(s->dsi.vc[ch].chip->opaque,
-                                            &s->dispc)) {
-                    omap_dss_lcd_framedone(s);
-                }
+                dsi_blt(s->dsi.host, ch, data, s->dispc.plane[0].nx,
+                        s->dispc.plane[0].ny, col_pitch, row_pitch, format);
             }
+            if (data) {
+                cpu_physical_memory_unmap(data, len, 0, 0);
+            }
+            s->dsi.vc[ch].te = 0; /* transfer complete */
+            omap_dss_framedone(s);
+        }
+    }
+}
+
+static void omap_dss_panel_layer_update(DisplayState *ds,
+                                        uint32_t panel_width,
+                                        uint32_t panel_height,
+                                        uint32_t posx,
+                                        int *posy, int *endy,
+                                        uint32_t width, uint32_t height,
+                                        uint32_t attrib,
+                                        target_phys_addr_t addr,
+                                        uint32_t *palette,
+                                        int full_update)
+{
+    if (!(attrib & 1)) { /* layer disabled? */
+        return;
+    }
+    uint32_t format = (attrib >> 1) & 0xf;
+    if ((attrib & 0x600)) { /* GFXENDIANNESS | GFXNIBBLEMODE */
+        hw_error("%s: unsupported layer attributes (0x%08x)\n",
+                 __FUNCTION__, attrib);
+    }
+    drawfn line_fn = omap_dss_linefn(NULL, format, ds_get_bits_per_pixel(ds));
+    if (!line_fn) {
+        hw_error("%s: unsupported omap dss color format: %d\n",
+                 __FUNCTION__, format);
+    }
+    if (posx) {
+        fprintf(stderr, "%s@%d: non-zero layer x-coordinate (%d), "
+                "not currently supported -> using zero\n", __FUNCTION__,
+                __LINE__, posx);
+        posx = 0;
+    }
+
+    uint32_t copy_width = (posx + width) > panel_width
+                          ? (panel_width - posx) : width;
+    uint32_t copy_height = ((*posy) + height) > panel_height
+                           ? (panel_height - (*posy)) : height;
+    uint32_t linesize = ds_get_linesize(ds);
+    framebuffer_update_display(ds, addr, copy_width, copy_height,
+                               (format < 3)
+                               ? (width >> (3 - format))
+                               : (width * omap_lcd_Bpp[format]),
+                               linesize, linesize / ds_get_width(ds),
+                               full_update, line_fn, palette,
+                               posy, endy);
+}
+
+static void omap_dss_panel_update_display(struct omap_dss_panel_s *s, int lcd)
+{
+    if (s->invalidate) {
+        if (s->shadow.width != ds_get_width(s->ds) 
+            || s->shadow.height != ds_get_height(s->ds)) {
+            qemu_console_resize(s->ds, s->shadow.width, s->shadow.height);
+        }
+        if ((s->shadow.gfx.attr >> 12) & 0x3) { /* GFXROTATION */
+            hw_error("%s: GFX rotation is not supported", __FUNCTION__);
+        }
+    }
+
+    /* TODO: draw background color */
+    int first_row = -1;
+    int last_row = 0;
+    if ((lcd && !(s->shadow.gfx.attr & 0x100)) ||
+        (!lcd && (s->shadow.gfx.attr & 0x100))) {
+        if (s->shadow.gfx_palette && s->shadow.gfx_palette_size) {
+            cpu_physical_memory_read(s->shadow.gfx.addr[2],
+                                     (uint8_t *)s->shadow.gfx_palette,
+                                     s->shadow.gfx_palette_size
+                                     * sizeof(uint32_t));
+        }
+        first_row = s->shadow.gfx.posy;
+        omap_dss_panel_layer_update(s->ds, s->shadow.width, s->shadow.height,
+                                    s->shadow.gfx.posx, &first_row, &last_row,
+                                    s->shadow.gfx.nx, s->shadow.gfx.ny,
+                                    s->shadow.gfx.attr, s->shadow.gfx.addr[0],
+                                    s->shadow.gfx_palette, s->invalidate);
+    }
+    /* TODO: draw VID1 & VID2 layers */
+    s->invalidate = 0;
+
+    if (first_row >= 0) {
+        dpy_update(s->ds, 0, first_row, s->shadow.width,
+                   last_row - first_row + 1);
+    }
+}
+
+static void omap_lcd_panel_update_display(void *opaque)
+{
+    struct omap_dss_s *s = opaque;
+    if (!s->lcd.ds
+        || !(s->lcd.shadow.control & 1)           /* LCDENABLE */
+        || (s->lcd.shadow.control & (1 << 11))) { /* STALLMODE */
+        return;
+    }
+    omap_dss_panel_update_display(&s->lcd, 1);
+    omap_dss_framedone(s);
+}
+
+static void omap_lcd_panel_invalidate_display(void *opaque)
+{
+    struct omap_dss_s *s = opaque;
+    s->lcd.invalidate = 1;
+}
+
+static void omap_dig_panel_update_display(void *opaque)
+{
+    struct omap_dss_s *s = opaque;
+    if (!s->dig.ds || !(s->dig.shadow.control & 2)) { /* DIGITALENABLE */
+        return;
+    }
+    omap_dss_panel_update_display(&s->dig, 0);
+    omap_dss_framedone(s);
+}
+
+static void omap_dig_panel_invalidate_display(void *opaque)
+{
+    struct omap_dss_s *s = opaque;
+    s->dig.invalidate = 1;
+}
+
+static void omap_dss_panel_go(struct omap_dss_s *s,
+                              struct omap_dss_panel_s *p,
+                              uint32_t size)
+{
+    if (p->attached) {
+        p->invalidate = 1;
+        p->shadow.control = s->dispc.control;
+        p->shadow.width = (size & 0x7ff) + 1;
+        p->shadow.height = ((size >> 16) & 0x7ff) + 1;
+        p->shadow.gfx = s->dispc.plane[0];
+        p->shadow.vid1 = s->dispc.plane[1];
+        p->shadow.vid2 = s->dispc.plane[2];
+        int new_size = 0;
+        switch ((p->shadow.gfx.attr >> 1) & 0x0f) {
+            case 0: new_size = 2; break;
+            case 1: new_size = 4; break;
+            case 2: new_size = 16; break;
+            case 3: new_size = 256; break;
+            default: break;
+        }
+        if (new_size != p->shadow.gfx_palette_size) {
+            if (p->shadow.gfx_palette) {
+                qemu_free(p->shadow.gfx_palette);
+                p->shadow.gfx_palette = NULL;
+            }
+            if (new_size) {
+                p->shadow.gfx_palette = qemu_malloc(new_size *
+                                                    sizeof(uint32_t));
+            }
+            p->shadow.gfx_palette_size = new_size;
+        }
+    }
+}
+
+static void omap_dss_panel_reset(void *opaque)
+{
+    struct omap_dss_panel_s *s = opaque;
+    if (s->attached) {
+        s->shadow.control = 0;
+        memset(&s->shadow.gfx, 0, sizeof(s->shadow.gfx));
+        memset(&s->shadow.vid1, 0, sizeof(s->shadow.vid1));
+        memset(&s->shadow.vid2, 0, sizeof(s->shadow.vid2));
+        if (s->shadow.gfx_palette) {
+            qemu_free(s->shadow.gfx_palette);
+            s->shadow.gfx_palette = NULL;
+            s->shadow.gfx_palette_size = 0;
         }
     }
 }
@@ -349,7 +607,7 @@ static void omap_dsi_transfer_start(struct omap_dss_s *s, int ch)
 static void omap_dsi_reset(struct omap_dss_s *s)
 {
     int i;
-    
+
     s->dsi.sysconfig = 0x11;
     s->dsi.irqst = 0;
     s->dsi.irqen = 0;
@@ -384,14 +642,14 @@ static void omap_dsi_reset(struct omap_dss_s *s)
         s->dsi.vc[i].rx_fifo_pos = 0;
         s->dsi.vc[i].rx_fifo_len = 0;
     }
-    if (cpu_is_omap3630(s->mpu)) {
-        s->dsi.phy_cfg0 = 0x1e481d3a;
-        s->dsi.phy_cfg1 = 0x420a1a6a;
-        s->dsi.phy_cfg2 = 0xb800001a;
-    } else {
+    if (s->mpu_model < omap3630) {
         s->dsi.phy_cfg0 = 0x1a3c1a28;
         s->dsi.phy_cfg1 = 0x420a1875;
         s->dsi.phy_cfg2 = 0xb800001b;
+    } else {
+        s->dsi.phy_cfg0 = 0x1e481d3a;
+        s->dsi.phy_cfg1 = 0x420a1a6a;
+        s->dsi.phy_cfg2 = 0xb800001a;
     }
     s->dsi.pll_control = 0;
     s->dsi.pll_go = 0;
@@ -424,13 +682,15 @@ static void omap_rfbi_reset(struct omap_dss_s *s)
     s->rfbi.hsync = 0;
 }
 
-void omap_dss_reset(struct omap_dss_s *s)
+static void omap_dss_reset(DeviceState *dev)
 {
     int i, j;
-    
+
+    struct omap_dss_s *s = FROM_SYSBUS(struct omap_dss_s,
+                                       sysbus_from_qdev(dev));
     s->autoidle = 0x10; /* was 0 for OMAP2 but bit4 must be set for OMAP3 */
     s->control = 0;
-    if (cpu_is_omap3430(s->mpu)) {
+    if (s->mpu_model == omap3430) {
         s->sdi_control = 0;
         s->pll_control = 0;
         s->dss_status = 0x81; /* bit 7 is not present prior to OMAP3 */
@@ -488,9 +748,11 @@ void omap_dss_reset(struct omap_dss_s *s)
             s->dispc.plane[i].fir_coef_v[j] = 0;
         }
     }
-        
+
     omap_dsi_reset(s);
     omap_rfbi_reset(s);
+    omap_dss_panel_reset(&s->lcd);
+    omap_dss_panel_reset(&s->dig);
     omap_dss_interrupt_update(s);
 }
 
@@ -511,7 +773,7 @@ static uint32_t omap_diss_read(void *opaque, target_phys_addr_t addr)
     case 0x14:	/* DSS_SYSSTATUS */
         TRACEDISS("DSS_SYSSTATUS: 0x1");
         return 1; /* RESETDONE */
-            
+
     case 0x18:  /* DSS_IRQSTATUS */
         x = (s->dispc.irqst & s->dispc.irqen) ? 1 : 0;
         if ((s->dsi.irqst & s->dsi.irqen)
@@ -523,20 +785,20 @@ static uint32_t omap_diss_read(void *opaque, target_phys_addr_t addr)
             x |= 2;
         TRACEDISS("DSS_IRQSTATUS: 0x%08x", x);
         return x;
-            
+
     case 0x40:	/* DSS_CONTROL */
         TRACEDISS("DSS_CONTROL: 0x%08x", s->control);
         return s->control;
 
     case 0x44:  /* DSS_SDI_CONTROL */
-        if (cpu_is_omap3430(s->mpu)) {
+        if (s->mpu_model == omap3430) {
             TRACEDISS("DSS_SDI_CONTROL: 0x%08x", s->sdi_control);
             return s->sdi_control;
         }
         break;
 
     case 0x48: /* DSS_PLL_CONTROL */
-        if (cpu_is_omap3430(s->mpu)) {
+        if (s->mpu_model == omap3430) {
             TRACEDISS("DSS_PLL_CONTROL: 0x%08x", s->pll_control);
             return s->pll_control;
         }
@@ -545,7 +807,7 @@ static uint32_t omap_diss_read(void *opaque, target_phys_addr_t addr)
     case 0x50:	/* DSS_PSA_LCD_REG_1 */
     case 0x54:	/* DSS_PSA_LCD_REG_2 */
     case 0x58:	/* DSS_PSA_VIDEO_REG */
-        if (cpu_class_omap2(s->mpu)) {
+        if (s->mpu_model < omap3430) {
             TRACEDISS("DSS_PSA_xxx: 0");
             /* TODO: fake some values according to s->control bits */
             return 0;
@@ -554,10 +816,10 @@ static uint32_t omap_diss_read(void *opaque, target_phys_addr_t addr)
 
     case 0x5c:
         x = s->dss_status;
-        if (cpu_class_omap2(s->mpu)) {
+        if (s->mpu_model < omap3430) {
             TRACEDISS("DSS_STATUS: 0x%08x", x);
         } else {
-            if (cpu_is_omap3430(s->mpu)) {
+            if (s->mpu_model == omap3430) {
                 s->dss_status &= ~(1 << 6); /* SDI_PLL_BUSYFLAG */
                 TRACEDISS("DSS_SDI_STATUS: 0x%08x", x);
             } else { /* omap3630 */
@@ -592,9 +854,9 @@ static void omap_diss_write(void *opaque, target_phys_addr_t addr,
     case 0x10:	/* DSS_SYSCONFIG */
         TRACEDISS("DSS_SYSCONFIG = 0x%08x", value);
         if (value & 2) { /* SOFTRESET */
-            omap_dss_reset(s);
+            omap_dss_reset(&s->busdev.qdev);
         }
-        if (cpu_class_omap2(s->mpu)) {
+        if (s->mpu_model < omap3430) {
             value &= 0x01;
         } else {
             value &= 0x19;
@@ -604,7 +866,7 @@ static void omap_diss_write(void *opaque, target_phys_addr_t addr,
 
     case 0x40:	/* DSS_CONTROL */
         TRACEDISS("DSS_CONTROL = 0x%08x", value);
-        if (cpu_class_omap2(s->mpu)) {
+        if (s->mpu_model < omap3430) {
             value &= 0x3dd;
         } else {
             value &= 0x3ff;
@@ -615,7 +877,7 @@ static void omap_diss_write(void *opaque, target_phys_addr_t addr,
         break;
 
     case 0x44: /* DSS_SDI_CONTROL */
-        if (cpu_is_omap3430(s->mpu)) {
+        if (s->mpu_model == omap3430) {
             TRACEDISS("DSS_SDI_CONTROL = 0x%08x", value);
             s->sdi_control = value & 0x000ff80f;
         } else {
@@ -624,7 +886,7 @@ static void omap_diss_write(void *opaque, target_phys_addr_t addr,
         break;
 
     case 0x48: /* DSS_PLL_CONTROL */
-        if (cpu_is_omap3430(s->mpu)) {
+        if (s->mpu_model == omap3430) {
             TRACEDISS("DSS_PLL_CONTROL = 0x%08x", value);
             if (value & (1 << 18)) { /* SDI_PLL_SYSRESET */
                 s->dss_status |= 1 << 2;    /* SDI_PLL_RESETDONE */
@@ -645,7 +907,7 @@ static void omap_diss_write(void *opaque, target_phys_addr_t addr,
             OMAP_BAD_REGV(addr, value);
         }
         break;
-            
+
     default:
         OMAP_BAD_REGV(addr, value);
         break;
@@ -919,7 +1181,7 @@ static void omap_disc_write(void *opaque, target_phys_addr_t addr,
     case 0x010:	/* DISPC_SYSCONFIG */
         TRACEDISPC("DISPC_SYSCONFIG = 0x%08x", value);
         if (value & 2) { /* SOFTRESET */
-            omap_dss_reset(s);
+            omap_dss_reset(&s->busdev.qdev);
         }
         s->dispc.idlemode = value & ((s->dispc.rev < 0x30) ? 0x301b : 0x331f);
         break;
@@ -949,11 +1211,11 @@ static void omap_disc_write(void *opaque, target_phys_addr_t addr,
                             "region effectively exists leads to "
                             "unpredictable behaviour!");
             }
-        if ((value & 0x21) && s->lcd) { /* GOLCD | LCDENABLE */
-            s->lcd->controlupdate(s->lcd->opaque, &s->dispc);
+        if ((value & 0x21)) { /* GOLCD | LCDENABLE */
+            omap_dss_panel_go(s, &s->lcd, s->dispc.size_lcd);
         }
-        if ((value & 0x42) && s->dig) { /* GODIGITAL | DIGITALENABLE */
-            s->dig->controlupdate(s->dig->opaque, &s->dispc);
+        if ((value & 0x42)) { /* GODIGITAL | DIGITALENABLE */
+            omap_dss_panel_go(s, &s->dig, s->dispc.size_dig);
         }
         if (value & 1) { /* LCDENABLE */
             if ((value & (1 << 11))) { /* STALLMODE */
@@ -977,7 +1239,7 @@ static void omap_disc_write(void *opaque, target_phys_addr_t addr,
             }
         } else if (n & 1) { /* enable -> disable, signal wip frame done */
             s->dispc.control |= 1;
-            omap_dss_lcd_framedone(s);
+            omap_dss_framedone(s);
             s->dispc.control &= ~1;
         }
         break;
@@ -1081,10 +1343,10 @@ static void omap_disc_write(void *opaque, target_phys_addr_t addr,
         break;
     case 0x0a0:	/* DISPC_GFX_ATTRIBUTES */
         TRACEDISPC("DISPC_GFX_ATTRIBUTES = 0x%08x", value);
-        if (cpu_is_omap3630(s->mpu)) {
-            value &= 0x1000ffff;
-        } else {
+        if (s->mpu_model < omap3630) {
             value &= 0xffff;
+        } else {
+            value &= 0x1000ffff;
         }
         s->dispc.plane[0].attr = value;
         if (value & (3 << 9)) {
@@ -1135,10 +1397,10 @@ static void omap_disc_write(void *opaque, target_phys_addr_t addr,
     case 0x0cc:	/* DISPC_VID1_ATTRIBUTES */
         n++;
         TRACEDISPC("DISPC_%s_ATTRIBUTES = 0x%08x", LAYERNAME(n), value);
-        if (cpu_is_omap3630(s->mpu)) {
-            value &= 0x11ffffff;
-        } else {
+        if (s->mpu_model < omap3630) {
             value &= 0x01ffffff;
+        } else {
+            value &= 0x11ffffff;
         }
         s->dispc.plane[n].attr = value;
         break;
@@ -1490,54 +1752,53 @@ static CPUWriteMemoryFunc * const omap_rfbi1_writefn[] = {
 static uint32_t omap_venc_read(void *opaque, target_phys_addr_t addr)
 {
     switch (addr) {
-        case 0x00:	/* REV_ID */
-            return 0x2;
-        case 0x04:	/* STATUS */
-        case 0x08:	/* F_CONTROL */
-        case 0x10:	/* VIDOUT_CTRL */
-        case 0x14:	/* SYNC_CTRL */
-        case 0x1c:	/* LLEN */
-        case 0x20:	/* FLENS */
-        case 0x24:	/* HFLTR_CTRL */
-        case 0x28:	/* CC_CARR_WSS_CARR */
-        case 0x2c:	/* C_PHASE */
-        case 0x30:	/* GAIN_U */
-        case 0x34:	/* GAIN_V */
-        case 0x38:	/* GAIN_Y */
-        case 0x3c:	/* BLACK_LEVEL */
-        case 0x40:	/* BLANK_LEVEL */
-        case 0x44:	/* X_COLOR */
-        case 0x48:	/* M_CONTROL */
-        case 0x4c:	/* BSTAMP_WSS_DATA */
-        case 0x50:	/* S_CARR */
-        case 0x54:	/* LINE21 */
-        case 0x58:	/* LN_SEL */
-        case 0x5c:	/* L21__WC_CTL */
-        case 0x60:	/* HTRIGGER_VTRIGGER */
-        case 0x64:	/* SAVID__EAVID */
-        case 0x68:	/* FLEN__FAL */
-        case 0x6c:	/* LAL__PHASE_RESET */
-        case 0x70:	/* HS_INT_START_STOP_X */
-        case 0x74:	/* HS_EXT_START_STOP_X */
-        case 0x78:	/* VS_INT_START_X */
-        case 0x7c:	/* VS_INT_STOP_X__VS_INT_START_Y */
-        case 0x80:	/* VS_INT_STOP_Y__VS_INT_START_X */
-        case 0x84:	/* VS_EXT_STOP_X__VS_EXT_START_Y */
-        case 0x88:	/* VS_EXT_STOP_Y */
-        case 0x90:	/* AVID_START_STOP_X */
-        case 0x94:	/* AVID_START_STOP_Y */
-        case 0xa0:	/* FID_INT_START_X__FID_INT_START_Y */
-        case 0xa4:	/* FID_INT_OFFSET_Y__FID_EXT_START_X */
-        case 0xa8:	/* FID_EXT_START_Y__FID_EXT_OFFSET_Y */
-        case 0xb0:	/* TVDETGP_INT_START_STOP_X */
-        case 0xb4:	/* TVDETGP_INT_START_STOP_Y */
-        case 0xb8:	/* GEN_CTRL */
-        case 0xc4:	/* DAC_TST__DAC_A */
-        case 0xc8:	/* DAC_B__DAC_C */
-            return 0;
-            
-        default:
-            break;
+    case 0x00:	/* REV_ID */
+        return 0x2;
+    case 0x04:	/* STATUS */
+    case 0x08:	/* F_CONTROL */
+    case 0x10:	/* VIDOUT_CTRL */
+    case 0x14:	/* SYNC_CTRL */
+    case 0x1c:	/* LLEN */
+    case 0x20:	/* FLENS */
+    case 0x24:	/* HFLTR_CTRL */
+    case 0x28:	/* CC_CARR_WSS_CARR */
+    case 0x2c:	/* C_PHASE */
+    case 0x30:	/* GAIN_U */
+    case 0x34:	/* GAIN_V */
+    case 0x38:	/* GAIN_Y */
+    case 0x3c:	/* BLACK_LEVEL */
+    case 0x40:	/* BLANK_LEVEL */
+    case 0x44:	/* X_COLOR */
+    case 0x48:	/* M_CONTROL */
+    case 0x4c:	/* BSTAMP_WSS_DATA */
+    case 0x50:	/* S_CARR */
+    case 0x54:	/* LINE21 */
+    case 0x58:	/* LN_SEL */
+    case 0x5c:	/* L21__WC_CTL */
+    case 0x60:	/* HTRIGGER_VTRIGGER */
+    case 0x64:	/* SAVID__EAVID */
+    case 0x68:	/* FLEN__FAL */
+    case 0x6c:	/* LAL__PHASE_RESET */
+    case 0x70:	/* HS_INT_START_STOP_X */
+    case 0x74:	/* HS_EXT_START_STOP_X */
+    case 0x78:	/* VS_INT_START_X */
+    case 0x7c:	/* VS_INT_STOP_X__VS_INT_START_Y */
+    case 0x80:	/* VS_INT_STOP_Y__VS_INT_START_X */
+    case 0x84:	/* VS_EXT_STOP_X__VS_EXT_START_Y */
+    case 0x88:	/* VS_EXT_STOP_Y */
+    case 0x90:	/* AVID_START_STOP_X */
+    case 0x94:	/* AVID_START_STOP_Y */
+    case 0xa0:	/* FID_INT_START_X__FID_INT_START_Y */
+    case 0xa4:	/* FID_INT_OFFSET_Y__FID_EXT_START_X */
+    case 0xa8:	/* FID_EXT_START_Y__FID_EXT_OFFSET_Y */
+    case 0xb0:	/* TVDETGP_INT_START_STOP_X */
+    case 0xb4:	/* TVDETGP_INT_START_STOP_Y */
+    case 0xb8:	/* GEN_CTRL */
+    case 0xc4:	/* DAC_TST__DAC_A */
+    case 0xc8:	/* DAC_B__DAC_C */
+       return 0;
+    default:
+        break;
     }
     OMAP_BAD_REG(addr);
     return 0;
@@ -1547,56 +1808,55 @@ static void omap_venc_write(void *opaque, target_phys_addr_t addr,
                 uint32_t value)
 {
     switch (addr) {
-        case 0x00: /* REV_ID */
-        case 0x04: /* STATUS */
-            /* read-only, ignore */
-            break;
-        case 0x08:	/* F_CONTROL */
-        case 0x10:	/* VIDOUT_CTRL */
-        case 0x14:	/* SYNC_CTRL */
-        case 0x1c:	/* LLEN */
-        case 0x20:	/* FLENS */
-        case 0x24:	/* HFLTR_CTRL */
-        case 0x28:	/* CC_CARR_WSS_CARR */
-        case 0x2c:	/* C_PHASE */
-        case 0x30:	/* GAIN_U */
-        case 0x34:	/* GAIN_V */
-        case 0x38:	/* GAIN_Y */
-        case 0x3c:	/* BLACK_LEVEL */
-        case 0x40:	/* BLANK_LEVEL */
-        case 0x44:	/* X_COLOR */
-        case 0x48:	/* M_CONTROL */
-        case 0x4c:	/* BSTAMP_WSS_DATA */
-        case 0x50:	/* S_CARR */
-        case 0x54:	/* LINE21 */
-        case 0x58:	/* LN_SEL */
-        case 0x5c:	/* L21__WC_CTL */
-        case 0x60:	/* HTRIGGER_VTRIGGER */
-        case 0x64:	/* SAVID__EAVID */
-        case 0x68:	/* FLEN__FAL */
-        case 0x6c:	/* LAL__PHASE_RESET */
-        case 0x70:	/* HS_INT_START_STOP_X */
-        case 0x74:	/* HS_EXT_START_STOP_X */
-        case 0x78:	/* VS_INT_START_X */
-        case 0x7c:	/* VS_INT_STOP_X__VS_INT_START_Y */
-        case 0x80:	/* VS_INT_STOP_Y__VS_INT_START_X */
-        case 0x84:	/* VS_EXT_STOP_X__VS_EXT_START_Y */
-        case 0x88:	/* VS_EXT_STOP_Y */
-        case 0x90:	/* AVID_START_STOP_X */
-        case 0x94:	/* AVID_START_STOP_Y */
-        case 0xa0:	/* FID_INT_START_X__FID_INT_START_Y */
-        case 0xa4:	/* FID_INT_OFFSET_Y__FID_EXT_START_X */
-        case 0xa8:	/* FID_EXT_START_Y__FID_EXT_OFFSET_Y */
-        case 0xb0:	/* TVDETGP_INT_START_STOP_X */
-        case 0xb4:	/* TVDETGP_INT_START_STOP_Y */
-        case 0xb8:	/* GEN_CTRL */
-        case 0xc4:	/* DAC_TST__DAC_A */
-        case 0xc8:	/* DAC_B__DAC_C */
-            break;
-            
-        default:
-            OMAP_BAD_REGV(addr, value);
-            break;
+    case 0x00: /* REV_ID */
+    case 0x04: /* STATUS */
+        /* read-only, ignore */
+        break;
+    case 0x08:	/* F_CONTROL */
+    case 0x10:	/* VIDOUT_CTRL */
+    case 0x14:	/* SYNC_CTRL */
+    case 0x1c:	/* LLEN */
+    case 0x20:	/* FLENS */
+    case 0x24:	/* HFLTR_CTRL */
+    case 0x28:	/* CC_CARR_WSS_CARR */
+    case 0x2c:	/* C_PHASE */
+    case 0x30:	/* GAIN_U */
+    case 0x34:	/* GAIN_V */
+    case 0x38:	/* GAIN_Y */
+    case 0x3c:	/* BLACK_LEVEL */
+    case 0x40:	/* BLANK_LEVEL */
+    case 0x44:	/* X_COLOR */
+    case 0x48:	/* M_CONTROL */
+    case 0x4c:	/* BSTAMP_WSS_DATA */
+    case 0x50:	/* S_CARR */
+    case 0x54:	/* LINE21 */
+    case 0x58:	/* LN_SEL */
+    case 0x5c:	/* L21__WC_CTL */
+    case 0x60:	/* HTRIGGER_VTRIGGER */
+    case 0x64:	/* SAVID__EAVID */
+    case 0x68:	/* FLEN__FAL */
+    case 0x6c:	/* LAL__PHASE_RESET */
+    case 0x70:	/* HS_INT_START_STOP_X */
+    case 0x74:	/* HS_EXT_START_STOP_X */
+    case 0x78:	/* VS_INT_START_X */
+    case 0x7c:	/* VS_INT_STOP_X__VS_INT_START_Y */
+    case 0x80:	/* VS_INT_STOP_Y__VS_INT_START_X */
+    case 0x84:	/* VS_EXT_STOP_X__VS_EXT_START_Y */
+    case 0x88:	/* VS_EXT_STOP_Y */
+    case 0x90:	/* AVID_START_STOP_X */
+    case 0x94:	/* AVID_START_STOP_Y */
+    case 0xa0:	/* FID_INT_START_X__FID_INT_START_Y */
+    case 0xa4:	/* FID_INT_OFFSET_Y__FID_EXT_START_X */
+    case 0xa8:	/* FID_EXT_START_Y__FID_EXT_OFFSET_Y */
+    case 0xb0:	/* TVDETGP_INT_START_STOP_X */
+    case 0xb4:	/* TVDETGP_INT_START_STOP_Y */
+    case 0xb8:	/* GEN_CTRL */
+    case 0xc4:	/* DAC_TST__DAC_A */
+    case 0xc8:	/* DAC_B__DAC_C */
+        break;
+    default:
+        OMAP_BAD_REGV(addr, value);
+        break;
     }
 }
 
@@ -1666,7 +1926,7 @@ static CPUWriteMemoryFunc * const omap_im3_writefn[] = {
 static void omap_dsi_push_rx_fifo(struct omap_dss_s *s, int ch, uint32_t value)
 {
     int p;
-    
+
     if (s->dsi.vc[ch].rx_fifo_len < OMAP_DSI_RX_FIFO_SIZE) {
         p = s->dsi.vc[ch].rx_fifo_pos + s->dsi.vc[ch].rx_fifo_len;
         if (p >= OMAP_DSI_RX_FIFO_SIZE)
@@ -1681,7 +1941,7 @@ static void omap_dsi_push_rx_fifo(struct omap_dss_s *s, int ch, uint32_t value)
 static uint32_t omap_dsi_pull_rx_fifo(struct omap_dss_s *s, int ch)
 {
     int v = 0;
-    
+
     if (!s->dsi.vc[ch].rx_fifo_len) {
         TRACEDSI("vc%d rx fifo underflow!", ch);
     } else {
@@ -1690,7 +1950,7 @@ static uint32_t omap_dsi_pull_rx_fifo(struct omap_dss_s *s, int ch)
         if (s->dsi.vc[ch].rx_fifo_pos >= OMAP_DSI_RX_FIFO_SIZE)
             s->dsi.vc[ch].rx_fifo_pos = 0;
     }
-    
+
     return v;
 }
 
@@ -1698,170 +1958,167 @@ static uint32_t omap_dsi_read(void *opaque, target_phys_addr_t addr)
 {
     struct omap_dss_s *s = (struct omap_dss_s *)opaque;
     uint32_t x, y;
-    
+
     switch (addr) {
-        case 0x000: /* DSI_REVISION */
-            TRACEDSI("DSI_REVISION = 0x10");
-            return 0x10;
-        case 0x010: /* DSI_SYSCONFIG */
-            TRACEDSI("DSI_SYSCONFIG = 0x%04x", s->dsi.sysconfig);
-            return s->dsi.sysconfig;
-        case 0x014: /* DSI_SYSSTATUS */
-            TRACEDSI("DSI_SYSSTATUS = 0x01");
-            return 1; /* RESET_DONE */
-        case 0x018: /* DSI_IRQSTATUS */
-            TRACEDSI("DSI_IRQSTATUS = 0x%08x", s->dsi.irqst);
-            return s->dsi.irqst;
-        case 0x01c: /* DSI_IRQENABLE */
-            TRACEDSI("DSI_IRQENABLE = 0x%08x", s->dsi.irqen);
-            return s->dsi.irqen;
-        case 0x040: /* DSI_CTRL */
-            TRACEDSI("DSI_CTRL = 0x%08x", s->dsi.ctrl);
-            return s->dsi.ctrl;
-        case 0x048: /* DSI_COMPLEXIO_CFG1 */
-            TRACEDSI("DSI_COMPLEXIO_CFG1 = 0x%08x", s->dsi.complexio_cfg1);
-            return s->dsi.complexio_cfg1;
-        case 0x04c: /* DSI_COMPLEXIO_IRQSTATUS */
-            TRACEDSI("DSI_COMPLEXIO_IRQSTATUS = 0x%08x", s->dsi.complexio_irqst);
-            return s->dsi.complexio_irqst;
-        case 0x050: /* DSI_COMPLEXIO_IRQENABLE */
-            TRACEDSI("DSI_COMPLEXIO_IRQENABLE = 0x%08x", s->dsi.complexio_irqen);
-            return s->dsi.complexio_irqen;
-        case 0x054: /* DSI_CLK_CTRL */
-            TRACEDSI("DSI_CLK_CTRL = 0x%08x", s->dsi.clk_ctrl);
-            return s->dsi.clk_ctrl;
-        case 0x058: /* DSI_TIMING1 */
-            TRACEDSI("DSI_TIMING1 = 0x%08x", s->dsi.timing1);
-            return s->dsi.timing1;
-        case 0x05c: /* DSI_TIMING2 */
-            TRACEDSI("DSI_TIMING2 = 0x%08x", s->dsi.timing2);
-            return s->dsi.timing2;
-        case 0x060: /* DSI_VM_TIMING1 */
-            TRACEDSI("DSI_VM_TIMING1 = 0x%08x", s->dsi.vm_timing1);
-            return s->dsi.vm_timing1;
-        case 0x064: /* DSI_VM_TIMING2 */
-            TRACEDSI("DSI_VM_TIMING2 = 0x%08x", s->dsi.vm_timing2);
-            return s->dsi.vm_timing2;
-        case 0x068: /* DSI_VM_TIMING3 */
-            TRACEDSI("DSI_VM_TIMING3 = 0x%08x", s->dsi.vm_timing3);
-            return s->dsi.vm_timing3;
-        case 0x06c: /* DSI_CLK_TIMING */
-            TRACEDSI("DSI_CLK_TIMING = 0x%08x", s->dsi.clk_timing);
-            return s->dsi.clk_timing;
-        case 0x070: /* DSI_TX_FIFO_VC_SIZE */
-            TRACEDSI("DSI_TX_FIFO_VC_SIZE = 0x%08x", s->dsi.tx_fifo_vc_size);
-            return s->dsi.tx_fifo_vc_size;
-        case 0x074: /* DSI_RX_FIFO_VC_SIZE */
-            TRACEDSI("DSI_RX_FIFO_VC_SIZE = 0x%08x", s->dsi.rx_fifo_vc_size);
-            return s->dsi.rx_fifo_vc_size;
-        case 0x078: /* DSI_COMPLEXIO_CFG_2 */
-            TRACEDSI("DSI_COMPLEXIO_CFG_2 = 0x%08x", s->dsi.complexio_cfg2);
-            return s->dsi.complexio_cfg2;
-        case 0x07c: /* DSI_RX_FIFO_VC_FULLNESS */
-            TRACEDSI("DSI_RX_FIFO_VC_FULLNESS = 0x00");
+    case 0x000: /* DSI_REVISION */
+        TRACEDSI("DSI_REVISION = 0x10");
+        return 0x10;
+    case 0x010: /* DSI_SYSCONFIG */
+        TRACEDSI("DSI_SYSCONFIG = 0x%04x", s->dsi.sysconfig);
+        return s->dsi.sysconfig;
+    case 0x014: /* DSI_SYSSTATUS */
+        TRACEDSI("DSI_SYSSTATUS = 0x01");
+        return 1; /* RESET_DONE */
+    case 0x018: /* DSI_IRQSTATUS */
+        TRACEDSI("DSI_IRQSTATUS = 0x%08x", s->dsi.irqst);
+        return s->dsi.irqst;
+    case 0x01c: /* DSI_IRQENABLE */
+        TRACEDSI("DSI_IRQENABLE = 0x%08x", s->dsi.irqen);
+        return s->dsi.irqen;
+    case 0x040: /* DSI_CTRL */
+        TRACEDSI("DSI_CTRL = 0x%08x", s->dsi.ctrl);
+        return s->dsi.ctrl;
+    case 0x048: /* DSI_COMPLEXIO_CFG1 */
+        TRACEDSI("DSI_COMPLEXIO_CFG1 = 0x%08x", s->dsi.complexio_cfg1);
+        return s->dsi.complexio_cfg1;
+    case 0x04c: /* DSI_COMPLEXIO_IRQSTATUS */
+        TRACEDSI("DSI_COMPLEXIO_IRQSTATUS = 0x%08x", s->dsi.complexio_irqst);
+        return s->dsi.complexio_irqst;
+    case 0x050: /* DSI_COMPLEXIO_IRQENABLE */
+        TRACEDSI("DSI_COMPLEXIO_IRQENABLE = 0x%08x", s->dsi.complexio_irqen);
+        return s->dsi.complexio_irqen;
+    case 0x054: /* DSI_CLK_CTRL */
+        TRACEDSI("DSI_CLK_CTRL = 0x%08x", s->dsi.clk_ctrl);
+        return s->dsi.clk_ctrl;
+    case 0x058: /* DSI_TIMING1 */
+        TRACEDSI("DSI_TIMING1 = 0x%08x", s->dsi.timing1);
+        return s->dsi.timing1;
+    case 0x05c: /* DSI_TIMING2 */
+        TRACEDSI("DSI_TIMING2 = 0x%08x", s->dsi.timing2);
+        return s->dsi.timing2;
+    case 0x060: /* DSI_VM_TIMING1 */
+        TRACEDSI("DSI_VM_TIMING1 = 0x%08x", s->dsi.vm_timing1);
+        return s->dsi.vm_timing1;
+    case 0x064: /* DSI_VM_TIMING2 */
+        TRACEDSI("DSI_VM_TIMING2 = 0x%08x", s->dsi.vm_timing2);
+        return s->dsi.vm_timing2;
+    case 0x068: /* DSI_VM_TIMING3 */
+        TRACEDSI("DSI_VM_TIMING3 = 0x%08x", s->dsi.vm_timing3);
+        return s->dsi.vm_timing3;
+    case 0x06c: /* DSI_CLK_TIMING */
+        TRACEDSI("DSI_CLK_TIMING = 0x%08x", s->dsi.clk_timing);
+        return s->dsi.clk_timing;
+    case 0x070: /* DSI_TX_FIFO_VC_SIZE */
+        TRACEDSI("DSI_TX_FIFO_VC_SIZE = 0x%08x", s->dsi.tx_fifo_vc_size);
+        return s->dsi.tx_fifo_vc_size;
+    case 0x074: /* DSI_RX_FIFO_VC_SIZE */
+        TRACEDSI("DSI_RX_FIFO_VC_SIZE = 0x%08x", s->dsi.rx_fifo_vc_size);
+        return s->dsi.rx_fifo_vc_size;
+    case 0x078: /* DSI_COMPLEXIO_CFG_2 */
+        TRACEDSI("DSI_COMPLEXIO_CFG_2 = 0x%08x", s->dsi.complexio_cfg2);
+        return s->dsi.complexio_cfg2;
+    case 0x07c: /* DSI_RX_FIFO_VC_FULLNESS */
+        TRACEDSI("DSI_RX_FIFO_VC_FULLNESS = 0x00");
+        return 0;
+    case 0x080: /* DSI_VM_TIMING4 */
+        TRACEDSI("DSI_VM_TIMING4 = 0x%08x", s->dsi.vm_timing4);
+        return s->dsi.vm_timing4;
+    case 0x084: /* DSI_TX_FIFO_VC_EMPTINESS */
+        TRACEDSI("DSI_TX_FIFO_VC_EMPTINESS = 0x7f7f7f7f");
+        return 0x7f7f7f7f;
+    case 0x088: /* DSI_VM_TIMING5 */
+        TRACEDSI("DSI_VM_TIMING5 = 0x%08x", s->dsi.vm_timing5);
+        return s->dsi.vm_timing5;
+    case 0x08c: /* DSI_VM_TIMING6 */
+        TRACEDSI("DSI_VM_TIMING6 = 0x%08x", s->dsi.vm_timing6);
+        return s->dsi.vm_timing6;
+    case 0x090: /* DSI_VM_TIMING7 */
+        TRACEDSI("DSI_VM_TIMING7 = 0x%08x", s->dsi.vm_timing7);
+        return s->dsi.vm_timing7;
+    case 0x094: /* DSI_STOPCLK_TIMING */
+        TRACEDSI("DSI_STOPCLK_TIMING = 0x%08x", s->dsi.stopclk_timing);
+        return s->dsi.stopclk_timing;
+    case 0x100 ... 0x17c: /* DSI_VCx_xxx */
+        x = (addr >> 5) & 3;
+        switch (addr & 0x1f) {
+        case 0x00: /* DSI_VCx_CTRL */
+            TRACEDSI("DSI_VC%d_CTRL = 0x%08x", x, s->dsi.vc[x].ctrl);
+            return s->dsi.vc[x].ctrl;
+        case 0x04: /* DSI_VCx_TE */
+            TRACEDSI("DSI_VC%d_TE = 0x%08x", x, s->dsi.vc[x].te);
+            return s->dsi.vc[x].te;
+        case 0x08: /* DSI_VCx_LONG_PACKET_HEADER */
+            /* write-only */
+            TRACEDSI("DSI_VC%d_LONG_PACKET_HEADER = 0", x);
             return 0;
-        case 0x080: /* DSI_VM_TIMING4 */
-            TRACEDSI("DSI_VM_TIMING4 = 0x%08x", s->dsi.vm_timing4);
-            return s->dsi.vm_timing4;
-        case 0x084: /* DSI_TX_FIFO_VC_EMPTINESS */
-            TRACEDSI("DSI_TX_FIFO_VC_EMPTINESS = 0x7f7f7f7f");
-            return 0x7f7f7f7f;
-        case 0x088: /* DSI_VM_TIMING5 */
-            TRACEDSI("DSI_VM_TIMING5 = 0x%08x", s->dsi.vm_timing5);
-            return s->dsi.vm_timing5;
-        case 0x08c: /* DSI_VM_TIMING6 */
-            TRACEDSI("DSI_VM_TIMING6 = 0x%08x", s->dsi.vm_timing6);
-            return s->dsi.vm_timing6;
-        case 0x090: /* DSI_VM_TIMING7 */
-            TRACEDSI("DSI_VM_TIMING7 = 0x%08x", s->dsi.vm_timing7);
-            return s->dsi.vm_timing7;
-        case 0x094: /* DSI_STOPCLK_TIMING */
-            TRACEDSI("DSI_STOPCLK_TIMING = 0x%08x", s->dsi.stopclk_timing);
-            return s->dsi.stopclk_timing;
-        case 0x100 ... 0x17c: /* DSI_VCx_xxx */
-            x = (addr >> 5) & 3;
-            switch (addr & 0x1f) {
-                case 0x00: /* DSI_VCx_CTRL */
-                    TRACEDSI("DSI_VC%d_CTRL = 0x%08x", x, s->dsi.vc[x].ctrl);
-                    return s->dsi.vc[x].ctrl;
-                case 0x04: /* DSI_VCx_TE */
-                    TRACEDSI("DSI_VC%d_TE = 0x%08x", x, s->dsi.vc[x].te);
-                    return s->dsi.vc[x].te;
-                case 0x08: /* DSI_VCx_LONG_PACKET_HEADER */
-                    /* write-only */
-                    TRACEDSI("DSI_VC%d_LONG_PACKET_HEADER = 0", x);
-                    return 0;
-                case 0x0c: /* DSI_VCx_LONG_PACKET_PAYLOAD */
-                    /* write-only */
-                    TRACEDSI("DSI_VC%d_LONG_PACKET_PAYLOAD = 0", x);
-                    return 0;
-                case 0x10: /* DSI_VCx_SHORT_PACKET_HEADER */
-                    if (s->dsi.vc[x].ctrl & (1 << 20)) { /* RX_FIFO_NOT_EMPTY */
-                        y = omap_dsi_pull_rx_fifo(s, x);
-                        TRACEDSI("DSI_VC%d_SHORT_PACKET_HEADER = 0x%08x", x, y);
-                        if (!s->dsi.vc[x].rx_fifo_len)
-                            s->dsi.vc[x].ctrl &= ~(1 << 20); /* RX_FIFO_NOT_EMPTY */
-                        return y;
-                    }
-                    TRACEDSI("vc%d rx fifo underflow!", x);
-                    return 0;
-                case 0x18: /* DSI_VCx_IRQSTATUS */
-                    TRACEDSI("DSI_VC%d_IRQSTATUS = 0x%08x", x, s->dsi.vc[x].irqst);
-                    return s->dsi.vc[x].irqst;
-                case 0x1c: /* DSI_VCx_IRQENABLE */
-                    TRACEDSI("DSI_VC%d_IRQENABLE = 0x%08x", x, s->dsi.vc[x].irqen);
-                    return s->dsi.vc[x].irqen;
-                default:
-                    OMAP_BAD_REG(addr);
+        case 0x0c: /* DSI_VCx_LONG_PACKET_PAYLOAD */
+            /* write-only */
+            TRACEDSI("DSI_VC%d_LONG_PACKET_PAYLOAD = 0", x);
+            return 0;
+        case 0x10: /* DSI_VCx_SHORT_PACKET_HEADER */
+            if (s->dsi.vc[x].ctrl & (1 << 20)) { /* RX_FIFO_NOT_EMPTY */
+                y = omap_dsi_pull_rx_fifo(s, x);
+                TRACEDSI("DSI_VC%d_SHORT_PACKET_HEADER = 0x%08x", x, y);
+                if (!s->dsi.vc[x].rx_fifo_len)
+                    s->dsi.vc[x].ctrl &= ~(1 << 20); /* RX_FIFO_NOT_EMPTY */
+                return y;
             }
-            break;
-        
-        case 0x200: /* DSI_PHY_CFG0 */
-            TRACEDSI("DSI_PHY_CFG0 = 0x%08x", s->dsi.phy_cfg0);
-            return s->dsi.phy_cfg0;
-        case 0x204: /* DSI_PHY_CFG1 */
-            TRACEDSI("DSI_PHY_CFG1 = 0x%08x", s->dsi.phy_cfg1);
-            return s->dsi.phy_cfg1;
-        case 0x208: /* DSI_PHY_CFG2 */
-            TRACEDSI("DSI_PHY_CFG2 = 0x%08x", s->dsi.phy_cfg2);
-            return s->dsi.phy_cfg2;
-        case 0x214: /* DSI_PHY_CFG5 */
-            TRACEDSI("DSI_PHY_CFG5 = 0xfc000000");
-            return 0xfc000000; /* all resets done */
-            
-        case 0x300: /* DSI_PLL_CONTROL */
-            TRACEDSI("DSI_PLL_CONTROL = 0x%08x", s->dsi.pll_control);
-            return s->dsi.pll_control;
-        case 0x304: /* DSI_PLL_STATUS */
-            x = 1; /* DSI_PLLCTRL_RESET_DONE */
-            if ((s->dsi.clk_ctrl >> 28) & 3) { /* DSI PLL control powered? */
-                if (((s->dsi.pll_config1 >> 1) & 0x7f) &&  /* DSI_PLL_REGN */
-                    ((s->dsi.pll_config1 >> 8) & 0x7ff)) { /* DSI_PLL_REGM */
-                    x |= 2; /* DSI_PLL_LOCK */
-                }
-            }
-            if ((s->dsi.pll_config2 >> 20) & 1) /* DSI_HSDIVBYPASS */
-                x |= (1 << 9);                  /* DSI_BYPASSACKZ */
-            if ((s->dsi.pll_config2 >> 18) & 1) /* DSI_PROTO_CLOCK_EN */
-                x |= (1 << 8);                  /* DSIPROTO_CLOCK_ACK */
-            if ((s->dsi.pll_config2 >> 16) & 1) /* DSS_CLOCK_EN */
-                x |= (1 << 7);                  /* DSS_CLOCK_ACK */
-            if (!((s->dsi.pll_config2 >> 13) & 1)) /* DSI_PLL_REFEN */
-                x |= (1 << 3);                     /* DSI_PLL_LOSSREF */
-            TRACEDSI("DSI_PLL_STATUS = 0x%08x", x);
-            return x;
-        case 0x308: /* DSI_PLL_GO */
-            TRACEDSI("DSI_PLL_GO = 0x%08x", s->dsi.pll_go);
-            return s->dsi.pll_go;
-        case 0x30c: /* DSI_PLL_CONFIGURATION1 */
-            TRACEDSI("DSI_PLL_CONFIGURATION1 = 0x%08x", s->dsi.pll_config1);
-            return s->dsi.pll_config1;
-        case 0x310: /* DSI_PLL_CONFIGURATION2 */
-            TRACEDSI("DSI_PLL_CONFIGURATION2 = 0x%08x", s->dsi.pll_config2);
-            return s->dsi.pll_config2;
-            
+            TRACEDSI("vc%d rx fifo underflow!", x);
+            return 0;
+        case 0x18: /* DSI_VCx_IRQSTATUS */
+            TRACEDSI("DSI_VC%d_IRQSTATUS = 0x%08x", x, s->dsi.vc[x].irqst);
+            return s->dsi.vc[x].irqst;
+        case 0x1c: /* DSI_VCx_IRQENABLE */
+            TRACEDSI("DSI_VC%d_IRQENABLE = 0x%08x", x, s->dsi.vc[x].irqen);
+            return s->dsi.vc[x].irqen;
         default:
-            break;
+            OMAP_BAD_REG(addr);
+        }
+        break;
+    case 0x200: /* DSI_PHY_CFG0 */
+        TRACEDSI("DSI_PHY_CFG0 = 0x%08x", s->dsi.phy_cfg0);
+        return s->dsi.phy_cfg0;
+    case 0x204: /* DSI_PHY_CFG1 */
+        TRACEDSI("DSI_PHY_CFG1 = 0x%08x", s->dsi.phy_cfg1);
+        return s->dsi.phy_cfg1;
+    case 0x208: /* DSI_PHY_CFG2 */
+        TRACEDSI("DSI_PHY_CFG2 = 0x%08x", s->dsi.phy_cfg2);
+        return s->dsi.phy_cfg2;
+     case 0x214: /* DSI_PHY_CFG5 */
+        TRACEDSI("DSI_PHY_CFG5 = 0xfc000000");
+        return 0xfc000000; /* all resets done */
+    case 0x300: /* DSI_PLL_CONTROL */
+        TRACEDSI("DSI_PLL_CONTROL = 0x%08x", s->dsi.pll_control);
+        return s->dsi.pll_control;
+    case 0x304: /* DSI_PLL_STATUS */
+        x = 1; /* DSI_PLLCTRL_RESET_DONE */
+        if ((s->dsi.clk_ctrl >> 28) & 3) { /* DSI PLL control powered? */
+            if (((s->dsi.pll_config1 >> 1) & 0x7f) &&  /* DSI_PLL_REGN */
+                ((s->dsi.pll_config1 >> 8) & 0x7ff)) { /* DSI_PLL_REGM */
+                x |= 2; /* DSI_PLL_LOCK */
+            }
+        }
+        if ((s->dsi.pll_config2 >> 20) & 1) /* DSI_HSDIVBYPASS */
+            x |= (1 << 9);                  /* DSI_BYPASSACKZ */
+        if ((s->dsi.pll_config2 >> 18) & 1) /* DSI_PROTO_CLOCK_EN */
+            x |= (1 << 8);                  /* DSIPROTO_CLOCK_ACK */
+        if ((s->dsi.pll_config2 >> 16) & 1) /* DSS_CLOCK_EN */
+            x |= (1 << 7);                  /* DSS_CLOCK_ACK */
+        if (!((s->dsi.pll_config2 >> 13) & 1)) /* DSI_PLL_REFEN */
+            x |= (1 << 3);                     /* DSI_PLL_LOSSREF */
+        TRACEDSI("DSI_PLL_STATUS = 0x%08x", x);
+        return x;
+    case 0x308: /* DSI_PLL_GO */
+        TRACEDSI("DSI_PLL_GO = 0x%08x", s->dsi.pll_go);
+        return s->dsi.pll_go;
+    case 0x30c: /* DSI_PLL_CONFIGURATION1 */
+        TRACEDSI("DSI_PLL_CONFIGURATION1 = 0x%08x", s->dsi.pll_config1);
+        return s->dsi.pll_config1;
+    case 0x310: /* DSI_PLL_CONFIGURATION2 */
+        TRACEDSI("DSI_PLL_CONFIGURATION2 = 0x%08x", s->dsi.pll_config2);
+        return s->dsi.pll_config2;
+    default:
+        break;
     }
     OMAP_BAD_REG(addr);
     return 0;
@@ -1883,39 +2140,15 @@ static void omap_dsi_txdone(struct omap_dss_s *s, int ch, int bta)
 static void omap_dsi_short_write(struct omap_dss_s *s, int ch)
 {
     uint32_t data = s->dsi.vc[ch].sp_header;
-    
+
     if (((data >> 6) & 0x03) != ch) {
         TRACEDSI("error - vc%d != %d", ch, (data >> 6) & 0x03);
     } else {
-        if (s->dsi.vc[ch].chip) {
-            switch (data & 0x3f) { /* id */
-                case 0x05: /* short_write_0 */
-                    s->dsi.vc[ch].chip->write(s->dsi.vc[ch].chip->opaque,
-                                              (data >> 8) & 0xff, 1);
-                    break;
-                case 0x06: /* read */
-                    data = s->dsi.vc[ch].chip->read(s->dsi.vc[ch].chip->opaque,
-                                                    (data >> 8) & 0xff, 1);
-                    /* responses cannot be all-zero so it is safe to use that
-                     * as a no-reply value */
-                    if (data) {
-                        omap_dsi_push_rx_fifo(s, ch, data);
-                    }
-                    break;
-                case 0x15: /* short_write_1 */
-                    s->dsi.vc[ch].chip->write(s->dsi.vc[ch].chip->opaque,
-                                              (data >> 8) & 0xffff, 2);
-                    break;
-                case 0x37: /* set maximum return packet size */
-                    s->dsi.vc[ch].chip->max_return_size = (data >> 8) & 0xffff;
-                    break;
-                default:
-                    hw_error("%s: unknown DSI id (0x%02x)",
-                            __FUNCTION__, data & 0x3f);
-                    break;
-            }
-        } else {
-            TRACEDSI("ERROR - no DSI chip attached on channel %d", ch);
+        data = dsi_short_write(s->dsi.host, data);
+        /* responses cannot be all-zero so it is safe to use that
+         * as a no-reply value */
+        if (data) {
+            omap_dsi_push_rx_fifo(s, ch, data);
         }
         omap_dsi_txdone(s, ch, (s->dsi.vc[ch].ctrl & 0x04)); /* BTA_SHORT_EN */
     }
@@ -1930,25 +2163,8 @@ static void omap_dsi_long_write(struct omap_dss_s *s, int ch)
     if (((hdr >> 6) & 0x03) != ch) {
         TRACEDSI("error - vc%d != %d", ch, (hdr >> 6) & 0x03);
     } else {
-        if (s->dsi.vc[ch].chip) {
-            switch (hdr & 0x3f) { /* id */
-                case 0x09: /* null packet */
-                    TRACEDSI("null packet");
-                    break;
-                case 0x39: /* long write */
-                    s->dsi.vc[ch].chip->write(s->dsi.vc[ch].chip->opaque,
-                                              s->dsi.vc[ch].lp_payload,
-                                              s->dsi.vc[ch].lp_counter > 4
-                                              ? 4 : s->dsi.vc[ch].lp_counter);
-                    break;
-                default:
-                    hw_error("%s: unknown DSI id (0x%02x)",
-                            __FUNCTION__, hdr & 0x3f);
-                    break;
-            }
-        } else {
-            TRACEDSI("ERROR - no DSI chip attached on channel %d", ch);
-        }
+        dsi_long_write(s->dsi.host, hdr, s->dsi.vc[ch].lp_payload,
+                       s->dsi.vc[ch].lp_counter);
         if ((s->dsi.vc[ch].te >> 30) & 3) {     /* TE_START | TE_EN */
             /* TODO: do we really need to implement something for this?
              * Should writes decrease the TE_SIZE counter, for example?
@@ -1967,241 +2183,238 @@ static void omap_dsi_write(void *opaque, target_phys_addr_t addr,
 {
     struct omap_dss_s *s = (struct omap_dss_s *)opaque;
     uint32_t x;
-    
+
     switch (addr) {
-        case 0x000: /* DSI_REVISION */
-        case 0x014: /* DSI_SYSSTATUS */
-        case 0x07c: /* DSI_RX_FIFO_VC_FULLNESS */
-        case 0x084: /* DSI_RX_FIFO_VC_EMPTINESS */
-        case 0x214: /* DSI_PHY_CFG5 */
-        case 0x304: /* DSI_PLL_STATUS */
-            /* read-only, ignore */
-            break;
-        case 0x010: /* DSI_SYSCONFIG */
-            TRACEDSI("DSI_SYSCONFIG = 0x%08x", value);
-            if (value & 2) /* SOFT_RESET */
-                omap_dsi_reset(s);
-            else
-                s->dsi.sysconfig = value;
-            break;
-        case 0x018: /* DSI_IRQSTATUS */
-            TRACEDSI("DSI_IRQSTATUS = 0x%08x", value);
-            s->dsi.irqst &= ~(value & 0x1fc3b0);
-            omap_dss_interrupt_update(s);
-            break;
-        case 0x01c: /* DSI_IRQENABLE */
-            TRACEDSI("DSI_IRQENABLE = 0x%08x", value);
-            s->dsi.irqen = value & 0x1fc3b0;
-            omap_dss_interrupt_update(s);
-            break;
-        case 0x040: /* DSI_CTRL */
-            TRACEDSI("DSI_CTRL = 0x%08x", value);
-            s->dsi.ctrl = value & 0x7ffffff;
-            break;
-        case 0x048: /* DSI_COMPLEXIO_CFG_1 */
-            TRACEDSI("DSI_COMPLEXIO_CFG1 = 0x%08x", value);
-            value |= 1 << 29;    /* RESET_DONE */
-            value |= 1 << 21;    /* LDO_POWER_GOOD_STATE */
-            value &= ~(1 << 30); /* GOBIT */
-            /* copy PWR_CMD directly to PWR_STATUS */
-            value &= ~(3 << 25);
-            value |= (value >> 2) & (3 << 25);
-            /* TODO: notify screen refresh control about PWR_STATUS */
-            s->dsi.complexio_cfg1 = value;
-            break;
-        case 0x04c: /* DSI_COMPLEXIO_IRQSTATUS */
-            TRACEDSI("DSI_COMPLEXIO_IRQSTATUS = 0x%08x", value);
-            s->dsi.complexio_irqst &= ~(value & 0xc3f39ce7);
-            if (s->dsi.complexio_irqst & s->dsi.complexio_irqen)
-                s->dsi.irqst |= (1 << 10);  /* COMPLEXIO_ERR_IRQ */
-            else
-                s->dsi.irqst &= ~(1 << 10); /* COMPLEXIO_ERR_IRQ */
-            omap_dss_interrupt_update(s);
-            break;
-        case 0x050: /* DSI_COMPLEXIO_IRQENABLE */
-            TRACEDSI("DSI_COMPLEXIO_IRQENABLE = 0x%08x", value);
-            s->dsi.complexio_irqen = value & 0xc3f39ce7;
-            omap_dss_interrupt_update(s);
-            break;
-        case 0x054: /* DSI_CLK_CTRL */
-            TRACEDSI("DSI_CLK_CTRL = 0x%08x", value);
-            value &= 0xc03fffff;
-            /* copy PLL_PWR_CMD directly to PLL_PWR_STATUS */
-            value |= (value >> 2) & (3 << 28);
-            s->dsi.clk_ctrl = value;
-            break;
-        case 0x058: /* DSI_TIMING1 */
-            TRACEDSI("DSI_TIMING1 = 0x%08x", value);
-            value &= ~(1 << 15); /* deassert ForceTxStopMode signal */
-            s->dsi.timing1 = value;
-            break;
-        case 0x05c: /* DSI_TIMING2 */
-            TRACEDSI("DSI_TIMING2 = 0x%08x", value);
-            s->dsi.timing2 = value;
-            break;
-        case 0x060: /* DSI_VM_TIMING1 */
-            TRACEDSI("DSI_VM_TIMING1 = 0x%08x", value);
-            s->dsi.vm_timing1 = value;
-            break;
-        case 0x064: /* DSI_VM_TIMING2 */
-            TRACEDSI("DSI_VM_TIMING2 = 0x%08x", value);
-            s->dsi.vm_timing2 = value & 0x0fffffff;
-            break;
-        case 0x068: /* DSI_VM_TIMING3 */
-            TRACEDSI("DSI_VM_TIMING3 = 0x%08x", value);
-            s->dsi.vm_timing3 = value;
-            break;
-        case 0x06c: /* DSI_CLK_TIMING */
-            TRACEDSI("DSI_CLK_TIMING = 0x%08x", value);
-            s->dsi.clk_timing = value & 0xffff;
-            break;
-        case 0x070: /* DSI_TX_FIFO_VC_SIZE */
-            TRACEDSI("DSI_TX_FIFO_VC_SIZE = 0x%08x", value);
-            s->dsi.tx_fifo_vc_size = value & 0xf7f7f7f7;
-            break;
-        case 0x074: /* DSI_RX_FIFO_VC_SIZE */
-            TRACEDSI("DSI_RX_FIFO_VC_SIZE = 0x%08x", value);
-            s->dsi.rx_fifo_vc_size = value & 0xf7f7f7f7;
-            break;
-        case 0x078: /* DSI_COMPLEXIO_CFG_2 */
-            TRACEDSI("DSI_COMPLEXIO_CFG_2 = 0x%08x", value);
-            s->dsi.complexio_cfg2 = (value & 0xfffcffff)
-                                    | (s->dsi.complexio_cfg2 & (3 << 16));
-            break;
-        case 0x080: /* DSI_VM_TIMING4 */
-            TRACEDSI("DSI_VM_TIMING4 = 0x%08x", value);
-            s->dsi.vm_timing4 = value;
-            break;
-        case 0x088: /* DSI_VM_TIMING5 */
-            TRACEDSI("DSI_VM_TIMING5 = 0x%08x", value);
-            s->dsi.vm_timing5 = value;
-            break;
-        case 0x08c: /* DSI_VM_TIMING6 */
-            TRACEDSI("DSI_VM_TIMING6 = 0x%08x", value);
-            s->dsi.vm_timing6 = value;
-            break;
-        case 0x090: /* DSI_VM_TIMING7 */
-            TRACEDSI("DSI_VM_TIMING7 = 0x%08x", value);
-            s->dsi.vm_timing7 = value;
-            break;
-        case 0x094: /* DSI_STOPCLK_TIMING */
-            TRACEDSI("DSI_STOPCLK_TIMING = 0x%08x", value);
-            s->dsi.stopclk_timing = value & 0xff;
-            break;
-        case 0x100 ... 0x17c: /* DSI_VCx_xxx */
-            x = (addr >> 5) & 3;
-            switch (addr & 0x1f) {
-                case 0x00: /* DSI_VCx_CTRL */
-                    TRACEDSI("DSI_VC%d_CTRL = 0x%08x", x, value);
-                    if (((value >> 27) & 7) != 4) /* DMA_RX_REQ_NB */
-                        hw_error("%s: RX DMA mode not implemented", __FUNCTION__);
-                    if (((value >> 21) & 7) != 4) /* DMA_TX_REQ_NB */
-                        hw_error("%s: TX DMA mode not implemented", __FUNCTION__);
-                    if (value & 1) { /* VC_EN */
-                        s->dsi.vc[x].ctrl &= ~0x40;  /* BTA_EN */
-                        s->dsi.vc[x].ctrl |= 0x8001; /* VC_BUSY | VC_EN */
-                    } else {
-                        /* clear VC_BUSY and VC_EN, assign writable bits */
-                        s->dsi.vc[x].ctrl = (s->dsi.vc[x].ctrl & 0x114020) |
-                                            (value & 0x3fee039f);
-                    }
-                    if (value & 0x40) /* BTA_EN */
-                        omap_dsi_txdone(s, x, 1);
-                    break;
-                case 0x04: /* DSI_VCx_TE */
-                    TRACEDSI("DSI_VC%d_TE = 0x%08x", x, value);
-                    value &= 0xc0ffffff;
-                    /* according to the OMAP3 TRM the TE_EN bit in this
-                     * register is protected by VCx_CTRL VC_EN bit but
-                     * let's forget that */
-                    s->dsi.vc[x].te = value;
-                    if (s->dispc.control & 1) /* LCDENABLE */
-                        omap_dsi_transfer_start(s, x);
-                    break;
-                case 0x08: /* DSI_VCx_LONG_PACKET_HEADER */
-                    TRACEDSI("DSI_VC%d_LONG_PACKET_HEADER id=0x%02x, len=0x%04x, ecc=0x%02x",
-                             x, value & 0xff, (value >> 8) & 0xffff, (value >> 24) & 0xff);
-                    s->dsi.vc[x].lp_header = value;
-                    s->dsi.vc[x].lp_counter = (value >> 8) & 0xffff;
-                    break;
-                case 0x0c: /* DSI_VCx_LONG_PACKET_PAYLOAD */
-                    TRACEDSI("DSI_VC%d_LONG_PACKET_PAYLOAD = 0x%08x", x, value);
-                    s->dsi.vc[x].lp_payload = value;
-                    if ((s->dsi.vc[x].te >> 30) & 3) { /* TE_START | TE_EN */
-                        int tx_dma = (s->dsi.vc[x].ctrl >> 21) & 7; /* DMA_TX_REQ_NB */
-                        if (tx_dma < 4)
-                            qemu_irq_lower(s->dsi.drq[tx_dma]);
-                    }
-                    omap_dsi_long_write(s, x);
-                    break;
-                case 0x10: /* DSI_VCx_SHORT_PACKET_HEADER */
-                    TRACEDSI("DSI_VC%d_SHORT_PACKET_HEADER = 0x%08x", x, value);
-                    s->dsi.vc[x].sp_header = value;
-                    omap_dsi_short_write(s, x);
-                    break;
-                case 0x18: /* DSI_VCx_IRQSTATUS */
-                    TRACEDSI("DSI_VC%d_IRQSTATUS = 0x%08x", x, value);
-                    s->dsi.vc[x].irqst &= ~(value & 0x1ff);
-                    if (s->dsi.vc[x].irqst & s->dsi.vc[x].irqen)
-                        s->dsi.irqst |= 1 << x;    /* VIRTUAL_CHANNELx_IRQ */
-                    else
-                        s->dsi.irqst &= ~(1 << x); /* VIRTUAL_CHANNELx_IRQ */
-                    omap_dss_interrupt_update(s);
-                    break;
-                case 0x1c: /* DSI_VCx_IRQENABLE */
-                    TRACEDSI("DSI_VC%d_IRQENABLE = 0x%08x", x, value);
-                    s->dsi.vc[x].irqen = value & 0x1ff;
-                    omap_dss_interrupt_update(s);
-                    break;
-                default:
-                    OMAP_BAD_REGV(addr, value);
-                    break;
-            }
-            break;
-            
-        case 0x200: /* DSI_PHY_CFG0 */
-            TRACEDSI("DSI_PHY_CFG0 = 0x%08x", value);
-            s->dsi.phy_cfg0 = value;
-            break;
-        case 0x204: /* DSI_PHY_CFG1 */
-            TRACEDSI("DSI_PHY_CFG1 = 0x%08x", value);
-            s->dsi.phy_cfg1 = value;
-            break;
-        case 0x208: /* DSI_PHY_CFG2 */
-            TRACEDSI("DSI_PHY_CFG2 = 0x%08x", value);
-            if (cpu_is_omap3630(s->mpu)) {
-                value &= 0xff0000ff;
-            }
-            s->dsi.phy_cfg2 = value;
-            break;
-            
-        case 0x300: /* DSI_PLL_CONTROL */
-            TRACEDSI("DSI_PLL_CONTROL = 0x%08x", value);
-            s->dsi.pll_control = value & 0x1f;
-            break;
-        case 0x308: /* DSI_PLL_GO */
-            TRACEDSI("DSI_PLL_GO = 0x%08x", value);
-            /* TODO: check if we need to update something here */
-            value &= ~1; /* mark it done */
-            s->dsi.pll_go = value & 1;
-            break;
-        case 0x30c: /* DSI_PLL_CONFIGURATION1 */
-            TRACEDSI("DSI_PLL_CONFIGURATION1 = 0x%08x", value);
-            s->dsi.pll_config1 = value & 0x7ffffff;
-            break;
-        case 0x310: /* DSI_PLL_CONFIGURATION2 */
-            TRACEDSI("DSI_PLL_CONFIGURATION2 = 0x%08x", value);
-            if (cpu_is_omap3630(s->mpu)) {
-                value &= 0x1fffe1;
+    case 0x000: /* DSI_REVISION */
+    case 0x014: /* DSI_SYSSTATUS */
+    case 0x07c: /* DSI_RX_FIFO_VC_FULLNESS */
+    case 0x084: /* DSI_RX_FIFO_VC_EMPTINESS */
+    case 0x214: /* DSI_PHY_CFG5 */
+    case 0x304: /* DSI_PLL_STATUS */
+        /* read-only, ignore */
+        break;
+    case 0x010: /* DSI_SYSCONFIG */
+        TRACEDSI("DSI_SYSCONFIG = 0x%08x", value);
+        if (value & 2) /* SOFT_RESET */
+            omap_dsi_reset(s);
+        else
+            s->dsi.sysconfig = value;
+        break;
+    case 0x018: /* DSI_IRQSTATUS */
+        TRACEDSI("DSI_IRQSTATUS = 0x%08x", value);
+        s->dsi.irqst &= ~(value & 0x1fc3b0);
+        omap_dss_interrupt_update(s);
+        break;
+    case 0x01c: /* DSI_IRQENABLE */
+        TRACEDSI("DSI_IRQENABLE = 0x%08x", value);
+        s->dsi.irqen = value & 0x1fc3b0;
+        omap_dss_interrupt_update(s);
+        break;
+    case 0x040: /* DSI_CTRL */
+        TRACEDSI("DSI_CTRL = 0x%08x", value);
+        s->dsi.ctrl = value & 0x7ffffff;
+        break;
+    case 0x048: /* DSI_COMPLEXIO_CFG_1 */
+        TRACEDSI("DSI_COMPLEXIO_CFG1 = 0x%08x", value);
+        value |= 1 << 29;    /* RESET_DONE */
+        value |= 1 << 21;    /* LDO_POWER_GOOD_STATE */
+        value &= ~(1 << 30); /* GOBIT */
+        /* copy PWR_CMD directly to PWR_STATUS */
+        value &= ~(3 << 25);
+        value |= (value >> 2) & (3 << 25);
+        /* TODO: notify screen refresh control about PWR_STATUS */
+        s->dsi.complexio_cfg1 = value;
+        break;
+    case 0x04c: /* DSI_COMPLEXIO_IRQSTATUS */
+        TRACEDSI("DSI_COMPLEXIO_IRQSTATUS = 0x%08x", value);
+        s->dsi.complexio_irqst &= ~(value & 0xc3f39ce7);
+        if (s->dsi.complexio_irqst & s->dsi.complexio_irqen)
+            s->dsi.irqst |= (1 << 10);  /* COMPLEXIO_ERR_IRQ */
+        else
+            s->dsi.irqst &= ~(1 << 10); /* COMPLEXIO_ERR_IRQ */
+        omap_dss_interrupt_update(s);
+        break;
+    case 0x050: /* DSI_COMPLEXIO_IRQENABLE */
+        TRACEDSI("DSI_COMPLEXIO_IRQENABLE = 0x%08x", value);
+        s->dsi.complexio_irqen = value & 0xc3f39ce7;
+        omap_dss_interrupt_update(s);
+        break;
+    case 0x054: /* DSI_CLK_CTRL */
+        TRACEDSI("DSI_CLK_CTRL = 0x%08x", value);
+        value &= 0xc03fffff;
+        /* copy PLL_PWR_CMD directly to PLL_PWR_STATUS */
+        value |= (value >> 2) & (3 << 28);
+        s->dsi.clk_ctrl = value;
+        break;
+    case 0x058: /* DSI_TIMING1 */
+        TRACEDSI("DSI_TIMING1 = 0x%08x", value);
+        value &= ~(1 << 15); /* deassert ForceTxStopMode signal */
+        s->dsi.timing1 = value;
+        break;
+    case 0x05c: /* DSI_TIMING2 */
+        TRACEDSI("DSI_TIMING2 = 0x%08x", value);
+        s->dsi.timing2 = value;
+        break;
+    case 0x060: /* DSI_VM_TIMING1 */
+        TRACEDSI("DSI_VM_TIMING1 = 0x%08x", value);
+        s->dsi.vm_timing1 = value;
+        break;
+    case 0x064: /* DSI_VM_TIMING2 */
+        TRACEDSI("DSI_VM_TIMING2 = 0x%08x", value);
+        s->dsi.vm_timing2 = value & 0x0fffffff;
+        break;
+    case 0x068: /* DSI_VM_TIMING3 */
+        TRACEDSI("DSI_VM_TIMING3 = 0x%08x", value);
+        s->dsi.vm_timing3 = value;
+        break;
+    case 0x06c: /* DSI_CLK_TIMING */
+        TRACEDSI("DSI_CLK_TIMING = 0x%08x", value);
+        s->dsi.clk_timing = value & 0xffff;
+        break;
+    case 0x070: /* DSI_TX_FIFO_VC_SIZE */
+        TRACEDSI("DSI_TX_FIFO_VC_SIZE = 0x%08x", value);
+        s->dsi.tx_fifo_vc_size = value & 0xf7f7f7f7;
+        break;
+    case 0x074: /* DSI_RX_FIFO_VC_SIZE */
+        TRACEDSI("DSI_RX_FIFO_VC_SIZE = 0x%08x", value);
+        s->dsi.rx_fifo_vc_size = value & 0xf7f7f7f7;
+        break;
+    case 0x078: /* DSI_COMPLEXIO_CFG_2 */
+        TRACEDSI("DSI_COMPLEXIO_CFG_2 = 0x%08x", value);
+        s->dsi.complexio_cfg2 = (value & 0xfffcffff)
+                                | (s->dsi.complexio_cfg2 & (3 << 16));
+        break;
+    case 0x080: /* DSI_VM_TIMING4 */
+        TRACEDSI("DSI_VM_TIMING4 = 0x%08x", value);
+        s->dsi.vm_timing4 = value;
+        break;
+    case 0x088: /* DSI_VM_TIMING5 */
+        TRACEDSI("DSI_VM_TIMING5 = 0x%08x", value);
+        s->dsi.vm_timing5 = value;
+        break;
+    case 0x08c: /* DSI_VM_TIMING6 */
+        TRACEDSI("DSI_VM_TIMING6 = 0x%08x", value);
+        s->dsi.vm_timing6 = value;
+        break;
+    case 0x090: /* DSI_VM_TIMING7 */
+        TRACEDSI("DSI_VM_TIMING7 = 0x%08x", value);
+        s->dsi.vm_timing7 = value;
+        break;
+    case 0x094: /* DSI_STOPCLK_TIMING */
+        TRACEDSI("DSI_STOPCLK_TIMING = 0x%08x", value);
+        s->dsi.stopclk_timing = value & 0xff;
+        break;
+    case 0x100 ... 0x17c: /* DSI_VCx_xxx */
+        x = (addr >> 5) & 3;
+        switch (addr & 0x1f) {
+        case 0x00: /* DSI_VCx_CTRL */
+            TRACEDSI("DSI_VC%d_CTRL = 0x%08x", x, value);
+            if (((value >> 27) & 7) != 4) /* DMA_RX_REQ_NB */
+                hw_error("%s: RX DMA mode not implemented", __FUNCTION__);
+            if (((value >> 21) & 7) != 4) /* DMA_TX_REQ_NB */
+                hw_error("%s: TX DMA mode not implemented", __FUNCTION__);
+            if (value & 1) { /* VC_EN */
+                s->dsi.vc[x].ctrl &= ~0x40;  /* BTA_EN */
+                s->dsi.vc[x].ctrl |= 0x8001; /* VC_BUSY | VC_EN */
             } else {
-                value &= 0x1fffff;
+                /* clear VC_BUSY and VC_EN, assign writable bits */
+                s->dsi.vc[x].ctrl = (s->dsi.vc[x].ctrl & 0x114020) |
+                                    (value & 0x3fee039f);
             }
-            s->dsi.pll_config2 = value;
+            if (value & 0x40) /* BTA_EN */
+                omap_dsi_txdone(s, x, 1);
             break;
-            
+        case 0x04: /* DSI_VCx_TE */
+            TRACEDSI("DSI_VC%d_TE = 0x%08x", x, value);
+            value &= 0xc0ffffff;
+            /* according to the OMAP3 TRM the TE_EN bit in this
+             * register is protected by VCx_CTRL VC_EN bit but
+             * let's forget that */
+            s->dsi.vc[x].te = value;
+            if (s->dispc.control & 1) /* LCDENABLE */
+                omap_dsi_transfer_start(s, x);
+            break;
+        case 0x08: /* DSI_VCx_LONG_PACKET_HEADER */
+            TRACEDSI("DSI_VC%d_LONG_PACKET_HEADER id=0x%02x, len=0x%04x, ecc=0x%02x",
+                     x, value & 0xff, (value >> 8) & 0xffff, (value >> 24) & 0xff);
+            s->dsi.vc[x].lp_header = value;
+            s->dsi.vc[x].lp_counter = (value >> 8) & 0xffff;
+            break;
+        case 0x0c: /* DSI_VCx_LONG_PACKET_PAYLOAD */
+            TRACEDSI("DSI_VC%d_LONG_PACKET_PAYLOAD = 0x%08x", x, value);
+            s->dsi.vc[x].lp_payload = value;
+            if ((s->dsi.vc[x].te >> 30) & 3) { /* TE_START | TE_EN */
+                int tx_dma = (s->dsi.vc[x].ctrl >> 21) & 7; /* DMA_TX_REQ_NB */
+                if (tx_dma < 4)
+                    qemu_irq_lower(s->dsi.drq[tx_dma]);
+            }
+            omap_dsi_long_write(s, x);
+            break;
+        case 0x10: /* DSI_VCx_SHORT_PACKET_HEADER */
+            TRACEDSI("DSI_VC%d_SHORT_PACKET_HEADER = 0x%08x", x, value);
+            s->dsi.vc[x].sp_header = value;
+            omap_dsi_short_write(s, x);
+            break;
+        case 0x18: /* DSI_VCx_IRQSTATUS */
+            TRACEDSI("DSI_VC%d_IRQSTATUS = 0x%08x", x, value);
+            s->dsi.vc[x].irqst &= ~(value & 0x1ff);
+            if (s->dsi.vc[x].irqst & s->dsi.vc[x].irqen)
+                s->dsi.irqst |= 1 << x;    /* VIRTUAL_CHANNELx_IRQ */
+            else
+                s->dsi.irqst &= ~(1 << x); /* VIRTUAL_CHANNELx_IRQ */
+            omap_dss_interrupt_update(s);
+            break;
+        case 0x1c: /* DSI_VCx_IRQENABLE */
+            TRACEDSI("DSI_VC%d_IRQENABLE = 0x%08x", x, value);
+            s->dsi.vc[x].irqen = value & 0x1ff;
+            omap_dss_interrupt_update(s);
+            break;
         default:
             OMAP_BAD_REGV(addr, value);
             break;
+        }
+        break;
+    case 0x200: /* DSI_PHY_CFG0 */
+        TRACEDSI("DSI_PHY_CFG0 = 0x%08x", value);
+        s->dsi.phy_cfg0 = value;
+        break;
+    case 0x204: /* DSI_PHY_CFG1 */
+        TRACEDSI("DSI_PHY_CFG1 = 0x%08x", value);
+        s->dsi.phy_cfg1 = value;
+        break;
+    case 0x208: /* DSI_PHY_CFG2 */
+        TRACEDSI("DSI_PHY_CFG2 = 0x%08x", value);
+        if (s->mpu_model >= omap3630) {
+            value &= 0xff0000ff;
+        }
+        s->dsi.phy_cfg2 = value;
+        break;
+    case 0x300: /* DSI_PLL_CONTROL */
+        TRACEDSI("DSI_PLL_CONTROL = 0x%08x", value);
+        s->dsi.pll_control = value & 0x1f;
+        break;
+    case 0x308: /* DSI_PLL_GO */
+        TRACEDSI("DSI_PLL_GO = 0x%08x", value);
+        /* TODO: check if we need to update something here */
+        value &= ~1; /* mark it done */
+        s->dsi.pll_go = value & 1;
+        break;
+    case 0x30c: /* DSI_PLL_CONFIGURATION1 */
+        TRACEDSI("DSI_PLL_CONFIGURATION1 = 0x%08x", value);
+        s->dsi.pll_config1 = value & 0x7ffffff;
+        break;
+    case 0x310: /* DSI_PLL_CONFIGURATION2 */
+        TRACEDSI("DSI_PLL_CONFIGURATION2 = 0x%08x", value);
+        if (s->mpu_model < omap3630) {
+            value &= 0x1fffff;
+        } else {
+            value &= 0x1fffe1;
+        }
+        s->dsi.pll_config2 = value;
+        break;
+    default:
+        OMAP_BAD_REGV(addr, value);
+        break;
     }
 }
 
@@ -2217,84 +2430,74 @@ static CPUWriteMemoryFunc *omap_dsi_writefn[] = {
     omap_dsi_write,
 };
 
-static struct omap_dss_s *omap_dss_init_internal(struct omap_target_agent_s *ta,
-                                                 struct omap_mpu_state_s *mpu,
-                                                 qemu_irq irq, qemu_irq drq)
+static int omap_dss_init(SysBusDevice *dev)
 {
-    int iomemtype[5];
-    int region_base = cpu_class_omap3(mpu) ? 1 : 0;
-    struct omap_dss_s *s = (struct omap_dss_s *)
-            qemu_mallocz(sizeof(struct omap_dss_s));
-
-    s->mpu = mpu;
-    s->irq = irq;
-    s->drq = drq;
-
-    iomemtype[0] = l4_register_io_memory(omap_diss1_readfn,
-                                         omap_diss1_writefn, s);
-    iomemtype[1] = l4_register_io_memory(omap_disc1_readfn,
-                                         omap_disc1_writefn, s);
-    iomemtype[2] = l4_register_io_memory(omap_rfbi1_readfn,
-                                         omap_rfbi1_writefn, s);
-    iomemtype[3] = l4_register_io_memory(omap_venc1_readfn,
-                                         omap_venc1_writefn, s);
-
-    omap_l4_attach(ta, region_base + 0, iomemtype[0]); /* DISS */
-    omap_l4_attach(ta, region_base + 1, iomemtype[1]); /* DISC */
-    omap_l4_attach(ta, region_base + 2, iomemtype[2]); /* RFBI */
-    omap_l4_attach(ta, region_base + 3, iomemtype[3]); /* VENC */
-
-    if (cpu_class_omap2(mpu)) {
+    struct omap_dss_s *s = FROM_SYSBUS(struct omap_dss_s, dev);
+    sysbus_init_irq(dev, &s->irq);
+    sysbus_init_irq(dev, &s->drq); /* linetrigger */
+    sysbus_init_mmio(dev, 0x400,
+                     cpu_register_io_memory(omap_diss1_readfn,
+                                            omap_diss1_writefn, s,
+                                            DEVICE_NATIVE_ENDIAN));
+    sysbus_init_mmio(dev, 0x400,
+                     cpu_register_io_memory(omap_disc1_readfn,
+                                            omap_disc1_writefn, s,
+                                            DEVICE_NATIVE_ENDIAN));
+    sysbus_init_mmio(dev, 0x400,
+                     cpu_register_io_memory(omap_rfbi1_readfn,
+                                            omap_rfbi1_writefn, s,
+                                            DEVICE_NATIVE_ENDIAN));
+    sysbus_init_mmio(dev, 0x400,
+                     cpu_register_io_memory(omap_venc1_readfn,
+                                            omap_venc1_writefn, s,
+                                            DEVICE_NATIVE_ENDIAN));
+    if (s->mpu_model < omap2410) {
+        hw_error("%s: unsupported cpu type\n", __FUNCTION__);
+    } else if (s->mpu_model < omap3430) {
         s->dispc.rev = 0x20;
-        iomemtype[4] = cpu_register_io_memory(omap_im3_readfn,
-                                              omap_im3_writefn, s,
-                                              DEVICE_NATIVE_ENDIAN);
-        cpu_register_physical_memory(0x68000800, 0x1000, iomemtype[4]);
-    } else if (cpu_class_omap3(mpu)) {
-        s->dispc.rev = 0x30;
-        iomemtype[4] = l4_register_io_memory(omap_dsi_readfn,
-                                             omap_dsi_writefn, s);
-        omap_l4_attach(ta, 0, iomemtype[4]);
+        sysbus_init_mmio(dev, 0x1000,
+                         cpu_register_io_memory(omap_im3_readfn,
+                                                omap_im3_writefn, s,
+                                                DEVICE_NATIVE_ENDIAN));
     } else {
-        hw_error("%s: unsupported cpu type", __FUNCTION__);
+        s->dispc.rev = 0x30;
+        s->dispc.lcdframer = qemu_new_timer(vm_clock, omap_dss_framedone, s);
+        s->dsi.host = dsi_init_host(&dev->qdev, "omap3_dsi",
+                                    omap_dsi_te_trigger,
+                                    omap_dss_linefn);
+        sysbus_init_mmio(dev, 0x400,
+                         cpu_register_io_memory(omap_dsi_readfn,
+                                                omap_dsi_writefn, s,
+                                                DEVICE_NATIVE_ENDIAN));
+        sysbus_init_irq(dev, &s->dsi.drq[0]);
+        sysbus_init_irq(dev, &s->dsi.drq[1]);
+        sysbus_init_irq(dev, &s->dsi.drq[2]);
+        sysbus_init_irq(dev, &s->dsi.drq[3]);
     }
-
-    return s;
+    return 0;
 }
 
-struct omap_dss_s *omap_dss_init(struct omap_target_agent_s *ta,
-                                 struct omap_mpu_state_s *mpu,
-                                 qemu_irq irq, qemu_irq drq,
-                                 omap_clk fck1, omap_clk fck2, omap_clk ck54m,
-                                 omap_clk ick1, omap_clk ick2)
+static SysBusDeviceInfo omap_dss_info = {
+    .init = omap_dss_init,
+    .qdev.name = "omap_dss",
+    .qdev.size = sizeof(struct omap_dss_s),
+    .qdev.reset = omap_dss_reset,
+    .qdev.props = (Property[]) {
+        DEFINE_PROP_INT32("mpu_model", struct omap_dss_s, mpu_model, 0),
+        DEFINE_PROP_END_OF_LIST()
+    }
+};
+
+static void omap_dss_register_device(void)
 {
-    struct omap_dss_s *s = omap_dss_init_internal(ta, mpu, irq, drq);
-    omap_dss_reset(s);
-    return s;
-}    
+    sysbus_register_withprop(&omap_dss_info);
+}
 
-struct omap_dss_s *omap3_dss_init(struct omap_target_agent_s *ta,
-                                  struct omap_mpu_state_s *mpu,
-                                  qemu_irq irq, qemu_irq line_trigger,
-                                  qemu_irq dma0, qemu_irq dma1,
-                                  qemu_irq dma2, qemu_irq dma3)
-{
-    struct omap_dss_s *s = omap_dss_init_internal(ta, mpu, irq, line_trigger);
-    
-    s->dsi.drq[0] = dma0;
-    s->dsi.drq[1] = dma1;
-    s->dsi.drq[2] = dma2;
-    s->dsi.drq[3] = dma3;
-    
-    s->dispc.lcdframer = qemu_new_timer(vm_clock, omap_dss_lcd_framedone, s);
-
-    omap_dss_reset(s);
-    return s;
-}    
-
-void omap_rfbi_attach(struct omap_dss_s *s, int cs,
+void omap_rfbi_attach(DeviceState *dev, int cs,
                       const struct rfbi_chip_s *chip)
 {
+    struct omap_dss_s *s = FROM_SYSBUS(struct omap_dss_s,
+                                       sysbus_from_qdev(dev));
     if (cs < 0 || cs > 1) {
         hw_error("%s: wrong CS %i\n", __FUNCTION__, cs);
     }
@@ -2305,25 +2508,36 @@ void omap_rfbi_attach(struct omap_dss_s *s, int cs,
     s->rfbi.chip[cs] = chip;
 }
 
-void omap_dsi_attach(struct omap_dss_s *s, int vc,
-                     struct dsi_chip_s *chip)
+DSIHost *omap_dsi_host(DeviceState *dev)
 {
-    if (vc < 0 || vc > 3) {
-        hw_error("%s: invalid vc %d\n", __FUNCTION__, vc);
-    }
-    if (s->dsi.vc[vc].chip) {
-        TRACEDSI("warning - replacing previously attached "
-                 "DSI chip on VC%d", vc);
-    }
-    chip->te_trigger = omap_dsi_te_trigger;
-    s->dsi.vc[vc].chip = chip;
+    return FROM_SYSBUS(struct omap_dss_s,
+                       sysbus_from_qdev(dev))->dsi.host;
 }
 
-void omap_lcd_panel_attach(struct omap_dss_s *s,
-                           const struct omap_dss_panel_s *p)
+void omap_lcd_panel_attach(DeviceState *dev)
 {
-    if (s->lcd) {
-        TRACE("warning - replacing previously attached LCD panel");
+    struct omap_dss_s *s = FROM_SYSBUS(struct omap_dss_s,
+                                       sysbus_from_qdev(dev));
+    if (!s->lcd.attached) {
+        s->lcd.attached = 1;
+        s->lcd.invalidate = 1;
+        s->lcd.ds = graphic_console_init(omap_lcd_panel_update_display,
+                                         omap_lcd_panel_invalidate_display,
+                                         NULL, NULL, s);
     }
-    s->lcd = p;
 }
+
+void omap_digital_panel_attach(DeviceState *dev)
+{
+    struct omap_dss_s *s = FROM_SYSBUS(struct omap_dss_s,
+                                       sysbus_from_qdev(dev));
+    if (!s->dig.attached) {
+        s->dig.attached = 1;
+        s->dig.invalidate = 1;
+        s->dig.ds = graphic_console_init(omap_dig_panel_update_display,
+                                         omap_dig_panel_invalidate_display,
+                                         NULL, NULL, s);
+    }
+}
+
+device_init(omap_dss_register_device)
