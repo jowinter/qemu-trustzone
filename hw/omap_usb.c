@@ -24,9 +24,7 @@
 #include "irq.h"
 #include "devices.h"
 #include "hw.h"
-
-#define OMAP3_HSUSB_OTG
-#define OMAP3_HSUSB_HOST
+#include "sysbus.h"
 
 //#define OMAP3_HSUSB_DEBUG
 
@@ -36,60 +34,49 @@
 #define TRACE(...)
 #endif
 
-#ifdef OMAP3_HSUSB_OTG
 /* usb-musb.c */
 extern CPUReadMemoryFunc *musb_read[];
 extern CPUWriteMemoryFunc *musb_write[];
 
-struct omap3_hsusb_otg_s {
+typedef struct omap3_hsusb_otg_s {
+    SysBusDevice busdev;
     qemu_irq mc_irq;
     qemu_irq dma_irq;
+    qemu_irq stdby_irq;
     MUSBState *musb;
-    void (*stdby_callback)(void *, int);
-    void *stdby_opaque;
     
     uint8_t rev;
     uint16_t sysconfig;
     uint8_t interfsel;
     uint8_t simenable;
     uint8_t forcestdby;
+} OMAP3HSUSBOTGState;
+
+static const VMStateDescription vmstate_omap3_hsusb_otg = {
+    .name = "omap3_hsusb_otg",
+    .version_id = 1,
+    .minimum_version_id = 1,
+    .minimum_version_id_old = 1,
+    .fields = (VMStateField[]) {
+        VMSTATE_UINT16(sysconfig, OMAP3HSUSBOTGState),
+        VMSTATE_UINT8(interfsel, OMAP3HSUSBOTGState),
+        VMSTATE_UINT8(simenable, OMAP3HSUSBOTGState),
+        VMSTATE_UINT8(forcestdby, OMAP3HSUSBOTGState),
+        VMSTATE_END_OF_LIST()
+    }
 };
 
-static void omap3_hsusb_otg_save_state(QEMUFile *f, void *opaque)
+static void omap3_hsusb_otg_stdby_update(OMAP3HSUSBOTGState *s)
 {
-    struct omap3_hsusb_otg_s *s = (struct omap3_hsusb_otg_s *)opaque;
-    
-    qemu_put_be16(f, s->sysconfig);
-    qemu_put_byte(f, s->interfsel);
-    qemu_put_byte(f, s->simenable);
-    qemu_put_byte(f, s->forcestdby);
-}
-
-static int omap3_hsusb_otg_load_state(QEMUFile *f, void *opaque,
-                                      int version_id)
-{
-    struct omap3_hsusb_otg_s *s = (struct omap3_hsusb_otg_s *)opaque;
-    
-    if (version_id)
-        return -EINVAL;
-    
-    s->sysconfig = qemu_get_be16(f);
-    s->interfsel = qemu_get_byte(f);
-    s->simenable = qemu_get_byte(f);
-    s->forcestdby = qemu_get_byte(f);
-    
-    return 0;
-}
-
-static void omap3_hsusb_otg_stdby_update(struct omap3_hsusb_otg_s *s)
-{
-    if (s->stdby_callback) {
-        s->stdby_callback(s->stdby_opaque, s->forcestdby);
+    if (s->stdby_irq) {
+        qemu_set_irq(s->stdby_irq, s->forcestdby);
     }
 }
 
-static void omap3_hsusb_otg_reset(struct omap3_hsusb_otg_s *s)
+static void omap3_hsusb_otg_reset(DeviceState *dev)
 {
+    OMAP3HSUSBOTGState *s = FROM_SYSBUS(OMAP3HSUSBOTGState,
+                                        sysbus_from_qdev(dev));
     s->rev = 0x33;
     s->sysconfig = 0;
     s->interfsel = 0x1;
@@ -103,7 +90,7 @@ static uint32_t omap3_hsusb_otg_read(int access,
                                      void *opaque,
                                      target_phys_addr_t addr)
 {
-    struct omap3_hsusb_otg_s *s = (struct omap3_hsusb_otg_s *)opaque;
+    OMAP3HSUSBOTGState *s = opaque;
     
     if (addr < 0x200)
         return musb_read[access](s->musb, addr);
@@ -140,7 +127,7 @@ static void omap3_hsusb_otg_write(int access,
                                   target_phys_addr_t addr,
                                   uint32_t value)
 {
-    struct omap3_hsusb_otg_s *s = (struct omap3_hsusb_otg_s *)opaque;
+    OMAP3HSUSBOTGState *s = opaque;
     
     if (addr < 0x200)
         musb_write[access](s->musb, addr, value);
@@ -154,7 +141,7 @@ static void omap3_hsusb_otg_write(int access,
         case 0x404: /* OTG_SYSCONFIG */
             TRACE("OTG_SYSCONFIG = 0x%08x", value);
             if (value & 2) /* SOFTRESET */
-                omap3_hsusb_otg_reset(s);
+                omap3_hsusb_otg_reset(&s->busdev.qdev);
             s->sysconfig = value & 0x301f;
             break;
         case 0x40c: /* OTG_INTERFSEL */
@@ -225,41 +212,36 @@ static CPUWriteMemoryFunc *omap3_hsusb_otg_writefn[] = {
 
 static void omap3_hsusb_musb_core_intr(void *opaque, int source, int level)
 {
-    struct omap3_hsusb_otg_s *s = (struct omap3_hsusb_otg_s *)opaque;
+    OMAP3HSUSBOTGState *s = opaque;
     /*TRACE("intr 0x%08x, 0x%08x, 0x%08x", source, level, musb_core_intr_get(s->musb));*/
     qemu_set_irq(s->mc_irq, level);
 }
 
-static void omap3_hsusb_otg_init(struct omap_target_agent_s *otg_ta,
-                                 qemu_irq mc_irq,
-                                 qemu_irq dma_irq,
-                                 void (*stdby_cb)(void *, int),
-                                 void *stdby_opaque,
-                                 struct omap3_hsusb_otg_s *s)
+static int omap3_hsusb_otg_init(SysBusDevice *dev)
 {
-    s->mc_irq = mc_irq;
-    s->dma_irq = dma_irq;
-    
-    omap_l4_attach(otg_ta, 0, l4_register_io_memory(omap3_hsusb_otg_readfn,
-                                                    omap3_hsusb_otg_writefn,
-                                                    s));
-    
-    s->musb = musb_init(qemu_allocate_irqs(omap3_hsusb_musb_core_intr, s,
-                                           __musb_irq_max));
-    s->stdby_callback = stdby_cb;
-    s->stdby_opaque = stdby_opaque;
-    
-    omap3_hsusb_otg_reset(s);
-    
-    register_savevm("omap3_hsusb_otg", -1, 0,
-                    omap3_hsusb_otg_save_state,
-                    omap3_hsusb_otg_load_state,
-                    s);
+    OMAP3HSUSBOTGState *s = FROM_SYSBUS(OMAP3HSUSBOTGState, dev);
+    sysbus_init_irq(dev, &s->mc_irq);
+    sysbus_init_irq(dev, &s->dma_irq);
+    sysbus_init_irq(dev, &s->stdby_irq);
+    sysbus_init_mmio(dev, 0x1000,
+                     cpu_register_io_memory(omap3_hsusb_otg_readfn,
+                                            omap3_hsusb_otg_writefn, s,
+                                            DEVICE_NATIVE_ENDIAN));
+    qdev_init_gpio_in(&dev->qdev, omap3_hsusb_musb_core_intr, __musb_irq_max);
+    s->musb = musb_init(&dev->qdev, 0);
+    vmstate_register(&dev->qdev, -1, &vmstate_omap3_hsusb_otg, s);
+    return 0;
 }
-#endif
 
-#ifdef OMAP3_HSUSB_HOST
-struct omap3_hsusb_host_s {
+static SysBusDeviceInfo omap3_hsusb_otg_info = {
+    .init = omap3_hsusb_otg_init,
+    .qdev.name = "omap3_hsusb_otg",
+    .qdev.size = sizeof(OMAP3HSUSBOTGState),
+    .qdev.reset = omap3_hsusb_otg_reset,
+};
+
+typedef struct omap3_hsusb_host_s {
+    SysBusDevice busdev;
     qemu_irq ehci_irq;
     qemu_irq tll_irq;
     
@@ -268,38 +250,27 @@ struct omap3_hsusb_host_s {
     uint32_t uhh_debug_csr;
     uint32_t tll_sysconfig;
     uint32_t insnreg05_ulpi;
+} OMAP3HSUSBHostState;
+
+static const VMStateDescription vmstate_omap3_hsusb_host = {
+    .name = "omap3_hsusb_host",
+    .version_id = 1,
+    .minimum_version_id = 1,
+    .minimum_version_id_old = 1,
+    .fields = (VMStateField[]) {
+        VMSTATE_UINT32(uhh_sysconfig, OMAP3HSUSBHostState),
+        VMSTATE_UINT32(uhh_hostconfig, OMAP3HSUSBHostState),
+        VMSTATE_UINT32(uhh_debug_csr, OMAP3HSUSBHostState),
+        VMSTATE_UINT32(tll_sysconfig, OMAP3HSUSBHostState),
+        VMSTATE_UINT32(insnreg05_ulpi, OMAP3HSUSBHostState),
+        VMSTATE_END_OF_LIST()
+    }
 };
 
-static void omap3_hsusb_host_save_state(QEMUFile *f, void *opaque)
+static void omap3_hsusb_host_reset(DeviceState *dev)
 {
-    struct omap3_hsusb_host_s *s = (struct omap3_hsusb_host_s *)opaque;
-    
-    qemu_put_be32(f, s->uhh_sysconfig);
-    qemu_put_be32(f, s->uhh_hostconfig);
-    qemu_put_be32(f, s->uhh_debug_csr);
-    qemu_put_be32(f, s->tll_sysconfig);
-    qemu_put_be32(f, s->insnreg05_ulpi);
-}
-
-static int omap3_hsusb_host_load_state(QEMUFile *f, void *opaque,
-                                       int version_id)
-{
-    struct omap3_hsusb_host_s *s = (struct omap3_hsusb_host_s *)opaque;
-    
-    if (version_id)
-        return -EINVAL;
-    
-    s->uhh_sysconfig = qemu_get_be32(f);
-    s->uhh_hostconfig = qemu_get_be32(f);
-    s->uhh_debug_csr = qemu_get_be32(f);
-    s->tll_sysconfig = qemu_get_be32(f);
-    s->insnreg05_ulpi = qemu_get_be32(f);
-    
-    return 0;
-}
-
-static void omap3_hsusb_host_reset(struct omap3_hsusb_host_s *s)
-{
+    OMAP3HSUSBHostState *s = FROM_SYSBUS(OMAP3HSUSBHostState,
+                                         sysbus_from_qdev(dev));
     s->uhh_sysconfig = 1;
     s->uhh_hostconfig = 0x700;
     s->uhh_debug_csr = 0x20;
@@ -309,7 +280,7 @@ static void omap3_hsusb_host_reset(struct omap3_hsusb_host_s *s)
 
 static uint32_t omap3_hsusb_host_read(void *opaque, target_phys_addr_t addr)
 {
-    struct omap3_hsusb_host_s *s = (struct omap3_hsusb_host_s *)opaque;
+    OMAP3HSUSBHostState *s = opaque;
     TRACE(OMAP_FMT_plx, addr);
 
     switch (addr) {
@@ -333,7 +304,7 @@ static uint32_t omap3_hsusb_host_read(void *opaque, target_phys_addr_t addr)
 static void omap3_hsusb_host_write(void *opaque, target_phys_addr_t addr,
                                    uint32_t value)
 {
-    struct omap3_hsusb_host_s *s = (struct omap3_hsusb_host_s *)opaque;
+    OMAP3HSUSBHostState *s = opaque;
     TRACE(OMAP_FMT_plx " = 0x%08x", addr, value);
 
     switch (addr) {
@@ -344,7 +315,7 @@ static void omap3_hsusb_host_write(void *opaque, target_phys_addr_t addr,
         case 0x10: /* UHH_SYSCONFIG */
             s->uhh_sysconfig = value & 0x311d;
             if (value & 2) { /* SOFTRESET */
-                omap3_hsusb_host_reset(s);
+                omap3_hsusb_host_reset(&s->busdev.qdev);
             }
             break;
         case 0x40: /* UHH_HOSTCONFIG */
@@ -373,7 +344,7 @@ static CPUWriteMemoryFunc *omap3_hsusb_host_writefn[] = {
 
 static uint32_t omap3_hsusb_ehci_read(void *opaque, target_phys_addr_t addr)
 {
-    struct omap3_hsusb_host_s *s = (struct omap3_hsusb_host_s *)opaque;
+    OMAP3HSUSBHostState *s = opaque;
     TRACE(OMAP_FMT_plx, addr);
     switch (addr) {
         case 0xa4: /* INSNREG05_ULPI */
@@ -387,7 +358,7 @@ static uint32_t omap3_hsusb_ehci_read(void *opaque, target_phys_addr_t addr)
 static void omap3_hsusb_ehci_write(void *opaque, target_phys_addr_t addr,
                                    uint32_t value)
 {
-    struct omap3_hsusb_host_s *s = (struct omap3_hsusb_host_s *)opaque;
+    OMAP3HSUSBHostState *s = opaque;
     TRACE(OMAP_FMT_plx " = 0x%08x", addr, value);
 
     switch (addr) {
@@ -412,7 +383,7 @@ static CPUWriteMemoryFunc *omap3_hsusb_ehci_writefn[] = {
 
 static uint32_t omap3_hsusb_tll_read(void *opaque, target_phys_addr_t addr)
 {
-    struct omap3_hsusb_host_s *s = (struct omap3_hsusb_host_s *)opaque;
+    OMAP3HSUSBHostState *s = opaque;
     TRACE(OMAP_FMT_plx, addr);
 
     switch (addr) {
@@ -435,7 +406,7 @@ static uint32_t omap3_hsusb_tll_read(void *opaque, target_phys_addr_t addr)
 static void omap3_hsusb_tll_write(void *opaque, target_phys_addr_t addr,
                                   uint32_t value)
 {
-    struct omap3_hsusb_host_s *s = (struct omap3_hsusb_host_s *)opaque;
+    OMAP3HSUSBHostState *s = opaque;
     TRACE(OMAP_FMT_plx " = 0x%08x", addr, value);
 
     switch (addr) {
@@ -464,78 +435,39 @@ static CPUWriteMemoryFunc *omap3_hsusb_tll_writefn[] = {
     omap3_hsusb_tll_write,
 };
 
-static void omap3_hsusb_host_init(struct omap_target_agent_s *host_ta,
-                                  struct omap_target_agent_s *tll_ta,
-                                  qemu_irq ohci_irq,
-                                  qemu_irq ehci_irq,
-                                  qemu_irq tll_irq,
-                                  struct omap3_hsusb_host_s *s)
+static int omap3_hsusb_host_init(SysBusDevice *dev)
 {
-    s->ehci_irq = ehci_irq;
-    s->tll_irq  = tll_irq;
-    
-    omap_l4_attach(tll_ta, 0, l4_register_io_memory(omap3_hsusb_tll_readfn,
-                                                    omap3_hsusb_tll_writefn,
-                                                    s));
-    omap_l4_attach(host_ta, 0, l4_register_io_memory(omap3_hsusb_host_readfn,
-                                                     omap3_hsusb_host_writefn,
-                                                     s));
-/*    omap_l4_attach(host_ta, 1, usb_ohci_init_omap(omap_l4_base(host_ta, 1),
-                                                  omap_l4_size(host_ta, 1),
-                                                  3, ohci_irq));*/
-    omap_l4_attach(host_ta, 2, l4_register_io_memory(omap3_hsusb_ehci_readfn,
-                                                     omap3_hsusb_ehci_writefn,
-                                                     s));
-    
-    omap3_hsusb_host_reset(s);
-    
-    register_savevm("omap3_hsusb_host", -1, 0,
-                    omap3_hsusb_host_save_state,
-                    omap3_hsusb_host_load_state, s);
+    OMAP3HSUSBHostState *s = FROM_SYSBUS(OMAP3HSUSBHostState, dev);
+    sysbus_init_irq(dev, &s->ehci_irq);
+    sysbus_init_irq(dev, &s->tll_irq);
+    sysbus_init_mmio(dev, 0x1000,
+                     cpu_register_io_memory(omap3_hsusb_tll_readfn,
+                                            omap3_hsusb_tll_writefn, s,
+                                            DEVICE_NATIVE_ENDIAN));
+    sysbus_init_mmio(dev, 0x400,
+                     cpu_register_io_memory(omap3_hsusb_host_readfn,
+                                            omap3_hsusb_host_writefn, s,
+                                            DEVICE_NATIVE_ENDIAN));
+    sysbus_init_mmio(dev, 0x400,
+                     cpu_register_io_memory(omap3_hsusb_ehci_readfn,
+                                            omap3_hsusb_ehci_writefn, s,
+                                            DEVICE_NATIVE_ENDIAN));
+    /* TODO: OHCI */
+    vmstate_register(&dev->qdev, -1, &vmstate_omap3_hsusb_host, s);
+    return 0;
 }
-#endif
 
-struct omap3_hsusb_s {
-#ifdef OMAP3_HSUSB_OTG
-    struct omap3_hsusb_otg_s otg;
-#endif
-#ifdef OMAP3_HSUSB_HOST
-    struct omap3_hsusb_host_s host;
-#endif
+static SysBusDeviceInfo omap3_hsusb_host_info = {
+    .init = omap3_hsusb_host_init,
+    .qdev.name = "omap3_hsusb_host",
+    .qdev.size = sizeof(OMAP3HSUSBHostState),
+    .qdev.reset = omap3_hsusb_host_reset,
 };
 
-void omap3_hsusb_reset(struct omap3_hsusb_s *s)
+static void omap3_hsusb_register_devices(void)
 {
-#ifdef OMAP3_HSUSB_OTG
-    omap3_hsusb_otg_reset(&s->otg);
-#endif
-#ifdef OMAP3_HSUSB_HOST
-    omap3_hsusb_host_reset(&s->host);
-#endif
+    sysbus_register_withprop(&omap3_hsusb_otg_info);
+    sysbus_register_withprop(&omap3_hsusb_host_info);
 }
 
-struct omap3_hsusb_s *omap3_hsusb_init(struct omap_target_agent_s *otg_ta,
-                                       struct omap_target_agent_s *host_ta,
-                                       struct omap_target_agent_s *tll_ta,
-                                       qemu_irq mc_irq,
-                                       qemu_irq dma_irq,
-                                       qemu_irq ohci_irq,
-                                       qemu_irq ehci_irq,
-                                       qemu_irq tll_irq,
-                                       void (*otg_stdby_cb)(void *, int),
-                                       void *otg_stdby_opaque)
-{
-    struct omap3_hsusb_s *s = qemu_mallocz(sizeof(*s));
-#ifdef OMAP3_HSUSB_HOST
-    omap3_hsusb_host_init(host_ta, tll_ta,
-                          ohci_irq, ehci_irq, tll_irq,
-                          &s->host);
-#endif
-#ifdef OMAP3_HSUSB_OTG
-    omap3_hsusb_otg_init(otg_ta, mc_irq, dma_irq,
-                         otg_stdby_cb, otg_stdby_opaque,
-                         &s->otg);
-#endif
-    return s;
-}
-
+device_init(omap3_hsusb_register_devices)

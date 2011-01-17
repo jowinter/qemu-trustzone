@@ -353,11 +353,14 @@ void musb_reset(MUSBState *s)
     }
 }
 
-struct MUSBState *musb_init(qemu_irq *irqs)
+struct MUSBState *musb_init(DeviceState *parent_device, int gpio_base)
 {
     MUSBState *s = qemu_mallocz(sizeof(*s));
-
-    s->irqs = irqs;
+    s->irqs = qemu_mallocz(__musb_irq_max * sizeof(qemu_irq));
+    int i;
+    for (i = 0; i < __musb_irq_max; i++) {
+        s->irqs[i] = qdev_get_gpio_in(parent_device, gpio_base + i);
+    }
     musb_reset(s);
 
     usb_bus_new(&s->bus, NULL /* FIXME */);
