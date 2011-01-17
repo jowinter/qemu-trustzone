@@ -17,10 +17,10 @@
  * You should have received a copy of the GNU General Public License along
  * with this program; if not, see <http://www.gnu.org/licenses/>.
  */
-
 #include "hw.h"
 #include "omap.h"
-/* General-Purpose I/O */
+
+/* General-Purpose I/O of OMAP1 */
 struct omap_gpio_s {
     qemu_irq irq;
     qemu_irq *in;
@@ -46,7 +46,7 @@ static void omap_gpio_set(void *opaque, int line, int level)
         s->inputs &= ~(1 << line);
 
     if (((s->edge & s->inputs & ~prev) | (~s->edge & ~s->inputs & prev)) &
-                    (1 << line) & s->dir & ~s->mask) {
+        (1 << line) & s->dir & ~s->mask) {
         s->ints |= 1 << line;
         qemu_irq_raise(s->irq);
     }
@@ -86,7 +86,7 @@ static uint32_t omap_gpio_read(void *opaque, target_phys_addr_t addr)
 }
 
 static void omap_gpio_write(void *opaque, target_phys_addr_t addr,
-                uint32_t value)
+                            uint32_t value)
 {
     struct omap_gpio_s *s = (struct omap_gpio_s *) opaque;
     int offset = addr & OMAP_MPUI_REG_MASK;
@@ -172,11 +172,10 @@ void omap_gpio_reset(struct omap_gpio_s *s)
 }
 
 struct omap_gpio_s *omap_gpio_init(target_phys_addr_t base,
-                qemu_irq irq, omap_clk clk)
+                                   qemu_irq irq, omap_clk clk)
 {
     int iomemtype;
-    struct omap_gpio_s *s = (struct omap_gpio_s *)
-            qemu_mallocz(sizeof(struct omap_gpio_s));
+    struct omap_gpio_s *s = qemu_mallocz(sizeof(*s));
 
     s->irq = irq;
     s->in = qemu_allocate_irqs(omap_gpio_set, s, 16);
@@ -208,6 +207,7 @@ struct omap2_gpio_s {
     qemu_irq *in;
     qemu_irq handler[32];
 
+    uint8_t revision;
     uint8_t config[2];
     uint32_t inputs;
     uint32_t outputs;
@@ -222,7 +222,7 @@ struct omap2_gpio_s {
 };
 
 static inline void omap2_gpio_module_int_update(struct omap2_gpio_s *s,
-                int line)
+                                                int line)
 {
     qemu_set_irq(s->irq[line], s->ints[line] & s->mask[line]);
 }
@@ -240,7 +240,7 @@ static void omap2_gpio_module_wake(struct omap2_gpio_s *s, int line)
 }
 
 static inline void omap2_gpio_module_out_update(struct omap2_gpio_s *s,
-                uint32_t diff)
+                                                uint32_t diff)
 {
     int ln;
 
@@ -308,7 +308,7 @@ static uint32_t omap2_gpio_module_read(void *opaque, target_phys_addr_t addr)
 
     switch (addr) {
     case 0x00:	/* GPIO_REVISION */
-        return 0x18;
+        return s->revision;
 
     case 0x10:	/* GPIO_SYSCONFIG */
         return s->config[0];
@@ -375,7 +375,7 @@ static uint32_t omap2_gpio_module_read(void *opaque, target_phys_addr_t addr)
 }
 
 static void omap2_gpio_module_write(void *opaque, target_phys_addr_t addr,
-                uint32_t value)
+                                    uint32_t value)
 {
     struct omap2_gpio_s *s = (struct omap2_gpio_s *) opaque;
     uint32_t diff;
@@ -385,7 +385,8 @@ static void omap2_gpio_module_write(void *opaque, target_phys_addr_t addr,
     case 0x00:	/* GPIO_REVISION */
     case 0x14:	/* GPIO_SYSSTATUS */
     case 0x38:	/* GPIO_DATAIN */
-        OMAP_RO_REG(addr);
+        /* read-only, ignore quietly */
+        //OMAP_RO_REG(addr);
         break;
 
     case 0x10:	/* GPIO_SYSCONFIG */
@@ -522,7 +523,7 @@ static uint32_t omap2_gpio_module_readp(void *opaque, target_phys_addr_t addr)
 }
 
 static void omap2_gpio_module_writep(void *opaque, target_phys_addr_t addr,
-                uint32_t value)
+                                     uint32_t value)
 {
     uint32_t cur = 0;
     uint32_t mask = 0xffff;
@@ -583,25 +584,28 @@ static CPUWriteMemoryFunc * const omap2_gpio_module_writefn[] = {
     omap2_gpio_module_write,
 };
 
-static void omap2_gpio_module_init(struct omap2_gpio_s *s,
-                struct omap_target_agent_s *ta, int region,
-                qemu_irq mpu, qemu_irq dsp, qemu_irq wkup,
-                omap_clk fclk, omap_clk iclk)
+static void omap2_gpio_module_init(struct omap_mpu_state_s *mpu,
+                                   struct omap2_gpio_s *s,
+                                   struct omap_target_agent_s *ta, int region,
+                                   qemu_irq mpu_irq, qemu_irq dsp_irq,
+                                   qemu_irq wkup_irq,
+                                   omap_clk fclk, omap_clk iclk)
 {
     int iomemtype;
 
-    s->irq[0] = mpu;
-    s->irq[1] = dsp;
-    s->wkup = wkup;
+    s->revision = cpu_class_omap3(mpu) ? 0x25 : 0x18;
+    s->irq[0] = mpu_irq;
+    s->irq[1] = dsp_irq;
+    s->wkup = wkup_irq;
     s->in = qemu_allocate_irqs(omap2_gpio_module_set, s, 32);
 
     iomemtype = l4_register_io_memory(omap2_gpio_module_readfn,
-                    omap2_gpio_module_writefn, s);
+                                      omap2_gpio_module_writefn, s);
     omap_l4_attach(ta, region, iomemtype);
 }
 
 struct omap_gpif_s {
-    struct omap2_gpio_s module[5];
+    struct omap2_gpio_s module[6];
     int modules;
 
     int autoidle;
@@ -648,7 +652,7 @@ static uint32_t omap_gpif_top_read(void *opaque, target_phys_addr_t addr)
 }
 
 static void omap_gpif_top_write(void *opaque, target_phys_addr_t addr,
-                uint32_t value)
+                                uint32_t value)
 {
     struct omap_gpif_s *s = (struct omap_gpif_s *) opaque;
 
@@ -688,33 +692,52 @@ static CPUWriteMemoryFunc * const omap_gpif_top_writefn[] = {
     omap_gpif_top_write,
 };
 
-struct omap_gpif_s *omap2_gpio_init(struct omap_target_agent_s *ta,
-                qemu_irq *irq, omap_clk *fclk, omap_clk iclk, int modules)
+struct omap_gpif_s *omap2_gpio_init(struct omap_mpu_state_s *mpu,
+                                     struct omap_target_agent_s *ta,
+                                     qemu_irq *irq, omap_clk *fclk,
+                                     omap_clk iclk, int modules)
 {
     int iomemtype, i;
-    struct omap_gpif_s *s = (struct omap_gpif_s *)
-            qemu_mallocz(sizeof(struct omap_gpif_s));
+    struct omap_gpif_s *s = qemu_mallocz(sizeof(*s));
     int region[4] = { 0, 2, 4, 5 };
 
     s->modules = modules;
     for (i = 0; i < modules; i ++)
-        omap2_gpio_module_init(s->module + i, ta, region[i],
-                              irq[i], NULL, NULL, fclk[i], iclk);
+        omap2_gpio_module_init(mpu, s->module + i, ta, region[i],
+                               irq[i], NULL, NULL, fclk[i], iclk);
 
     omap_gpif_reset(s);
 
     iomemtype = l4_register_io_memory(omap_gpif_top_readfn,
-                    omap_gpif_top_writefn, s);
+                                      omap_gpif_top_writefn, s);
     omap_l4_attach(ta, 1, iomemtype);
 
     return s;
 }
 
-qemu_irq *omap2_gpio_in_get(struct omap_gpif_s *s, int start)
+struct omap_gpif_s *omap3_gpio_init(struct omap_mpu_state_s *mpu,
+                                    struct omap_target_agent_s **ta,
+                                    qemu_irq *irq)
 {
-    if (start >= s->modules * 32 || start < 0)
-        hw_error("%s: No GPIO line %i\n", __FUNCTION__, start);
-    return s->module[start >> 5].in + (start & 31);
+    int i;
+    struct omap_gpif_s *s = qemu_mallocz(sizeof(*s));
+
+    s->modules = 6;
+    for (i = 0; i < s->modules; i++) {
+        omap2_gpio_module_init(mpu, s->module + i, ta[i], 0, irq[i],
+                               NULL, NULL, NULL, NULL);
+    }
+
+    omap_gpif_reset(s);
+
+    return s;
+}
+
+qemu_irq omap2_gpio_in_get(struct omap_gpif_s *s, int line)
+{
+    if (line >= s->modules * 32 || line < 0)
+        hw_error("%s: No GPIO line %i\n", __FUNCTION__, line);
+    return s->module[line >> 5].in[line & 31];
 }
 
 void omap2_gpio_out_set(struct omap_gpif_s *s, int line, qemu_irq handler)
