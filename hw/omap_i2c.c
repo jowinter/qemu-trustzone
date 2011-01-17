@@ -325,6 +325,62 @@ static uint32_t omap_i2c_read(void *opaque, target_phys_addr_t addr)
     return 0;
 }
 
+static uint32_t omap_i2c_readb(void *opaque, target_phys_addr_t addr)
+{
+    struct omap_i2c_s *s = (struct omap_i2c_s *) opaque;
+    int offset = addr & OMAP_MPUI_REG_MASK;
+    uint8_t ret;
+
+    switch (offset) {
+        case 0x1c: /* I2C_DATA */
+            ret = 0;
+            if (s->fifolen) {
+                if (s->revision < OMAP3_INTR_REV) {
+                    if (s->control & (1 << 14)) /* BE */
+                        ret = (((uint8_t)s->fifo[s->fifostart]) << 8)
+                            | s->fifo[(s->fifostart + 1) & I2C_FIFO_SIZE_MASK];
+                    else
+                        ret = (((uint8_t)s->fifo[(s->fifostart + 1) & I2C_FIFO_SIZE_MASK]) << 8)
+                            | s->fifo[s->fifostart];
+                    s->fifostart = (s->fifostart + 2) & I2C_FIFO_SIZE_MASK;
+                    if (s->fifolen == 1) {
+                        s->stat |= 1 << 15; /* SBD */
+                        s->fifolen = 0;
+                    } else
+                        s->fifolen -= 2;
+                    if (!s->fifolen) {
+                        s->stat &= ~(1 << 3); /* RRDY */
+                        s->stat |= 1 << 2;    /* ARDY */
+                    }
+                } else {
+                    s->stat &= ~(1 << 7); /* AERR */
+                    ret = (uint8_t)s->fifo[s->fifostart++];
+                    s->fifostart &= I2C_FIFO_SIZE_MASK;
+                    if (--s->fifolen) {
+                        if (s->fifolen <= ((s->dma >> 8) & 0x3f)) {
+                            s->stat &= ~(1 << 3); /* RRDY */
+                            s->stat |= 1 << 13;   /* RDR */
+                        }
+                    } else {
+                        s->stat &= ~((1 << 3) | (1 << 13)); /* RRDY | RDR */
+                        s->stat |= 1 << 2;                  /* ARDY */
+                    }
+                }
+                s->stat &= ~(1 << 11); /* ROVR */
+            } else if (s->revision >= OMAP3_INTR_REV)
+                s->stat |= (1 << 7); /* AERR */
+            TRACE("DATA returns %04x", ret);
+            omap_i2c_fifo_run(s);
+            omap_i2c_interrupts_update(s);
+            return ret;
+         default:
+            break;
+    }
+
+    OMAP_BAD_REG(addr);
+    return 0;
+}
+
 static void omap_i2c_write(void *opaque, target_phys_addr_t addr,
                 uint32_t value)
 {
@@ -584,7 +640,7 @@ static void omap_i2c_writeb(void *opaque, target_phys_addr_t addr,
 }
 
 static CPUReadMemoryFunc * const omap_i2c_readfn[] = {
-    omap_badwidth_read16,
+    omap_i2c_readb,
     omap_i2c_read,
     omap_badwidth_read16,
 };
