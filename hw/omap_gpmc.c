@@ -745,6 +745,7 @@ struct omap_gpmc_s *omap_gpmc_init(struct omap_mpu_state_s *mpu,
     int iomemtype, cs;
     struct omap_gpmc_s *s = qemu_mallocz(sizeof(*s));
 
+    s->irq = irq;
     s->accept_256 = cpu_is_omap3630(mpu);
     s->revision = cpu_class_omap3(mpu) ? 0x50 : 0x20;
     omap_gpmc_reset(s);
