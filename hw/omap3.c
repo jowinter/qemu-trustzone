@@ -4047,6 +4047,8 @@ static void omap3_reset(void *opaque)
     omap_synctimer_reset(s->synctimer);
     omap_sdrc_reset(s->sdrc);
     omap_gpmc_reset(s->gpmc);
+    
+    omap3_boot_rom_emu(s);
 }
 
 static const struct dma_irq_map omap3_dma_irq_map[] = {
@@ -4062,7 +4064,7 @@ static int omap3_validate_addr(struct omap_mpu_state_s *s,
     return 1;
 }
 
-struct omap_mpu_state_s *omap3_mpu_init(int model,
+struct omap_mpu_state_s *omap3_mpu_init(int model, int emulate_bootrom,
                                         unsigned long sdram_size,
                                         CharDriverState *chr_uart1,
                                         CharDriverState *chr_uart2,
@@ -4394,6 +4396,10 @@ struct omap_mpu_state_s *omap3_mpu_init(int model,
                     omap_l4_base(omap3_l4ta_init(s->l4, L4A_MCSPI3), 0));
     sysbus_mmio_map(busdev, 3,
                     omap_l4_base(omap3_l4ta_init(s->l4, L4A_MCSPI4), 0));
+    
+    if (emulate_bootrom) {
+        omap3_boot_rom_init(s);
+    }
     
     qemu_register_reset(omap3_reset, s);
     return s;

@@ -1130,15 +1130,15 @@ struct omap_mpu_state_s *omap2420_mpu_init(unsigned long sdram_size,
                 const char *core);
 
 /* omap3.c */
-struct omap_mpu_state_s *omap3_mpu_init(int model,
+struct omap_mpu_state_s *omap3_mpu_init(int model, int emulate_bootrom,
                                         unsigned long sdram_size,
                                         CharDriverState *chr_uart1,
                                         CharDriverState *chr_uart2,
                                         CharDriverState *chr_uart3,
                                         CharDriverState *chr_uart4);
-void omap3_set_mem_type(struct omap_mpu_state_s *s, int bootfrom);
 
 /* omap3_boot.c */
+void omap3_boot_rom_init(struct omap_mpu_state_s *s);
 void omap3_boot_rom_emu(struct omap_mpu_state_s *s);
 
 # if TARGET_PHYS_ADDR_BITS == 32

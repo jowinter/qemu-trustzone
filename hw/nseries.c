@@ -2438,7 +2438,7 @@ static void n900_init(ram_addr_t ram_size,
 #if MAX_SERIAL_PORTS < 3
 #error MAX_SERIAL_PORTS must be at least 3!
 #endif
-    s->cpu = omap3_mpu_init(omap3430, N900_SDRAM_SIZE,
+    s->cpu = omap3_mpu_init(omap3430, 1, N900_SDRAM_SIZE,
                             serial_hds[1], serial_hds[2],
                             serial_hds[0], NULL);
     omap_lcd_panel_attach(s->cpu->dss);

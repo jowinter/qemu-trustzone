@@ -144,27 +144,29 @@ static const uint8_t omap3_boot_rom[] = { /* 0x40014000-0x4001bfff */
      * boot loader after it has been read into memory */
     0xc8, 0x10, 0x1f, 0xe5, /* ldr r1, [#0x40014040] @ boot loader start */
     0xb0, 0x0c, 0x0f, 0xe3, /* movw r0, #0xfcb0 */
-    0x20, 0x00, 0x44, 0xe3, /* movt r0, #0x4020   @ stack top at 0x4020fcb0 */
-    0xdf, 0xf0, 0x21, 0xe3, /* msr cpsr_c, #0xdf  @ enter SYS mode */
+    0x20, 0x00, 0x44, 0xe3, /* movt r0, #0x4020    @ stack top at 0x4020fcb0 */
+    0xdf, 0xf0, 0x21, 0xe3, /* msr cpsr_c, #0xdf   @ enter SYS mode */
     0x00, 0xd0, 0xa0, 0xe1, /* mov sp, r0 */
-    0x80, 0x0c, 0x40, 0xe2, /* sub r0, r0, #32768 @ 32kB SYS/USR stack */
-    0xd1, 0xf0, 0x21, 0xe3, /* msr cpsr_c, #0xd1  @ enter FIQ mode */
+    0x80, 0x0c, 0x40, 0xe2, /* sub r0, r0, #32768  @ 32kB SYS/USR stack */
+    0xd1, 0xf0, 0x21, 0xe3, /* msr cpsr_c, #0xd1   @ enter FIQ mode */
     0x00, 0xd0, 0xa0, 0xe1, /* mov sp, r0 */
-    0x08, 0x0c, 0x40, 0xe2, /* sub r0, r0, #2048  @ 2kB FIQ stack */
-    0xd2, 0xf0, 0x21, 0xe3, /* msr cpsr_c, #0xd2  @ enter IRQ mode */
+    0x08, 0x0c, 0x40, 0xe2, /* sub r0, r0, #2048   @ 2kB FIQ stack */
+    0xd2, 0xf0, 0x21, 0xe3, /* msr cpsr_c, #0xd2   @ enter IRQ mode */
     0x00, 0xd0, 0xa0, 0xe1, /* mov sp, r0 */
-    0x08, 0x0c, 0x40, 0xe2, /* sub r0, r0, #2048  @ 2kB IRQ stack */
-    0xd7, 0xf0, 0x21, 0xe3, /* msr cpsr_c, #0xd7  @ enter ABT mode */
+    0x08, 0x0c, 0x40, 0xe2, /* sub r0, r0, #2048   @ 2kB IRQ stack */
+    0xd7, 0xf0, 0x21, 0xe3, /* msr cpsr_c, #0xd7   @ enter ABT mode */
     0x00, 0xd0, 0xa0, 0xe1, /* mov sp, r0 */
-    0x08, 0x0c, 0x40, 0xe2, /* sub r0, r0, #2048  @ 2kB ABT stack */
-    0xdb, 0xf0, 0x21, 0xe3, /* msr cpsr_c, #0xdb  @ enter UND mode */
+    0x08, 0x0c, 0x40, 0xe2, /* sub r0, r0, #2048   @ 2kB ABT stack */
+    0xdb, 0xf0, 0x21, 0xe3, /* msr cpsr_c, #0xdb   @ enter UND mode */
     0x00, 0xd0, 0xa0, 0xe1, /* mov sp, r0 */
-    0x08, 0x0c, 0x40, 0xe2, /* sub r0, r0, #2048  @ 2kB UND stack */
-    0xd3, 0xf0, 0x21, 0xe3, /* msr cpsr_c, #0xd3  @ enter SVC mode */
-    0x00, 0xd0, 0xa0, 0xe1, /* mov sp, r0         @ 23kB left for SVC stack */
-    0xdf, 0xf0, 0x21, 0xe3, /* msr cpsr_c, #0xdf  @ enter SYS mode */
-    0x60, 0x00, 0x04, 0xe3, /* movw r0, #0x4060   @ r0 -> monitor vba */
-    0x01, 0x00, 0x44, 0xe3, /* movt r0, #0x4001 */
+    0x08, 0x0c, 0x40, 0xe2, /* sub r0, r0, #2048   @ 2kB UND stack */
+    0xd3, 0xf0, 0x21, 0xe3, /* msr cpsr_c, #0xd3   @ enter SVC mode */
+    0x00, 0xd0, 0xa0, 0xe1, /* mov sp, r0          @ 23kB left for SVC stack */
+    0xdf, 0xf0, 0x21, 0xe3, /* msr cpsr_c, #0xdf   @ enter SYS mode */
+    0x40, 0x04, 0xa0, 0xe3, /* mov r0, #0x40000000 @ r0 -> vba */
+    0x05, 0x09, 0x80, 0xe2, /* add r0, r0, #0x14000 */
+    0x10, 0x0f, 0x0c, 0xfe, /* mcr2 p15, 0, r0, c12, c0, 0 */
+    0x60, 0x00, 0x80, 0xe2, /* add r0, r0, #0x60  @ r0 -> monitor vba */
     0x30, 0x0f, 0x0c, 0xfe, /* mcr2 p15, 0, r0, c12, c0, 1 */
     0x1c, 0x00, 0x40, 0xe2, /* sub r0, r0, #1c    @ r0 -> booting parameter struct */
     0x01, 0xf0, 0xa0, 0xe1, /* mov pc, r1 */
@@ -870,30 +872,38 @@ static int omap3_onenand_boot(struct omap_mpu_state_s *s)
     return result;
 }
 
-
-void omap3_boot_rom_emu(struct omap_mpu_state_s *s)
+void omap3_boot_rom_init(struct omap_mpu_state_s *s)
 {
     const uint8_t rom_version[4] = { 0x00, 0x14, 0x00, 0x00 }; /* v. 14.00 */
-    uint8_t x[4] = {0, 0, 0, 0};
-    int result = 0;
-    
+
     if (!s->bootrom_base) {
         s->bootrom_base = qemu_ram_alloc(NULL, "omap3_boot_rom",
                                          OMAP3XXX_BOOTROM_SIZE);
+        cpu_register_physical_memory(OMAP3_Q1_BASE + 0x14000,
+                                     OMAP3XXX_BOOTROM_SIZE,
+                                     s->bootrom_base | IO_MEM_ROM);
+        cpu_physical_memory_write_rom(OMAP3_Q1_BASE + 0x14000,
+                                      omap3_boot_rom,
+                                      sizeof(omap3_boot_rom));
+        cpu_physical_memory_write_rom(OMAP3_Q1_BASE + 0x1bffc,
+                                      rom_version,
+                                      sizeof(rom_version));
+        cpu_physical_memory_write(OMAP3_SRAM_BASE + 0xffc8,
+                                  omap3_sram_vectors,
+                                  sizeof(omap3_sram_vectors));
     }
-    cpu_register_physical_memory(OMAP3_Q1_BASE + 0x14000,
-                                 OMAP3XXX_BOOTROM_SIZE,
-                                 s->bootrom_base | IO_MEM_ROM);
-    cpu_physical_memory_write_rom(OMAP3_Q1_BASE + 0x14000,
-                                  omap3_boot_rom,
-                                  sizeof(omap3_boot_rom));
-    cpu_physical_memory_write_rom(OMAP3_Q1_BASE + 0x1bffc,
-                                  rom_version,
-                                  sizeof(rom_version));
-    cpu_physical_memory_write(OMAP3_SRAM_BASE + 0xffc8,
-                              omap3_sram_vectors,
-                              sizeof(omap3_sram_vectors));
+}
 
+void omap3_boot_rom_emu(struct omap_mpu_state_s *s)
+{
+    uint8_t x[4] = {0, 0, 0, 0};
+    int result = 0;
+    
+    /* only emulate the boot rom if it was initialized earlier */
+    if (!s->bootrom_base) {
+        return;
+    }
+    
     /* here we are relying on all memories to be attached and gpmc_attach
      * to fill in DEVICETYPE field correctly for CS0 for us */
     cpu_physical_memory_read(0x6e000060, x, 4); /* GPMC_CONFIG1_0 */
@@ -911,11 +921,10 @@ void omap3_boot_rom_emu(struct omap_mpu_state_s *s)
     /* if no boot loader found yet, try the MMC/SD card... */
     if (!result)
         result = omap3_mmc_boot(s);
-    
-    /* ensure boot ROM is mapped at zero address */
-    cpu_register_physical_memory(0, OMAP3XXX_BOOTROM_SIZE,
-                                 s->bootrom_base | IO_MEM_ROM);
-    
+
+    /* move PC to the boot ROM reset vector */
+    s->env->regs[15] = 0x40014000;
+
     if (!result) { /* no boot device found */
         /* move PC to the appropriate ROM dead loop address */
         s->env->regs[15] = 0x400140a4;
