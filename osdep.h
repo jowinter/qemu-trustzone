@@ -127,4 +127,8 @@ int qemu_madvise(void *addr, size_t len, int advice);
 
 int qemu_create_pidfile(const char *filename);
 
+#ifdef _WIN32
+#define ffs __builtin_ffs
+#endif
+
 #endif
