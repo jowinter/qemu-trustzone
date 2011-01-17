@@ -22,6 +22,7 @@
  * MA 02111-1307 USA
  */
 
+#include <sys/time.h>
 #include "hw.h"
 #include "qemu-timer.h"
 #include "i2c.h"
@@ -1005,19 +1006,20 @@ static void twl4030_setup_alarm(TWL4030NodeState *s)
                        + (s->reg_data[0x28] & 0x0f)
                        + 100,
             .tm_isdst = -1,
-            .tm_zone = NULL,
-            .tm_gmtoff = 0
         };
         TRACE_RTC("enable alarm on %02d/%02d/%04d at %02d:%02d:%02d (UTC)",
                   a.tm_mday, a.tm_mon + 1, a.tm_year + 1900,
                   a.tm_hour, a.tm_min, a.tm_sec);
-        time_t at = mktime(&a);
+        time_t at = mktime(&a); /* alarm time interpreted in local time */
         if (at < 0) {
             TRACE_RTC("unable to parse alarm calendar time");
         } else {
-            time_t ct = time(NULL);
-            at += localtime(&ct)->tm_gmtoff;
-            int64_t delta = (int64_t)difftime(at, ct);
+            /* fix alarm time to utc */
+            struct timezone tz;
+            if (!gettimeofday(NULL, &tz)) {
+                at -= tz.tz_minuteswest * 60;
+            }
+            int64_t delta = (int64_t)difftime(at, time(NULL));
             if (delta <= 0) {
                 TRACE_RTC("alarm is in the past");
             } else {
