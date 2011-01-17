@@ -837,7 +837,7 @@ static int omap3_onenand_boot(struct omap_mpu_state_s *s)
     uint8_t *page;
     struct omap3_boot_s *boot;
     int result = 0;
-    
+
     /* reset device type at cs0: 16bit NOR, no wait monitoring */
     cpu_to_le32wu(&x, 0x79001000);
     cpu_physical_memory_write(0x6e000060, (void *)&x, 4); /* GPMC_CONFIG1_0 */
