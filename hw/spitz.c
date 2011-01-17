@@ -46,7 +46,7 @@
 #define FLASHCTL_NCE		(FLASHCTL_CE0 | FLASHCTL_CE1)
 
 typedef struct {
-    NANDFlashState *nand;
+    DeviceState *nand;
     uint8_t ctl;
     ECCState ecc;
 } SLNANDState;
@@ -171,9 +171,9 @@ static void sl_flash_register(PXA2xxState *cpu, int size)
     s = (SLNANDState *) qemu_mallocz(sizeof(SLNANDState));
     s->ctl = 0;
     if (size == FLASH_128M)
-        s->nand = nand_init(NAND_MFR_SAMSUNG, 0x73, drive_get(IF_MTD, 0, 0));
+        s->nand = nand_init(NAND_MFR_SAMSUNG, 0x73, drive_get(IF_MTD, 0, 0)->bdrv);
     else if (size == FLASH_1024M)
-        s->nand = nand_init(NAND_MFR_SAMSUNG, 0xf1, drive_get(IF_MTD, 0, 0));
+        s->nand = nand_init(NAND_MFR_SAMSUNG, 0xf1, drive_get(IF_MTD, 0, 0)->bdrv);
 
     iomemtype = cpu_register_io_memory(sl_readfn,
                     sl_writefn, s, DEVICE_NATIVE_ENDIAN);

@@ -37,7 +37,7 @@
 
 struct nand_state_t
 {
-    NANDFlashState *nand;
+    DeviceState *nand;
     unsigned int rdy:1;
     unsigned int ale:1;
     unsigned int cle:1;
@@ -279,7 +279,7 @@ void axisdev88_init (ram_addr_t ram_size,
 
 
       /* Attach a NAND flash to CS1.  */
-    nand_state.nand = nand_init(NAND_MFR_STMICRO, 0x39, drive_get(IF_MTD, 0, 0));
+    nand_state.nand = nand_init(NAND_MFR_STMICRO, 0x39, drive_get(IF_MTD, 0, 0)->bdrv);
     nand_regs = cpu_register_io_memory(nand_read, nand_write, &nand_state,
                                        DEVICE_NATIVE_ENDIAN);
     cpu_register_physical_memory(0x10000000, 0x05000000, nand_regs);

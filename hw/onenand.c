@@ -24,6 +24,7 @@
 #include "blockdev.h"
 #include "sysemu.h"
 #include "hw.h"
+#include "sysbus.h"
 
 /* 11 for 2kB-page OneNAND ("2nd generation") and 10 for 1kB-page chips */
 #define PAGE_SHIFT	11
@@ -32,6 +33,7 @@
 #define BLOCK_SHIFT	(PAGE_SHIFT + 6)
 
 typedef struct {
+    SysBusDevice busdev;
     struct {
         uint16_t man;
         uint16_t dev;
@@ -46,6 +48,7 @@ typedef struct {
     uint8_t *image;
     uint8_t *otp;
     uint8_t *current;
+    uint8_t current_direction;
     ram_addr_t ram;
     uint8_t *boot[2];
     uint8_t *data[2][2];
@@ -101,31 +104,33 @@ enum {
     ONEN_LOCK_UNLOCKED = 1 << 2,
 };
 
-void onenand_base_update(void *opaque, target_phys_addr_t new)
+static void onenand_base_update(SysBusDevice *dev, target_phys_addr_t new)
 {
-    OneNANDState *s = (OneNANDState *) opaque;
-
-    s->base = new;
-
-    /* XXX: We should use IO_MEM_ROMD but we broke it earlier...
-     * Both 0x0000 ... 0x01ff and 0x8000 ... 0x800f can be used to
-     * write boot commands.  Also take note of the BWPS bit.  */
-    cpu_register_physical_memory(s->base + (0x0000 << s->shift),
-                    0x0200 << s->shift, s->iomemtype);
-    cpu_register_physical_memory(s->base + (0x0200 << s->shift),
-                    0xbe00 << s->shift,
-                    (s->ram +(0x0200 << s->shift)) | IO_MEM_RAM);
-    if (s->iomemtype)
-        cpu_register_physical_memory_offset(s->base + (0xc000 << s->shift),
-                    0x4000 << s->shift, s->iomemtype, (0xc000 << s->shift));
-}
-
-void onenand_base_unmap(void *opaque)
-{
-    OneNANDState *s = (OneNANDState *) opaque;
-
-    cpu_register_physical_memory(s->base,
-                    0x10000 << s->shift, IO_MEM_UNASSIGNED);
+    OneNANDState *s = (OneNANDState *)dev;
+    if (s->base != new) {
+        if (s->base != (target_phys_addr_t)-1) {
+            cpu_register_physical_memory(s->base, 0x10000 << s->shift,
+                                         IO_MEM_UNASSIGNED);
+        }
+        if (new != (target_phys_addr_t)-1) {
+            /* XXX: We should use IO_MEM_ROMD but we broke it earlier...
+             * Both 0x0000 ... 0x01ff and 0x8000 ... 0x800f can be used to
+             * write boot commands.  Also take note of the BWPS bit.  */
+            cpu_register_physical_memory(new + (0x0000 << s->shift),
+                                         0x0200 << s->shift, s->iomemtype);
+            cpu_register_physical_memory(new + (0x0200 << s->shift),
+                                         0xbe00 << s->shift,
+                                         (s->ram +(0x0200 << s->shift))
+                                         | IO_MEM_RAM);
+            if (s->iomemtype) {
+                cpu_register_physical_memory_offset(new + (0xc000 << s->shift),
+                                                    0x4000 << s->shift,
+                                                    s->iomemtype,
+                                                    (0xc000 << s->shift));
+            }
+        }
+        s->base = new;
+    }        
 }
 
 static void onenand_intr_update(OneNANDState *s)
@@ -133,49 +138,23 @@ static void onenand_intr_update(OneNANDState *s)
     qemu_set_irq(s->intr, ((s->intstatus >> 15) ^ (~s->config[0] >> 6)) & 1);
 }
 
-static void onenand_save_state(QEMUFile *f, void *opaque)
+static void onenand_pre_save(void *opaque)
 {
-    OneNANDState *s = (OneNANDState *)opaque;
-    int i;
-
+    OneNANDState *s = opaque;
     if (s->current == s->otp)
-        qemu_put_byte(f, 1);
+        s->current_direction = 1;
     else if (s->current == s->image)
-        qemu_put_byte(f, 2);
+        s->current_direction = 2;
     else
-        qemu_put_byte(f, 0);
-    qemu_put_sbe32(f, s->cycle);
-    qemu_put_sbe32(f, s->otpmode);
-    for (i = 0; i < 8; i++) {
-        qemu_put_be16(f, s->addr[i]);
-        qemu_put_be16(f, s->unladdr[i]);
-    }
-    qemu_put_sbe32(f, s->bufaddr);
-    qemu_put_sbe32(f, s->count);
-    qemu_put_be16(f, s->command);
-    qemu_put_be16(f, s->config[0]);
-    qemu_put_be16(f, s->config[1]);
-    qemu_put_be16(f, s->status);
-    qemu_put_be16(f, s->intstatus);
-    qemu_put_be16(f, s->wpstatus);
-    qemu_put_sbe32(f, s->secs_cur);
-    qemu_put_buffer(f, s->blockwp, s->blocks);
-    qemu_put_byte(f, s->ecc.cp);
-    qemu_put_be16(f, s->ecc.lp[0]);
-    qemu_put_be16(f, s->ecc.lp[1]);
-    qemu_put_be16(f, s->ecc.count);
-    qemu_put_buffer(f, s->otp, (64 + 2) << PAGE_SHIFT);
+        s->current_direction = 0;
 }
 
-static int onenand_load_state(QEMUFile *f, void *opaque, int version_id)
+static int onenand_post_load(void *opaque, int version_id)
 {
-    OneNANDState *s = (OneNANDState *)opaque;
-    int i;
-
-    if (version_id)
-        return -EINVAL;
-
-    switch (qemu_get_byte(f)) {
+    OneNANDState *s = opaque;
+    switch (s->current_direction) {
+        case 0:
+            break;
         case 1:
             s->current = s->otp;
             break;
@@ -183,34 +162,41 @@ static int onenand_load_state(QEMUFile *f, void *opaque, int version_id)
             s->current = s->image;
             break;
         default:
-            break;
+            return -1;
     }
-    s->cycle = qemu_get_sbe32(f);
-    s->otpmode = qemu_get_sbe32(f);
-    for (i = 0; i < 8; i++) {
-        s->addr[i] = qemu_get_be16(f);
-        s->unladdr[i] = qemu_get_be16(f);
-    }
-    s->bufaddr = qemu_get_sbe32(f);
-    s->count = qemu_get_sbe32(f);
-    s->command = qemu_get_be16(f);
-    s->config[0] = qemu_get_be16(f);
-    s->config[1] = qemu_get_be16(f);
-    s->status = qemu_get_be16(f);
-    s->intstatus = qemu_get_be16(f);
-    s->wpstatus = qemu_get_be16(f);
-    s->secs_cur = qemu_get_sbe32(f);
-    qemu_get_buffer(f, s->blockwp, s->blocks);
-    s->ecc.cp = qemu_get_byte(f);
-    s->ecc.lp[0] = qemu_get_be16(f);
-    s->ecc.lp[1] = qemu_get_be16(f);
-    s->ecc.count = qemu_get_be16(f);
-    qemu_get_buffer(f, s->otp, (64 + 2) << PAGE_SHIFT);
-
     onenand_intr_update(s);
-
     return 0;
 }
+
+static const VMStateDescription vmstate_onenand = {
+    .name = "onenand",
+    .version_id = 1,
+    .minimum_version_id = 1,
+    .minimum_version_id_old = 1,
+    .pre_save = onenand_pre_save,
+    .post_load = onenand_post_load,
+    .fields = (VMStateField[]) {
+        VMSTATE_UINT8(current_direction, OneNANDState),
+        VMSTATE_INT32(cycle, OneNANDState),
+        VMSTATE_INT32(otpmode, OneNANDState),
+        VMSTATE_UINT16_ARRAY(addr, OneNANDState, 8),
+        VMSTATE_UINT16_ARRAY(unladdr, OneNANDState, 8),
+        VMSTATE_INT32(bufaddr, OneNANDState),
+        VMSTATE_INT32(count, OneNANDState),
+        VMSTATE_UINT16(command, OneNANDState),
+        VMSTATE_UINT16_ARRAY(config, OneNANDState, 2),
+        VMSTATE_UINT16(status, OneNANDState),
+        VMSTATE_UINT16(intstatus, OneNANDState),
+        VMSTATE_UINT16(wpstatus, OneNANDState),
+        VMSTATE_INT32(secs_cur, OneNANDState),
+        VMSTATE_PARTIAL_VBUFFER(blockwp, OneNANDState, blocks),
+        VMSTATE_UINT8(ecc.cp, OneNANDState),
+        VMSTATE_UINT16_ARRAY(ecc.lp, OneNANDState, 2),
+        VMSTATE_UINT16(ecc.count, OneNANDState),
+        VMSTATE_BUFFER_UNSAFE(otp, OneNANDState, 0, ((64 + 2) << PAGE_SHIFT)),
+        VMSTATE_END_OF_LIST()
+    }
+};
 
 /* Hot reset (Reset OneNAND command) or warm reset (RP pin low) */
 static void onenand_reset(OneNANDState *s, int cold)
@@ -230,22 +216,22 @@ static void onenand_reset(OneNANDState *s, int cold)
     s->wpstatus = 0x0002;
     s->cycle = 0;
     s->otpmode = 0;
-    s->bdrv_cur = s->bdrv;
     s->current = s->image;
     s->secs_cur = s->secs;
+    s->bdrv_cur = s->bdrv ? s->bdrv : NULL;
 
     if (cold) {
         /* Lock the whole flash */
         memset(s->blockwp, ONEN_LOCK_LOCKED, s->blocks);
 
-        if (s->bdrv && bdrv_read(s->bdrv, 0, s->boot[0], 8) < 0)
+        if (s->bdrv_cur && bdrv_read(s->bdrv_cur, 0, s->boot[0], 8) < 0)
             hw_error("%s: Loading the BootRAM failed.\n", __FUNCTION__);
     }
 }
 
-static void onenand_system_reset(void *opaque)
+static void onenand_system_reset(DeviceState *dev)
 {
-    onenand_reset(opaque, 1);
+    onenand_reset(FROM_SYSBUS(OneNANDState, sysbus_from_qdev(dev)), 1);
 }
 
 static inline int onenand_load_main(OneNANDState *s, int sec, int secn,
@@ -402,7 +388,7 @@ static inline int onenand_erase(OneNANDState *s, int sec, int num)
     return result;
 }
 
-static void onenand_command(OneNANDState *s, int cmd)
+static void onenand_command(OneNANDState *s)
 {
     int b;
     int sec;
@@ -422,7 +408,7 @@ static void onenand_command(OneNANDState *s, int cmd)
             s->data[(s->bufaddr >> 2) & 1][1] : s->boot[1];	\
     buf += (s->bufaddr & 3) << 4;
 
-    switch (cmd) {
+    switch (s->command) {
     case 0x00:	/* Load single/multiple sector data unit into buffer */
         SETADDR(ONEN_BUF_BLOCK, ONEN_BUF_PAGE)
 
@@ -604,7 +590,7 @@ static void onenand_command(OneNANDState *s, int cmd)
         s->status |= ONEN_ERR_CMD;
         s->intstatus |= ONEN_INT;
         fprintf(stderr, "%s: unknown OneNAND command %x\n",
-                        __FUNCTION__, cmd);
+                        __FUNCTION__, s->command);
     }
 
     onenand_intr_update(s);
@@ -742,7 +728,7 @@ static void onenand_write(void *opaque, target_phys_addr_t addr,
         if (s->intstatus & (1 << 15))
             break;
         s->command = value;
-        onenand_command(s, s->command);
+        onenand_command(s);
         break;
     case 0xf221:	/* System Configuration 1 */
         s->config[0] = value;
@@ -789,58 +775,85 @@ static CPUWriteMemoryFunc * const onenand_writefn[] = {
     onenand_write,
 };
 
-void *onenand_init(uint16_t man_id, uint16_t dev_id, uint16_t ver_id,
-                   int regshift, qemu_irq irq, DriveInfo *dinfo)
+static int onenand_init(SysBusDevice *dev)
 {
-    OneNANDState *s = (OneNANDState *) qemu_mallocz(sizeof(*s));
-    uint32_t size = 1 << (24 + ((dev_id >> 4) & 7));
-    void *ram;
-
-    s->shift = regshift;
-    s->intr = irq;
+    OneNANDState *s = (OneNANDState *)dev;
+    uint32_t size = 1 << (24 + ((s->id.dev >> 4) & 7));
+    s->base = (target_phys_addr_t)-1;
     s->rdy = NULL;
-    s->id.man = man_id;
-    s->id.dev = dev_id;
-    s->id.ver = ver_id;
     s->blocks = size >> BLOCK_SHIFT;
     s->secs = size >> 9;
     s->blockwp = qemu_malloc(s->blocks);
-    s->density_mask = (dev_id & 0x08) ? (1 << (6 + ((dev_id >> 4) & 7))) : 0;
+    s->density_mask = (s->id.dev & 0x08)
+        ? (1 << (6 + ((s->id.dev >> 4) & 7))) : 0;
     s->iomemtype = cpu_register_io_memory(onenand_readfn,
                     onenand_writefn, s, DEVICE_NATIVE_ENDIAN);
-    if (!dinfo)
+    if (!s->bdrv) {
         s->image = memset(qemu_malloc(size + (size >> 5)),
-                        0xff, size + (size >> 5));
-    else
-        s->bdrv = dinfo->bdrv;
+                          0xff, size + (size >> 5));
+    } else {
+        s->bdrv_cur = s->bdrv;
+    }
     s->otp = memset(qemu_malloc((64 + 2) << PAGE_SHIFT),
                     0xff, (64 + 2) << PAGE_SHIFT);
     s->ram = qemu_ram_alloc(NULL, "onenand.ram", 0xc000 << s->shift);
-    ram = qemu_get_ram_ptr(s->ram);
+    void *ram = qemu_get_ram_ptr(s->ram);
     s->boot[0] = ram + (0x0000 << s->shift);
     s->boot[1] = ram + (0x8000 << s->shift);
     s->data[0][0] = ram + ((0x0200 + (0 << (PAGE_SHIFT - 1))) << s->shift);
     s->data[0][1] = ram + ((0x8010 + (0 << (PAGE_SHIFT - 6))) << s->shift);
     s->data[1][0] = ram + ((0x0200 + (1 << (PAGE_SHIFT - 1))) << s->shift);
     s->data[1][1] = ram + ((0x8010 + (1 << (PAGE_SHIFT - 6))) << s->shift);
-
-    onenand_system_reset(s);
-    qemu_register_reset(onenand_system_reset, s);
-
-    register_savevm(NULL, "onenand",
-                    ((regshift & 0x7f) << 24)
-                    | ((man_id & 0xff) << 16)
-                    | ((dev_id & 0xff) << 8)
-                    | (ver_id & 0xff),
-                    0,
-                    onenand_save_state, onenand_load_state, s);
-
-    return s;
+    sysbus_init_irq(dev, &s->intr);
+    sysbus_init_mmio_cb(dev, 0x10000 << s->shift, onenand_base_update);
+    vmstate_register(&dev->qdev,
+                     ((s->shift & 0x7f) << 24)
+                     | ((s->id.man & 0xff) << 16)
+                     | ((s->id.dev & 0xff) << 8)
+                     | (s->id.ver & 0xff),
+                     &vmstate_onenand, s);
+    return 0;
 }
 
-void *onenand_raw_otp(void *opaque)
+static SysBusDeviceInfo onenand_info = {
+    .init = onenand_init,
+    .qdev.name = "onenand",
+    .qdev.size = sizeof(OneNANDState),
+    .qdev.reset = onenand_system_reset,
+    .qdev.props = (Property[]) {
+        DEFINE_PROP_UINT16("manufacturer_id", OneNANDState, id.man, 0),
+        DEFINE_PROP_UINT16("device_id", OneNANDState, id.dev, 0),
+        DEFINE_PROP_UINT16("version_id", OneNANDState, id.ver, 0),
+        DEFINE_PROP_INT32("shift", OneNANDState, shift, 0),
+        DEFINE_PROP_DRIVE("drive", OneNANDState, bdrv),
+        DEFINE_PROP_END_OF_LIST()
+    }
+};
+
+static void onenand_register_device(void)
 {
-    OneNANDState *s = (OneNANDState *) opaque;
-
-    return s->otp;
+    sysbus_register_withprop(&onenand_info);
 }
+
+DeviceState *onenand_create(uint16_t man_id, uint16_t dev_id, uint16_t ver_id,
+                            int regshift, qemu_irq irq, BlockDriverState *bs)
+{
+    DeviceState *dev = qdev_create(NULL, "onenand");
+    qdev_prop_set_uint16(dev, "manufacturer_id", man_id);
+    qdev_prop_set_uint16(dev, "device_id", dev_id);
+    qdev_prop_set_uint16(dev, "version_id", ver_id);
+    qdev_prop_set_int32(dev, "shift", regshift);
+    if (bs) {
+        qdev_prop_set_drive_nofail(dev, "drive", bs);
+    }
+    qdev_init_nofail(dev);
+    sysbus_connect_irq(sysbus_from_qdev(dev), 0, irq);
+    return dev;
+}
+
+void *onenand_raw_otp(DeviceState *onenand_device)
+{
+    return FROM_SYSBUS(OneNANDState, sysbus_from_qdev(onenand_device))->otp;
+}
+
+device_init(onenand_register_device)

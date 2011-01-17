@@ -99,14 +99,11 @@ void omap_sdrc_write_mcfg(struct omap_sdrc_s *s, uint32_t value, uint32_t cs);
 
 /* omap_gpmc.c */
 struct omap_gpmc_s;
-struct nand_flash_s;
 struct omap_gpmc_s *omap_gpmc_init(struct omap_mpu_state_s *mpu,
                                    target_phys_addr_t base, qemu_irq irq);
 void omap_gpmc_reset(struct omap_gpmc_s *s);
-void omap_gpmc_attach(struct omap_gpmc_s *s, int cs, int iomemtype,
-                      void (*base_upd)(void *opaque, target_phys_addr_t new),
-                      void (*unmap)(void *opaque), void *opaque,
-                      int devicetype);
+void omap_gpmc_attach(struct omap_gpmc_s *s, int cs, DeviceState *dev,
+                      int mmio_index, int devicetype);
 
 /* omap_l4.c */
 struct omap_l4_s;
@@ -1041,8 +1038,8 @@ void omap3_mmc_attach(DeviceState *dev, BlockDriverState *bs,
                       int is_spi, int is_mmc);
 
 /* omap_i2c.c */
-SysBusDevice *omap_i2c_create(int mpu_model);
-i2c_bus *omap_i2c_bus(SysBusDevice *omap_i2c, int n);
+DeviceState *omap_i2c_create(int mpu_model);
+i2c_bus *omap_i2c_bus(DeviceState *omap_i2c, int n);
 
 /* omap_spi.c */
 struct omap_mcspi_s;
@@ -1054,24 +1051,6 @@ void omap_mcspi_attach(struct omap_mcspi_s *s,
                        uint32_t (*txrx)(void *opaque, uint32_t, int),
                        void *opaque, int chipselect);
 void omap_mcspi_reset(struct omap_mcspi_s *s);
-
-/* omap_usb.c */
-struct omap3_hsusb_s;
-struct omap3_hsusb_s *omap3_hsusb_init(struct omap_target_agent_s *otg_ta,
-                                       struct omap_target_agent_s *host_ta,
-                                       struct omap_target_agent_s *tll_ta,
-                                       qemu_irq mc_irq,
-                                       qemu_irq dma_irq,
-                                       qemu_irq ohci_irq,
-                                       qemu_irq ehci_irq,
-                                       qemu_irq tll_irq,
-                                       void (*otg_stdby_cb)(void *, int),
-                                       void *otg_stdby_opaque);
-void omap3_hsusb_reset(struct omap3_hsusb_s *s);
-
-/* usb-ohci.c */
-void usb_ohci_init_omap(target_phys_addr_t base, uint32_t region_size,
-                        int num_ports, qemu_irq irq);
 
 # define cpu_is_omap310(cpu)		(cpu->mpu_model == omap310)
 # define cpu_is_omap1510(cpu)		(cpu->mpu_model == omap1510)
@@ -1143,7 +1122,7 @@ struct omap_mpu_state_s {
     struct omap_uwire_s *microwire;
     struct omap_pwl_s *pwl;
     struct omap_pwt_s *pwt;
-    SysBusDevice *i2c;
+    DeviceState *i2c;
     struct omap_rtc_s *rtc;
     struct omap_mcbsp_s *mcbsp2;
     struct omap_lpg_s *led[2];

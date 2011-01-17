@@ -20,15 +20,13 @@ pflash_t *pflash_cfi02_register(target_phys_addr_t base, ram_addr_t off,
                                 int be);
 
 /* nand.c */
-typedef struct NANDFlashState NANDFlashState;
-NANDFlashState *nand_init(int manf_id, int chip_id, DriveInfo *dinfo);
-void nand_done(NANDFlashState *s);
-void nand_setpins(NANDFlashState *s,
+DeviceState *nand_init(int manf_id, int chip_id, BlockDriverState *bs);
+void nand_setpins(DeviceState *dev,
                 int cle, int ale, int ce, int wp, int gnd);
-void nand_getpins(NANDFlashState *s, int *rb);
-void nand_setio(NANDFlashState *s, uint32_t value);
-uint32_t nand_getio(NANDFlashState *s);
-uint32_t nand_getbuswidth(NANDFlashState *s);
+void nand_getpins(DeviceState *dev, int *rb);
+void nand_setio(DeviceState *dev, uint32_t value);
+uint32_t nand_getio(DeviceState *dev);
+uint32_t nand_getbuswidth(DeviceState *dev);
 
 #define NAND_MFR_TOSHIBA	0x98
 #define NAND_MFR_SAMSUNG	0xec
@@ -40,11 +38,9 @@ uint32_t nand_getbuswidth(NANDFlashState *s);
 #define NAND_MFR_MICRON		0x2c
 
 /* onenand.c */
-void onenand_base_update(void *opaque, target_phys_addr_t new);
-void onenand_base_unmap(void *opaque);
-void *onenand_init(uint16_t man_id, uint16_t dev_id, uint16_t ver_id,
-                   int regshift, qemu_irq irq, DriveInfo *dinfo);
-void *onenand_raw_otp(void *opaque);
+DeviceState *onenand_create(uint16_t man_id, uint16_t dev_id, uint16_t ver_id,
+                            int regshift, qemu_irq irq, BlockDriverState *bs);
+void *onenand_raw_otp(DeviceState *onenand_device);
 
 /* ecc.c */
 typedef struct {
