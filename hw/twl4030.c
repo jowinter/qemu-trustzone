@@ -1236,10 +1236,20 @@ static void twl4030_4b_write(TWL4030NodeState *s, uint8_t addr, uint8_t value)
             if (s->twl4030->key_cfg)
                 s->reg_data[addr] = (s->reg_data[addr] & 0x70) | (value & 0x8f);
             break;
+        case 0x3c: /* SHUNDAN */
+            s->reg_data[addr] = value & 0x3f;
+            break;
+        case 0x3d: /* BOOT_BCI */
+            s->reg_data[addr] = (s->reg_data[addr] & 0x20) | (value & 0x17);
+            break;
         case 0x3e: /* CFG_PWRANA1 */
-            s->reg_data[addr] = value;
+            if (s->twl4030->key_tst)
+                s->reg_data[addr] = value & 0x7f;
+            break;
         case 0x3f: /* CFG_PWRANA2 */
-            s->reg_data[addr] = value;
+            if (s->twl4030->key_tst)
+                s->reg_data[addr] = value;
+            break;
         case 0x44: /* PROTECT_KEY */
             s->twl4030->key_cfg = 0;
             s->twl4030->key_tst = 0;
