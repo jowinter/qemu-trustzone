@@ -35,22 +35,28 @@
 #define BEAGLE_SMC_CS        1
 #define BEAGLE_NAND_PAGESIZE 0x800
 #define BEAGLE_SDRAM_SIZE    (128 * 1024 * 1024) /* 128MB */
+#define BEAGLE_XM_SDRAM_SIZE (512 * 1024 * 1024) /* 512MB */
+/* GPIO ID pins are used to identify which beagle variant we have */
+#define BEAGLE_GPIO_ID1      171
+#define BEAGLE_GPIO_ID2      172
+#define BEAGLE_GPIO_ID3      173
 
 /* Beagle board support */
 struct beagle_s {
     struct omap_mpu_state_s *cpu;
-    
+
     DeviceState *nand;
     void *twl4030;
     DeviceState *smc;
 };
 
-static void beagle_init(ram_addr_t ram_size,
+
+static void beagle_common_init(ram_addr_t ram_size,
                         const char *boot_device,
                         const char *kernel_filename,
                         const char *kernel_cmdline,
                         const char *initrd_filename,
-                        const char *cpu_model)
+                        int cpu_model)
 {
     struct beagle_s *s = (struct beagle_s *) qemu_mallocz(sizeof(*s));
     DriveInfo *dmtd = drive_get(IF_MTD, 0, 0);
@@ -62,12 +68,13 @@ static void beagle_init(ram_addr_t ram_size,
 #if MAX_SERIAL_PORTS < 1
 #error MAX_SERIAL_PORTS must be at least 1!
 #endif
-	s->cpu = omap3_mpu_init(omap3430, ram_size,
+    s->cpu = omap3_mpu_init(cpu_model, ram_size,
                             NULL, NULL, serial_hds[0], NULL);
 
-	s->nand = nand_init(NAND_MFR_MICRON, 0xba, dmtd ? dmtd->bdrv : NULL);
-	nand_setpins(s->nand, 0, 0, 0, 1, 0); /* no write-protect */
+    s->nand = nand_init(NAND_MFR_MICRON, 0xba, dmtd ? dmtd->bdrv : NULL);
+    nand_setpins(s->nand, 0, 0, 0, 1, 0); /* no write-protect */
     omap_gpmc_attach(s->cpu->gpmc, BEAGLE_NAND_CS, s->nand, 0, 2);
+
     if (dsd) {
         omap3_mmc_attach(s->cpu->omap3_mmc[0], dsd->bdrv, 0, 0);
     }
@@ -80,6 +87,10 @@ static void beagle_init(ram_addr_t ram_size,
         if (!nd_table[i].model || !strcmp(nd_table[i].model, "smc91c111")) {
             break;
         }
+    }
+    if (cpu_model == omap3430) {
+        qemu_set_irq(qdev_get_gpio_in(s->cpu->gpio, BEAGLE_GPIO_ID1),1);
+        qemu_set_irq(qdev_get_gpio_in(s->cpu->gpio, BEAGLE_GPIO_ID3),1);
     }
     if (i < nb_nics) {
         s->smc = qdev_create(NULL, "smc91c111");
@@ -97,15 +108,44 @@ static void beagle_init(ram_addr_t ram_size,
     omap3_boot_rom_emu(s->cpu);
 }
 
+static void beagle_xm_init(ram_addr_t ram_size,
+                        const char *boot_device,
+                        const char *kernel_filename,
+                        const char *kernel_cmdline,
+                        const char *initrd_filename,
+                        const char *cpu_model)
+{
+    beagle_common_init(BEAGLE_XM_SDRAM_SIZE, boot_device, kernel_filename,
+                       kernel_cmdline, initrd_filename, omap3630);
+}
+static void beagle_init(ram_addr_t ram_size,
+                        const char *boot_device,
+                        const char *kernel_filename,
+                        const char *kernel_cmdline,
+                        const char *initrd_filename,
+                        const char *cpu_model)
+{
+    beagle_common_init(BEAGLE_SDRAM_SIZE, boot_device, kernel_filename,
+                       kernel_cmdline, initrd_filename, omap3430);
+}
+
 QEMUMachine beagle_machine = {
     .name =        "beagle",
     .desc =        "Beagle board (OMAP3530)",
     .init =        beagle_init,
 };
 
+QEMUMachine beagle_xm_machine = {
+    .name =        "beaglexm",
+    .desc =        "Beagle board XM (OMAP3630)",
+    .init =        beagle_xm_init,
+};
+
+
 static void beagle_machine_init(void)
 {
     qemu_register_machine(&beagle_machine);
+    qemu_register_machine(&beagle_xm_machine);
 }
 
 machine_init(beagle_machine_init);
