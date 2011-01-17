@@ -1619,6 +1619,7 @@ typedef struct LIS302DLState_s {
     int noise, dr_test_ack;
 
     uint8_t ctrl1, ctrl2, ctrl3;
+    uint8_t status;
     struct {
         uint8_t cfg, src, ths, dur;
     } ff_wu[2];
@@ -1695,6 +1696,17 @@ static void lis302dl_trigger(LIS302DLState *s, int axis, int value)
         case 1: s->y = value; break;
         case 2: s->z = value; break;
         default: break;
+    }
+    if (s->status & (0x01 << axis)) {
+        s->status |= 0x10 << axis;
+    } else {
+        s->status |= 0x01 << axis;
+    }
+    if ((s->status & 0x07) == 0x07) {
+        s->status |= 0x08;
+    }
+    if ((s->status & 0x70) == 0x70) {
+        s->status |= 0x80;
     }
     uint8_t bit = 0x02 << (axis << 1); /* over threshold */
     s->ff_wu[0].src |= bit;
@@ -1773,6 +1785,7 @@ static void lis302dl_reset(DeviceState *ds)
     s->ctrl1 = 0x03;
     s->ctrl2 = 0x00;
     s->ctrl3 = 0x00;
+    s->status = 0x00;
 
     memset(s->ff_wu, 0x00, sizeof(s->ff_wu));
     memset(&s->click, 0x00, sizeof(s->click));
@@ -1809,6 +1822,7 @@ static uint8_t lis302dl_readcoord(LIS302DLState *s, int coord)
             hw_error("%s: unknown axis %d", __FUNCTION__, coord);
             break;
     }
+    s->status &= ~(0x88 | (0x11 << coord));
     if (s->ctrl1 & 0x10) {
         switch (coord) {
             case 0:
@@ -1845,7 +1859,19 @@ static int lis302dl_rx(i2c_slave *i2c)
     LIS302DLState *s = FROM_I2C_SLAVE(LIS302DLState, i2c);
     int value = -1;
     int n = 0;
-    switch (s->reg) {
+    switch (s->reg & 0x7f) {
+        case 0x00 ... 0x0e:
+        case 0x10 ... 0x1f:
+        case 0x23 ... 0x26:
+        case 0x28:
+        case 0x2a:
+        case 0x2c:
+        case 0x2e ... 0x2f:
+        case 0x3a:
+            value = 0;
+            TRACE_LIS302DL("reg 0x%02x = 0x%02x (unused/reserved reg)",
+                           s->reg & 0x7f, value);
+            break;
         case 0x0f:
             value = 0x3b;
             TRACE_LIS302DL("WHOAMI = 0x%02x", value);
@@ -1861,6 +1887,10 @@ static int lis302dl_rx(i2c_slave *i2c)
         case 0x22:
             value = s->ctrl3;
             TRACE_LIS302DL("CTRL3 = 0x%02x", value);
+            break;
+        case 0x27:
+            value = s->status;
+            TRACE_LIS302DL("STATUS = 0x%02x", value);
             break;
         case 0x29:
             value = lis302dl_readcoord(s, 0);
@@ -1927,11 +1957,14 @@ static int lis302dl_rx(i2c_slave *i2c)
             TRACE_LIS302DL("CLICK_WINDOW = 0x%02x", value);
             break;
         default:
-            TRACE_LIS302DL("unknown register 0x%02x", s->reg);
+            hw_error("%s: unknown register 0x%02x", __FUNCTION__,
+                     s->reg & 0x7f);
             value = 0;
             break;
     }
-    s->reg++;
+    if (s->reg & 0x80) { /* auto-increment? */
+        s->reg = (s->reg + 1) | 0x80;
+    }
     return value;
 }
 
@@ -1943,7 +1976,7 @@ static int lis302dl_tx(i2c_slave *i2c, uint8_t data)
         s->firstbyte = 0;
     } else {
         int n = 0;
-        switch (s->reg) {
+        switch (s->reg & 0x7f) {
             case 0x20:
                 TRACE_LIS302DL("CTRL1 = 0x%02x", data);
                 s->ctrl1 = data;
@@ -2001,11 +2034,13 @@ static int lis302dl_tx(i2c_slave *i2c, uint8_t data)
                 s->click.window = data;
                 break;
             default:
-                TRACE_LIS302DL("unknown register 0x%02x (value 0x%02x)",
-                               s->reg, data);
+                hw_error("%s: unknown register 0x%02x (value 0x%02x)",
+                         __FUNCTION__, s->reg & 0x7f, data);
                 break;
         }
-        s->reg++;
+        if (s->reg & 0x80) { /* auto-increment? */
+            s->reg = (s->reg + 1) | 0x80;
+        }
     }
     return 1;
 }
