@@ -4049,7 +4049,6 @@ static void omap3_reset(void *opaque)
     omap_gpif_reset(s->gpif);
     for (i = 0; i < 3; i++) {
         omap_uart_reset(s->uart[i]);
-        omap3_mmc_reset(s->omap3_mmc[i]);
     }
     if (s->mpu_model == omap3630) {
         omap_uart_reset(s->uart[3]);
@@ -4270,24 +4269,31 @@ struct omap_mpu_state_s *omap3_mpu_init(int model,
 
     omap_tap_init(omap3_l4ta_init(s->l4, L4A_TAP), s);
 
-    s->omap3_mmc[0] = omap3_mmc_init(omap3_l4ta_init(s->l4, L4A_MMC1),
-                                     s->irq[0][OMAP_INT_3XXX_MMC1_IRQ],
-                                     &s->drq[OMAP3XXX_DMA_MMC1_TX],
-                                     omap_findclk(s, "omap3_mmc1_fclk"),
-                                     omap_findclk(s, "omap3_mmc1_iclk"));
-
-    s->omap3_mmc[1] = omap3_mmc_init(omap3_l4ta_init(s->l4, L4A_MMC2),
-                                     s->irq[0][OMAP_INT_3XXX_MMC2_IRQ],
-                                     &s->drq[OMAP3XXX_DMA_MMC2_TX],
-                                     omap_findclk(s, "omap3_mmc2_fclk"),
-                                     omap_findclk(s, "omap3_mmc2_iclk"));
-
-    s->omap3_mmc[2] = omap3_mmc_init(omap3_l4ta_init(s->l4, L4A_MMC3),
-                                     s->irq[0][OMAP_INT_3XXX_MMC3_IRQ],
-                                     &s->drq[OMAP3XXX_DMA_MMC3_TX],
-                                     omap_findclk(s, "omap3_mmc3_fclk"),
-                                     omap_findclk(s, "omap3_mmc3_iclk"));
-
+    s->omap3_mmc[0] = qdev_create(NULL, "omap3_mmc");
+    s->omap3_mmc[0]->id = "mmc1";
+    qdev_init_nofail(s->omap3_mmc[0]);
+    busdev = sysbus_from_qdev(s->omap3_mmc[0]);
+    sysbus_connect_irq(busdev, 0, s->irq[0][OMAP_INT_3XXX_MMC1_IRQ]);
+    sysbus_connect_irq(busdev, 1, s->drq[OMAP3XXX_DMA_MMC1_TX]);
+    sysbus_connect_irq(busdev, 2, s->drq[OMAP3XXX_DMA_MMC1_RX]);
+    sysbus_mmio_map(busdev,0,omap_l4_base(omap3_l4ta_init(s->l4, L4A_MMC1),0));
+    s->omap3_mmc[1] = qdev_create(NULL, "omap3_mmc");
+    s->omap3_mmc[1]->id = "mmc2";
+    qdev_init_nofail(s->omap3_mmc[1]);
+    busdev = sysbus_from_qdev(s->omap3_mmc[1]);
+    sysbus_connect_irq(busdev, 0, s->irq[0][OMAP_INT_3XXX_MMC2_IRQ]);
+    sysbus_connect_irq(busdev, 1, s->drq[OMAP3XXX_DMA_MMC2_TX]);
+    sysbus_connect_irq(busdev, 2, s->drq[OMAP3XXX_DMA_MMC2_RX]);
+    sysbus_mmio_map(busdev,0,omap_l4_base(omap3_l4ta_init(s->l4, L4A_MMC2),0));
+    s->omap3_mmc[2] = qdev_create(NULL, "omap3_mmc");
+    s->omap3_mmc[2]->id = "mmc3";
+    qdev_init_nofail(s->omap3_mmc[2]);
+    busdev = sysbus_from_qdev(s->omap3_mmc[2]);
+    sysbus_connect_irq(busdev, 0, s->irq[0][OMAP_INT_3XXX_MMC3_IRQ]);
+    sysbus_connect_irq(busdev, 1, s->drq[OMAP3XXX_DMA_MMC3_TX]);
+    sysbus_connect_irq(busdev, 2, s->drq[OMAP3XXX_DMA_MMC3_RX]);
+    sysbus_mmio_map(busdev,0,omap_l4_base(omap3_l4ta_init(s->l4, L4A_MMC3),0));
+    
     s->i2c = omap_i2c_create(s->mpu_model);
     busdev = sysbus_from_qdev(s->i2c);
     sysbus_connect_irq(busdev, 0, s->irq[0][OMAP_INT_3XXX_I2C1_IRQ]);

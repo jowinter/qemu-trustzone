@@ -1039,12 +1039,7 @@ void omap_mmc_handlers(struct omap_mmc_s *s, qemu_irq ro, qemu_irq cover);
 void omap_mmc_enable(struct omap_mmc_s *s, int enable);
 
 /* omap3_mmc.c */
-struct omap3_mmc_s;
-struct omap3_mmc_s *omap3_mmc_init(struct omap_target_agent_s *ta,
-                                   qemu_irq irq, qemu_irq dma[],
-                                   omap_clk fclk, omap_clk iclk);
-void omap3_mmc_reset(struct omap3_mmc_s *s);
-void omap3_mmc_attach(struct omap3_mmc_s *s, DriveInfo *dinfo,
+void omap3_mmc_attach(DeviceState *dev, BlockDriverState *bs,
                       int is_spi, int is_mmc);
 
 /* omap_i2c.c */
@@ -1223,8 +1218,10 @@ struct omap_mpu_state_s {
     struct omap3_l3_s *omap3_l3;
     struct omap3_scm_s *omap3_scm;
     struct omap3_sms_s *omap3_sms;
-    struct omap3_mmc_s *omap3_mmc[3];
-    struct omap3_hsusb_s *omap3_usb;
+    DeviceState *omap3_mmc[3];
+    DeviceState *omap3_usb_otg;
+    DeviceState *omap3_usb_host;
+    ram_addr_t bootrom_base;
 };
 
 /* omap1.c */
