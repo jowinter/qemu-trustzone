@@ -18,7 +18,6 @@
  * with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 #include "hw.h"
-#include "qemu-timer.h"
 #include "omap.h"
 
 /* GP timers */
@@ -74,6 +73,12 @@ struct omap_gp_timer_s {
 #define GPT_OVF_IT	(1 << 1)
 #define GPT_MAT_IT	(1 << 0)
 
+/*if the clock source of gptimer changes, rate must be regenerated*/
+void omap_gp_timer_change_clk(struct omap_gp_timer_s *timer)
+{
+    timer->rate = omap_clk_getrate(timer->clk);
+}
+
 static inline void omap_gp_timer_intr(struct omap_gp_timer_s *timer, int it)
 {
     if (timer->it_ena & it) {
@@ -99,11 +104,19 @@ static inline void omap_gp_timer_out(struct omap_gp_timer_s *timer, int level)
 
 static inline uint32_t omap_gp_timer_read(struct omap_gp_timer_s *timer)
 {
-    uint64_t distance;
+    uint64_t distance, rate;
 
     if (timer->st && timer->rate) {
         distance = qemu_get_clock(vm_clock) - timer->time;
-        distance = muldiv64(distance, timer->rate, timer->ticks_per_sec);
+
+        /*if ticks_per_sec is bigger than 32bit we cannot use muldiv64*/
+        if (timer->ticks_per_sec > 0xffffffff) {
+            distance /= get_ticks_per_sec() / 1000; /*distance ms*/
+            rate = timer->rate >> (timer->pre ? timer->ptv + 1 : 0);
+            distance = muldiv64(distance, rate, 1000);
+        } else {
+            distance = muldiv64(distance, timer->rate, timer->ticks_per_sec);
+        }
 
         if (distance >= 0xffffffff - timer->val)
             return 0xffffffff;
@@ -123,19 +136,32 @@ static inline void omap_gp_timer_sync(struct omap_gp_timer_s *timer)
 
 static inline void omap_gp_timer_update(struct omap_gp_timer_s *timer)
 {
-    int64_t expires, matches;
+    int64_t expires, matches, rate;
 
     if (timer->st && timer->rate) {
-        expires = muldiv64(0x100000000ll - timer->val,
-                        timer->ticks_per_sec, timer->rate);
+        if (timer->ticks_per_sec > 0xffffffff) {
+            rate = timer->rate >> (timer->pre ? timer->ptv + 1 : 0); /*1s -> rate ticks*/
+            expires = muldiv64(0x100000000ll - timer->val,
+                               get_ticks_per_sec(), rate);
+        } else {
+            expires = muldiv64(0x100000000ll - timer->val,
+                               timer->ticks_per_sec, timer->rate);
+        }
         qemu_mod_timer(timer->timer, timer->time + expires);
 
         if (timer->ce && timer->match_val >= timer->val) {
-            matches = muldiv64(timer->match_val - timer->val,
-                            timer->ticks_per_sec, timer->rate);
+            if (timer->ticks_per_sec > 0xffffffff) {
+                rate = timer->rate >> (timer->pre ? timer->ptv + 1 : 0); /*1s -> rate ticks*/
+                matches = muldiv64(timer->match_val - timer->val,
+                                   get_ticks_per_sec(), rate);
+            } else {
+                matches = muldiv64(timer->match_val - timer->val,
+                                   timer->ticks_per_sec, timer->rate);
+            }
             qemu_mod_timer(timer->match, timer->time + matches);
-        } else
+        } else {
             qemu_del_timer(timer->match);
+        }
     } else {
         qemu_del_timer(timer->timer);
         qemu_del_timer(timer->match);
@@ -145,13 +171,14 @@ static inline void omap_gp_timer_update(struct omap_gp_timer_s *timer)
 
 static inline void omap_gp_timer_trigger(struct omap_gp_timer_s *timer)
 {
-    if (timer->pt)
+    if (timer->pt) {
         /* TODO in overflow-and-match mode if the first event to
          * occur is the match, don't toggle.  */
         omap_gp_timer_out(timer, !timer->out_val);
-    else
+    } else {
         /* TODO inverted pulse on timer->out_val == 1?  */
         qemu_irq_pulse(timer->out);
+    }
 }
 
 static void omap_gp_timer_tick(void *opaque)
@@ -167,7 +194,7 @@ static void omap_gp_timer_tick(void *opaque)
     }
 
     if (timer->trigger == gpt_trigger_overflow ||
-                    timer->trigger == gpt_trigger_both)
+        timer->trigger == gpt_trigger_both)
         omap_gp_timer_trigger(timer);
 
     omap_gp_timer_intr(timer, GPT_OVF_IT);
@@ -226,7 +253,7 @@ static void omap_gp_timer_clk_update(void *opaque, int line, int on)
 static void omap_gp_timer_clk_setup(struct omap_gp_timer_s *timer)
 {
     omap_clk_adduser(timer->clk,
-                    qemu_allocate_irqs(omap_gp_timer_clk_update, timer, 1)[0]);
+                     qemu_allocate_irqs(omap_gp_timer_clk_update, timer, 1)[0]);
     timer->rate = omap_clk_getrate(timer->clk);
 }
 
@@ -344,51 +371,51 @@ static CPUReadMemoryFunc * const omap_gp_timer_readfn[] = {
 };
 
 static void omap_gp_timer_write(void *opaque, target_phys_addr_t addr,
-                uint32_t value)
+                                uint32_t value)
 {
     struct omap_gp_timer_s *s = (struct omap_gp_timer_s *) opaque;
-
+    
     switch (addr) {
-    case 0x00:	/* TIDR */
-    case 0x14:	/* TISTAT */
-    case 0x34:	/* TWPS */
-    case 0x3c:	/* TCAR1 */
-    case 0x44:	/* TCAR2 */
+    case 0x00:  /* TIDR */
+    case 0x14:  /* TISTAT */
+    case 0x34:  /* TWPS */
+    case 0x3c:  /* TCAR1 */
+    case 0x44:  /* TCAR2 */
         OMAP_RO_REG(addr);
         break;
 
-    case 0x10:	/* TIOCP_CFG */
+    case 0x10:  /* TIOCP_CFG */
         s->config = value & 0x33d;
         if (((value >> 3) & 3) == 3)				/* IDLEMODE */
             fprintf(stderr, "%s: illegal IDLEMODE value in TIOCP_CFG\n",
-                            __FUNCTION__);
+                    __FUNCTION__);
         if (value & 2)						/* SOFTRESET */
             omap_gp_timer_reset(s);
         break;
 
-    case 0x18:	/* TISR */
+    case 0x18:  /* TISR */
         if (value & GPT_TCAR_IT)
             s->capt_num = 0;
         if (s->status && !(s->status &= ~value))
             qemu_irq_lower(s->irq);
         break;
 
-    case 0x1c:	/* TIER */
+    case 0x1c:  /* TIER */
         s->it_ena = value & 7;
         break;
 
-    case 0x20:	/* TWER */
+    case 0x20:  /* TWER */
         s->wu_ena = value & 7;
         break;
 
-    case 0x24:	/* TCLR */
+    case 0x24:  /* TCLR */
         omap_gp_timer_sync(s);
         s->inout = (value >> 14) & 1;
         s->capt2 = (value >> 13) & 1;
         s->pt = (value >> 12) & 1;
         s->trigger = (value >> 10) & 3;
         if (s->capture == gpt_capture_none &&
-                        ((value >> 8) & 3) != gpt_capture_none)
+            ((value >> 8) & 3) != gpt_capture_none)
             s->capt_num = 0;
         s->capture = (value >> 8) & 3;
         s->scpwm = (value >> 7) & 1;
@@ -399,10 +426,10 @@ static void omap_gp_timer_write(void *opaque, target_phys_addr_t addr,
         s->st = (value >> 0) & 1;
         if (s->inout && s->trigger != gpt_trigger_none)
             fprintf(stderr, "%s: GP timer pin must be an output "
-                            "for this trigger mode\n", __FUNCTION__);
+                    "for this trigger mode\n", __FUNCTION__);
         if (!s->inout && s->capture != gpt_capture_none)
             fprintf(stderr, "%s: GP timer pin must be an input "
-                            "for this capture mode\n", __FUNCTION__);
+                    "for this capture mode\n", __FUNCTION__);
         if (s->trigger == gpt_trigger_none)
             omap_gp_timer_out(s, s->scpwm);
         /* TODO: make sure this doesn't overflow 32-bits */
@@ -410,29 +437,29 @@ static void omap_gp_timer_write(void *opaque, target_phys_addr_t addr,
         omap_gp_timer_update(s);
         break;
 
-    case 0x28:	/* TCRR */
+    case 0x28:  /* TCRR */
         s->time = qemu_get_clock(vm_clock);
         s->val = value;
         omap_gp_timer_update(s);
         break;
 
-    case 0x2c:	/* TLDR */
+    case 0x2c:  /* TLDR */
         s->load_val = value;
         break;
 
-    case 0x30:	/* TTGR */
+    case 0x30:  /* TTGR */
         s->time = qemu_get_clock(vm_clock);
         s->val = s->load_val;
         omap_gp_timer_update(s);
         break;
 
-    case 0x38:	/* TMAR */
+    case 0x38:  /* TMAR */
         omap_gp_timer_sync(s);
         s->match_val = value;
         omap_gp_timer_update(s);
         break;
 
-    case 0x40:	/* TSICR */
+    case 0x40:  /* TSICR */
         s->posted = (value >> 2) & 1;
         if (value & 2)	/* How much exactly are we supposed to reset? */
             omap_gp_timer_reset(s);
@@ -444,7 +471,7 @@ static void omap_gp_timer_write(void *opaque, target_phys_addr_t addr,
 }
 
 static void omap_gp_timer_writeh(void *opaque, target_phys_addr_t addr,
-                uint32_t value)
+                                 uint32_t value)
 {
     struct omap_gp_timer_s *s = (struct omap_gp_timer_s *) opaque;
 
@@ -461,11 +488,12 @@ static CPUWriteMemoryFunc * const omap_gp_timer_writefn[] = {
 };
 
 struct omap_gp_timer_s *omap_gp_timer_init(struct omap_target_agent_s *ta,
-                qemu_irq irq, omap_clk fclk, omap_clk iclk)
+                                           qemu_irq irq, omap_clk fclk,
+                                           omap_clk iclk)
 {
     int iomemtype;
     struct omap_gp_timer_s *s = (struct omap_gp_timer_s *)
-            qemu_mallocz(sizeof(struct omap_gp_timer_s));
+    qemu_mallocz(sizeof(struct omap_gp_timer_s));
 
     s->ta = ta;
     s->irq = irq;
@@ -477,7 +505,7 @@ struct omap_gp_timer_s *omap_gp_timer_init(struct omap_target_agent_s *ta,
     omap_gp_timer_clk_setup(s);
 
     iomemtype = l4_register_io_memory(omap_gp_timer_readfn,
-                    omap_gp_timer_writefn, s);
+                                      omap_gp_timer_writefn, s);
     omap_l4_attach(ta, 0, iomemtype);
 
     return s;

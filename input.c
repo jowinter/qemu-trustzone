@@ -42,10 +42,16 @@ void qemu_add_kbd_event_handler(QEMUPutKBDEvent *func, void *opaque)
     qemu_put_kbd_event = func;
 }
 
-void qemu_remove_kbd_event_handler(void)
+void qemu_remove_kbd_event_handler(QEMUPutKBDEvent *func, void *opaque)
 {
-    qemu_put_kbd_event_opaque = NULL;
-    qemu_put_kbd_event = NULL;
+    QEMUPutKBDEntry *cursor, *cursor_next;
+    if (func != NULL) {
+        QTAILQ_FOREACH_SAFE(cursor, &kbd_handlers, next, cursor_next) {
+            if (cursor->put_kbd_event == func && cursor->opaque == opaque) {
+                QTAILQ_REMOVE(&kbd_handlers, cursor, next);
+            }
+        }
+    }
 }
 
 static void check_mode_change(void)
