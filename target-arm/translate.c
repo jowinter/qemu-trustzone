@@ -4391,15 +4391,25 @@ static int disas_neon_data_insn(CPUState * env, DisasContext *s, uint32_t insn)
             case 22: /* Multiply high.  */
                 if (!u) { /* VQDMULH */
                     switch (size) {
-                    case 1: gen_helper_neon_qdmulh_s16(tmp, cpu_env, tmp, tmp2); break;
-                    case 2: gen_helper_neon_qdmulh_s32(tmp, cpu_env, tmp, tmp2); break;
-                    default: return 1;
+                    case 1:
+                        gen_helper_neon_qdmulh_s16(tmp, cpu_env, tmp, tmp2);
+                        break;
+                    case 2:
+                        gen_helper_neon_qdmulh_s32(tmp, cpu_env, tmp, tmp2);
+                        break;
+                    default:
+                        return 1;
                     }
                 } else { /* VQRDHMUL */
                     switch (size) {
-                    case 1: gen_helper_neon_qrdmulh_s16(tmp, cpu_env, tmp, tmp2); break;
-                    case 2: gen_helper_neon_qrdmulh_s32(tmp, cpu_env, tmp, tmp2); break;
-                    default: return 1;
+                    case 1:
+                        gen_helper_neon_qrdmulh_s16(tmp, cpu_env, tmp, tmp2);
+                        break;
+                    case 2:
+                        gen_helper_neon_qrdmulh_s32(tmp, cpu_env, tmp, tmp2);
+                        break;
+                    default:
+                        return 1;
                     }
                 }
                 break;
@@ -4447,31 +4457,35 @@ static int disas_neon_data_insn(CPUState * env, DisasContext *s, uint32_t insn)
                 if (!u) {
                     gen_helper_neon_ceq_f32(tmp, tmp, tmp2);
                 } else {
-                    if (size == 0)
+                    if (size == 0) {
                         gen_helper_neon_cge_f32(tmp, tmp, tmp2);
-                    else
+                    } else {
                         gen_helper_neon_cgt_f32(tmp, tmp, tmp2);
+                    }
                 }
                 break;
             case 29: /* Float compare absolute.  */
                 if (!u)
                     return 1;
-                if (size == 0)
+                if (size == 0) {
                     gen_helper_neon_acge_f32(tmp, tmp, tmp2);
-                else
+                } else {
                     gen_helper_neon_acgt_f32(tmp, tmp, tmp2);
+                }
                 break;
             case 30: /* Float min/max.  */
-                if (size == 0)
+                if (size == 0) {
                     gen_helper_neon_max_f32(tmp, tmp, tmp2);
-                else
+                } else {
                     gen_helper_neon_min_f32(tmp, tmp, tmp2);
+                }
                 break;
             case 31:
-                if (size == 0)
+                if (size == 0) {
                     gen_helper_recps_f32(tmp, tmp, tmp2, cpu_env);
-                else
+                } else {
                     gen_helper_rsqrts_f32(tmp, tmp, tmp2, cpu_env);
+                }
                 break;
             default:
                 abort();
@@ -4486,7 +4500,6 @@ static int disas_neon_data_insn(CPUState * env, DisasContext *s, uint32_t insn)
             } else {
                 neon_store_reg(rd, pass, tmp);
             }
-
         } /* for pass */
         if (pairwise && rd == rm) {
             for (pass = 0; pass < (q ? 4 : 2); pass++) {
@@ -4814,7 +4827,6 @@ static int disas_neon_data_insn(CPUState * env, DisasContext *s, uint32_t insn)
                     if (pass == 1) {
                         tmp = tmp2;
                     }
-
                     gen_neon_widen(cpu_V0, tmp, size, u);
 
                     if (shift != 0) {
@@ -5342,8 +5354,9 @@ static int disas_neon_data_insn(CPUState * env, DisasContext *s, uint32_t insn)
                     break;
                 case 4: case 5: /* VPADDL */
                 case 12: case 13: /* VPADAL */
-                    if (size == 3)
+                    if (size == 3) {
                         return 1;
+                    }
                     for (pass = 0; pass < q + 1; pass++) {
                         tmp = neon_load_reg(rm, pass * 2);
                         gen_neon_widen(cpu_V0, tmp, size, op & 1);
@@ -7145,7 +7158,7 @@ static void disas_arm_insn(CPUState * env, DisasContext *s)
                 rn = (insn >> 16) & 0xf;
                 addr = load_reg(s, rn);
                 tmp3 = tcg_const_i32(4);
-
+                
                 /* compute total size */
                 loaded_base = 0;
                 TCGV_UNUSED(loaded_var);
