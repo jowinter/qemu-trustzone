@@ -4770,6 +4770,9 @@ static int disas_neon_data_insn(CPUState * env, DisasContext *s, uint32_t insn)
             } else if (op < 10) {
                 /* Shift by immediate and narrow:
                    VSHRN, VRSHRN, VQSHRN, VQSHRUN, VQRSHRN, VQRSHRUN */
+                if (rm & 1) {
+                    return 1;
+                }
                 shift = shift - (1 << (size + 3));
                 size++;
                 switch (size) {
