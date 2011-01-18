@@ -4267,16 +4267,12 @@ static int disas_neon_data_insn(CPUState * env, DisasContext *s, uint32_t insn)
         for (pass = 0; pass < (q ? 4 : 2); pass++) {
             if (pairwise) {
                 /* Pairwise.  */
-                if (q)
-                    n = (pass & 1) * 2;
-                else
-                    n = 0;
-                if (pass < q + 1) {
-                    tmp = neon_load_reg(rn, n);
-                    tmp2 = neon_load_reg(rn, n + 1);
+                if (!pass) {
+                    tmp = neon_load_reg(rn, 0);
+                    tmp2 = neon_load_reg(rn, 1);
                 } else {
-                    tmp = neon_load_reg(rm, n);
-                    tmp2 = neon_load_reg(rm, n + 1);
+                    tmp = neon_load_reg(rm, 0);
+                    tmp2 = neon_load_reg(rm, 1);
                 }
             } else {
                 /* Elementwise.  */
