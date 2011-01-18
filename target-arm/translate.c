@@ -4595,8 +4595,7 @@ static int disas_neon_data_insn(CPUState * env, DisasContext *s, uint32_t insn)
                     } else { /* size < 3 */
                         /* Operands in T0 and T1.  */
                         tmp = neon_load_reg(rm, pass);
-                        tmp2 = new_tmp();
-                        tcg_gen_movi_i32(tmp2, imm);
+                        tmp2 = tcg_const_i32(imm);
                         switch (op) {
                         case 0:  /* VSHR */
                         case 1:  /* VSRA */
