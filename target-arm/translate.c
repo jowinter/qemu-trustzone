@@ -5433,8 +5433,9 @@ static int disas_neon_data_insn(CPUState * env, DisasContext *s, uint32_t insn)
                     }
                     break;
                 case 38: /* VSHLL */
-                    if (q || size == 3)
+                    if (q || size == 3 || (rd & 1)) {
                         return 1;
+                    }
                     tmp = neon_load_reg(rm, 0);
                     tmp2 = neon_load_reg(rm, 1);
                     for (pass = 0; pass < 2; pass++) {
