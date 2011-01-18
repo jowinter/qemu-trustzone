@@ -24,6 +24,9 @@ static uint32_t cortexa8_cp15_c0_c1[8] =
 static uint32_t cortexa8_cp15_c0_c2[8] =
 { 0x00101111, 0x12112111, 0x21232031, 0x11112131, 0x00111142, 0, 0, 0 };
 
+static uint32_t cortexa8r2_cp15_c0_c2[8] =
+{ 0x00101111, 0x12112111, 0x21232031, 0x11112131, 0x00011142, 0, 0, 0 };
+
 static uint32_t mpcore_cp15_c0_c1[8] =
 { 0x111, 0x1, 0, 0x2, 0x01100103, 0x10020302, 0x01222000, 0 };
 
@@ -112,6 +115,28 @@ static void cpu_reset_model_id(CPUARMState *env, uint32_t id)
         env->cp15.c0_ccsid[1] = 0x2007e01a; /* 16k L1 icache. */
         env->cp15.c0_ccsid[2] = 0xf0000000; /* No L2 icache. */
         env->cp15.c1_sys = 0x00c50078;
+        break;
+    case ARM_CPUID_CORTEXA8_R2:
+        set_feature(env, ARM_FEATURE_V6);
+        set_feature(env, ARM_FEATURE_V6K);
+        set_feature(env, ARM_FEATURE_V7);
+        set_feature(env, ARM_FEATURE_AUXCR);
+        set_feature(env, ARM_FEATURE_THUMB2);
+        set_feature(env, ARM_FEATURE_VFP);
+        set_feature(env, ARM_FEATURE_VFP3);
+        set_feature(env, ARM_FEATURE_NEON);
+        set_feature(env, ARM_FEATURE_THUMB2EE);
+        set_feature(env, ARM_FEATURE_TRUSTZONE);
+        env->vfp.xregs[ARM_VFP_FPSID] = 0x410330c2;
+        env->vfp.xregs[ARM_VFP_MVFR0] = 0x11110222;
+        env->vfp.xregs[ARM_VFP_MVFR1] = 0x00011111;
+        memcpy(env->cp15.c0_c1, cortexa8_cp15_c0_c1, 8 * sizeof(uint32_t));
+        memcpy(env->cp15.c0_c2, cortexa8r2_cp15_c0_c2, 8 * sizeof(uint32_t));
+        env->cp15.c0_cachetype = 0x82048004;
+        env->cp15.c0_clid = (1 << 27) | (2 << 24) | (4 << 3) | 3;
+        env->cp15.c0_ccsid[0] = 0xe007e01a; /* 16k L1 dcache. */
+        env->cp15.c0_ccsid[1] = 0x2007e01a; /* 16k L1 icache. */
+        env->cp15.c0_ccsid[2] = 0xf03fe03a; /* 256k L2 cache. */
         break;
     case ARM_CPUID_CORTEXA9:
         set_feature(env, ARM_FEATURE_V6);
@@ -344,6 +369,7 @@ static const struct arm_cpu_t arm_cpu_names[] = {
     { ARM_CPUID_ARM11MPCORE, "arm11mpcore"},
     { ARM_CPUID_CORTEXM3, "cortex-m3"},
     { ARM_CPUID_CORTEXA8, "cortex-a8"},
+    { ARM_CPUID_CORTEXA8_R2, "cortex-a8-r2"},
     { ARM_CPUID_CORTEXA9, "cortex-a9"},
     { ARM_CPUID_TI925T, "ti925t" },
     { ARM_CPUID_PXA250, "pxa250" },
@@ -1706,6 +1732,7 @@ uint32_t HELPER(get_cp15)(CPUState *env, uint32_t insn)
                 case ARM_CPUID_ARM11MPCORE:
                     return 1;
                 case ARM_CPUID_CORTEXA8:
+                case ARM_CPUID_CORTEXA8_R2:
                     return 2;
                 case ARM_CPUID_CORTEXA9:
                     return 0;
