@@ -5147,7 +5147,7 @@ static int disas_neon_data_insn(CPUState * env, DisasContext *s, uint32_t insn)
                             if (size == 1) {
                                 gen_helper_neon_qdmulh_s16(tmp, cpu_env, tmp,
                                                            tmp2);
-                            } else {
+                            } else { /* TODO: what happens when size == 0? */
                                 gen_helper_neon_qdmulh_s32(tmp, cpu_env, tmp,
                                                            tmp2);
                             }
@@ -5155,7 +5155,7 @@ static int disas_neon_data_insn(CPUState * env, DisasContext *s, uint32_t insn)
                             if (size == 1) {
                                 gen_helper_neon_qrdmulh_s16(tmp, cpu_env, tmp,
                                                             tmp2);
-                            } else {
+                            } else { /* TODO: what happens when size == 0? */
                                 gen_helper_neon_qrdmulh_s32(tmp, cpu_env, tmp,
                                                             tmp2);
                             }
