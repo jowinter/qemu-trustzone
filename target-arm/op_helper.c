@@ -473,3 +473,127 @@ uint64_t HELPER(neon_sub_saturate_u64)(uint64_t src1, uint64_t src2)
     }
     return res;
 }
+
+void HELPER(neon_vldst_all)(CPUState *env, uint32_t insn)
+{
+#if defined(CONFIG_USER_ONLY)
+#define LDB(addr) ldub(addr)
+#define LDW(addr) lduw(addr)
+#define LDL(addr) ldl(addr)
+#define LDQ(addr) ldq(addr)
+#define STB(addr, val) stb(addr, val)
+#define STW(addr, val) stw(addr, val)
+#define STL(addr, val) stl(addr, val)
+#define STQ(addr, val) stq(addr, val)
+#else
+    int user = cpu_mmu_index(env);
+#define LDB(addr) slow_ldb_mmu(addr, user, GETPC())
+#define LDW(addr) slow_ldw_mmu(addr, user, GETPC())
+#define LDL(addr) slow_ldl_mmu(addr, user, GETPC())
+#define LDQ(addr) slow_ldq_mmu(addr, user, GETPC())
+#define STB(addr, val) slow_stb_mmu(addr, val, user, GETPC())
+#define STW(addr, val) slow_stw_mmu(addr, val, user, GETPC())
+#define STL(addr, val) slow_stl_mmu(addr, val, user, GETPC())
+#define STQ(addr, val) slow_stq_mmu(addr, val, user, GETPC())
+#endif
+    static const struct {
+        int nregs;
+        int interleave;
+        int spacing;
+    } neon_ls_element_type[11] = {
+        {4, 4, 1},
+        {4, 4, 2},
+        {4, 1, 1},
+        {4, 2, 1},
+        {3, 3, 1},
+        {3, 3, 2},
+        {3, 1, 1},
+        {1, 1, 1},
+        {2, 2, 1},
+        {2, 2, 2},
+        {2, 1, 1}
+    };
+    
+    const int op = (insn >> 8) & 0xf;
+    const int size = (insn >> 6) & 3;
+    int rd = ((insn >> 12) & 0x0f) | ((insn >> 18) & 0x10);
+    const int rn = (insn >> 16) & 0xf;
+    const int load = (insn & (1 << 21)) != 0;
+    const int nregs = neon_ls_element_type[op].nregs;
+    const int interleave = neon_ls_element_type[op].interleave;
+    const int spacing = neon_ls_element_type[op].spacing;
+    uint32_t addr = env->regs[rn];
+    const int stride = (1 << size) * interleave;
+    int i, reg;
+    uint64_t tmp64;
+    
+    for (reg = 0; reg < nregs; reg++) {
+        if (interleave > 2 || (interleave == 2 && nregs == 2)) {
+            addr = env->regs[rn] + (1 << size) * reg;
+        } else if (interleave == 2 && nregs == 4 && reg == 2) {
+            addr = env->regs[rn] + (1 << size);
+        }
+        switch (size) {
+            case 3:
+                if (load) {
+                    env->vfp.regs[rd] = make_float64(LDQ(addr));
+                } else {
+                    STQ(addr, float64_val(env->vfp.regs[rd]));
+                }
+                addr += stride;
+                break;
+            case 2:
+                if (load) {
+                    tmp64 = (uint32_t)LDL(addr);
+                    addr += stride;
+                    tmp64 |= (uint64_t)LDL(addr) << 32;
+                    addr += stride;
+                    env->vfp.regs[rd] = make_float64(tmp64);
+                } else {
+                    tmp64 = float64_val(env->vfp.regs[rd]);
+                    STL(addr, tmp64);
+                    addr += stride;
+                    STL(addr, tmp64 >> 32);
+                    addr += stride;
+                }
+                break;
+            case 1:
+                if (load) {
+                    tmp64 = 0ull;
+                    for (i = 0; i < 4; i++, addr += stride) {
+                        tmp64 |= (uint64_t)LDW(addr) << (i * 16);
+                    }
+                    env->vfp.regs[rd] = make_float64(tmp64);
+                } else {
+                    tmp64 = float64_val(env->vfp.regs[rd]);
+                    for (i = 0; i < 4; i++, addr += stride, tmp64 >>= 16) {
+                        STW(addr, tmp64);
+                    }
+                }
+                break;
+            case 0:
+                if (load) {
+                    tmp64 = 0ull;
+                    for (i = 0; i < 8; i++, addr += stride) {
+                        tmp64 |= (uint64_t)LDB(addr) << (i * 8);
+                    }
+                    env->vfp.regs[rd] = make_float64(tmp64);
+                } else {
+                    tmp64 = float64_val(env->vfp.regs[rd]);
+                    for (i = 0; i < 8; i++, addr += stride, tmp64 >>= 8) {
+                        STB(addr, tmp64);
+                    }
+                }
+                break;
+        }
+        rd += spacing;
+    }
+#undef LDB
+#undef LDW
+#undef LDL
+#undef LDQ
+#undef STB
+#undef STW
+#undef STL
+#undef STQ
+}

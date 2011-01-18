@@ -460,5 +460,6 @@ DEF_HELPER_2(set_teecr, void, env, i32)
 
 DEF_HELPER_2(neon_unzip, void, env, i32)
 DEF_HELPER_2(neon_zip, void, env, i32)
+DEF_HELPER_2(neon_vldst_all, void, env, i32)
 
 #include "def-helper.h"

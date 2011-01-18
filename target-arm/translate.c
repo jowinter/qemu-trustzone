@@ -3689,11 +3689,9 @@ static int disas_neon_ls_insn(CPUState * env, DisasContext *s, uint32_t insn)
     int pass;
     int load;
     int shift;
-    int n;
     TCGv addr;
     TCGv tmp;
     TCGv tmp2;
-    TCGv_i64 tmp64;
 
     if (!s->vfp_enabled)
       return 1;
@@ -3713,91 +3711,8 @@ static int disas_neon_ls_insn(CPUState * env, DisasContext *s, uint32_t insn)
         spacing = neon_ls_element_type[op].spacing;
         if (size == 3 && (interleave | spacing) != 1)
             return 1;
-        load_reg_var(s, addr, rn);
-        stride = (1 << size) * interleave;
-        for (reg = 0; reg < nregs; reg++) {
-            if (interleave > 2 || (interleave == 2 && nregs == 2)) {
-                load_reg_var(s, addr, rn);
-                tcg_gen_addi_i32(addr, addr, (1 << size) * reg);
-            } else if (interleave == 2 && nregs == 4 && reg == 2) {
-                load_reg_var(s, addr, rn);
-                tcg_gen_addi_i32(addr, addr, 1 << size);
-            }
-            if (size == 3) {
-                if (load) {
-                    tmp64 = gen_ld64(addr, IS_USER(s));
-                    neon_store_reg64(tmp64, rd);
-                    tcg_temp_free_i64(tmp64);
-                } else {
-                    tmp64 = tcg_temp_new_i64();
-                    neon_load_reg64(tmp64, rd);
-                    gen_st64(tmp64, addr, IS_USER(s));
-                }
-                tcg_gen_addi_i32(addr, addr, stride);
-            } else {
-                for (pass = 0; pass < 2; pass++) {
-                    if (size == 2) {
-                        if (load) {
-                            tmp = gen_ld32(addr, IS_USER(s));
-                            neon_store_reg(rd, pass, tmp);
-                        } else {
-                            tmp = neon_load_reg(rd, pass);
-                            gen_st32(tmp, addr, IS_USER(s));
-                        }
-                        tcg_gen_addi_i32(addr, addr, stride);
-                    } else if (size == 1) {
-                        if (load) {
-                            tmp = gen_ld16u(addr, IS_USER(s));
-                            tcg_gen_addi_i32(addr, addr, stride);
-                            tmp2 = gen_ld16u(addr, IS_USER(s));
-                            tcg_gen_addi_i32(addr, addr, stride);
-                            tcg_gen_shli_i32(tmp2, tmp2, 16);
-                            tcg_gen_or_i32(tmp, tmp, tmp2);
-                            dead_tmp(tmp2);
-                            neon_store_reg(rd, pass, tmp);
-                        } else {
-                            tmp = neon_load_reg(rd, pass);
-                            tmp2 = new_tmp();
-                            tcg_gen_shri_i32(tmp2, tmp, 16);
-                            gen_st16(tmp, addr, IS_USER(s));
-                            tcg_gen_addi_i32(addr, addr, stride);
-                            gen_st16(tmp2, addr, IS_USER(s));
-                            tcg_gen_addi_i32(addr, addr, stride);
-                        }
-                    } else /* size == 0 */ {
-                        if (load) {
-                            TCGV_UNUSED(tmp2);
-                            for (n = 0; n < 4; n++) {
-                                tmp = gen_ld8u(addr, IS_USER(s));
-                                tcg_gen_addi_i32(addr, addr, stride);
-                                if (n == 0) {
-                                    tmp2 = tmp;
-                                } else {
-                                    tcg_gen_shli_i32(tmp, tmp, n * 8);
-                                    tcg_gen_or_i32(tmp2, tmp2, tmp);
-                                    dead_tmp(tmp);
-                                }
-                            }
-                            neon_store_reg(rd, pass, tmp2);
-                        } else {
-                            tmp2 = neon_load_reg(rd, pass);
-                            for (n = 0; n < 4; n++) {
-                                tmp = new_tmp();
-                                if (n == 0) {
-                                    tcg_gen_mov_i32(tmp, tmp2);
-                                } else {
-                                    tcg_gen_shri_i32(tmp, tmp2, n * 8);
-                                }
-                                gen_st8(tmp, addr, IS_USER(s));
-                                tcg_gen_addi_i32(addr, addr, stride);
-                            }
-                            dead_tmp(tmp2);
-                        }
-                    }
-                }
-            }
-            rd += spacing;
-        }
+        tcg_gen_movi_i32(addr, insn);
+        gen_helper_neon_vldst_all(cpu_env, addr);
         stride = nregs * 8;
     } else {
         size = (insn >> 10) & 3;
