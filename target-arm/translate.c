@@ -4854,8 +4854,9 @@ static int disas_neon_data_insn(CPUState * env, DisasContext *s, uint32_t insn)
                 }
             } else if (op == 10) {
                 /* VSHLL */
-                if (q || size == 3)
+                if (q) {
                     return 1;
+                }
                 tmp = neon_load_reg(rm, 0);
                 tmp2 = neon_load_reg(rm, 1);
                 for (pass = 0; pass < 2; pass++) {
@@ -5724,8 +5725,7 @@ static int disas_neon_data_insn(CPUState * env, DisasContext *s, uint32_t insn)
                             switch (size) {
                             case 0: gen_neon_trn_u8(tmp, tmp2); break;
                             case 1: gen_neon_trn_u16(tmp, tmp2); break;
-                            case 2: abort();
-                            default: return 1;
+                            default: abort(); /* size == 2,3 is handled earlier */
                             }
                             neon_store_reg(rm, pass, tmp2);
                             break;
