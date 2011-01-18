@@ -5426,8 +5426,10 @@ static int disas_neon_data_insn(CPUState * env, DisasContext *s, uint32_t insn)
                     }
                     break;
                 case 44: /* VCVT.F16.F32 */
-                    if (!arm_feature(env, ARM_FEATURE_VFP_FP16))
-                      return 1;
+                    if (!arm_feature(env, ARM_FEATURE_VFP_FP16)
+                        || q || size != 1 || (rm & 1)) {
+                        return 1;
+                    }
                     tmp = new_tmp();
                     tmp2 = new_tmp();
                     tcg_gen_ld_f32(cpu_F0s, cpu_env, neon_reg_offset(rm, 0));
@@ -5448,8 +5450,10 @@ static int disas_neon_data_insn(CPUState * env, DisasContext *s, uint32_t insn)
                     dead_tmp(tmp);
                     break;
                 case 46: /* VCVT.F32.F16 */
-                    if (!arm_feature(env, ARM_FEATURE_VFP_FP16))
-                      return 1;
+                    if (!arm_feature(env, ARM_FEATURE_VFP_FP16)
+                        || q || size != 1 || (rd & 1)) {
+                        return 1;
+                    }
                     tmp3 = new_tmp();
                     tmp = neon_load_reg(rm, 0);
                     tmp2 = neon_load_reg(rm, 1);
