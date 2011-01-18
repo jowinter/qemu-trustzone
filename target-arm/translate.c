@@ -5631,9 +5631,15 @@ static int disas_neon_data_insn(CPUState * env, DisasContext *s, uint32_t insn)
                             tcg_temp_free_i32(tmp2);
                             break;
                         case 30: /* Float VABS */
+                            if (size != 2) {
+                                return 1;
+                            }
                             gen_vfp_abs(0);
                             break;
                         case 31: /* Float VNEG */
+                            if (size != 2) {
+                                return 1;
+                            }
                             gen_vfp_neg(0);
                             break;
                         case 32: /* VSWP */
