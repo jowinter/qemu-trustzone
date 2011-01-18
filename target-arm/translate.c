@@ -4252,6 +4252,11 @@ static int disas_neon_data_insn(CPUState * env, DisasContext *s, uint32_t insn)
                 return 1;
             }
             break;
+        case 31: /* VRECPS/VRSQRTS */
+            if (u || (size & 1)) {
+                return 1;
+            }
+            break;
         default:
             break;
         }
