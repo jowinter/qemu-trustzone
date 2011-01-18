@@ -4223,269 +4223,268 @@ static int disas_neon_data_insn(CPUState * env, DisasContext *s, uint32_t insn)
         }
 
         for (pass = 0; pass < (q ? 4 : 2); pass++) {
-
-        if (pairwise) {
-            /* Pairwise.  */
-            if (q)
-                n = (pass & 1) * 2;
-            else
-                n = 0;
-            if (pass < q + 1) {
-                tmp = neon_load_reg(rn, n);
-                tmp2 = neon_load_reg(rn, n + 1);
+            if (pairwise) {
+                /* Pairwise.  */
+                if (q)
+                    n = (pass & 1) * 2;
+                else
+                    n = 0;
+                if (pass < q + 1) {
+                    tmp = neon_load_reg(rn, n);
+                    tmp2 = neon_load_reg(rn, n + 1);
+                } else {
+                    tmp = neon_load_reg(rm, n);
+                    tmp2 = neon_load_reg(rm, n + 1);
+                }
             } else {
-                tmp = neon_load_reg(rm, n);
-                tmp2 = neon_load_reg(rm, n + 1);
+                /* Elementwise.  */
+                tmp = neon_load_reg(rn, pass);
+                tmp2 = neon_load_reg(rm, pass);
             }
-        } else {
-            /* Elementwise.  */
-            tmp = neon_load_reg(rn, pass);
-            tmp2 = neon_load_reg(rm, pass);
-        }
-        switch (op) {
-        case 0: /* VHADD */
-            GEN_NEON_INTEGER_OP(hadd);
-            break;
-        case 1: /* VQADD */
-            GEN_NEON_INTEGER_OP_ENV(qadd);
-            break;
-        case 2: /* VRHADD */
-            GEN_NEON_INTEGER_OP(rhadd);
-            break;
-        case 3: /* Logic ops.  */
-            switch ((u << 2) | size) {
-            case 0: /* VAND */
-                tcg_gen_and_i32(tmp, tmp, tmp2);
+            switch (op) {
+            case 0: /* VHADD */
+                GEN_NEON_INTEGER_OP(hadd);
                 break;
-            case 1: /* BIC */
-                tcg_gen_andc_i32(tmp, tmp, tmp2);
+            case 1: /* VQADD */
+                GEN_NEON_INTEGER_OP_ENV(qadd);
                 break;
-            case 2: /* VORR */
-                tcg_gen_or_i32(tmp, tmp, tmp2);
+            case 2: /* VRHADD */
+                GEN_NEON_INTEGER_OP(rhadd);
                 break;
-            case 3: /* VORN */
-                tcg_gen_orc_i32(tmp, tmp, tmp2);
-                break;
-            case 4: /* VEOR */
-                tcg_gen_xor_i32(tmp, tmp, tmp2);
-                break;
-            case 5: /* VBSL */
-                tmp3 = neon_load_reg(rd, pass);
-                gen_neon_bsl(tmp, tmp, tmp2, tmp3);
-                dead_tmp(tmp3);
-                break;
-            case 6: /* VBIT */
-                tmp3 = neon_load_reg(rd, pass);
-                gen_neon_bsl(tmp, tmp, tmp3, tmp2);
-                dead_tmp(tmp3);
-                break;
-            case 7: /* VBIF */
-                tmp3 = neon_load_reg(rd, pass);
-                gen_neon_bsl(tmp, tmp3, tmp, tmp2);
-                dead_tmp(tmp3);
-                break;
-            }
-            break;
-        case 4: /* VHSUB */
-            GEN_NEON_INTEGER_OP(hsub);
-            break;
-        case 5: /* VQSUB */
-            GEN_NEON_INTEGER_OP_ENV(qsub);
-            break;
-        case 6: /* VCGT */
-            GEN_NEON_INTEGER_OP(cgt);
-            break;
-        case 7: /* VCGE */
-            GEN_NEON_INTEGER_OP(cge);
-            break;
-        case 8: /* VSHL */
-            GEN_NEON_INTEGER_OP(shl);
-            break;
-        case 9: /* VQSHL */
-            GEN_NEON_INTEGER_OP_ENV(qshl);
-            break;
-        case 10: /* VRSHL */
-            GEN_NEON_INTEGER_OP(rshl);
-            break;
-        case 11: /* VQRSHL */
-            GEN_NEON_INTEGER_OP_ENV(qrshl);
-            break;
-        case 12: /* VMAX */
-            GEN_NEON_INTEGER_OP(max);
-            break;
-        case 13: /* VMIN */
-            GEN_NEON_INTEGER_OP(min);
-            break;
-        case 14: /* VABD */
-            GEN_NEON_INTEGER_OP(abd);
-            break;
-        case 15: /* VABA */
-            GEN_NEON_INTEGER_OP(abd);
-            dead_tmp(tmp2);
-            tmp2 = neon_load_reg(rd, pass);
-            gen_neon_add(size, tmp, tmp2);
-            break;
-        case 16:
-            if (!u) { /* VADD */
-                if (gen_neon_add(size, tmp, tmp2))
-                    return 1;
-            } else { /* VSUB */
-                switch (size) {
-                case 0: gen_helper_neon_sub_u8(tmp, tmp, tmp2); break;
-                case 1: gen_helper_neon_sub_u16(tmp, tmp, tmp2); break;
-                case 2: tcg_gen_sub_i32(tmp, tmp, tmp2); break;
-                default: return 1;
+            case 3: /* Logic ops.  */
+                switch ((u << 2) | size) {
+                case 0: /* VAND */
+                    tcg_gen_and_i32(tmp, tmp, tmp2);
+                    break;
+                case 1: /* BIC */
+                    tcg_gen_andc_i32(tmp, tmp, tmp2);
+                    break;
+                case 2: /* VORR */
+                    tcg_gen_or_i32(tmp, tmp, tmp2);
+                    break;
+                case 3: /* VORN */
+                    tcg_gen_orc_i32(tmp, tmp, tmp2);
+                    break;
+                case 4: /* VEOR */
+                    tcg_gen_xor_i32(tmp, tmp, tmp2);
+                    break;
+                case 5: /* VBSL */
+                    tmp3 = neon_load_reg(rd, pass);
+                    gen_neon_bsl(tmp, tmp, tmp2, tmp3);
+                    dead_tmp(tmp3);
+                    break;
+                case 6: /* VBIT */
+                    tmp3 = neon_load_reg(rd, pass);
+                    gen_neon_bsl(tmp, tmp, tmp3, tmp2);
+                    dead_tmp(tmp3);
+                    break;
+                case 7: /* VBIF */
+                    tmp3 = neon_load_reg(rd, pass);
+                    gen_neon_bsl(tmp, tmp3, tmp, tmp2);
+                    dead_tmp(tmp3);
+                    break;
                 }
-            }
-            break;
-        case 17:
-            if (!u) { /* VTST */
-                switch (size) {
-                case 0: gen_helper_neon_tst_u8(tmp, tmp, tmp2); break;
-                case 1: gen_helper_neon_tst_u16(tmp, tmp, tmp2); break;
-                case 2: gen_helper_neon_tst_u32(tmp, tmp, tmp2); break;
-                default: return 1;
-                }
-            } else { /* VCEQ */
-                switch (size) {
-                case 0: gen_helper_neon_ceq_u8(tmp, tmp, tmp2); break;
-                case 1: gen_helper_neon_ceq_u16(tmp, tmp, tmp2); break;
-                case 2: gen_helper_neon_ceq_u32(tmp, tmp, tmp2); break;
-                default: return 1;
-                }
-            }
-            break;
-        case 18: /* Multiply.  */
-            switch (size) {
-            case 0: gen_helper_neon_mul_u8(tmp, tmp, tmp2); break;
-            case 1: gen_helper_neon_mul_u16(tmp, tmp, tmp2); break;
-            case 2: tcg_gen_mul_i32(tmp, tmp, tmp2); break;
-            default: return 1;
-            }
-            dead_tmp(tmp2);
-            tmp2 = neon_load_reg(rd, pass);
-            if (u) { /* VMLS */
-                gen_neon_rsb(size, tmp, tmp2);
-            } else { /* VMLA */
+                break;
+            case 4: /* VHSUB */
+                GEN_NEON_INTEGER_OP(hsub);
+                break;
+            case 5: /* VQSUB */
+                GEN_NEON_INTEGER_OP_ENV(qsub);
+                break;
+            case 6: /* VCGT */
+                GEN_NEON_INTEGER_OP(cgt);
+                break;
+            case 7: /* VCGE */
+                GEN_NEON_INTEGER_OP(cge);
+                break;
+            case 8: /* VSHL */
+                GEN_NEON_INTEGER_OP(shl);
+                break;
+            case 9: /* VQSHL */
+                GEN_NEON_INTEGER_OP_ENV(qshl);
+                break;
+            case 10: /* VRSHL */
+                GEN_NEON_INTEGER_OP(rshl);
+                break;
+            case 11: /* VQRSHL */
+                GEN_NEON_INTEGER_OP_ENV(qrshl);
+                break;
+            case 12: /* VMAX */
+                GEN_NEON_INTEGER_OP(max);
+                break;
+            case 13: /* VMIN */
+                GEN_NEON_INTEGER_OP(min);
+                break;
+            case 14: /* VABD */
+                GEN_NEON_INTEGER_OP(abd);
+                break;
+            case 15: /* VABA */
+                GEN_NEON_INTEGER_OP(abd);
+                dead_tmp(tmp2);
+                tmp2 = neon_load_reg(rd, pass);
                 gen_neon_add(size, tmp, tmp2);
-            }
-            break;
-        case 19: /* VMUL */
-            if (u) { /* polynomial */
-                gen_helper_neon_mul_p8(tmp, tmp, tmp2);
-            } else { /* Integer */
+                break;
+            case 16:
+                if (!u) { /* VADD */
+                    if (gen_neon_add(size, tmp, tmp2))
+                        return 1;
+                } else { /* VSUB */
+                    switch (size) {
+                    case 0: gen_helper_neon_sub_u8(tmp, tmp, tmp2); break;
+                    case 1: gen_helper_neon_sub_u16(tmp, tmp, tmp2); break;
+                    case 2: tcg_gen_sub_i32(tmp, tmp, tmp2); break;
+                    default: return 1;
+                    }
+                }
+                break;
+            case 17:
+                if (!u) { /* VTST */
+                    switch (size) {
+                    case 0: gen_helper_neon_tst_u8(tmp, tmp, tmp2); break;
+                    case 1: gen_helper_neon_tst_u16(tmp, tmp, tmp2); break;
+                    case 2: gen_helper_neon_tst_u32(tmp, tmp, tmp2); break;
+                    default: return 1;
+                    }
+                } else { /* VCEQ */
+                    switch (size) {
+                    case 0: gen_helper_neon_ceq_u8(tmp, tmp, tmp2); break;
+                    case 1: gen_helper_neon_ceq_u16(tmp, tmp, tmp2); break;
+                    case 2: gen_helper_neon_ceq_u32(tmp, tmp, tmp2); break;
+                    default: return 1;
+                    }
+                }
+                break;
+            case 18: /* Multiply.  */
                 switch (size) {
                 case 0: gen_helper_neon_mul_u8(tmp, tmp, tmp2); break;
                 case 1: gen_helper_neon_mul_u16(tmp, tmp, tmp2); break;
                 case 2: tcg_gen_mul_i32(tmp, tmp, tmp2); break;
                 default: return 1;
                 }
-            }
-            break;
-        case 20: /* VPMAX */
-            GEN_NEON_INTEGER_OP(pmax);
-            break;
-        case 21: /* VPMIN */
-            GEN_NEON_INTEGER_OP(pmin);
-            break;
-        case 22: /* Hultiply high.  */
-            if (!u) { /* VQDMULH */
-                switch (size) {
-                case 1: gen_helper_neon_qdmulh_s16(tmp, cpu_env, tmp, tmp2); break;
-                case 2: gen_helper_neon_qdmulh_s32(tmp, cpu_env, tmp, tmp2); break;
-                default: return 1;
-                }
-            } else { /* VQRDHMUL */
-                switch (size) {
-                case 1: gen_helper_neon_qrdmulh_s16(tmp, cpu_env, tmp, tmp2); break;
-                case 2: gen_helper_neon_qrdmulh_s32(tmp, cpu_env, tmp, tmp2); break;
-                default: return 1;
-                }
-            }
-            break;
-        case 23: /* VPADD */
-            if (u)
-                return 1;
-            switch (size) {
-            case 0: gen_helper_neon_padd_u8(tmp, tmp, tmp2); break;
-            case 1: gen_helper_neon_padd_u16(tmp, tmp, tmp2); break;
-            case 2: tcg_gen_add_i32(tmp, tmp, tmp2); break;
-            default: return 1;
-            }
-            break;
-        case 26: /* Floating point arithnetic.  */
-            switch ((u << 2) | size) {
-            case 0: /* VADD */
-                gen_helper_neon_add_f32(tmp, tmp, tmp2);
-                break;
-            case 2: /* VSUB */
-                gen_helper_neon_sub_f32(tmp, tmp, tmp2);
-                break;
-            case 4: /* VPADD */
-                gen_helper_neon_add_f32(tmp, tmp, tmp2);
-                break;
-            case 6: /* VABD */
-                gen_helper_neon_abd_f32(tmp, tmp, tmp2);
-                break;
-            default:
-                return 1;
-            }
-            break;
-        case 27: /* Float multiply.  */
-            gen_helper_neon_mul_f32(tmp, tmp, tmp2);
-            if (!u) {
                 dead_tmp(tmp2);
                 tmp2 = neon_load_reg(rd, pass);
-                if (size == 0) {
-                    gen_helper_neon_add_f32(tmp, tmp, tmp2);
-                } else {
-                    gen_helper_neon_sub_f32(tmp, tmp2, tmp);
+                if (u) { /* VMLS */
+                    gen_neon_rsb(size, tmp, tmp2);
+                } else { /* VMLA */
+                    gen_neon_add(size, tmp, tmp2);
                 }
-            }
-            break;
-        case 28: /* Float compare.  */
-            if (!u) {
-                gen_helper_neon_ceq_f32(tmp, tmp, tmp2);
-            } else {
+                break;
+            case 19: /* VMUL */
+                if (u) { /* polynomial */
+                    gen_helper_neon_mul_p8(tmp, tmp, tmp2);
+                } else { /* Integer */
+                    switch (size) {
+                    case 0: gen_helper_neon_mul_u8(tmp, tmp, tmp2); break;
+                    case 1: gen_helper_neon_mul_u16(tmp, tmp, tmp2); break;
+                    case 2: tcg_gen_mul_i32(tmp, tmp, tmp2); break;
+                    default: return 1;
+                    }
+                }
+                break;
+            case 20: /* VPMAX */
+                GEN_NEON_INTEGER_OP(pmax);
+                break;
+            case 21: /* VPMIN */
+                GEN_NEON_INTEGER_OP(pmin);
+                break;
+            case 22: /* Hultiply high.  */
+                if (!u) { /* VQDMULH */
+                    switch (size) {
+                    case 1: gen_helper_neon_qdmulh_s16(tmp, cpu_env, tmp, tmp2); break;
+                    case 2: gen_helper_neon_qdmulh_s32(tmp, cpu_env, tmp, tmp2); break;
+                    default: return 1;
+                    }
+                } else { /* VQRDHMUL */
+                    switch (size) {
+                    case 1: gen_helper_neon_qrdmulh_s16(tmp, cpu_env, tmp, tmp2); break;
+                    case 2: gen_helper_neon_qrdmulh_s32(tmp, cpu_env, tmp, tmp2); break;
+                    default: return 1;
+                    }
+                }
+                break;
+            case 23: /* VPADD */
+                if (u)
+                    return 1;
+                switch (size) {
+                case 0: gen_helper_neon_padd_u8(tmp, tmp, tmp2); break;
+                case 1: gen_helper_neon_padd_u16(tmp, tmp, tmp2); break;
+                case 2: tcg_gen_add_i32(tmp, tmp, tmp2); break;
+                default: return 1;
+                }
+                break;
+            case 26: /* Floating point arithnetic.  */
+                switch ((u << 2) | size) {
+                case 0: /* VADD */
+                    gen_helper_neon_add_f32(tmp, tmp, tmp2);
+                    break;
+                case 2: /* VSUB */
+                    gen_helper_neon_sub_f32(tmp, tmp, tmp2);
+                    break;
+                case 4: /* VPADD */
+                    gen_helper_neon_add_f32(tmp, tmp, tmp2);
+                    break;
+                case 6: /* VABD */
+                    gen_helper_neon_abd_f32(tmp, tmp, tmp2);
+                    break;
+                default:
+                    return 1;
+                }
+                break;
+            case 27: /* Float multiply.  */
+                gen_helper_neon_mul_f32(tmp, tmp, tmp2);
+                if (!u) {
+                    dead_tmp(tmp2);
+                    tmp2 = neon_load_reg(rd, pass);
+                    if (size == 0) {
+                        gen_helper_neon_add_f32(tmp, tmp, tmp2);
+                    } else {
+                        gen_helper_neon_sub_f32(tmp, tmp2, tmp);
+                    }
+                }
+                break;
+            case 28: /* Float compare.  */
+                if (!u) {
+                    gen_helper_neon_ceq_f32(tmp, tmp, tmp2);
+                } else {
+                    if (size == 0)
+                        gen_helper_neon_cge_f32(tmp, tmp, tmp2);
+                    else
+                        gen_helper_neon_cgt_f32(tmp, tmp, tmp2);
+                }
+                break;
+            case 29: /* Float compare absolute.  */
+                if (!u)
+                    return 1;
                 if (size == 0)
-                    gen_helper_neon_cge_f32(tmp, tmp, tmp2);
+                    gen_helper_neon_acge_f32(tmp, tmp, tmp2);
                 else
-                    gen_helper_neon_cgt_f32(tmp, tmp, tmp2);
+                    gen_helper_neon_acgt_f32(tmp, tmp, tmp2);
+                break;
+            case 30: /* Float min/max.  */
+                if (size == 0)
+                    gen_helper_neon_max_f32(tmp, tmp, tmp2);
+                else
+                    gen_helper_neon_min_f32(tmp, tmp, tmp2);
+                break;
+            case 31:
+                if (size == 0)
+                    gen_helper_recps_f32(tmp, tmp, tmp2, cpu_env);
+                else
+                    gen_helper_rsqrts_f32(tmp, tmp, tmp2, cpu_env);
+                break;
+            default:
+                abort();
             }
-            break;
-        case 29: /* Float compare absolute.  */
-            if (!u)
-                return 1;
-            if (size == 0)
-                gen_helper_neon_acge_f32(tmp, tmp, tmp2);
-            else
-                gen_helper_neon_acgt_f32(tmp, tmp, tmp2);
-            break;
-        case 30: /* Float min/max.  */
-            if (size == 0)
-                gen_helper_neon_max_f32(tmp, tmp, tmp2);
-            else
-                gen_helper_neon_min_f32(tmp, tmp, tmp2);
-            break;
-        case 31:
-            if (size == 0)
-                gen_helper_recps_f32(tmp, tmp, tmp2, cpu_env);
-            else
-                gen_helper_rsqrts_f32(tmp, tmp, tmp2, cpu_env);
-            break;
-        default:
-            abort();
-        }
-        dead_tmp(tmp2);
+            dead_tmp(tmp2);
 
-        /* Save the result.  For elementwise operations we can put it
-           straight into the destination register.  For pairwise operations
-           we have to be careful to avoid clobbering the source operands.  */
-        if (pairwise && rd == rm) {
-            neon_store_scratch(pass, tmp);
-        } else {
-            neon_store_reg(rd, pass, tmp);
-        }
+            /* Save the result.  For elementwise operations we can put it
+               straight into the destination register.  For pairwise operations
+               we have to be careful to avoid clobbering the source operands.  */
+            if (pairwise && rd == rm) {
+                neon_store_scratch(pass, tmp);
+            } else {
+                neon_store_reg(rd, pass, tmp);
+            }
 
         } /* for pass */
         if (pairwise && rd == rm) {
