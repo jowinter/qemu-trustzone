@@ -4209,6 +4209,11 @@ static int disas_neon_data_insn(CPUState * env, DisasContext *s, uint32_t insn)
                 rm = rtmp;
             }
             break;
+        case 19: /* VMUL */
+            if (u && size) {
+                return 1;
+            }
+            break;
         case 20: /* VPMAX */
         case 21: /* VPMIN */
         case 23: /* VPADD */
