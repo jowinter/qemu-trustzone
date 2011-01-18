@@ -4230,6 +4230,11 @@ static int disas_neon_data_insn(CPUState * env, DisasContext *s, uint32_t insn)
             break;
         case 26: /* VADD/VSUB/VPADD/VABD (float) */
             pairwise = (u && size < 2);
+            /* fall through */
+        case 27: /* VMLA/VMLS/VMUL (float) */
+            if (size & 1) {
+                return 1;
+            }
             break;
         case 30: /* VPMIN/VPMAX (float) */
             pairwise = u;
@@ -4452,7 +4457,7 @@ static int disas_neon_data_insn(CPUState * env, DisasContext *s, uint32_t insn)
                     gen_helper_neon_abd_f32(tmp, tmp, tmp2);
                     break;
                 default:
-                    return 1;
+                    abort(); /* other values are handled earlier */
                 }
                 break;
             case 27: /* Float multiply.  */
