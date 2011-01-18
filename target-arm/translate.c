@@ -4677,8 +4677,6 @@ static int disas_neon_data_insn(CPUState * env, DisasContext *s, uint32_t insn)
                             GEN_NEON_INTEGER_OP(rshl);
                             break;
                         case 4: /* VSRI */
-                            GEN_NEON_INTEGER_OP(shl);
-                            break;
                         case 5: /* VSHL, VSLI */
                             switch (size) {
                             case 0:
