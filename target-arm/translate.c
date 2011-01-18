@@ -3539,12 +3539,6 @@ static inline void gen_neon_rsb(int size, TCGv t0, TCGv t1)
 #define gen_helper_neon_pmin_s32  gen_helper_neon_min_s32
 #define gen_helper_neon_pmin_u32  gen_helper_neon_min_u32
 
-/* FIXME: This is wrong.  They set the wrong overflow bit.  */
-#define gen_helper_neon_qadd_s32(a, e, b, c) gen_helper_add_saturate(a, b, c)
-#define gen_helper_neon_qadd_u32(a, e, b, c) gen_helper_add_usaturate(a, b, c)
-#define gen_helper_neon_qsub_s32(a, e, b, c) gen_helper_sub_saturate(a, b, c)
-#define gen_helper_neon_qsub_u32(a, e, b, c) gen_helper_sub_usaturate(a, b, c)
-
 #define GEN_NEON_INTEGER_OP_ENV(name) do { \
     switch ((size << 1) | u) { \
     case 0: \
