@@ -4632,21 +4632,29 @@ static int disas_neon_data_insn(CPUState * env, DisasContext *s, uint32_t insn)
                     if (size == 3) {
                         neon_load_reg64(cpu_V0, rm + pass);
                         if (q) {
-                          if (u)
-                            gen_helper_neon_rshl_u64(cpu_V0, cpu_V0, tmp64);
-                          else
-                            gen_helper_neon_rshl_s64(cpu_V0, cpu_V0, tmp64);
+                            if ((op == 8 && !u) || (op == 9 && u)) {
+                                gen_helper_neon_rshl_u64(cpu_V0, cpu_V0,
+                                                         tmp64);
+                            } else {
+                                gen_helper_neon_rshl_s64(cpu_V0, cpu_V0,
+                                                         tmp64);
+                            }
                         } else {
-                          if (u)
-                            gen_helper_neon_shl_u64(cpu_V0, cpu_V0, tmp64);
-                          else
-                            gen_helper_neon_shl_s64(cpu_V0, cpu_V0, tmp64);
+                            if ((op == 8 && !u) || (op == 9 && u)) {
+                                gen_helper_neon_shl_u64(cpu_V0, cpu_V0,
+                                                        tmp64);
+                            } else {
+                                gen_helper_neon_shl_s64(cpu_V0, cpu_V0,
+                                                        tmp64);
+                            }
                         }
                     } else {
                         tmp = neon_load_reg(rm + pass, 0);
-                        gen_neon_shift_narrow(size, tmp, tmp2, q, u);
+                        gen_neon_shift_narrow(size, tmp, tmp2, q,
+                                              (op == 8) ? !u : u);
                         tmp3 = neon_load_reg(rm + pass, 1);
-                        gen_neon_shift_narrow(size, tmp3, tmp2, q, u);
+                        gen_neon_shift_narrow(size, tmp3, tmp2, q,
+                                              (op == 8) ? !u : u);
                         tcg_gen_concat_i32_i64(cpu_V0, tmp, tmp3);
                         dead_tmp(tmp);
                         dead_tmp(tmp3);
