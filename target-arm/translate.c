@@ -5244,14 +5244,19 @@ static int disas_neon_data_insn(CPUState * env, DisasContext *s, uint32_t insn)
                         neon_store_reg(rd, pass, tmp);
                     }
                     break;
-                case 2: /* VMLAL sclar */
                 case 3: /* VQDMLAL scalar */
-                case 6: /* VMLSL scalar */
                 case 7: /* VQDMLSL scalar */
-                case 10: /* VMULL scalar */
                 case 11: /* VQDMULL scalar */
-                    if (size == 0 && (op == 3 || op == 7 || op == 11))
+                    if (u) {
                         return 1;
+                    }
+                    /* fall through */
+                case 2: /* VMLAL sclar */
+                case 6: /* VMLSL scalar */
+                case 10: /* VMULL scalar */
+                    if (size == 0 || (rd & 1)) {
+                        return 1;
+                    }
 
                     tmp2 = neon_get_scalar(size, rm);
                     tmp3 = neon_load_reg(rn, 1);
