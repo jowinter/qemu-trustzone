@@ -4120,6 +4120,9 @@ static int disas_neon_data_insn(CPUState * env, DisasContext *s, uint32_t insn)
     if ((insn & (1 << 23)) == 0) {
         /* Three register same length.  */
         op = ((insn >> 7) & 0x1e) | ((insn >> 4) & 1);
+        if (op == 24 || op == 25 || (q && ((rd | rn | rm) & 1))) {
+            return 1;
+        }
         if (size == 3) {
             if (op == 1 || op == 5 || op == 8 || op == 9 || op == 10
                 || op == 11 || op == 16) {
