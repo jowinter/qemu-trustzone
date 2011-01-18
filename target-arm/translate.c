@@ -4643,7 +4643,7 @@ static int disas_neon_data_insn(CPUState * env, DisasContext *s, uint32_t insn)
                             GEN_NEON_INTEGER_OP_ENV(qshl);
                             break;
                         }
-                        dead_tmp(tmp2);
+                        tcg_temp_free_i32(tmp2);
 
                         if (op == 1 || op == 3) {
                             /* Accumulate.  */
@@ -4770,7 +4770,7 @@ static int disas_neon_data_insn(CPUState * env, DisasContext *s, uint32_t insn)
                 if (size == 3) {
                     tcg_temp_free_i64(tmp64);
                 } else {
-                    dead_tmp(tmp2);
+                    tcg_temp_free_i32(tmp2);
                 }
             } else if (op == 10) {
                 /* VSHLL */
