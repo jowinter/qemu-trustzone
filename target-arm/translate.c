@@ -4992,31 +4992,9 @@ static int disas_neon_data_insn(CPUState * env, DisasContext *s, uint32_t insn)
             op = (insn >> 8) & 0xf;
             if ((insn & (1 << 6)) == 0) {
                 /* Three registers of different lengths.  */
-                int src1_wide;
-                int src2_wide;
-                int prewiden;
-                /* prewiden, src1_wide, src2_wide */
-                static const int neon_3reg_wide[16][3] = {
-                    {1, 0, 0}, /* VADDL */
-                    {1, 1, 0}, /* VADDW */
-                    {1, 0, 0}, /* VSUBL */
-                    {1, 1, 0}, /* VSUBW */
-                    {0, 1, 1}, /* VADDHN */
-                    {0, 0, 0}, /* VABAL */
-                    {0, 1, 1}, /* VSUBHN */
-                    {0, 0, 0}, /* VABDL */
-                    {0, 0, 0}, /* VMLAL */
-                    {0, 0, 0}, /* VQDMLAL */
-                    {0, 0, 0}, /* VMLSL */
-                    {0, 0, 0}, /* VQDMLSL */
-                    {0, 0, 0}, /* Integer VMULL */
-                    {0, 0, 0}, /* VQDMULL */
-                    {0, 0, 0}  /* Polynomial VMULL */
-                };
-
-                prewiden = neon_3reg_wide[op][0];
-                src1_wide = neon_3reg_wide[op][1];
-                src2_wide = neon_3reg_wide[op][2];
+                int src1_wide = (op == 1 || op == 3 || op == 4 || op == 6);
+                int src2_wide = (op == 4 || op == 6);
+                int prewiden = (op < 4);
 
                 if (size == 0 && (op == 9 || op == 11 || op == 13))
                     return 1;
