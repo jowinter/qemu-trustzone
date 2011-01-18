@@ -4992,12 +4992,20 @@ static int disas_neon_data_insn(CPUState * env, DisasContext *s, uint32_t insn)
             op = (insn >> 8) & 0xf;
             if ((insn & (1 << 6)) == 0) {
                 /* Three registers of different lengths.  */
+
+                if (op == 15
+                    || (op < 4 && ((rd & 1) || ((op & 1) && (rn & 1))))
+                    || ((op == 4 || op == 6) && ((rn | rm) & 1))
+                    || ((op == 5 || op >= 7) && (rd & 1))
+                    || ((op == 9 || op == 11) && (u || size == 0))
+                    || (op == 13 && size == 0)
+                    || (op == 14 && (u || size))) {
+                    return 1;
+                }
+
                 int src1_wide = (op == 1 || op == 3 || op == 4 || op == 6);
                 int src2_wide = (op == 4 || op == 6);
                 int prewiden = (op < 4);
-
-                if (size == 0 && (op == 9 || op == 11 || op == 13))
-                    return 1;
 
                 /* Avoid overlapping operands.  Wide source operands are
                    always aligned so will never overlap with wide
@@ -5081,7 +5089,7 @@ static int disas_neon_data_insn(CPUState * env, DisasContext *s, uint32_t insn)
                         dead_tmp(tmp);
                         break;
                     default: /* 15 is RESERVED.  */
-                        return 1;
+                        abort(); /* op == 15 is handled earlier */
                     }
                     if (op == 5 || op == 13 || (op >= 8 && op <= 11)) {
                         /* Accumulate.  */
