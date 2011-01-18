@@ -4214,9 +4214,13 @@ static int disas_neon_data_insn(CPUState * env, DisasContext *s, uint32_t insn)
                 return 1;
             }
             break;
+        case 23: /* VPADD */
+            if (u) {
+                return 1;
+            }
+            /* fall through */
         case 20: /* VPMAX */
         case 21: /* VPMIN */
-        case 23: /* VPADD */
             pairwise = 1;
             break;
         case 26: /* VADD/VSUB/VPADD/VABD (float) */
@@ -4421,8 +4425,6 @@ static int disas_neon_data_insn(CPUState * env, DisasContext *s, uint32_t insn)
                 }
                 break;
             case 23: /* VPADD */
-                if (u)
-                    return 1;
                 switch (size) {
                 case 0: gen_helper_neon_padd_u8(tmp, tmp, tmp2); break;
                 case 1: gen_helper_neon_padd_u16(tmp, tmp, tmp2); break;
