@@ -5360,6 +5360,10 @@ static int disas_neon_data_insn(CPUState * env, DisasContext *s, uint32_t insn)
                 /* Two register misc.  */
                 op = ((insn >> 12) & 0x30) | ((insn >> 7) & 0xf);
                 size = (insn >> 18) & 3;
+                if ((q && (op < 36 || op > 46) && ((rd | rm) & 1))
+                    || (op >= 56 && size != 2)) {
+                    return 1;
+                }
                 switch (op) {
                 case 0: /* VREV64 */
                     if (size == 3) {
