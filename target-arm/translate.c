@@ -4495,6 +4495,9 @@ static int disas_neon_data_insn(CPUState * env, DisasContext *s, uint32_t insn)
             /* Two registers and shift.  */
             op = (insn >> 8) & 0xf;
             if (insn & (1 << 7)) {
+                if (op & 8) {
+                    return 1;
+                }
                 /* 64-bit shift.   */
                 size = 3;
             } else {
