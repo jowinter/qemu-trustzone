@@ -4236,6 +4236,16 @@ static int disas_neon_data_insn(CPUState * env, DisasContext *s, uint32_t insn)
                 return 1;
             }
             break;
+        case 28: /* VCEQ/VCGE/VCGT (float) */
+            if ((!u && size) || (size & 1)) {
+                return 1;
+            }
+            break;
+        case 29: /* VACGE/VACGT (float) */
+            if (!u || (size & 1)) {
+                return 1;
+            }
+            break;
         case 30: /* VPMIN/VPMAX (float) */
             pairwise = u;
             break;
@@ -4484,8 +4494,6 @@ static int disas_neon_data_insn(CPUState * env, DisasContext *s, uint32_t insn)
                 }
                 break;
             case 29: /* Float compare absolute.  */
-                if (!u)
-                    return 1;
                 if (size == 0) {
                     gen_helper_neon_acge_f32(tmp, tmp, tmp2);
                 } else {
