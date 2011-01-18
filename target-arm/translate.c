@@ -4120,8 +4120,9 @@ static int disas_neon_data_insn(CPUState * env, DisasContext *s, uint32_t insn)
     if ((insn & (1 << 23)) == 0) {
         /* Three register same length.  */
         op = ((insn >> 7) & 0x1e) | ((insn >> 4) & 1);
-        if (size == 3 && (op == 1 || op == 5 || op == 8 || op == 9
-                          || op == 10 || op  == 11 || op == 16)) {
+        if (size == 3) {
+            if (op == 1 || op == 5 || op == 8 || op == 9 || op == 10
+                || op == 11 || op == 16) {
             /* 64-bit element instructions.  */
             for (pass = 0; pass < (q ? 2 : 1); pass++) {
                 neon_load_reg64(cpu_V0, rn + pass);
@@ -4186,6 +4187,10 @@ static int disas_neon_data_insn(CPUState * env, DisasContext *s, uint32_t insn)
                 neon_store_reg64(cpu_V0, rd + pass);
             }
             return 0;
+        }
+        if (op != 3) {
+            return 1;
+        }
         }
         switch (op) {
         case 8: /* VSHL */
