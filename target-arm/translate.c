@@ -4899,6 +4899,9 @@ static int disas_neon_data_insn(CPUState * env, DisasContext *s, uint32_t insn)
                 }
                 break;
             case 15:
+                if (invert) {
+                    return 1;
+                }
                 imm = ((imm & 0x80) << 24) | ((imm & 0x3f) << 19)
                       | ((imm & 0x40) ? (0x1f << 25) : (1 << 30));
                 break;
