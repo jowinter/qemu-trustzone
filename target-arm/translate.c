@@ -5172,8 +5172,15 @@ static int disas_neon_data_insn(CPUState * env, DisasContext *s, uint32_t insn)
                 case 5: /* Floating point VMLS scalar */
                 case 8: /* Integer VMUL scalar */
                 case 9: /* Floating point VMUL scalar */
+                    if (size <= (op & 1)) {
+                        return 1;
+                    }
+                    /* fall through */
                 case 12: /* VQDMULH scalar */
                 case 13: /* VQRDMULH scalar */
+                    if (u && ((rd | rn) & 1)) {
+                        return 1;
+                    }
                     tmp = neon_get_scalar(size, rm);
                     neon_store_scratch(0, tmp);
                     for (pass = 0; pass < (u ? 4 : 2); pass++) {
