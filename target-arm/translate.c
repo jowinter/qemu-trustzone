@@ -5643,6 +5643,10 @@ static int disas_neon_data_insn(CPUState * env, DisasContext *s, uint32_t insn)
                             gen_vfp_neg(0);
                             break;
                         case 32: /* VSWP */
+                            if (size != 0) {
+                                dead_tmp(tmp);
+                                return 1;
+                            }
                             tmp2 = neon_load_reg(rd, pass);
                             neon_store_reg(rm, pass, tmp2);
                             break;
