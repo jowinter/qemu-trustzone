@@ -614,6 +614,8 @@ static inline int bank_number (int mode)
         return 4;
     case ARM_CPU_MODE_FIQ:
         return 5;
+    case ARM_CPU_MODE_SMC:
+        return 6;
     }
     cpu_abort(cpu_single_env, "Bad mode %x\n", mode);
     return -1;
@@ -863,13 +865,39 @@ void do_interrupt(CPUARMState *env)
         mask = CPSR_A | CPSR_I | CPSR_F;
         offset = 4;
         break;
+    case EXCP_SMC:
+        if (semihosting_enabled) {
+            cpu_abort(env, "SMC handling under semihosting not implemented\n");
+            return;
+        }
+        if ((env->uncached_cpsr & CPSR_M) == ARM_CPU_MODE_SMC) {
+            env->cp15.c1_secfg &= ~1;
+        }
+        offset = env->thumb ? 2 : 0;
+        new_mode = ARM_CPU_MODE_SMC;
+        addr = 0x08;
+        mask = CPSR_A | CPSR_I | CPSR_F;
+        break;
     default:
         cpu_abort(env, "Unhandled exception 0x%x\n", env->exception_index);
         return; /* Never happens.  Keep compiler happy.  */
     }
-    /* High vectors.  */
-    if (env->cp15.c1_sys & (1 << 13)) {
-        addr += 0xffff0000;
+    if (arm_feature(env, ARM_FEATURE_TRUSTZONE)) {
+        if (new_mode == ARM_CPU_MODE_SMC ||
+            (env->uncached_cpsr & CPSR_M) == ARM_CPU_MODE_SMC) {
+            addr += env->cp15.c12_mvbar;
+        } else {
+            if (env->cp15.c1_sys & (1 << 13)) {
+                addr += 0xffff0000;
+            } else {
+                addr += env->cp15.c12_vbar;
+            }
+        }
+    } else {
+        /* High vectors.  */
+        if (env->cp15.c1_sys & (1 << 13)) {
+            addr += 0xffff0000;
+        }
     }
     switch_mode (env, new_mode);
     env->spsr = cpsr_read(env);
@@ -1566,6 +1594,27 @@ void HELPER(set_cp15)(CPUState *env, uint32_t insn, uint32_t val)
         /* ??? TLB lockdown not implemented.  */
         break;
     case 12: /* Reserved.  */
+        if (!op1 && !crm) {
+            switch (op2) {
+            case 0:
+                if (!arm_feature(env, ARM_FEATURE_TRUSTZONE)) {
+                    goto bad_reg;
+                }
+                env->cp15.c12_vbar = val & ~0x1f;
+                break;
+            case 1:
+                if (!arm_feature(env, ARM_FEATURE_TRUSTZONE)) {
+                    goto bad_reg;
+                }
+                if (!(env->cp15.c1_secfg & 1)) {
+                    env->cp15.c12_mvbar = val & ~0x1f;
+                }
+                break;
+            default:
+                goto bad_reg;
+            }
+            break;
+        }
         goto bad_reg;
     case 13: /* Process ID.  */
         switch (op2) {
@@ -1884,12 +1933,16 @@ uint32_t HELPER(get_cp15)(CPUState *env, uint32_t insn)
         return 0;
     case 11: /* TCM DMA control.  */
     case 12: /* Reserved.  */
-        if (!op1) {
-            switch (crm) {
+        if (!op1 && !crm) {
+            switch (op2) {
             case 0: /* secure or nonsecure vector base address */
                 if (arm_feature(env, ARM_FEATURE_TRUSTZONE)) {
-                    /* FIXME: implement true vector base addressing */
-                    return 0; /* reset value according to ARM Cortex-A8 TRM */
+                    return env->cp15.c12_vbar;
+                }
+                break;
+            case 1: /* monitor vector base address */
+                if (arm_feature(env, ARM_FEATURE_TRUSTZONE)) {
+                    return env->cp15.c12_mvbar;
                 }
                 break;
             default:
