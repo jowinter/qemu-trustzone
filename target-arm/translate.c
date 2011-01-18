@@ -5770,7 +5770,7 @@ static int disas_neon_data_insn(CPUState * env, DisasContext *s, uint32_t insn)
             } else if ((insn & (1 << 10)) == 0) {
                 /* VTBL, VTBX.  */
                 n = ((insn >> 5) & 0x18) + 8;
-                if (insn & (1 << 6)) {
+                if (q) {
                     tmp = neon_load_reg(rd, 0);
                 } else {
                     tmp = new_tmp();
@@ -5781,7 +5781,7 @@ static int disas_neon_data_insn(CPUState * env, DisasContext *s, uint32_t insn)
                 tmp5 = tcg_const_i32(n);
                 gen_helper_neon_tbl(tmp2, tmp2, tmp, tmp4, tmp5);
                 dead_tmp(tmp);
-                if (insn & (1 << 6)) {
+                if (q) {
                     tmp = neon_load_reg(rd, 1);
                 } else {
                     tmp = new_tmp();
