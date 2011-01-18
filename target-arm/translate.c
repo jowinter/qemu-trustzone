@@ -5440,8 +5440,9 @@ static int disas_neon_data_insn(CPUState * env, DisasContext *s, uint32_t insn)
                     tcg_temp_free_i32(tmp);
                     break;
                 case 36: case 37: /* VMOVN, VQMOVUN, VQMOVN */
-                    if (size == 3)
+                    if (size == 3 || (rm & 1)) {
                         return 1;
+                    }
                     TCGV_UNUSED(tmp2);
                     for (pass = 0; pass < 2; pass++) {
                         neon_load_reg64(cpu_V0, rm + pass);
