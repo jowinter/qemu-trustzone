@@ -3395,6 +3395,7 @@ static int disas_vfp_insn(CPUState * env, DisasContext *s, uint32_t insn)
                     offset = 8;
                 else
                     offset = 4;
+                tmp = tcg_const_i32(offset);
                 for (i = 0; i < n; i++) {
                     if (insn & ARM_CP_RW_BIT) {
                         /* load */
@@ -3405,8 +3406,9 @@ static int disas_vfp_insn(CPUState * env, DisasContext *s, uint32_t insn)
                         gen_mov_F0_vreg(dp, rd + i);
                         gen_vfp_st(s, dp, addr);
                     }
-                    tcg_gen_addi_i32(addr, addr, offset);
+                    tcg_gen_add_i32(addr, addr, tmp);
                 }
+                tcg_temp_free_i32(tmp);
                 if (insn & (1 << 21)) {
                     /* writeback */
                     if (insn & (1 << 24))
@@ -7049,6 +7051,7 @@ static void disas_arm_insn(CPUState * env, DisasContext *s)
                 }
                 rn = (insn >> 16) & 0xf;
                 addr = load_reg(s, rn);
+                tmp3 = tcg_const_i32(4);
 
                 /* compute total size */
                 loaded_base = 0;
@@ -7062,7 +7065,7 @@ static void disas_arm_insn(CPUState * env, DisasContext *s)
                 if (insn & (1 << 23)) {
                     if (insn & (1 << 24)) {
                         /* pre increment */
-                        tcg_gen_addi_i32(addr, addr, 4);
+                        tcg_gen_add_i32(addr, addr, tmp3);
                     } else {
                         /* post increment */
                     }
@@ -7115,7 +7118,7 @@ static void disas_arm_insn(CPUState * env, DisasContext *s)
                         j++;
                         /* no need to add after the last transfer */
                         if (j != n)
-                            tcg_gen_addi_i32(addr, addr, 4);
+                            tcg_gen_add_i32(addr, addr, tmp3);
                     }
                 }
                 if (insn & (1 << 21)) {
@@ -7125,7 +7128,7 @@ static void disas_arm_insn(CPUState * env, DisasContext *s)
                             /* pre increment */
                         } else {
                             /* post increment */
-                            tcg_gen_addi_i32(addr, addr, 4);
+                            tcg_gen_add_i32(addr, addr, tmp3);
                         }
                     } else {
                         if (insn & (1 << 24)) {
@@ -7141,6 +7144,7 @@ static void disas_arm_insn(CPUState * env, DisasContext *s)
                 } else {
                     dead_tmp(addr);
                 }
+                tcg_temp_free_i32(tmp3);
                 if (loaded_base) {
                     store_reg(s, rn, loaded_var);
                 }
@@ -7506,6 +7510,7 @@ static int disas_thumb2_insn(CPUState *env, DisasContext *s, uint16_t insn_hw1)
                     tcg_gen_addi_i32(addr, addr, -offset);
                 }
 
+                tmp2 = tcg_const_i32(4);
                 for (i = 0; i < 16; i++) {
                     if ((insn & (1 << i)) == 0)
                         continue;
@@ -7522,8 +7527,9 @@ static int disas_thumb2_insn(CPUState *env, DisasContext *s, uint16_t insn_hw1)
                         tmp = load_reg(s, i);
                         gen_st32(tmp, addr, IS_USER(s));
                     }
-                    tcg_gen_addi_i32(addr, addr, 4);
+                    tcg_gen_add_i32(addr, addr, tmp2);
                 }
+                tcg_temp_free_i32(tmp2);
                 if (insn & (1 << 21)) {
                     /* Base register writeback.  */
                     if (insn & (1 << 24)) {
@@ -8763,6 +8769,7 @@ static void disas_thumb_insn(CPUState *env, DisasContext *s)
             if ((insn & (1 << 11)) == 0) {
                 tcg_gen_addi_i32(addr, addr, -offset);
             }
+            tmp2 = tcg_const_i32(4);
             for (i = 0; i < 8; i++) {
                 if (insn & (1 << i)) {
                     if (insn & (1 << 11)) {
@@ -8775,7 +8782,7 @@ static void disas_thumb_insn(CPUState *env, DisasContext *s)
                         gen_st32(tmp, addr, IS_USER(s));
                     }
                     /* advance to the next address.  */
-                    tcg_gen_addi_i32(addr, addr, 4);
+                    tcg_gen_add_i32(addr, addr, tmp2);
                 }
             }
             TCGV_UNUSED(tmp);
@@ -8790,8 +8797,9 @@ static void disas_thumb_insn(CPUState *env, DisasContext *s)
                     tmp = load_reg(s, 14);
                     gen_st32(tmp, addr, IS_USER(s));
                 }
-                tcg_gen_addi_i32(addr, addr, 4);
+                tcg_gen_add_i32(addr, addr, tmp2);
             }
+            tcg_temp_free_i32(tmp2);
             if ((insn & (1 << 11)) == 0) {
                 tcg_gen_addi_i32(addr, addr, -offset);
             }
