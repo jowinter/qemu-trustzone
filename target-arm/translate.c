@@ -4260,6 +4260,9 @@ static int disas_neon_data_insn(CPUState * env, DisasContext *s, uint32_t insn)
         default:
             break;
         }
+        if (pairwise && q) {
+            return 1;
+        }
 
         for (pass = 0; pass < (q ? 4 : 2); pass++) {
             if (pairwise) {
