@@ -34,6 +34,8 @@
 #define GEN_HELPER 1
 #include "helpers.h"
 
+//#define RESOURCE_LEAK_DEBUG
+
 #define ENABLE_ARCH_5J    0
 #define ENABLE_ARCH_6     arm_feature(env, ARM_FEATURE_V6)
 #define ENABLE_ARCH_6K   arm_feature(env, ARM_FEATURE_V6K)
@@ -128,21 +130,96 @@ void arm_translate_init(void)
 #include "helpers.h"
 }
 
+#ifdef RESOURCE_LEAK_DEBUG
 static int num_temps;
 
 /* Allocate a temporary variable.  */
-static TCGv_i32 new_tmp(void)
+static inline TCGv_i32 new_tmp(void)
 {
     num_temps++;
     return tcg_temp_new_i32();
 }
 
+static inline TCGv_i32 new_tmplocal32(void)
+{
+    num_temps++;
+    return tcg_temp_local_new_i32();
+}
+
+static inline TCGv new_tmplocal(void)
+{
+    num_temps++;
+    return tcg_temp_local_new();
+}
+
+static inline TCGv_i64 new_tmp64(void)
+{
+    num_temps++;
+    return tcg_temp_new_i64();
+}
+
+static inline TCGv_ptr new_tmpptr(void)
+{
+    num_temps++;
+    return tcg_temp_new_ptr();
+}
+
+static inline TCGv_i32 new_const(uint32_t value)
+{
+    num_temps++;
+    return tcg_const_i32(value);
+}
+
+static inline TCGv_i64 new_const64(uint64_t value)
+{
+    num_temps++;
+    return tcg_const_i64(value);
+}
+
 /* Release a temporary variable.  */
-static void dead_tmp(TCGv tmp)
+static inline void dead_tmp(TCGv tmp)
+{
+    tcg_temp_free_i32(tmp);
+    num_temps--;
+}
+
+static inline void dead_tmp64(TCGv_i64 tmp)
+{
+    tcg_temp_free_i64(tmp);
+    num_temps--;
+}
+
+static inline void dead_tmp_(TCGv tmp)
 {
     tcg_temp_free(tmp);
     num_temps--;
 }
+
+static inline void dead_tmpptr(TCGv_ptr tmp)
+{
+    tcg_temp_free_ptr(tmp);
+    num_temps--;
+}
+
+#undef tcg_temp_local_new
+#undef tcg_temp_new_ptr
+#undef tcg_temp_free
+#undef tcg_temp_free_ptr
+#define tcg_temp_new_i32() new_tmp()
+#define tcg_temp_new_i64() new_tmp64()
+#define tcg_temp_local_new() new_tmplocal()
+#define tcg_temp_local_new_i32() new_tmplocal32()
+#define tcg_temp_new_ptr() new_tmpptr()
+#define tcg_const_i32(x) new_const(x)
+#define tcg_const_i64(x) new_const64(x)
+#define tcg_temp_free(x) dead_tmp_(x)
+#define tcg_temp_free_i32(x) dead_tmp(x)
+#define tcg_temp_free_i64(x) dead_tmp64(x)
+#define tcg_temp_free_ptr(x) dead_tmpptr(x)
+#else // RESOURCE_LEAK_DEBUG
+#define new_tmp() tcg_temp_new_i32()
+#define dead_tmp(x) tcg_temp_free_i32(x)
+#endif // RESOOURCE_LEAK_DEBUG
 
 static inline TCGv load_cpu_offset(int offset)
 {
@@ -8897,9 +8974,12 @@ static inline void gen_intermediate_code_internal(CPUState *env,
     uint32_t next_page_start;
     int num_insns;
     int max_insns;
+#ifdef RESOURCE_LEAK_DEBUG
+    int force_asmdump = 0;
 
     /* generate intermediate code */
     num_temps = 0;
+#endif
 
     pc_start = tb->pc;
 
@@ -8928,6 +9008,9 @@ static inline void gen_intermediate_code_internal(CPUState *env,
     cpu_V1 = cpu_F1d;
     /* FIXME: cpu_M0 can probably be the same as cpu_V0.  */
     cpu_M0 = tcg_temp_new_i64();
+#ifdef RESOURCE_LEAK_DEBUG
+    num_temps = 0; /* to ignore above global temporaries from the count */
+#endif
     next_page_start = (pc_start & TARGET_PAGE_MASK) + TARGET_PAGE_SIZE;
     lj = -1;
     num_insns = 0;
@@ -9041,10 +9124,13 @@ static inline void gen_intermediate_code_internal(CPUState *env,
         } else {
             disas_arm_insn(env, dc);
         }
+#ifdef RESOURCE_LEAK_DEBUG
         if (num_temps) {
             fprintf(stderr, "Internal resource leak before %08x\n", dc->pc);
+            force_asmdump = 1;
             num_temps = 0;
         }
+#endif
 
         if (dc->condjmp && !dc->is_jmp) {
             gen_set_label(dc->condlabel);
@@ -9138,6 +9224,14 @@ done_generating:
     gen_icount_end(tb, num_insns);
     *gen_opc_ptr = INDEX_op_end;
 
+#ifdef RESOURCE_LEAK_DEBUG
+    if (force_asmdump) {
+        fprintf(stderr, "----------------\n");
+        fprintf(stderr, "IN: %s\n", lookup_symbol(pc_start));
+        target_disas(stderr, pc_start, dc->pc - pc_start, env->thumb);
+        fprintf(stderr, "\n");
+    }
+#endif
 #ifdef DEBUG_DISAS
     if (qemu_loglevel_mask(CPU_LOG_TB_IN_ASM)) {
         qemu_log("----------------\n");
