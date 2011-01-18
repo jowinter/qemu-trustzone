@@ -4248,6 +4248,9 @@ static int disas_neon_data_insn(CPUState * env, DisasContext *s, uint32_t insn)
             break;
         case 30: /* VPMIN/VPMAX (float) */
             pairwise = u;
+            if (size & 1) {
+                return 1;
+            }
             break;
         default:
             break;
