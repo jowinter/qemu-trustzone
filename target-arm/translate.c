@@ -5412,15 +5412,19 @@ static int disas_neon_data_insn(CPUState * env, DisasContext *s, uint32_t insn)
                     }
                     break;
                 case 33: /* VTRN */
-                    if (size == 2) {
+                    switch (size) {
+                    case 0: case 1:
+                        goto elementwise;
+                    case 2:
                         for (n = 0; n < (q ? 4 : 2); n += 2) {
                             tmp = neon_load_reg(rm, n);
                             tmp2 = neon_load_reg(rd, n + 1);
                             neon_store_reg(rm, n, tmp2);
                             neon_store_reg(rd, n + 1, tmp);
                         }
-                    } else {
-                        goto elementwise;
+                        break;
+                    default:
+                        return 1;
                     }
                     break;
                 case 34: /* VUZP */
