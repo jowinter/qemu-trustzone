@@ -628,7 +628,6 @@ static int omap3_mmc_fat_boot(BlockDriverState *bs,
         uint8 *data = qemu_mallocz(j);
         if ((i = omap3_read_fat_cluster(data, &drv, i))) {
             boot = omap3_boot_init(mpu, mmc1, data, j);
-            boot->state = imagehdr; /* override CH detection */
             while (omap3_boot_block(data, j, boot))
                 i = omap3_read_fat_cluster(data, &drv, i);
             result = omap3_boot_finish(boot);
