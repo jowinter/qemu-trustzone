@@ -175,6 +175,13 @@ trace_file="trace"
 spice=""
 rbd=""
 
+# If this is a Linaro QEMU tarball then default the pkgversion
+# string to say so, so that we clearly distinguish ourselves
+# from upstream (and can take the blame for bugs).
+if [ -e "$source_path/VERSION.LINARO" ]; then
+    pkgversion=" ($(head "$source_path/VERSION.LINARO"))"
+fi
+
 # parse CC options first
 for opt do
   optarg=`expr "x$opt" : 'x[^=]*=\(.*\)'`
