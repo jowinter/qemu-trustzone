@@ -1,0 +1,27 @@
+Changelog for qemu-linaro
+=========================
+
+Note that this changelog only covers ARM-related changes
+since the previous qemu-linaro release; since we track
+upstream fairly closely there will be various upstream
+changes which we incorporate but which are not listed
+here. For full change detail consult the git history:
+
+ http://git.linaro.org/gitweb?p=qemu/qemu-linaro.git;a=summary
+
+Bug numbers refer to Launchpad qemu-linaro bugs, eg:
+https://bugs.launchpad.net/qemu-linaro/+bug/703094
+
+version 2011.01-0:
+
+ - This initial qemu-linaro release includes all the ARM code generation
+   fixes from the qemu-meego tree; these are mainly Neon related
+ - The OMAP3 support from qemu-meego is also included
+ - Fixes #703094: newer u-boot MMC drivers would fail with
+   "timedout waiting for stat!" message
+ - Fixes #622408: silences spurious "SD: Unknown CMD52" messages
+ - Fixes #704484: newer x-loader images were causing qemu to die
+   immediately with "Trying to execute code outside RAM or ROM"
+ - Fixes #697684: implements missing syscall 341 and ioctl 0xc020660b;
+   these were causing lots of warnings when running newer versions
+   of apt-get under qemu usermode emulation
