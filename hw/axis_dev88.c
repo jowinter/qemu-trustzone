@@ -31,6 +31,7 @@
 #include "loader.h"
 #include "elf.h"
 #include "cris-boot.h"
+#include "blockdev.h"
 
 #define D(x)
 #define DNAND(x)
