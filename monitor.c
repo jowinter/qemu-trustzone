@@ -2511,8 +2511,9 @@ static void do_wav_capture(Monitor *mon, const QDict *qdict)
     nchannels = has_channels ? nchannels : 2;
 
     if (wav_start_capture (s, path, freq, bits, nchannels)) {
-        monitor_printf(mon, "Faied to add wave capture\n");
+        monitor_printf(mon, "Failed to add wave capture\n");
         qemu_free (s);
+        return;
     }
     QLIST_INSERT_HEAD (&capture_head, s, entries);
 }
@@ -4164,7 +4165,7 @@ static const mon_cmd_t *monitor_parse_command(Monitor *mon,
             break;
         case 'o':
             {
-                ssize_t val;
+                int64_t val;
                 char *end;
 
                 while (qemu_isspace(*p)) {

@@ -4090,6 +4090,13 @@ static inline void gen_neon_mull(TCGv_i64 dest, TCGv a, TCGv b, int size, int u)
         break;
     default: abort();
     }
+
+    /* gen_helper_neon_mull_[su]{8|16} do not free their parameters.
+       Don't forget to clean them now.  */
+    if (size < 2) {
+      dead_tmp(a);
+      dead_tmp(b);
+    }
 }
 
 /* Translate a NEON data processing instruction.  Return nonzero if the
@@ -5085,8 +5092,6 @@ static int disas_neon_data_insn(CPUState * env, DisasContext *s, uint32_t insn)
                     case 8: case 9: case 10: case 11: case 12: case 13:
                         /* VMLAL, VQDMLAL, VMLSL, VQDMLSL, VMULL, VQDMULL */
                         gen_neon_mull(cpu_V0, tmp, tmp2, size, u);
-                        dead_tmp(tmp2);
-                        dead_tmp(tmp);
                         break;
                     case 14: /* Polynomial VMULL */
                         gen_helper_neon_mull_p8(cpu_V0, tmp, tmp2);
@@ -5264,6 +5269,10 @@ static int disas_neon_data_insn(CPUState * env, DisasContext *s, uint32_t insn)
                     }
 
                     tmp2 = neon_get_scalar(size, rm);
+                    /* We need a copy of tmp2 because gen_neon_mull
+                     * deletes it during pass 0.  */
+                    tmp4 = new_tmp();
+                    tcg_gen_mov_i32(tmp4, tmp2);
                     tmp3 = neon_load_reg(rn, 1);
 
                     for (pass = 0; pass < 2; pass++) {
@@ -5271,9 +5280,9 @@ static int disas_neon_data_insn(CPUState * env, DisasContext *s, uint32_t insn)
                             tmp = neon_load_reg(rn, 0);
                         } else {
                             tmp = tmp3;
+                            tmp2 = tmp4;
                         }
                         gen_neon_mull(cpu_V0, tmp, tmp2, size, u);
-                        dead_tmp(tmp);
                         if (op == 6) {
                             gen_neon_negl(cpu_V0, size);
                         }
@@ -5303,7 +5312,6 @@ static int disas_neon_data_insn(CPUState * env, DisasContext *s, uint32_t insn)
                         neon_store_reg64(cpu_V0, rd + pass);
                     }
 
-                    dead_tmp(tmp2);
 
                     break;
                 default: /* 14 and 15 are RESERVED */
@@ -6982,27 +6990,23 @@ static void disas_arm_insn(CPUState * env, DisasContext *s)
                             tcg_gen_shli_i32(tmp, tmp, shift);
                         }
                         sh = (insn >> 16) & 0x1f;
-                        if (sh != 0) {
-                            tmp2 = tcg_const_i32(sh);
-                            if (insn & (1 << 22))
-                                gen_helper_usat(tmp, tmp, tmp2);
-                            else
-                                gen_helper_ssat(tmp, tmp, tmp2);
-                            tcg_temp_free_i32(tmp2);
-                        }
+                        tmp2 = tcg_const_i32(sh);
+                        if (insn & (1 << 22))
+                          gen_helper_usat(tmp, tmp, tmp2);
+                        else
+                          gen_helper_ssat(tmp, tmp, tmp2);
+                        tcg_temp_free_i32(tmp2);
                         store_reg(s, rd, tmp);
                     } else if ((insn & 0x00300fe0) == 0x00200f20) {
                         /* [us]sat16 */
                         tmp = load_reg(s, rm);
                         sh = (insn >> 16) & 0x1f;
-                        if (sh != 0) {
-                            tmp2 = tcg_const_i32(sh);
-                            if (insn & (1 << 22))
-                                gen_helper_usat16(tmp, tmp, tmp2);
-                            else
-                                gen_helper_ssat16(tmp, tmp, tmp2);
-                            tcg_temp_free_i32(tmp2);
-                        }
+                        tmp2 = tcg_const_i32(sh);
+                        if (insn & (1 << 22))
+                          gen_helper_usat16(tmp, tmp, tmp2);
+                        else
+                          gen_helper_ssat16(tmp, tmp, tmp2);
+                        tcg_temp_free_i32(tmp2);
                         store_reg(s, rd, tmp);
                     } else if ((insn & 0x00700fe0) == 0x00000fa0) {
                         /* Select bytes.  */

@@ -1477,7 +1477,7 @@ static const VMStateDescription vmstate_pxa2xx_i2c = {
         VMSTATE_UINT8(ibmr, PXA2xxI2CState),
         VMSTATE_UINT8(data, PXA2xxI2CState),
         VMSTATE_STRUCT_POINTER(slave, PXA2xxI2CState,
-                               vmstate_pxa2xx_i2c, PXA2xxI2CSlaveState *),
+                               vmstate_pxa2xx_i2c_slave, PXA2xxI2CSlaveState *),
         VMSTATE_END_OF_LIST()
     }
 };
@@ -2159,7 +2159,7 @@ PXA2xxState *pxa270_init(unsigned int sdram_size, const char *revision)
 
     /* GPIO1 resets the processor */
     /* The handler can be overridden by board-specific code */
-    pxa2xx_gpio_out_set(s->gpio, 1, s->reset);
+    qdev_connect_gpio_out(s->gpio, 1, s->reset);
     return s;
 }
 
@@ -2280,7 +2280,7 @@ PXA2xxState *pxa255_init(unsigned int sdram_size)
 
     /* GPIO1 resets the processor */
     /* The handler can be overridden by board-specific code */
-    pxa2xx_gpio_out_set(s->gpio, 1, s->reset);
+    qdev_connect_gpio_out(s->gpio, 1, s->reset);
     return s;
 }
 
