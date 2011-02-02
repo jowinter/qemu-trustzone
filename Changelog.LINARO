@@ -12,7 +12,15 @@ here. For full change detail consult the git history:
 Bug numbers refer to Launchpad qemu-linaro bugs, eg:
 https://bugs.launchpad.net/qemu-linaro/+bug/703094
 
-version 2011.01-0:
+version 2011.02-0 RC2:
+
+ - Fixes #709711, #711272: compile failure with Ubuntu ARM compiler
+ - Fixes #709965: don't ship binary ROMs without clear license
+ - Update to newer version of upstream trunk
+ - Remove essentially dead code in qemu-lock.h that could cause
+   compile failure on ARM when compiling without optimisation
+
+version 2011.02-0 RC1:
 
  - This initial qemu-linaro release includes all the ARM code generation
    fixes from the qemu-meego tree; these are mainly Neon related
