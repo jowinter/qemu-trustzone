@@ -96,6 +96,35 @@ struct omap3_mmc_s
     int stop;
 };
 
+/* Bit names for STAT/IC/IE registers */
+#define STAT_CC (1 << 0)
+#define STAT_TC (1 << 1)
+#define STAT_BGE (1 << 2)
+#define STAT_BWR (1 << 4)
+#define STAT_BRR (1 << 5)
+#define STAT_CIRQ (1 << 8)
+#define STAT_OBI (1 << 9)
+#define STAT_ERRI (1 << 15)
+#define STAT_CTO (1 << 16)
+#define STAT_CCRC (1 << 17)
+#define STAT_CEB (1 << 18)
+#define STAT_CIE (1 << 19)
+#define STAT_DTO (1 << 20)
+#define STAT_DCRC (1 << 21)
+#define STAT_DEB (1 << 22)
+#define STAT_ACE (1 << 24)
+#define STAT_CERR (1 << 28)
+#define STAT_BADA (1 << 29)
+
+#define STAT_MASK \
+    (STAT_CC|STAT_TC|STAT_BGE| \
+    STAT_BWR|STAT_BRR| \
+    STAT_CIRQ|STAT_OBI| \
+    STAT_ERRI| \
+    STAT_CTO|STAT_CCRC|STAT_CEB|STAT_CIE| \
+    STAT_DTO|STAT_DCRC|STAT_DEB| \
+    STAT_ACE|STAT_CERR|STAT_BADA)
+
 static void omap3_mmc_reset(DeviceState *dev)
 {
     struct omap3_mmc_s *s = FROM_SYSBUS(struct omap3_mmc_s,
@@ -185,7 +214,7 @@ static void omap3_mmc_fifolevel_update(struct omap3_mmc_s *host)
                         state = aborted;
                     else {
                         host->pstate |= 0x0800; /* BRE */
-                        host->stat   |= 0x20;   /* BRR */
+                        host->stat   |= STAT_BRR;
                     }
                 }
             }
@@ -209,7 +238,7 @@ static void omap3_mmc_fifolevel_update(struct omap3_mmc_s *host)
                         state = aborted;
                     else {
                         host->pstate |= 0x0400; /* BWE */
-                        host->stat   |= 0x10;   /* BWR */
+                        host->stat   |= STAT_BWR;
                     }
                 }
             } else
@@ -218,13 +247,13 @@ static void omap3_mmc_fifolevel_update(struct omap3_mmc_s *host)
 
         if ((host->cmd & 1) || state != ongoing) { /* DE */
             host->pstate &= ~0x0c00;               /* BRE | BWE */
-            host->stat &= ~0x30;                   /* BRR | BWR */
+            host->stat &= ~(STAT_BRR | STAT_BWR);
             if (state != ongoing) {
                 TRACE2("transfer %s", 
                        state == ready
                        ? "complete"
                        : "aborted --> complete");
-                host->stat |= 0x2;                 /* TC */
+                host->stat |= STAT_TC;
                 if (host->cmd & 0x04) {            /* ACEN */
                     host->stop = 0x0cc30000;
                     state = aborted;
@@ -325,7 +354,7 @@ static void omap3_mmc_command(struct omap3_mmc_s *s)
            s->blk, s->fifo_start, s->fifo_len);
 
     if ((s->con & 2) && !cmd) { /* INIT and CMD0 */
-        s->stat   |= 0x1;
+        s->stat   |= STAT_CC;
         s->pstate &= 0xfffffffe;
         return;
     }
@@ -392,7 +421,7 @@ static void omap3_mmc_command(struct omap3_mmc_s *s)
                     /* TODO: should this be done for all R1b type
                      * commands with no DP? */
                     if (sd_is_mmc(s->card)) {
-                        s->stat |= 0x2; /* TC */
+                        s->stat |= STAT_TC;
                     }
                     /* fall through */
                 default:
@@ -418,20 +447,20 @@ static void omap3_mmc_command(struct omap3_mmc_s *s)
         /*s->fifo_len = 0;*/
         s->transfer = 0;
         s->pstate &= ~0x0f06;     /* BRE | BWE | RTA | WTA | DLA | DATI */
-        s->stat &= ~0x30;         /* BRR | BWR */
-        s->stat |= 0x2;           /* TC */
+        s->stat &= ~(STAT_BRR | STAT_BWR);
+        s->stat |= STAT_TC;
         qemu_irq_lower(s->dma[0]);
         qemu_irq_lower(s->dma[1]);
     }
     
     if (rspstatus & mask & s->csre) {
-        s->stat |= 1 << 28;  /* CERR */
+        s->stat |= STAT_CERR;
         s->pstate &= ~0x306; /* RTA | WTA | DLA | DATI */
         s->transfer = 0;
     } else {
-        s->stat &= ~(1 << 28);         /* CERR */
+        s->stat &= ~STAT_CERR;
     }
-    s->stat |= timeout ? (1 << 16) : 0x1; /* CTO : CC */
+    s->stat |= timeout ? STAT_CTO : STAT_CC;
 }
 
 static uint32_t omap3_mmc_read(void *opaque, target_phys_addr_t addr)
@@ -482,7 +511,7 @@ static uint32_t omap3_mmc_read(void *opaque, target_phys_addr_t addr)
         case 0x120:
             /* in PIO mode, access allowed only when BRE is set */
             if (!(s->cmd & 1) && !(s->pstate & 0x0800)) {
-                s->stat |= 1 << 29; /* BADA */
+                s->stat |= STAT_BADA;
                 i = 0;
             } else {
                 i = s->fifo[s->fifo_start];
@@ -510,9 +539,9 @@ static uint32_t omap3_mmc_read(void *opaque, target_phys_addr_t addr)
             return s->sysctl;
         case 0x130: /* MMCHS_STAT */
             if (s->stat & 0xffff0000)
-                s->stat |= 1 << 15;    /* ERRI */
+                s->stat |= STAT_ERRI;
             else
-                s->stat &= ~(1 << 15); /* ERRI */
+                s->stat &= ~STAT_ERRI;
             TRACE2("STAT = %08x", s->stat);
             return s->stat;
         case 0x134:
@@ -600,7 +629,7 @@ static void omap3_mmc_write(void *opaque, target_phys_addr_t addr,
         case 0x10c: /* MMCHS_CMD */
             TRACE2("CMD = %08x", value);
             if (!s->card) {
-                s->stat |= (1 << 16); /* CTO */
+                s->stat |= STAT_CTO;
             } else {
                 /* TODO: writing to bits 0-15 should have no effect during
                    an active data transfer */
@@ -620,7 +649,7 @@ static void omap3_mmc_write(void *opaque, target_phys_addr_t addr,
         case 0x120:
             /* in PIO mode, access allowed only when BWE is set */
             if (!(s->cmd & 1) && !(s->pstate & 0x0400)) {
-                s->stat |= 1 << 29; /* BADA */
+                s->stat |= STAT_BADA;
             } else {
                 if (s->fifo_len == 256) {
                     TRACE("FIFO overrun");
@@ -646,7 +675,7 @@ static void omap3_mmc_write(void *opaque, target_phys_addr_t addr,
                 s->data    = 0;
                 s->pstate &= ~0x00000f06; /* BRE, BWE, RTA, WTA, DLA, DATI */
                 s->hctl   &= ~0x00030000; /* SGBR, CR */
-                s->stat   &= ~0x00000034; /* BRR, BWR, BGE */
+                s->stat   &= ~(STAT_BRR|STAT_BWR|STAT_BGE);
                 s->fifo_start = 0;
                 s->fifo_len = 0;
             }
@@ -665,23 +694,26 @@ static void omap3_mmc_write(void *opaque, target_phys_addr_t addr,
             break;
         case 0x130:
             TRACE2("STAT = %08x", value);
-            value = value & 0x317f0237;
+            /* STAT_CIRQ and STAT_ERRI are write-ignored */
+            value = value & (STAT_MASK & ~(STAT_CIRQ|STAT_ERRI));
             s->stat &= ~value;
             omap3_mmc_interrupts_update(s);
             break;
         case 0x134: /* MMCHS_IE */
             TRACE2("IE = %08x", value);
-            if (!(s->con & 0x4000)) /* if CON:OBIE is clear, ignore write to OBI_ENABLE */
-                value = (value & ~0x200) | (s->ie & 0x200);
-            s->ie = value & 0x317f0337;
-            if (!(s->ie & 0x100)) {
-                s->stat &= ~0x100;
+            if (!(s->con & 0x4000)) {
+                /* if CON:OBIE is clear, ignore write to OBI_ENABLE */
+                value = (value & ~STAT_OBI) | (s->ie & STAT_OBI);
+            }
+            s->ie = value & (STAT_MASK & ~STAT_ERRI);
+            if (!(s->ie & STAT_CIRQ)) {
+                s->stat &= ~STAT_CIRQ;
             }
             omap3_mmc_interrupts_update(s);
             break;
         case 0x138:
             TRACE2("ISE = %08x", value);
-            s->ise = value & 0x317f0337;
+            s->ise = value & (STAT_MASK & ~STAT_ERRI);
             omap3_mmc_interrupts_update(s);
             break;
         case 0x140: /* MMCHS_CAPA */
