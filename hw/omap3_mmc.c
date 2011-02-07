@@ -348,6 +348,8 @@ static void omap3_mmc_command(struct omap3_mmc_s *s)
     SDRequest request;
     uint8_t response[16];
     int cmd = (s->cmd >> 24) & 0x3f; /* INDX */
+    int rsptype = (s->cmd >> 16) & 3;
+    int dp = s->cmd & (1 << 21);
     
     TRACE1("%d type=%d rsp=%d arg=0x%08x blk=0x%08x, fifo=%d/%d",
            cmd, (s->cmd >> 22) & 3, (s->cmd >> 16) & 3, s->arg,
@@ -359,7 +361,7 @@ static void omap3_mmc_command(struct omap3_mmc_s *s)
         return;
     }
     
-    if (s->cmd & (1 << 21)) { /* DP */
+    if (dp) {
         s->fifo_start = 0;
         s->fifo_len = 0;
         s->transfer = 1;
@@ -381,7 +383,7 @@ static void omap3_mmc_command(struct omap3_mmc_s *s)
     
     rsplen = sd_do_command(s->card, &request, response);
     
-    switch ((s->cmd >> 16) & 3) { /* RSP_TYPE */
+    switch (rsptype) {
         case sd_nore:
             rsplen = 0;
             break;
@@ -416,14 +418,6 @@ static void omap3_mmc_command(struct omap3_mmc_s *s)
                     mask = 0xe00;
                     rspstatus = (response[2] << 8) | response[3];
                     break;
-                case 5:
-                case 6:
-                    /* TODO: should this be done for all R1b type
-                     * commands with no DP? */
-                    if (sd_is_mmc(s->card)) {
-                        s->stat |= STAT_TC;
-                    }
-                    /* fall through */
                 default:
                     if (cmd == 8 && !sd_is_mmc(s->card)) {
                         /* r7 */
@@ -459,6 +453,15 @@ static void omap3_mmc_command(struct omap3_mmc_s *s)
         s->transfer = 0;
     } else {
         s->stat &= ~STAT_CERR;
+        /* If this is an R1b command with no data transfer and
+         * there wasn't an error, then we have effectively
+         * emulated the command as having a zero length "busy"
+         * response. Set TC to tell the driver the "busy" period
+         * is over.
+         */
+        if (!timeout && !dp && rsptype == sd_48b_bits) {
+            s->stat |= STAT_TC;
+        }
     }
     s->stat |= timeout ? STAT_CTO : STAT_CC;
 }
