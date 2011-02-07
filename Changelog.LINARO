@@ -12,6 +12,10 @@ here. For full change detail consult the git history:
 Bug numbers refer to Launchpad qemu-linaro bugs, eg:
 https://bugs.launchpad.net/qemu-linaro/+bug/703094
 
+version 2011.02-0:
+
+ - There are no changes in this version compared to RC2
+
 version 2011.02-0 RC2:
 
  - Fixes #709711, #711272: compile failure with Ubuntu ARM compiler
