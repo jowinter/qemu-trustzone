@@ -467,55 +467,6 @@ uint32_t HELPER(ror_cc)(uint32_t x, uint32_t i)
     }
 }
 
-uint64_t HELPER(neon_add_saturate_s64)(uint64_t src1, uint64_t src2)
-{
-    uint64_t res;
-
-    res = src1 + src2;
-    if (((res ^ src1) & SIGNBIT64) && !((src1 ^ src2) & SIGNBIT64)) {
-        env->QF = 1;
-        res = ((int64_t)src1 >> 63) ^ ~SIGNBIT64;
-    }
-    return res;
-}
-
-uint64_t HELPER(neon_add_saturate_u64)(uint64_t src1, uint64_t src2)
-{
-    uint64_t res;
-
-    res = src1 + src2;
-    if (res < src1) {
-        env->QF = 1;
-        res = ~(uint64_t)0;
-    }
-    return res;
-}
-
-uint64_t HELPER(neon_sub_saturate_s64)(uint64_t src1, uint64_t src2)
-{
-    uint64_t res;
-
-    res = src1 - src2;
-    if (((res ^ src1) & SIGNBIT64) && ((src1 ^ src2) & SIGNBIT64)) {
-        env->QF = 1;
-        res = ((int64_t)src1 >> 63) ^ ~SIGNBIT64;
-    }
-    return res;
-}
-
-uint64_t HELPER(neon_sub_saturate_u64)(uint64_t src1, uint64_t src2)
-{
-    uint64_t res;
-
-    if (src1 < src2) {
-        env->QF = 1;
-        res = 0;
-    } else {
-        res = src1 - src2;
-    }
-    return res;
-}
-
 void HELPER(neon_vldst_all)(CPUState *env, uint32_t insn)
 {
 #if defined(CONFIG_USER_ONLY)

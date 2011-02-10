@@ -975,7 +975,8 @@ static int qcow2_create2(const char *filename, int64_t total_size,
      */
     BlockDriver* drv = bdrv_find_format("qcow2");
     assert(drv != NULL);
-    ret = bdrv_open(bs, filename, BDRV_O_RDWR | BDRV_O_NO_FLUSH, drv);
+    ret = bdrv_open(bs, filename,
+        BDRV_O_RDWR | BDRV_O_CACHE_WB | BDRV_O_NO_FLUSH, drv);
     if (ret < 0) {
         goto out;
     }
@@ -1082,6 +1083,13 @@ static int qcow2_make_empty(BlockDriverState *bs)
     l2_cache_reset(bs);
 #endif
     return 0;
+}
+
+static int qcow2_discard(BlockDriverState *bs, int64_t sector_num,
+    int nb_sectors)
+{
+    return qcow2_discard_clusters(bs, sector_num << BDRV_SECTOR_BITS,
+        nb_sectors);
 }
 
 static int qcow2_truncate(BlockDriverState *bs, int64_t offset)
@@ -1349,6 +1357,7 @@ static BlockDriver bdrv_qcow2 = {
     .bdrv_aio_writev    = qcow2_aio_writev,
     .bdrv_aio_flush     = qcow2_aio_flush,
 
+    .bdrv_discard           = qcow2_discard,
     .bdrv_truncate          = qcow2_truncate,
     .bdrv_write_compressed  = qcow2_write_compressed,
 
