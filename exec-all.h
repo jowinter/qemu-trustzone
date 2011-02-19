@@ -269,9 +269,29 @@ extern int tb_invalidated_flag;
 
 #if !defined(CONFIG_USER_ONLY)
 
-extern CPUWriteMemoryFunc *io_mem_write[IO_MEM_NB_ENTRIES][4];
-extern CPUReadMemoryFunc *io_mem_read[IO_MEM_NB_ENTRIES][4];
+extern CPUWriteMemoryFunc *io_mem_write_fn[IO_MEM_NB_ENTRIES][4];
+extern CPUReadMemoryFunc *io_mem_read_fn[IO_MEM_NB_ENTRIES][4];
 extern void *io_mem_opaque[IO_MEM_NB_ENTRIES];
+
+#if defined(TARGET_IOMEM_HOOKS)
+/* I/O memory hooks are provided by the target */
+void io_mem_write(int ioindex, int shift, target_phys_addr_t addr, uint32_t value);
+uint32_t io_mem_read(int ioindex, int shift, target_phys_addr_t addr);
+
+#else
+/* No I/O memory hooks, directly use read and write function pointers */
+static inline void io_mem_write(int ioindex, int shift, target_phys_addr_t addr, uint32_t value)
+{
+  io_mem_write_fn[ioindex][shift](io_mem_opaque[ioindex], addr, value);
+}
+
+static inline uint32_t io_mem_read(int ioindex, int shift, target_phys_addr_t addr)
+{
+  return io_mem_read_fn[ioindex][shift](io_mem_opaque[ioindex], addr);
+}
+
+#endif
+
 
 void tlb_fill(target_ulong addr, int is_write, int mmu_idx,
               void *retaddr);
