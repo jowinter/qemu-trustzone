@@ -32,6 +32,7 @@
 #include "boards.h"
 #include "ide.h"
 #include "kvm.h"
+#include "kvmclock.h"
 #include "sysemu.h"
 #include "sysbus.h"
 #include "arch_init.h"
@@ -66,7 +67,8 @@ static void pc_init1(ram_addr_t ram_size,
                      const char *kernel_cmdline,
                      const char *initrd_filename,
                      const char *cpu_model,
-                     int pci_enabled)
+                     int pci_enabled,
+                     int kvmclock_enabled)
 {
     int i;
     ram_addr_t below_4g_mem_size, above_4g_mem_size;
@@ -80,13 +82,14 @@ static void pc_init1(ram_addr_t ram_size,
     qemu_irq *smi_irq;
     IsaIrqState *isa_irq_state;
     DriveInfo *hd[MAX_IDE_BUS * MAX_IDE_DEVS];
-    FDCtrl *floppy_controller;
     BusState *idebus[MAX_IDE_BUS];
     ISADevice *rtc_state;
 
     pc_cpus_init(cpu_model);
 
-    vmport_init();
+    if (kvmclock_enabled) {
+        kvmclock_create();
+    }
 
     /* allocate ram and load rom/bios */
     pc_memory_init(ram_size, kernel_filename, kernel_cmdline, initrd_filename,
@@ -115,7 +118,7 @@ static void pc_init1(ram_addr_t ram_size,
     pc_vga_init(pci_enabled? pci_bus: NULL);
 
     /* init basic PC hardware */
-    pc_basic_device_init(isa_irq, &floppy_controller, &rtc_state);
+    pc_basic_device_init(isa_irq, &rtc_state);
 
     for(i = 0; i < nb_nics; i++) {
         NICInfo *nd = &nd_table[i];
@@ -152,7 +155,7 @@ static void pc_init1(ram_addr_t ram_size,
     audio_init(isa_irq, pci_enabled ? pci_bus : NULL);
 
     pc_cmos_init(below_4g_mem_size, above_4g_mem_size, boot_device,
-                 idebus[0], idebus[1], floppy_controller, rtc_state);
+                 idebus[0], idebus[1], rtc_state);
 
     if (pci_enabled && usb_enabled) {
         usb_uhci_piix3_init(pci_bus, piix3_devfn + 2);
@@ -195,7 +198,19 @@ static void pc_init_pci(ram_addr_t ram_size,
 {
     pc_init1(ram_size, boot_device,
              kernel_filename, kernel_cmdline,
-             initrd_filename, cpu_model, 1);
+             initrd_filename, cpu_model, 1, 1);
+}
+
+static void pc_init_pci_no_kvmclock(ram_addr_t ram_size,
+                                    const char *boot_device,
+                                    const char *kernel_filename,
+                                    const char *kernel_cmdline,
+                                    const char *initrd_filename,
+                                    const char *cpu_model)
+{
+    pc_init1(ram_size, boot_device,
+             kernel_filename, kernel_cmdline,
+             initrd_filename, cpu_model, 1, 0);
 }
 
 static void pc_init_isa(ram_addr_t ram_size,
@@ -209,7 +224,7 @@ static void pc_init_isa(ram_addr_t ram_size,
         cpu_model = "486";
     pc_init1(ram_size, boot_device,
              kernel_filename, kernel_cmdline,
-             initrd_filename, cpu_model, 0);
+             initrd_filename, cpu_model, 0, 1);
 }
 
 static QEMUMachine pc_machine = {
@@ -224,7 +239,7 @@ static QEMUMachine pc_machine = {
 static QEMUMachine pc_machine_v0_13 = {
     .name = "pc-0.13",
     .desc = "Standard PC",
-    .init = pc_init_pci,
+    .init = pc_init_pci_no_kvmclock,
     .max_cpus = 255,
     .compat_props = (GlobalProperty[]) {
         {
@@ -251,7 +266,7 @@ static QEMUMachine pc_machine_v0_13 = {
 static QEMUMachine pc_machine_v0_12 = {
     .name = "pc-0.12",
     .desc = "Standard PC",
-    .init = pc_init_pci,
+    .init = pc_init_pci_no_kvmclock,
     .max_cpus = 255,
     .compat_props = (GlobalProperty[]) {
         {
@@ -282,7 +297,7 @@ static QEMUMachine pc_machine_v0_12 = {
 static QEMUMachine pc_machine_v0_11 = {
     .name = "pc-0.11",
     .desc = "Standard PC, qemu 0.11",
-    .init = pc_init_pci,
+    .init = pc_init_pci_no_kvmclock,
     .max_cpus = 255,
     .compat_props = (GlobalProperty[]) {
         {
@@ -321,7 +336,7 @@ static QEMUMachine pc_machine_v0_11 = {
 static QEMUMachine pc_machine_v0_10 = {
     .name = "pc-0.10",
     .desc = "Standard PC, qemu 0.10",
-    .init = pc_init_pci,
+    .init = pc_init_pci_no_kvmclock,
     .max_cpus = 255,
     .compat_props = (GlobalProperty[]) {
         {

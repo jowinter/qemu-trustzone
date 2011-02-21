@@ -3697,6 +3697,84 @@ static inline TCGv neon_get_scalar(int size, int reg)
     return tmp;
 }
 
+static int gen_neon_unzip(int rd, int rm, int size, int q)
+{
+    TCGv tmp, tmp2;
+    if (size == 3 || (!q && size == 2)) {
+        return 1;
+    }
+    tmp = tcg_const_i32(rd);
+    tmp2 = tcg_const_i32(rm);
+    if (q) {
+        switch (size) {
+        case 0:
+            gen_helper_neon_qunzip8(cpu_env, tmp, tmp2);
+            break;
+        case 1:
+            gen_helper_neon_qunzip16(cpu_env, tmp, tmp2);
+            break;
+        case 2:
+            gen_helper_neon_qunzip32(cpu_env, tmp, tmp2);
+            break;
+        default:
+            abort();
+        }
+    } else {
+        switch (size) {
+        case 0:
+            gen_helper_neon_unzip8(cpu_env, tmp, tmp2);
+            break;
+        case 1:
+            gen_helper_neon_unzip16(cpu_env, tmp, tmp2);
+            break;
+        default:
+            abort();
+        }
+    }
+    tcg_temp_free_i32(tmp);
+    tcg_temp_free_i32(tmp2);
+    return 0;
+}
+
+static int gen_neon_zip(int rd, int rm, int size, int q)
+{
+    TCGv tmp, tmp2;
+    if (size == 3 || (!q && size == 2)) {
+        return 1;
+    }
+    tmp = tcg_const_i32(rd);
+    tmp2 = tcg_const_i32(rm);
+    if (q) {
+        switch (size) {
+        case 0:
+            gen_helper_neon_qzip8(cpu_env, tmp, tmp2);
+            break;
+        case 1:
+            gen_helper_neon_qzip16(cpu_env, tmp, tmp2);
+            break;
+        case 2:
+            gen_helper_neon_qzip32(cpu_env, tmp, tmp2);
+            break;
+        default:
+            abort();
+        }
+    } else {
+        switch (size) {
+        case 0:
+            gen_helper_neon_zip8(cpu_env, tmp, tmp2);
+            break;
+        case 1:
+            gen_helper_neon_zip16(cpu_env, tmp, tmp2);
+            break;
+        default:
+            abort();
+        }
+    }
+    tcg_temp_free_i32(tmp);
+    tcg_temp_free_i32(tmp2);
+    return 0;
+}
+
 static void gen_neon_trn_u8(TCGv t0, TCGv t1)
 {
     TCGv rd, tmp;
@@ -4788,9 +4866,12 @@ static int disas_neon_data_insn(CPUState * env, DisasContext *s, uint32_t insn)
             } else if (op < 10) {
                 /* Shift by immediate and narrow:
                    VSHRN, VRSHRN, VQSHRN, VQSHRUN, VQRSHRN, VQRSHRUN */
+                int input_unsigned = (op == 8) ? !u : u;
+
                 if (rm & 1) {
                     return 1;
                 }
+
                 shift = shift - (1 << (size + 3));
                 size++;
                 switch (size) {
@@ -4818,7 +4899,7 @@ static int disas_neon_data_insn(CPUState * env, DisasContext *s, uint32_t insn)
                     if (size == 3) {
                         neon_load_reg64(cpu_V0, rm + pass);
                         if (q) {
-                            if ((op == 8 && !u) || (op == 9 && u)) {
+                            if (input_unsigned) {
                                 gen_helper_neon_rshl_u64(cpu_V0, cpu_V0,
                                                          tmp64);
                             } else {
@@ -4826,7 +4907,7 @@ static int disas_neon_data_insn(CPUState * env, DisasContext *s, uint32_t insn)
                                                          tmp64);
                             }
                         } else {
-                            if ((op == 8 && !u) || (op == 9 && u)) {
+                            if (input_unsigned) {
                                 gen_helper_neon_shl_u64(cpu_V0, cpu_V0,
                                                         tmp64);
                             } else {
@@ -4837,10 +4918,10 @@ static int disas_neon_data_insn(CPUState * env, DisasContext *s, uint32_t insn)
                     } else {
                         tmp = neon_load_reg(rm + pass, 0);
                         gen_neon_shift_narrow(size, tmp, tmp2, q,
-                                              (op == 8) ? !u : u);
+                                              input_unsigned);
                         tmp3 = neon_load_reg(rm + pass, 1);
                         gen_neon_shift_narrow(size, tmp3, tmp2, q,
-                                              (op == 8) ? !u : u);
+                                              input_unsigned);
                         tcg_gen_concat_i32_i64(cpu_V0, tmp, tmp3);
                         dead_tmp(tmp);
                         dead_tmp(tmp3);
@@ -5120,18 +5201,18 @@ static int disas_neon_data_insn(CPUState * env, DisasContext *s, uint32_t insn)
                     default: /* 15 is RESERVED.  */
                         abort(); /* op == 15 is handled earlier */
                     }
-                    if (op == 5 || op == 13 || (op >= 8 && op <= 11)) {
+                    if (op == 13) {
+                        /* VQDMULL */
+                        gen_neon_addl_saturate(cpu_V0, cpu_V0, size);
+                        neon_store_reg64(cpu_V0, rd + pass);
+                    } else if (op == 5 || (op >= 8 && op <= 11)) {
                         /* Accumulate.  */
-                        if (op == 10) {
-                            gen_neon_negl(cpu_V0, size);
-                        }
-
-                        if (op != 13) {
-                            neon_load_reg64(cpu_V1, rd + pass);
-                        }
-
+                        neon_load_reg64(cpu_V1, rd + pass);
                         switch (op) {
-                        case 5: case 8: case 10: /* VABAL, VMLAL, VMLSL */
+                        case 10: /* VMLSL */
+                            gen_neon_negl(cpu_V0, size);
+                            /* Fall through */
+                        case 5: case 8: /* VABAL, VMLAL */
                             gen_neon_addl(size);
                             break;
                         case 9: case 11: /* VQDMLAL, VQDMLSL */
@@ -5140,9 +5221,6 @@ static int disas_neon_data_insn(CPUState * env, DisasContext *s, uint32_t insn)
                                 gen_neon_negl(cpu_V0, size);
                             }
                             gen_neon_addl_saturate(cpu_V0, cpu_V1, size);
-                            break;
-                        case 13: /* VQDMULL */
-                            gen_neon_addl_saturate(cpu_V0, cpu_V0, size);
                             break;
                         default:
                             abort();
@@ -5302,14 +5380,14 @@ static int disas_neon_data_insn(CPUState * env, DisasContext *s, uint32_t insn)
                             tmp2 = tmp4;
                         }
                         gen_neon_mull(cpu_V0, tmp, tmp2, size, u);
-                        if (op == 6) {
-                            gen_neon_negl(cpu_V0, size);
-                        }
                         if (op != 11) {
                             neon_load_reg64(cpu_V1, rd + pass);
                         }
                         switch (op) {
-                        case 2: case 6:
+                        case 6:
+                            gen_neon_negl(cpu_V0, size);
+                            /* Fall through */
+                        case 2:
                             gen_neon_addl(size);
                             break;
                         case 3: case 7:
@@ -5467,20 +5545,14 @@ static int disas_neon_data_insn(CPUState * env, DisasContext *s, uint32_t insn)
                     }
                     break;
                 case 34: /* VUZP */
-                    if (size == 3 || (!q && size == 2)) {
+                    if (gen_neon_unzip(rd, rm, size, q)) {
                         return 1;
                     }
-                    tmp = tcg_const_i32(insn);
-                    gen_helper_neon_unzip(cpu_env, tmp);
-                    tcg_temp_free_i32(tmp);
                     break;
                 case 35: /* VZIP */
-                    if (size == 3 || (!q && size == 2)) {
+                    if (gen_neon_zip(rd, rm, size, q)) {
                         return 1;
                     }
-                    tmp = tcg_const_i32(insn);
-                    gen_helper_neon_zip(cpu_env, tmp);
-                    tcg_temp_free_i32(tmp);
                     break;
                 case 36: case 37: /* VMOVN, VQMOVUN, VQMOVN */
                     if (size == 3 || (rm & 1)) {
@@ -5534,17 +5606,17 @@ static int disas_neon_data_insn(CPUState * env, DisasContext *s, uint32_t insn)
                     tmp = new_tmp();
                     tmp2 = new_tmp();
                     tcg_gen_ld_f32(cpu_F0s, cpu_env, neon_reg_offset(rm, 0));
-                    gen_helper_vfp_fcvt_f32_to_f16(tmp, cpu_F0s, cpu_env);
+                    gen_helper_neon_fcvt_f32_to_f16(tmp, cpu_F0s, cpu_env);
                     tcg_gen_ld_f32(cpu_F0s, cpu_env, neon_reg_offset(rm, 1));
-                    gen_helper_vfp_fcvt_f32_to_f16(tmp2, cpu_F0s, cpu_env);
+                    gen_helper_neon_fcvt_f32_to_f16(tmp2, cpu_F0s, cpu_env);
                     tcg_gen_shli_i32(tmp2, tmp2, 16);
                     tcg_gen_or_i32(tmp2, tmp2, tmp);
                     tcg_gen_ld_f32(cpu_F0s, cpu_env, neon_reg_offset(rm, 2));
-                    gen_helper_vfp_fcvt_f32_to_f16(tmp, cpu_F0s, cpu_env);
+                    gen_helper_neon_fcvt_f32_to_f16(tmp, cpu_F0s, cpu_env);
                     tcg_gen_ld_f32(cpu_F0s, cpu_env, neon_reg_offset(rm, 3));
                     neon_store_reg(rd, 0, tmp2);
                     tmp2 = new_tmp();
-                    gen_helper_vfp_fcvt_f32_to_f16(tmp2, cpu_F0s, cpu_env);
+                    gen_helper_neon_fcvt_f32_to_f16(tmp2, cpu_F0s, cpu_env);
                     tcg_gen_shli_i32(tmp2, tmp2, 16);
                     tcg_gen_or_i32(tmp2, tmp2, tmp);
                     neon_store_reg(rd, 1, tmp2);
@@ -5559,17 +5631,17 @@ static int disas_neon_data_insn(CPUState * env, DisasContext *s, uint32_t insn)
                     tmp = neon_load_reg(rm, 0);
                     tmp2 = neon_load_reg(rm, 1);
                     tcg_gen_ext16u_i32(tmp3, tmp);
-                    gen_helper_vfp_fcvt_f16_to_f32(cpu_F0s, tmp3, cpu_env);
+                    gen_helper_neon_fcvt_f16_to_f32(cpu_F0s, tmp3, cpu_env);
                     tcg_gen_st_f32(cpu_F0s, cpu_env, neon_reg_offset(rd, 0));
                     tcg_gen_shri_i32(tmp3, tmp, 16);
-                    gen_helper_vfp_fcvt_f16_to_f32(cpu_F0s, tmp3, cpu_env);
+                    gen_helper_neon_fcvt_f16_to_f32(cpu_F0s, tmp3, cpu_env);
                     tcg_gen_st_f32(cpu_F0s, cpu_env, neon_reg_offset(rd, 1));
                     dead_tmp(tmp);
                     tcg_gen_ext16u_i32(tmp3, tmp2);
-                    gen_helper_vfp_fcvt_f16_to_f32(cpu_F0s, tmp3, cpu_env);
+                    gen_helper_neon_fcvt_f16_to_f32(cpu_F0s, tmp3, cpu_env);
                     tcg_gen_st_f32(cpu_F0s, cpu_env, neon_reg_offset(rd, 2));
                     tcg_gen_shri_i32(tmp3, tmp2, 16);
-                    gen_helper_vfp_fcvt_f16_to_f32(cpu_F0s, tmp3, cpu_env);
+                    gen_helper_neon_fcvt_f16_to_f32(cpu_F0s, tmp3, cpu_env);
                     tcg_gen_st_f32(cpu_F0s, cpu_env, neon_reg_offset(rd, 3));
                     dead_tmp(tmp2);
                     dead_tmp(tmp3);

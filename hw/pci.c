@@ -1708,6 +1708,21 @@ PCIDevice *pci_create_multifunction(PCIBus *bus, int devfn, bool multifunction,
     return DO_UPCAST(PCIDevice, qdev, dev);
 }
 
+PCIDevice *pci_try_create_multifunction(PCIBus *bus, int devfn,
+                                        bool multifunction,
+                                        const char *name)
+{
+    DeviceState *dev;
+
+    dev = qdev_try_create(&bus->qbus, name);
+    if (!dev) {
+        return NULL;
+    }
+    qdev_prop_set_uint32(dev, "addr", devfn);
+    qdev_prop_set_bit(dev, "multifunction", multifunction);
+    return DO_UPCAST(PCIDevice, qdev, dev);
+}
+
 PCIDevice *pci_create_simple_multifunction(PCIBus *bus, int devfn,
                                            bool multifunction,
                                            const char *name)
@@ -1725,6 +1740,11 @@ PCIDevice *pci_create(PCIBus *bus, int devfn, const char *name)
 PCIDevice *pci_create_simple(PCIBus *bus, int devfn, const char *name)
 {
     return pci_create_simple_multifunction(bus, devfn, false, name);
+}
+
+PCIDevice *pci_try_create(PCIBus *bus, int devfn, const char *name)
+{
+    return pci_try_create_multifunction(bus, devfn, false, name);
 }
 
 static int pci_find_space(PCIDevice *pdev, uint8_t size)
@@ -1855,6 +1875,7 @@ static int pci_add_option_rom(PCIDevice *pdev, bool is_default_rom)
     if (size < 0) {
         error_report("%s: failed to find romfile \"%s\"",
                      __FUNCTION__, pdev->romfile);
+        qemu_free(path);
         return -1;
     }
     if (size & (size - 1)) {

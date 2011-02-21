@@ -28,7 +28,6 @@
 #include "vga_int.h"
 #include "pixel_ops.h"
 #include "qemu-timer.h"
-#include "kvm.h"
 
 //#define DEBUG_VGA
 //#define DEBUG_VGA_MEM
@@ -1573,34 +1572,36 @@ static void vga_sync_dirty_bitmap(VGACommonState *s)
 
 void vga_dirty_log_start(VGACommonState *s)
 {
-    if (kvm_enabled() && s->map_addr)
-        kvm_log_start(s->map_addr, s->map_end - s->map_addr);
+    if (s->map_addr) {
+        cpu_physical_log_start(s->map_addr, s->map_end - s->map_addr);
+    }
 
-    if (kvm_enabled() && s->lfb_vram_mapped) {
-        kvm_log_start(isa_mem_base + 0xa0000, 0x8000);
-        kvm_log_start(isa_mem_base + 0xa8000, 0x8000);
+    if (s->lfb_vram_mapped) {
+        cpu_physical_log_start(isa_mem_base + 0xa0000, 0x8000);
+        cpu_physical_log_start(isa_mem_base + 0xa8000, 0x8000);
     }
 
 #ifdef CONFIG_BOCHS_VBE
-    if (kvm_enabled() && s->vbe_mapped) {
-        kvm_log_start(VBE_DISPI_LFB_PHYSICAL_ADDRESS, s->vram_size);
+    if (s->vbe_mapped) {
+        cpu_physical_log_start(VBE_DISPI_LFB_PHYSICAL_ADDRESS, s->vram_size);
     }
 #endif
 }
 
 void vga_dirty_log_stop(VGACommonState *s)
 {
-    if (kvm_enabled() && s->map_addr)
-	kvm_log_stop(s->map_addr, s->map_end - s->map_addr);
+    if (s->map_addr) {
+        cpu_physical_log_stop(s->map_addr, s->map_end - s->map_addr);
+    }
 
-    if (kvm_enabled() && s->lfb_vram_mapped) {
-	kvm_log_stop(isa_mem_base + 0xa0000, 0x8000);
-	kvm_log_stop(isa_mem_base + 0xa8000, 0x8000);
+    if (s->lfb_vram_mapped) {
+        cpu_physical_log_stop(isa_mem_base + 0xa0000, 0x8000);
+        cpu_physical_log_stop(isa_mem_base + 0xa8000, 0x8000);
     }
 
 #ifdef CONFIG_BOCHS_VBE
-    if (kvm_enabled() && s->vbe_mapped) {
-	kvm_log_stop(VBE_DISPI_LFB_PHYSICAL_ADDRESS, s->vram_size);
+    if (s->vbe_mapped) {
+        cpu_physical_log_stop(VBE_DISPI_LFB_PHYSICAL_ADDRESS, s->vram_size);
     }
 #endif
 }
@@ -2259,12 +2260,8 @@ void vga_common_init(VGACommonState *s, int vga_ram_size)
 }
 
 /* used by both ISA and PCI */
-void vga_init(VGACommonState *s)
+int vga_init_io(VGACommonState *s)
 {
-    int vga_io_memory;
-
-    qemu_register_reset(vga_reset, s);
-
     register_ioport_write(0x3c0, 16, 1, vga_ioport_write, s);
 
     register_ioport_write(0x3b4, 2, 1, vga_ioport_write, s);
@@ -2278,7 +2275,6 @@ void vga_init(VGACommonState *s)
     register_ioport_read(0x3d4, 2, 1, vga_ioport_read, s);
     register_ioport_read(0x3ba, 1, 1, vga_ioport_read, s);
     register_ioport_read(0x3da, 1, 1, vga_ioport_read, s);
-    s->bank_offset = 0;
 
 #ifdef CONFIG_BOCHS_VBE
 #if defined (TARGET_I386)
@@ -2296,8 +2292,19 @@ void vga_init(VGACommonState *s)
 #endif
 #endif /* CONFIG_BOCHS_VBE */
 
-    vga_io_memory = cpu_register_io_memory(vga_mem_read, vga_mem_write, s,
-                                           DEVICE_LITTLE_ENDIAN);
+    return cpu_register_io_memory(vga_mem_read, vga_mem_write, s,
+                                  DEVICE_LITTLE_ENDIAN);
+}
+
+void vga_init(VGACommonState *s)
+{
+    int vga_io_memory;
+
+    qemu_register_reset(vga_reset, s);
+
+    s->bank_offset = 0;
+
+    vga_io_memory = vga_init_io(s);
     cpu_register_physical_memory(isa_mem_base + 0x000a0000, 0x20000,
                                  vga_io_memory);
     qemu_register_coalesced_mmio(isa_mem_base + 0x000a0000, 0x20000);

@@ -649,6 +649,32 @@ void cpu_exec_init(CPUState *env)
 #endif
 }
 
+/* Allocate a new translation block. Flush the translation buffer if
+   too many translation blocks or too much generated code. */
+static TranslationBlock *tb_alloc(target_ulong pc)
+{
+    TranslationBlock *tb;
+
+    if (nb_tbs >= code_gen_max_blocks ||
+        (code_gen_ptr - code_gen_buffer) >= code_gen_buffer_max_size)
+        return NULL;
+    tb = &tbs[nb_tbs++];
+    tb->pc = pc;
+    tb->cflags = 0;
+    return tb;
+}
+
+void tb_free(TranslationBlock *tb)
+{
+    /* In practice this is mostly used for single use temporary TB
+       Ignore the hard cases and just back up if this TB happens to
+       be the last one generated.  */
+    if (nb_tbs > 0 && tb == &tbs[nb_tbs - 1]) {
+        code_gen_ptr = tb->tc_ptr;
+        nb_tbs--;
+    }
+}
+
 static inline void invalidate_page_bitmap(PageDesc *p)
 {
     if (p->code_bitmap) {
@@ -1224,32 +1250,6 @@ static inline void tb_alloc_page(TranslationBlock *tb,
 #endif
 
 #endif /* TARGET_HAS_SMC */
-}
-
-/* Allocate a new translation block. Flush the translation buffer if
-   too many translation blocks or too much generated code. */
-TranslationBlock *tb_alloc(target_ulong pc)
-{
-    TranslationBlock *tb;
-
-    if (nb_tbs >= code_gen_max_blocks ||
-        (code_gen_ptr - code_gen_buffer) >= code_gen_buffer_max_size)
-        return NULL;
-    tb = &tbs[nb_tbs++];
-    tb->pc = pc;
-    tb->cflags = 0;
-    return tb;
-}
-
-void tb_free(TranslationBlock *tb)
-{
-    /* In practice this is mostly used for single use temporary TB
-       Ignore the hard cases and just back up if this TB happens to
-       be the last one generated.  */
-    if (nb_tbs > 0 && tb == &tbs[nb_tbs - 1]) {
-        code_gen_ptr = tb->tc_ptr;
-        nb_tbs--;
-    }
 }
 
 /* add a new TB and link it to the physical page tables. phys_page2 is
@@ -2076,6 +2076,36 @@ int cpu_physical_sync_dirty_bitmap(target_phys_addr_t start_addr,
 
     ret = cpu_notify_sync_dirty_bitmap(start_addr, end_addr);
     return ret;
+}
+
+int cpu_physical_log_start(target_phys_addr_t start_addr,
+                           ram_addr_t size)
+{
+    CPUPhysMemoryClient *client;
+    QLIST_FOREACH(client, &memory_client_list, list) {
+        if (client->log_start) {
+            int r = client->log_start(client, start_addr, size);
+            if (r < 0) {
+                return r;
+            }
+        }
+    }
+    return 0;
+}
+
+int cpu_physical_log_stop(target_phys_addr_t start_addr,
+                          ram_addr_t size)
+{
+    CPUPhysMemoryClient *client;
+    QLIST_FOREACH(client, &memory_client_list, list) {
+        if (client->log_stop) {
+            int r = client->log_stop(client, start_addr, size);
+            if (r < 0) {
+                return r;
+            }
+        }
+    }
+    return 0;
 }
 
 static inline void tlb_update_dirty(CPUTLBEntry *tlb_entry)
