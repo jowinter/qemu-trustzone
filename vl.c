@@ -221,6 +221,7 @@ const char *watchdog;
 QEMUOptionRom option_rom[MAX_OPTION_ROMS];
 int nb_option_roms;
 int semihosting_enabled = 0;
+int semihosting_unhosted_smc = 0;
 int old_param = 0;
 const char *qemu_name;
 int alt_grab = 0;
@@ -2808,6 +2809,9 @@ int main(int argc, char **argv, char **envp)
 		break;
             case QEMU_OPTION_semihosting:
                 semihosting_enabled = 1;
+                break;
+            case QEMU_OPTION_unhosted_smc:
+                semihosting_unhosted_smc = 1;
                 break;
             case QEMU_OPTION_name:
                 qemu_name = qemu_strdup(optarg);

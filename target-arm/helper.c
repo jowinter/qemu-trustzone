@@ -669,6 +669,7 @@ uint32_t HELPER(get_r13_banked)(CPUState *env, uint32_t mode)
 #else
 
 extern int semihosting_enabled;
+extern int semihosting_unhosted_smc;
 
 /* Map CPU modes onto saved register banks.  */
 static inline int bank_number (int mode)
@@ -951,7 +952,7 @@ void do_interrupt(CPUARMState *env)
         break;
 #if defined(TARGET_HAS_TRUSTZONE)
     case EXCP_SMC:
-        if (semihosting_enabled) {
+        if (semihosting_enabled && !semihosting_unhosted_smc) {
             cpu_abort(env, "SMC handling under semihosting not implemented\n");
             return;
         }

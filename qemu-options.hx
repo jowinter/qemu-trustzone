@@ -2398,6 +2398,14 @@ STEXI
 @findex -semihosting
 Semihosting mode (ARM, M68K only).
 ETEXI
+DEF("unhosted-smc", 0, QEMU_OPTION_unhosted_smc,
+    "-unhosted-smc   disable semihosting for secure monitor calls\n",
+     QEMU_ARCH_ARM)
+STEXI
+@item -unhosted-smc
+@findex -unhosted-smc
+Disable semihosting for secure monitor calls (ARM with TrustZone only)
+ETEXI
 DEF("old-param", 0, QEMU_OPTION_old_param,
     "-old-param      old param mode\n", QEMU_ARCH_ARM)
 STEXI
