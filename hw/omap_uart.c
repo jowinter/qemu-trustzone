@@ -122,8 +122,10 @@ static uint32_t omap_uart_read(void *opaque, target_phys_addr_t addr)
         if (s->access_mode == regs_config_b) {
             return s->xon[(addr & 7) >> 2];
         } else if (addr == 0x10) {
-            return s->serial_read[0](s->serial, addr)
-                   | (s->mcr_cache & 0xe0);
+            /* MCR. Bits 5 and 6 are handled by us, the rest by
+             * the underlying serial implementation.
+             */
+            return s->serial_read[0](s->serial, addr) | s->mcr_cache;
         }
         return s->serial_read[0](s->serial, addr);
     case 0x18:
@@ -212,7 +214,12 @@ static void omap_uart_write(void *opaque, target_phys_addr_t addr,
             s->xon[(addr & 7) >> 2] = value;
         } else {
             if (addr == 0x10) {
-                s->mcr_cache = value & 0x7f;
+                /* Bits 5 and 6 are handled at this level; they can
+                 * only be written if EFR_REG:ENHANCED_EN is set.
+                 */
+                if (s->efr & 0x10) {
+                    s->mcr_cache = value & 0x60;
+                }
             }
             s->serial_write[0](s->serial, addr, value);
         }
