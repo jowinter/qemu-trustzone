@@ -24,13 +24,18 @@
 #include "pc.h"
 #include "sysbus.h"
 
-/* The OMAP UART functionality is similar to the TI16C752 rather than
- * the 16550A. When the flag below is enabled, the code will however
- * offer 'only' the basic 16550A emulation. */
-/* TODO: real functionality for the TI16C752 enhanced features. Note
- * QEMU's SerialState emulation internally always uses a 16-byte FIFO
- * whereas we would need a 64-byte FIFO for OMAP. */
-#define OMAP_UART_16550A
+/* The OMAP UART functionality is similar to the TI16C752; it is
+ * an enhanced version of the 16550A and we piggy-back on the 16550
+ * model.
+ *
+ * Currently unmodelled functionality:
+ *  + We should have a 64 byte FIFO but QEMU's SerialState emulation
+ *    always uses a 16 byte FIFO
+ *  + DMA
+ *  + interrupts based on TCR/TLR values
+ *  + XON/XOFF flow control
+ *  + UASR auto-baudrate-detection
+ */
 
 struct omap_uart_s {
     SysBusDevice busdev;
@@ -55,13 +60,11 @@ struct omap_uart_s {
     uint8_t blr;
     uint8_t acreg;
 
-#ifndef OMAP_UART_16550A
     uint8_t mcr_cache;
     uint8_t efr;
     uint8_t tcr;
     uint8_t tlr;
     uint8_t xon[2], xoff[2];
-#endif
 };
 
 static void omap_uart_reset(DeviceState *qdev)
@@ -77,14 +80,12 @@ static void omap_uart_reset(DeviceState *qdev)
     s->acreg = 0;
     s->lcr_cache = 0;
 
-#ifndef OMAP_UART_16550A
     s->mcr_cache = 0;
     s->tcr = 0x0f;
     s->tlr = 0;
     s->efr = 0;
     s->xon[0] = s->xon[1] = 0;
     s->xoff[0] = s->xoff[1] = 0;
-#endif
 }
 
 static uint32_t omap_uart_read(void *opaque, target_phys_addr_t addr)
@@ -98,33 +99,27 @@ static uint32_t omap_uart_read(void *opaque, target_phys_addr_t addr)
     case 0x0c:
         return s->serial_read[0](s->serial, addr);
     case 0x08:
-#ifndef OMAP_UART_16550A
         if (s->lcr_cache == 0xbf) {
             return s->efr;
         }
-#endif
         return s->serial_read[0](s->serial, addr);
     case 0x10:
     case 0x14:
-#ifndef OMAP_UART_16550A
         if (s->lcr_cache == 0xbf) {
             return s->xon[(addr & 7) >> 2];
         } else if (addr == 0x10) {
             return s->serial_read[0](s->serial, addr)
                    | (s->mcr_cache & 0xe0);
         }
-#endif
         return s->serial_read[0](s->serial, addr);
     case 0x18:
     case 0x1c:
-#ifndef OMAP_UART_16550A
         if ((s->efr & 0x10) && (s->mcr_cache & 0x40)) {
             return (addr == 0x18) ? s->tcr : s->tlr;
         }
         if (s->lcr_cache == 0xbf) {
             return s->xoff[(addr & 7) >> 2];
         }
-#endif
         return s->serial_read[0](s->serial, addr);
     case 0x20:	/* MDR1 */
         return s->mdr[0];
@@ -181,12 +176,11 @@ static void omap_uart_write(void *opaque, target_phys_addr_t addr,
         s->serial_write[0](s->serial, addr, value);
         break;
     case 0x08:
-#ifndef OMAP_UART_16550A
         if (s->lcr_cache == 0xbf) {
             s->efr = value;
-        } else
-#endif
-        s->serial_write[0](s->serial, addr, value);
+        } else {
+            s->serial_write[0](s->serial, addr, value);
+        }
         break;
     case 0x0c:
         s->lcr_cache = value;
@@ -194,22 +188,17 @@ static void omap_uart_write(void *opaque, target_phys_addr_t addr,
         break;
     case 0x10:
     case 0x14:
-#ifndef OMAP_UART_16550A
         if (s->lcr_cache == 0xbf) {
             s->xon[(addr & 7) >> 2] = value;
         } else {
             if (addr == 0x10) {
                 s->mcr_cache = value & 0x7f;
             }
-#endif
-        s->serial_write[0](s->serial, addr, value);
-#ifndef OMAP_UART_16550A
+            s->serial_write[0](s->serial, addr, value);
         }
-#endif
         break;
     case 0x18:
     case 0x1c:
-#ifndef OMAP_UART_16550A
         if ((s->efr & 0x10) && (s->mcr_cache & 0x40)) {
             if (addr == 0x18) {
                 s->tcr = value & 0xff;
@@ -218,9 +207,9 @@ static void omap_uart_write(void *opaque, target_phys_addr_t addr,
             }
         } else if (s->lcr_cache == 0xbf) {
             s->xoff[(addr & 7) >> 2] = value;
-        } else
-#endif
-        s->serial_write[0](s->serial, addr, value);
+        } else {
+            s->serial_write[0](s->serial, addr, value);
+        }
         break;
     case 0x20:	/* MDR1 */
         s->mdr[0] = value & 0x7f;
