@@ -1343,6 +1343,7 @@ static sd_rsp_type_t sd_app_command(SDState *sd,
     case 13:	/* ACMD13: SD_STATUS */
         switch (sd->state) {
         case sd_transfer_state:
+            sd->state = sd_sendingdata_state;
             sd->data_start = 0;
             sd->data_offset = 0;
             return sd_r1;
@@ -1357,6 +1358,7 @@ static sd_rsp_type_t sd_app_command(SDState *sd,
         case sd_transfer_state:
             *(uint32_t *) sd->data = sd->blk_written;
 
+            sd->state = sd_sendingdata_state;
             sd->data_start = 0;
             sd->data_offset = 0;
             return sd_r1;
