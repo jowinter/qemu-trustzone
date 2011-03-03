@@ -72,26 +72,6 @@ static const struct {
 static int tight_send_framebuffer_update(VncState *vs, int x, int y,
                                          int w, int h);
 
-#ifdef CONFIG_VNC_JPEG
-static const struct {
-    double jpeg_freq_min;       /* Don't send JPEG if the freq is bellow */
-    double jpeg_freq_threshold; /* Always send JPEG if the freq is above */
-    int jpeg_idx;               /* Allow indexed JPEG */
-    int jpeg_full;              /* Allow full color JPEG */
-} tight_jpeg_conf[] = {
-    { 0,   8,  1, 1 },
-    { 0,   8,  1, 1 },
-    { 0,   8,  1, 1 },
-    { 0,   8,  1, 1 },
-    { 0,   10, 1, 1 },
-    { 0.1, 10, 1, 1 },
-    { 0.2, 10, 1, 1 },
-    { 0.3, 12, 0, 0 },
-    { 0.4, 14, 0, 0 },
-    { 0.5, 16, 0, 0 },
-};
-#endif
-
 #ifdef CONFIG_VNC_PNG
 static const struct {
     int png_zlib_level, png_filters;
@@ -1496,13 +1476,12 @@ static int send_sub_rect_nojpeg(VncState *vs, int x, int y, int w, int h,
 #ifdef CONFIG_VNC_JPEG
 static int send_sub_rect_jpeg(VncState *vs, int x, int y, int w, int h,
                               int bg, int fg, int colors,
-                              VncPalette *palette, bool force)
+                              VncPalette *palette)
 {
     int ret;
 
     if (colors == 0) {
-        if (force || (tight_jpeg_conf[vs->tight.quality].jpeg_full &&
-                      tight_detect_smooth_image(vs, w, h))) {
+        if (tight_detect_smooth_image(vs, w, h)) {
             int quality = tight_conf[vs->tight.quality].jpeg_quality;
 
             ret = send_jpeg_rect(vs, x, y, w, h, quality);
@@ -1514,9 +1493,8 @@ static int send_sub_rect_jpeg(VncState *vs, int x, int y, int w, int h,
     } else if (colors == 2) {
         ret = send_mono_rect(vs, x, y, w, h, bg, fg);
     } else if (colors <= 256) {
-        if (force || (colors > 96 &&
-                      tight_jpeg_conf[vs->tight.quality].jpeg_idx &&
-                      tight_detect_smooth_image(vs, w, h))) {
+        if (colors > 96 &&
+            tight_detect_smooth_image(vs, w, h)) {
             int quality = tight_conf[vs->tight.quality].jpeg_quality;
 
             ret = send_jpeg_rect(vs, x, y, w, h, quality);
@@ -1536,10 +1514,6 @@ static int send_sub_rect(VncState *vs, int x, int y, int w, int h)
     uint32_t bg = 0, fg = 0;
     int colors;
     int ret = 0;
-#ifdef CONFIG_VNC_JPEG
-    bool force_jpeg = false;
-    bool allow_jpeg = true;
-#endif
 
     vnc_framebuffer_update(vs, x, y, w, h, vs->tight.type);
 
@@ -1547,26 +1521,11 @@ static int send_sub_rect(VncState *vs, int x, int y, int w, int h)
     vnc_raw_send_framebuffer_update(vs, x, y, w, h);
     vnc_tight_stop(vs);
 
-#ifdef CONFIG_VNC_JPEG
-    if (!vs->vd->non_adaptive && vs->tight.quality != (uint8_t)-1) {
-        double freq = vnc_update_freq(vs, x, y, w, h);
-
-        if (freq < tight_jpeg_conf[vs->tight.quality].jpeg_freq_min) {
-            allow_jpeg = false;
-        }
-        if (freq >= tight_jpeg_conf[vs->tight.quality].jpeg_freq_threshold) {
-            force_jpeg = true;
-            vnc_sent_lossy_rect(vs, x, y, w, h);
-        }
-    }
-#endif
-
     colors = tight_fill_palette(vs, x, y, w * h, &fg, &bg, &palette);
 
 #ifdef CONFIG_VNC_JPEG
-    if (allow_jpeg && vs->tight.quality != (uint8_t)-1) {
-        ret = send_sub_rect_jpeg(vs, x, y, w, h, bg, fg, colors, palette,
-                                 force_jpeg);
+    if (vs->tight.quality != (uint8_t)-1) {
+        ret = send_sub_rect_jpeg(vs, x, y, w, h, bg, fg, colors, palette);
     } else {
         ret = send_sub_rect_nojpeg(vs, x, y, w, h, bg, fg, colors, palette);
     }
@@ -1589,8 +1548,7 @@ static int send_sub_rect_solid(VncState *vs, int x, int y, int w, int h)
     return send_solid_rect(vs);
 }
 
-static int send_rect_simple(VncState *vs, int x, int y, int w, int h,
-                            bool split)
+static int send_rect_simple(VncState *vs, int x, int y, int w, int h)
 {
     int max_size, max_width;
     int max_sub_width, max_sub_height;
@@ -1601,7 +1559,7 @@ static int send_rect_simple(VncState *vs, int x, int y, int w, int h,
     max_size = tight_conf[vs->tight.compression].max_rect_size;
     max_width = tight_conf[vs->tight.compression].max_rect_width;
 
-    if (split && (w > max_width || w * h > max_size)) {
+    if (w > max_width || w * h > max_size) {
         max_sub_width = (w > max_width) ? max_width : w;
         max_sub_height = max_size / max_sub_width;
 
@@ -1632,7 +1590,7 @@ static int find_large_solid_color_rect(VncState *vs, int x, int y,
         /* If a rectangle becomes too large, send its upper part now. */
 
         if (dy - y >= max_rows) {
-            n += send_rect_simple(vs, x, y, w, max_rows, true);
+            n += send_rect_simple(vs, x, y, w, max_rows);
             y += max_rows;
             h -= max_rows;
         }
@@ -1671,7 +1629,7 @@ static int find_large_solid_color_rect(VncState *vs, int x, int y,
             /* Send rectangles at top and left to solid-color area. */
 
             if (y_best != y) {
-                n += send_rect_simple(vs, x, y, w, y_best-y, true);
+                n += send_rect_simple(vs, x, y, w, y_best-y);
             }
             if (x_best != x) {
                 n += tight_send_framebuffer_update(vs, x, y_best,
@@ -1698,7 +1656,7 @@ static int find_large_solid_color_rect(VncState *vs, int x, int y,
             return n;
         }
     }
-    return n + send_rect_simple(vs, x, y, w, h, true);
+    return n + send_rect_simple(vs, x, y, w, h);
 }
 
 static int tight_send_framebuffer_update(VncState *vs, int x, int y,
@@ -1713,19 +1671,8 @@ static int tight_send_framebuffer_update(VncState *vs, int x, int y,
         vs->tight.pixel24 = false;
     }
 
-#ifdef CONFIG_VNC_JPEG
-    if (vs->tight.quality != (uint8_t)-1) {
-        double freq = vnc_update_freq(vs, x, y, w, h);
-
-        if (freq > tight_jpeg_conf[vs->tight.quality].jpeg_freq_threshold) {
-            return send_rect_simple(vs, x, y, w, h, false);
-        }
-    }
-#endif
-
-    if (w * h < VNC_TIGHT_MIN_SPLIT_RECT_SIZE) {
-        return send_rect_simple(vs, x, y, w, h, true);
-    }
+    if (w * h < VNC_TIGHT_MIN_SPLIT_RECT_SIZE)
+        return send_rect_simple(vs, x, y, w, h);
 
     /* Calculate maximum number of rows in one non-solid rectangle. */
 
