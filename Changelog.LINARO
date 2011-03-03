@@ -12,6 +12,23 @@ here. For full change detail consult the git history:
 Bug numbers refer to Launchpad qemu-linaro bugs, eg:
 https://bugs.launchpad.net/qemu-linaro/+bug/703094
 
+version 2011.03-0:
+
+ - Introduces a model of the ARM Versatile Express with
+   Cortex-A9MPx4 daughterboard ("vexpress-a9")
+ - Fixes #644961: linux-user mode now supports epoll syscalls
+ - Fixes #721801: linux-user mode llseek on 64 bit hosts no longer
+   truncates the returned  seek position to 32 bits
+ - Fixes #714600: OMAP3 UARTs now handle the extensions beyond
+   16550A compatibility; in particular Linux images using the
+   omap-hsuart driver can now boot to a shell prompt
+ - Fixes #714606: an SD card model bug was causing spurious
+   "not in Sending-Data state" messages on OMAP3
+ - Fixes #716336: should now compile on SPARC
+ - Fixes #713101: the OMAP3 MMC model no longer causes Linux
+   to hang if it tries to enable a swapfile
+ - Has a number of minor ARM instruction correctness fixes
+
 version 2011.02-0:
 
  - There are no changes in this version compared to RC2
