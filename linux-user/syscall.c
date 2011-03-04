@@ -7723,6 +7723,10 @@ abi_long do_syscall(void *cpu_env, int num, abi_long arg1,
     }
 #endif
 #endif
+#ifdef TARGET_NR_prlimit64
+    case TARGET_NR_prlimit64:
+	    goto unimplemented_nowarn;
+#endif
     default:
     unimplemented:
         gemu_log("qemu: Unsupported syscall: %d\n", num);
