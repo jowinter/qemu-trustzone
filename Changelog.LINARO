@@ -28,6 +28,10 @@ version 2011.03-0:
  - Fixes #713101: the OMAP3 MMC model no longer causes Linux
    to hang if it tries to enable a swapfile
  - Has a number of minor ARM instruction correctness fixes
+ - Partial fix for #728630: linux-user mode now has a dummy
+   implementation of prlimit64 to silence the warnings when
+   running newer versions of apt, pending a proper implementation
+   of this syscall.
 
 version 2011.02-0:
 
