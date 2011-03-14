@@ -44,6 +44,7 @@ void cpu_save(QEMUFile *f, void *opaque)
     }
     qemu_put_be32(f, env->cp15.c6_insn);
     qemu_put_be32(f, env->cp15.c6_data);
+    qemu_put_be32(f, env->cp15.c7_par);
     qemu_put_be32(f, env->cp15.c9_insn);
     qemu_put_be32(f, env->cp15.c9_data);
     qemu_put_be32(f, env->cp15.c9_pmcr_data);
@@ -159,6 +160,7 @@ int cpu_load(QEMUFile *f, void *opaque, int version_id)
     }
     env->cp15.c6_insn = qemu_get_be32(f);
     env->cp15.c6_data = qemu_get_be32(f);
+    env->cp15.c7_par = qemu_get_be32(f);
     env->cp15.c9_insn = qemu_get_be32(f);
     env->cp15.c9_data = qemu_get_be32(f);
     env->cp15.c9_pmcr_data = qemu_get_be32(f);

@@ -33,6 +33,7 @@ typedef struct DeviceState DeviceState;
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/stat.h>
+#include <sys/time.h>
 #include <assert.h>
 
 #ifndef O_LARGEFILE
@@ -289,7 +290,7 @@ void qemu_notify_event(void);
 /* Unblock cpu */
 void qemu_cpu_kick(void *env);
 void qemu_cpu_kick_self(void);
-int qemu_cpu_self(void *env);
+int qemu_cpu_is_self(void *env);
 
 /* work queue */
 struct qemu_work_item {
