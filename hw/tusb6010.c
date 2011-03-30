@@ -511,7 +511,7 @@ static void tusb_async_writew(void *opaque, target_phys_addr_t addr,
     case TUSB_DEV_OTG_TIMER:
         s->otg_timer_val = value;
         if (value & TUSB_DEV_OTG_TIMER_ENABLE)
-            qemu_mod_timer(s->otg_timer, qemu_get_clock(vm_clock) +
+            qemu_mod_timer(s->otg_timer, qemu_get_clock_ns(vm_clock) +
                             muldiv64(TUSB_DEV_OTG_TIMER_VAL(value),
                                      get_ticks_per_sec(), TUSB_DEVCLOCK));
         else
@@ -729,7 +729,7 @@ static void tusb6010_power(TUSBState *s, int on)
         s->intr_ok = 0;
         tusb_intr_update(s);
         qemu_mod_timer(s->pwr_timer,
-                       qemu_get_clock(vm_clock) + get_ticks_per_sec() / 2);
+                       qemu_get_clock_ns(vm_clock) + get_ticks_per_sec() / 2);
     }
 }
 
@@ -753,8 +753,8 @@ static int tusb6010_init(SysBusDevice *dev)
     s->mask = 0xffffffff;
     s->intr = 0x00000000;
     s->otg_timer_val = 0;
-    s->otg_timer = qemu_new_timer(vm_clock, tusb_otg_tick, s);
-    s->pwr_timer = qemu_new_timer(vm_clock, tusb_power_tick, s);
+    s->otg_timer = qemu_new_timer_ns(vm_clock, tusb_otg_tick, s);
+    s->pwr_timer = qemu_new_timer_ns(vm_clock, tusb_power_tick, s);
     sysbus_init_mmio(dev, 0x1000, 0); /* FIXME: sync interface?? */
     sysbus_init_mmio(dev, 0x1000,
                      cpu_register_io_memory(tusb_async_readfn,

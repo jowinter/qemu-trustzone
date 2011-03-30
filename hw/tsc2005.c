@@ -323,7 +323,7 @@ static void tsc2005_pin_update(TSC2005State *s)
         s->precision = s->nextprecision;
         s->function = s->nextfunction;
         s->pdst = !s->pnd0;	/* Synchronised on internal clock */
-        expires = qemu_get_clock(vm_clock) + (get_ticks_per_sec() >> 7);
+        expires = qemu_get_clock_ns(vm_clock) + (get_ticks_per_sec() >> 7);
         qemu_mod_timer(s->timer, expires);
     }
 }
@@ -591,7 +591,7 @@ static int tsc2005_init(SPIDevice *spidev)
     s->y = 240;
     s->pressure = 0;
     s->precision = s->nextprecision = 0;
-    s->timer = qemu_new_timer(vm_clock, tsc2005_timer_tick, s);
+    s->timer = qemu_new_timer_ns(vm_clock, tsc2005_timer_tick, s);
     qdev_init_gpio_out(&spidev->qdev, &s->pint, 1);
     s->model = 0x2005;
 

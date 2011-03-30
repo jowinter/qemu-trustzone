@@ -197,6 +197,10 @@ void qemu_chr_add_handlers(CharDriverState *s,
                            IOEventHandler *fd_event,
                            void *opaque)
 {
+    if (!opaque) {
+        /* chr driver being released. */
+        s->assigned = 0;
+    }
     s->chr_can_read = fd_can_read;
     s->chr_read = fd_read;
     s->chr_event = fd_event;
@@ -267,7 +271,7 @@ static int mux_chr_write(CharDriverState *chr, const uint8_t *buf, int len)
                 int64_t ti;
                 int secs;
 
-                ti = qemu_get_clock(rt_clock);
+                ti = qemu_get_clock_ms(rt_clock);
                 if (d->timestamps_start == -1)
                     d->timestamps_start = ti;
                 ti -= d->timestamps_start;
@@ -911,7 +915,7 @@ static void pty_chr_update_read_handler(CharDriverState *chr)
      * timeout to the normal (much longer) poll interval before the
      * timer triggers.
      */
-    qemu_mod_timer(s->timer, qemu_get_clock(rt_clock) + 10);
+    qemu_mod_timer(s->timer, qemu_get_clock_ms(rt_clock) + 10);
 }
 
 static void pty_chr_state(CharDriverState *chr, int connected)
@@ -925,7 +929,7 @@ static void pty_chr_state(CharDriverState *chr, int connected)
         /* (re-)connect poll interval for idle guests: once per second.
          * We check more frequently in case the guests sends data to
          * the virtual device linked to our pty. */
-        qemu_mod_timer(s->timer, qemu_get_clock(rt_clock) + 1000);
+        qemu_mod_timer(s->timer, qemu_get_clock_ms(rt_clock) + 1000);
     } else {
         if (!s->connected)
             qemu_chr_generic_open(chr);
@@ -1001,7 +1005,7 @@ static CharDriverState *qemu_chr_open_pty(QemuOpts *opts)
     chr->chr_update_read_handler = pty_chr_update_read_handler;
     chr->chr_close = pty_chr_close;
 
-    s->timer = qemu_new_timer(rt_clock, pty_chr_timer, chr);
+    s->timer = qemu_new_timer_ms(rt_clock, pty_chr_timer, chr);
 
     return chr;
 }
@@ -1376,7 +1380,7 @@ static CharDriverState *qemu_chr_open_pp(QemuOpts *opts)
 #if defined(__FreeBSD__) || defined(__FreeBSD_kernel__) || defined(__DragonFly__)
 static int pp_ioctl(CharDriverState *chr, int cmd, void *arg)
 {
-    int fd = (int)(long)chr->opaque;
+    int fd = (int)(intptr_t)chr->opaque;
     uint8_t b;
 
     switch(cmd) {
@@ -1422,7 +1426,7 @@ static CharDriverState *qemu_chr_open_pp(QemuOpts *opts)
         return NULL;
 
     chr = qemu_mallocz(sizeof(CharDriverState));
-    chr->opaque = (void *)(long)fd;
+    chr->opaque = (void *)(intptr_t)fd;
     chr->chr_write = null_chr_write;
     chr->chr_ioctl = pp_ioctl;
     return chr;

@@ -1029,7 +1029,7 @@ static void twl4030_setup_alarm(TWL4030NodeState *s)
             } else {
                 TRACE_RTC("new alarm interrupt in %" PRId64 " seconds", delta);
                 qemu_mod_timer(s->twl4030->alarm_timer,
-                               qemu_get_clock(vm_clock)
+                               qemu_get_clock_ns(vm_clock)
                                + get_ticks_per_sec() * delta);
             }
         }
@@ -1050,7 +1050,7 @@ static void twl4030_setup_periodic(TWL4030NodeState *s)
         }
         TRACE_RTC("new periodic interrupt in %u seconds", t);
         qemu_mod_timer(s->twl4030->periodic_timer,
-                       qemu_get_clock(vm_clock) + get_ticks_per_sec() * t);
+                       qemu_get_clock_ns(vm_clock) + get_ticks_per_sec() * t);
     } else {
         qemu_del_timer(s->twl4030->periodic_timer);
     }
@@ -1709,8 +1709,8 @@ void *twl4030_init(i2c_bus *bus, qemu_irq irq1, qemu_irq irq2,
     s->key_tst = 0;
     s->keymap = keymap;
     
-    s->alarm_timer = qemu_new_timer(vm_clock, twl4030_alarm, s);
-    s->periodic_timer = qemu_new_timer(vm_clock, twl4030_periodic, s);
+    s->alarm_timer = qemu_new_timer_ns(vm_clock, twl4030_alarm, s);
+    s->periodic_timer = qemu_new_timer_ns(vm_clock, twl4030_periodic, s);
 
     int i;
     for (i = 0; i < 4; i++) {

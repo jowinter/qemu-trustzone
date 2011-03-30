@@ -41,6 +41,7 @@
 
 #ifdef CONFIG_LINUX
 #include <sys/prctl.h>
+#include <sys/syscall.h>
 #endif
 
 #ifdef CONFIG_EVENTFD
@@ -61,14 +62,9 @@ void os_setup_early_signal_handling(void)
     sigaction(SIGPIPE, &act, NULL);
 }
 
-static void termsig_handler(int signal)
+static void termsig_handler(int signal, siginfo_t *info, void *c)
 {
-    qemu_system_shutdown_request();
-}
-
-static void sigchld_handler(int signal)
-{
-    waitpid(-1, NULL, WNOHANG);
+    qemu_system_killed(info->si_signo, info->si_pid);
 }
 
 void os_setup_signal_handling(void)
@@ -76,14 +72,11 @@ void os_setup_signal_handling(void)
     struct sigaction act;
 
     memset(&act, 0, sizeof(act));
-    act.sa_handler = termsig_handler;
+    act.sa_sigaction = termsig_handler;
+    act.sa_flags = SA_SIGINFO;
     sigaction(SIGINT,  &act, NULL);
     sigaction(SIGHUP,  &act, NULL);
     sigaction(SIGTERM, &act, NULL);
-
-    act.sa_handler = sigchld_handler;
-    act.sa_flags = SA_NOCLDSTOP;
-    sigaction(SIGCHLD, &act, NULL);
 }
 
 /* Find a likely location for support files using the location of the binary.
@@ -381,4 +374,13 @@ int qemu_create_pidfile(const char *filename)
     }
 
     return 0;
+}
+
+int qemu_get_thread_id(void)
+{
+#if defined (__linux__)
+    return syscall(SYS_gettid);
+#else
+    return getpid();
+#endif
 }

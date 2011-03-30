@@ -310,7 +310,7 @@ static void omap_dss_framedone(void *opaque)
         } else {
             if (s->dispc.lcdframer) {
                 qemu_mod_timer(s->dispc.lcdframer,
-                               qemu_get_clock(vm_clock)
+                               qemu_get_clock_ns(vm_clock)
                                + get_ticks_per_sec() / 10);
             }
         }
@@ -453,7 +453,7 @@ static void omap_dsi_transfer_start(struct omap_dss_s *s, int ch)
              * later. */
             s->dsi.vc[ch].ctrl &= ~(0x11 << 16); /* TX/RX fifo not full */
             qemu_mod_timer(s->dsi.xfer_timer,
-                           qemu_get_clock(vm_clock)
+                           qemu_get_clock_ns(vm_clock)
                            + get_ticks_per_sec() / 1000);
         }
     }
@@ -1257,7 +1257,7 @@ static void omap_disc_write(void *opaque, target_phys_addr_t addr,
                 }
             } else if (s->dispc.lcdframer) {
                 qemu_mod_timer(s->dispc.lcdframer,
-                               qemu_get_clock(vm_clock)
+                               qemu_get_clock_ns(vm_clock)
                                + get_ticks_per_sec() / 10);
             }
         } else if (n & 1) { /* enable -> disable, signal wip frame done */
@@ -2489,11 +2489,11 @@ static int omap_dss_init(SysBusDevice *dev)
                                                 DEVICE_NATIVE_ENDIAN));
     } else {
         s->dispc.rev = 0x30;
-        s->dispc.lcdframer = qemu_new_timer(vm_clock, omap_dss_framedone, s);
+        s->dispc.lcdframer = qemu_new_timer_ns(vm_clock, omap_dss_framedone, s);
         s->dsi.host = dsi_init_host(&dev->qdev, "omap3_dsi",
                                     omap_dsi_te_trigger,
                                     omap_dss_linefn);
-        s->dsi.xfer_timer = qemu_new_timer(vm_clock, omap_dsi_transfer_stop,
+        s->dsi.xfer_timer = qemu_new_timer_ns(vm_clock, omap_dsi_transfer_stop,
                                            s);
         sysbus_init_mmio(dev, 0x400,
                          cpu_register_io_memory(omap_dsi_readfn,

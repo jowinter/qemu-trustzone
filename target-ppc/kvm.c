@@ -85,7 +85,7 @@ int kvm_arch_init_vcpu(CPUState *cenv)
     sregs.pvr = cenv->spr[SPR_PVR];
     ret = kvm_vcpu_ioctl(cenv, KVM_SET_SREGS, &sregs);
 
-    idle_timer = qemu_new_timer(vm_clock, kvm_kick_env, cenv);
+    idle_timer = qemu_new_timer_ns(vm_clock, kvm_kick_env, cenv);
 
     return ret;
 }
@@ -222,7 +222,7 @@ int kvmppc_set_interrupt(CPUState *env, int irq, int level)
 #define PPC_INPUT_INT PPC6xx_INPUT_INT
 #endif
 
-int kvm_arch_pre_run(CPUState *env, struct kvm_run *run)
+void kvm_arch_pre_run(CPUState *env, struct kvm_run *run)
 {
     int r;
     unsigned irq;
@@ -246,22 +246,22 @@ int kvm_arch_pre_run(CPUState *env, struct kvm_run *run)
             printf("cpu %d fail inject %x\n", env->cpu_index, irq);
 
         /* Always wake up soon in case the interrupt was level based */
-        qemu_mod_timer(idle_timer, qemu_get_clock(vm_clock) +
+        qemu_mod_timer(idle_timer, qemu_get_clock_ns(vm_clock) +
                        (get_ticks_per_sec() / 50));
     }
 
     /* We don't know if there are more interrupts pending after this. However,
      * the guest will return to userspace in the course of handling this one
      * anyways, so we will get a chance to deliver the rest. */
-    return 0;
 }
 
 void kvm_arch_post_run(CPUState *env, struct kvm_run *run)
 {
 }
 
-void kvm_arch_process_irqchip_events(CPUState *env)
+int kvm_arch_process_async_events(CPUState *env)
 {
+    return 0;
 }
 
 static int kvmppc_handle_halt(CPUState *env)
@@ -271,7 +271,7 @@ static int kvmppc_handle_halt(CPUState *env)
         env->exception_index = EXCP_HLT;
     }
 
-    return 1;
+    return 0;
 }
 
 /* map dcr access to existing qemu dcr emulation */
@@ -280,7 +280,7 @@ static int kvmppc_handle_dcr_read(CPUState *env, uint32_t dcrn, uint32_t *data)
     if (ppc_dcr_read(env->dcr_env, dcrn, data) < 0)
         fprintf(stderr, "Read to unhandled DCR (0x%x)\n", dcrn);
 
-    return 1;
+    return 0;
 }
 
 static int kvmppc_handle_dcr_write(CPUState *env, uint32_t dcrn, uint32_t data)
@@ -288,12 +288,12 @@ static int kvmppc_handle_dcr_write(CPUState *env, uint32_t dcrn, uint32_t data)
     if (ppc_dcr_write(env->dcr_env, dcrn, data) < 0)
         fprintf(stderr, "Write to unhandled DCR (0x%x)\n", dcrn);
 
-    return 1;
+    return 0;
 }
 
 int kvm_arch_handle_exit(CPUState *env, struct kvm_run *run)
 {
-    int ret = 0;
+    int ret;
 
     switch (run->exit_reason) {
     case KVM_EXIT_DCR:

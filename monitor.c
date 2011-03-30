@@ -897,6 +897,9 @@ static void print_cpu_iter(QObject *obj, void *opaque)
         monitor_printf(mon, " (halted)");
     }
 
+    monitor_printf(mon, " thread_id=%" PRId64 " ",
+                   qdict_get_int(cpu, "thread_id"));
+
     monitor_printf(mon, "\n");
 }
 
@@ -941,6 +944,7 @@ static void do_info_cpus(Monitor *mon, QObject **ret_data)
 #elif defined(TARGET_MIPS)
         qdict_put(cpu, "PC", qint_from_int(env->active_tc.PC));
 #endif
+        qdict_put(cpu, "thread_id", qint_from_int(env->thread_id));
 
         qlist_append(cpu_list, cpu);
     }
@@ -1016,6 +1020,7 @@ static int do_quit(Monitor *mon, const QDict *qdict, QObject **ret_data)
     return 0;
 }
 
+#ifdef CONFIG_VNC
 static int change_vnc_password(const char *password)
 {
     if (!password || !password[0]) {
@@ -1062,6 +1067,13 @@ static int do_change_vnc(Monitor *mon, const char *target, const char *arg)
 
     return 0;
 }
+#else
+static int do_change_vnc(Monitor *mon, const char *target, const char *arg)
+{
+    qerror_report(QERR_FEATURE_DISABLED, "vnc");
+    return -ENODEV;
+}
+#endif
 
 /**
  * do_change(): Change a removable medium, or VNC configuration
@@ -1129,12 +1141,7 @@ static int set_password(Monitor *mon, const QDict *qdict, QObject **ret_data)
         }
         /* Note that setting an empty password will not disable login through
          * this interface. */
-        rc = vnc_display_password(NULL, password);
-        if (rc != 0) {
-            qerror_report(QERR_SET_PASSWD_FAILED);
-            return -1;
-        }
-        return 0;
+        return vnc_display_password(NULL, password);
     }
 
     qerror_report(QERR_INVALID_PARAMETER, "protocol");
@@ -1173,12 +1180,7 @@ static int expire_password(Monitor *mon, const QDict *qdict, QObject **ret_data)
     }
 
     if (strcmp(protocol, "vnc") == 0) {
-        rc = vnc_display_pw_expire(NULL, when);
-        if (rc != 0) {
-            qerror_report(QERR_SET_PASSWD_FAILED);
-            return -1;
-        }
-        return 0;
+        return vnc_display_pw_expire(NULL, when);
     }
 
     qerror_report(QERR_INVALID_PARAMETER, "protocol");
@@ -1875,7 +1877,7 @@ static void do_sendkey(Monitor *mon, const QDict *qdict)
         kbd_put_keycode(keycode & 0x7f);
     }
     /* delayed key up events */
-    qemu_mod_timer(key_timer, qemu_get_clock(vm_clock) +
+    qemu_mod_timer(key_timer, qemu_get_clock_ns(vm_clock) +
                    muldiv64(get_ticks_per_sec(), hold_time, 1000));
 }
 
@@ -2711,12 +2713,15 @@ static void do_inject_mce(Monitor *mon, const QDict *qdict)
     uint64_t mcg_status = qdict_get_int(qdict, "mcg_status");
     uint64_t addr = qdict_get_int(qdict, "addr");
     uint64_t misc = qdict_get_int(qdict, "misc");
-    int broadcast = qdict_get_try_bool(qdict, "broadcast", 0);
+    int flags = MCE_INJECT_UNCOND_AO;
 
+    if (qdict_get_try_bool(qdict, "broadcast", 0)) {
+        flags |= MCE_INJECT_BROADCAST;
+    }
     for (cenv = first_cpu; cenv != NULL; cenv = cenv->next_cpu) {
-        if (cenv->cpu_index == cpu_index && cenv->mcg_cap) {
-            cpu_inject_x86_mce(cenv, bank, status, mcg_status, addr, misc,
-                               broadcast);
+        if (cenv->cpu_index == cpu_index) {
+            cpu_x86_inject_mce(mon, cenv, bank, status, mcg_status, addr, misc,
+                               flags);
             break;
         }
     }
@@ -5159,7 +5164,7 @@ void monitor_init(CharDriverState *chr, int flags)
     Monitor *mon;
 
     if (is_first_init) {
-        key_timer = qemu_new_timer(vm_clock, release_keys, NULL);
+        key_timer = qemu_new_timer_ns(vm_clock, release_keys, NULL);
         is_first_init = 0;
     }
 

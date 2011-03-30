@@ -18,6 +18,7 @@
 #include "virtio.h"
 #include "virtio-blk.h"
 #include "virtio-net.h"
+#include "virtio-serial.h"
 #include "pci.h"
 #include "qemu-error.h"
 #include "msix.h"
@@ -109,8 +110,7 @@ typedef struct {
 #ifdef CONFIG_LINUX
     V9fsConf fsconf;
 #endif
-    /* Max. number of ports we can have for a the virtio-serial device */
-    uint32_t max_virtserial_ports;
+    virtio_serial_conf serial;
     virtio_net_conf net;
     bool ioeventfd_disabled;
     bool ioeventfd_started;
@@ -159,13 +159,6 @@ static int virtio_pci_load_config(void * opaque, QEMUFile *f)
     }
     if (proxy->vdev->config_vector != VIRTIO_NO_VECTOR) {
         return msix_vector_use(&proxy->pci_dev, proxy->vdev->config_vector);
-    }
-
-    /* Try to find out if the guest has bus master disabled, but is
-       in ready state. Then we have a buggy guest OS. */
-    if ((proxy->vdev->status & VIRTIO_CONFIG_S_DRIVER_OK) &&
-        !(proxy->pci_dev.config[PCI_COMMAND] & PCI_COMMAND_MASTER)) {
-        proxy->flags |= VIRTIO_PCI_FLAG_BUS_MASTER_BUG;
     }
     return 0;
 }
@@ -651,6 +644,12 @@ static void virtio_pci_vmstate_change(void *opaque, bool running)
     VirtIOPCIProxy *proxy = opaque;
 
     if (running) {
+        /* Try to find out if the guest has bus master disabled, but is
+           in ready state. Then we have a buggy guest OS. */
+        if ((proxy->vdev->status & VIRTIO_CONFIG_S_DRIVER_OK) &&
+            !(proxy->pci_dev.config[PCI_COMMAND] & PCI_COMMAND_MASTER)) {
+            proxy->flags |= VIRTIO_PCI_FLAG_BUS_MASTER_BUG;
+        }
         virtio_pci_start_ioeventfd(proxy);
     } else {
         virtio_pci_stop_ioeventfd(proxy);
@@ -770,12 +769,12 @@ static int virtio_serial_init_pci(PCIDevice *pci_dev)
         proxy->class_code != PCI_CLASS_OTHERS)          /* qemu-kvm  */
         proxy->class_code = PCI_CLASS_COMMUNICATION_OTHER;
 
-    vdev = virtio_serial_init(&pci_dev->qdev, proxy->max_virtserial_ports);
+    vdev = virtio_serial_init(&pci_dev->qdev, &proxy->serial);
     if (!vdev) {
         return -1;
     }
     vdev->nvectors = proxy->nvectors == DEV_NVECTORS_UNSPECIFIED
-                                        ? proxy->max_virtserial_ports + 1
+                                        ? proxy->serial.max_virtserial_ports + 1
                                         : proxy->nvectors;
     virtio_init_pci(proxy, vdev,
                     PCI_VENDOR_ID_REDHAT_QUMRANET,
@@ -789,6 +788,7 @@ static int virtio_serial_exit_pci(PCIDevice *pci_dev)
 {
     VirtIOPCIProxy *proxy = DO_UPCAST(VirtIOPCIProxy, pci_dev, pci_dev);
 
+    virtio_pci_stop_ioeventfd(proxy);
     virtio_serial_exit(proxy->vdev);
     return virtio_exit_pci(pci_dev);
 }
@@ -898,12 +898,14 @@ static PCIDeviceInfo virtio_info[] = {
         .init      = virtio_serial_init_pci,
         .exit      = virtio_serial_exit_pci,
         .qdev.props = (Property[]) {
+            DEFINE_PROP_BIT("ioeventfd", VirtIOPCIProxy, flags,
+                            VIRTIO_PCI_FLAG_USE_IOEVENTFD_BIT, true),
             DEFINE_PROP_UINT32("vectors", VirtIOPCIProxy, nvectors,
                                DEV_NVECTORS_UNSPECIFIED),
             DEFINE_PROP_HEX32("class", VirtIOPCIProxy, class_code, 0),
             DEFINE_VIRTIO_COMMON_FEATURES(VirtIOPCIProxy, host_features),
-            DEFINE_PROP_UINT32("max_ports", VirtIOPCIProxy, max_virtserial_ports,
-                               31),
+            DEFINE_PROP_UINT32("max_ports", VirtIOPCIProxy,
+                               serial.max_virtserial_ports, 31),
             DEFINE_PROP_END_OF_LIST(),
         },
         .qdev.reset = virtio_pci_reset,
