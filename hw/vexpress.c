@@ -34,17 +34,6 @@ static struct arm_boot_info vexpress_binfo = {
     .smp_loader_start = SMP_BOOT_ADDR,
 };
 
-static void secondary_cpu_reset(void *opaque)
-{
-  CPUState *env = opaque;
-
-  cpu_reset(env);
-  /* Set entry point for secondary CPUs.  This assumes we're using
-     the init code from arm_boot.c.  Real hardware resets all CPUs
-     the same.  */
-  env->regs[15] = SMP_BOOT_ADDR;
-}
-
 static void vexpress_a9_init(ram_addr_t ram_size,
                      const char *boot_device,
                      const char *kernel_filename, const char *kernel_cmdline,
@@ -74,9 +63,6 @@ static void vexpress_a9_init(ram_addr_t ram_size,
         }
         irqp = arm_pic_init_cpu(env);
         cpu_irq[n] = irqp[ARM_PIC_CPU_IRQ];
-        if (n > 0) {
-            qemu_register_reset(secondary_cpu_reset, env);
-        }
     }
 
     if (ram_size > 0x40000000) {

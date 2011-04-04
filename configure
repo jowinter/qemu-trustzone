@@ -175,6 +175,8 @@ trace_backend="nop"
 trace_file="trace"
 spice=""
 rbd=""
+smartcard=""
+smartcard_nss=""
 
 # If this is a Linaro QEMU tarball then default the pkgversion
 # string to say so, so that we clearly distinguish ourselves
@@ -725,11 +727,23 @@ for opt do
   ;;
   --enable-vhost-net) vhost_net="yes"
   ;;
+  --disable-opengl) opengl="no"
+  ;;
+  --enable-opengl) opengl="yes"
+  ;;
   --*dir)
   ;;
   --disable-rbd) rbd="no"
   ;;
   --enable-rbd) rbd="yes"
+  ;;
+  --disable-smartcard) smartcard="no"
+  ;;
+  --enable-smartcard) smartcard="yes"
+  ;;
+  --disable-smartcard-nss) smartcard_nss="no"
+  ;;
+  --enable-smartcard-nss) smartcard_nss="yes"
   ;;
   *) echo "ERROR: unknown option $opt"; show_help="yes"
   ;;
@@ -928,6 +942,10 @@ echo "                           Default:trace-<pid>"
 echo "  --disable-spice          disable spice"
 echo "  --enable-spice           enable spice"
 echo "  --enable-rbd             enable building the rados block device (rbd)"
+echo "  --disable-smartcard      disable smartcard support"
+echo "  --enable-smartcard       enable smartcard support"
+echo "  --disable-smartcard-nss  disable smartcard nss support"
+echo "  --enable-smartcard-nss   enable smartcard nss support"
 echo ""
 echo "NOTE: The object files are built at the place where configure is launched"
 exit 1
@@ -1936,6 +1954,27 @@ EOF
   fi
 fi
 
+##########################################
+# opengl probe, used by milkymist-tmu2
+if test "$opengl" != "no" ; then
+  opengl_libs="-lGL"
+  cat > $TMPC << EOF
+#include <X11/Xlib.h>
+#include <GL/gl.h>
+#include <GL/glx.h>
+int main(void) { GL_VERSION; return 0; }
+EOF
+  if compile_prog "" "-lGL" ; then
+    opengl=yes
+       libs_softmmu="$opengl_libs $libs_softmmu"
+  else
+    if test "$opengl" = "yes" ; then
+      feature_not_found "opengl"
+    fi
+    opengl=no
+  fi
+fi
+
 #
 # Check for xxxat() functions when we are building linux-user
 # emulator.  This is done because older glibc versions don't
@@ -2310,6 +2349,31 @@ EOF
   fi
 fi
 
+# check for libcacard for smartcard support
+if test "$smartcard" != "no" ; then
+    smartcard="yes"
+    smartcard_cflags=""
+    # TODO - what's the minimal nss version we support?
+    if test "$smartcard_nss" != "no"; then
+        if $pkg_config --atleast-version=3.12.8 nss >/dev/null 2>&1 ; then
+            smartcard_nss="yes"
+            smartcard_cflags="-I\$(SRC_PATH)/libcacard"
+            libcacard_libs=$($pkg_config --libs nss 2>/dev/null)
+            libcacard_cflags=$($pkg_config --cflags nss 2>/dev/null)
+            QEMU_CFLAGS="$QEMU_CFLAGS $smartcard_cflags $libcacard_cflags"
+            LIBS="$libcacard_libs $LIBS"
+        else
+            if test "$smartcard_nss" = "yes"; then
+                feature_not_found "nss"
+            fi
+            smartcard_nss="no"
+        fi
+    fi
+fi
+if test "$smartcard" = "no" ; then
+    smartcard_nss="no"
+fi
+
 ##########################################
 
 ##########################################
@@ -2467,7 +2531,9 @@ if test \( "$cpu" = "i386" -o "$cpu" = "x86_64" \) -a \
         "$softmmu" = yes ; then
   roms="optionrom"
 fi
-
+if test "$cpu" = "ppc64" ; then
+  roms="$roms spapr-rtas"
+fi
 
 echo "Install prefix    $prefix"
 echo "BIOS directory    `eval echo $datadir`"
@@ -2546,6 +2612,8 @@ echo "Trace output file $trace_file-<pid>"
 echo "spice support     $spice"
 echo "rbd support       $rbd"
 echo "xfsctl support    $xfs"
+echo "nss used          $smartcard_nss"
+echo "OpenGL support    $opengl"
 
 if test $sdl_too_old = "yes"; then
 echo "-> Your SDL version is too old - please upgrade to have SDL support"
@@ -2828,6 +2896,18 @@ if test "$spice" = "yes" ; then
   echo "CONFIG_SPICE=y" >> $config_host_mak
 fi
 
+if test "$smartcard" = "yes" ; then
+  echo "CONFIG_SMARTCARD=y" >> $config_host_mak
+fi
+
+if test "$smartcard_nss" = "yes" ; then
+  echo "CONFIG_SMARTCARD_NSS=y" >> $config_host_mak
+fi
+
+if test "$opengl" = "yes" ; then
+  echo "CONFIG_OPENGL=y" >> $config_host_mak
+fi
+
 # XXX: suppress that
 if [ "$bsd" = "yes" ] ; then
   echo "CONFIG_BSD=y" >> $config_host_mak
@@ -3106,6 +3186,7 @@ case "$target_arch2" in
     target_phys_bits=64
   ;;
   s390x)
+    target_nptl="yes"
     target_phys_bits=64
   ;;
   *)
@@ -3175,6 +3256,11 @@ if test "$target_linux_user" = "yes" ; then
 fi
 if test "$target_darwin_user" = "yes" ; then
   echo "CONFIG_DARWIN_USER=y" >> $config_target_mak
+fi
+if test "$smartcard_nss" = "yes" ; then
+  echo "subdir-$target: subdir-libcacard" >> $config_host_mak
+  echo "libcacard_libs=$libcacard_libs" >> $config_host_mak
+  echo "libcacard_cflags=$libcacard_cflags" >> $config_host_mak
 fi
 list=""
 if test ! -z "$gdb_xml_files" ; then
@@ -3300,6 +3386,9 @@ if test "$target_softmmu" = "yes" ; then
   arm)
     cflags="-DHAS_AUDIO $cflags"
   ;;
+  lm32)
+    cflags="-DHAS_AUDIO $cflags"
+  ;;
   i386|mips|ppc)
     cflags="-DHAS_AUDIO -DHAS_AUDIO_CHOICE $cflags"
   ;;
@@ -3389,6 +3478,13 @@ for hwlib in 32 64; do
   symlink $source_path/Makefile.hw $d/Makefile
   echo "QEMU_CFLAGS+=-DTARGET_PHYS_ADDR_BITS=$hwlib" > $d/config.mak
 done
+
+if [ "$source_path" != `pwd` ]; then
+    # out of tree build
+    mkdir -p libcacard
+    rm -f libcacard/Makefile
+    ln -s "$source_path/libcacard/Makefile" libcacard/Makefile
+fi
 
 d=libuser
 mkdir -p $d
