@@ -57,8 +57,6 @@ void cpu_save(QEMUFile *f, void *opaque)
     qemu_put_be32(f, env->cp15.c13_tls3);
     qemu_put_be32(f, env->cp15.c15_cpar);
 
-    qemu_put_be32(f, env->cp14_dbgdidr);
-
     qemu_put_be32(f, env->features);
 
     if (arm_feature(env, ARM_FEATURE_VFP)) {
@@ -172,8 +170,6 @@ int cpu_load(QEMUFile *f, void *opaque, int version_id)
     env->cp15.c13_tls2 = qemu_get_be32(f);
     env->cp15.c13_tls3 = qemu_get_be32(f);
     env->cp15.c15_cpar = qemu_get_be32(f);
-
-    env->cp14_dbgdidr = qemu_get_be32(f);
 
     env->features = qemu_get_be32(f);
 
