@@ -1732,7 +1732,7 @@ static void lis302dl_trigger(LIS302DLState *s, int axis, int value)
     lis302dl_interrupt_update(s);
 }
 
-void lis302dl_step(void *opaque, int axis, int high, int activate)
+static void lis302dl_step(void *opaque, int axis, int high, int activate)
 {
     TRACE_LIS302DL("axis=%d, high=%d, activate=%d", axis, high, activate);
     LIS302DLState *s = opaque;
