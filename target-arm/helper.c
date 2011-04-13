@@ -129,6 +129,8 @@ static void cpu_reset_model_id(CPUARMState *env, uint32_t id)
         env->cp15.c1_sys = 0x00c50078;
         break;
     case ARM_CPUID_CORTEXA8_R2:
+        set_feature(env, ARM_FEATURE_V4T);
+        set_feature(env, ARM_FEATURE_V5);
         set_feature(env, ARM_FEATURE_V6);
         set_feature(env, ARM_FEATURE_V6K);
         set_feature(env, ARM_FEATURE_V7);
