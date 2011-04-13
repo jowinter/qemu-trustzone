@@ -223,7 +223,7 @@ void s390_virtio_device_sync(VirtIOS390Device *dev)
     cur_offs += num_vq * VIRTIO_VQCONFIG_LEN;
 
     /* Sync feature bitmap */
-    stl_phys(cur_offs, dev->host_features);
+    stl_phys(cur_offs, bswap32(dev->host_features));
 
     dev->feat_offs = cur_offs + dev->feat_len;
     cur_offs += dev->feat_len * 2;
@@ -233,7 +233,8 @@ void s390_virtio_device_sync(VirtIOS390Device *dev)
         dev->vdev->get_config(dev->vdev, dev->vdev->config);
     }
 
-    cpu_physical_memory_rw(cur_offs, dev->vdev->config, dev->vdev->config_len, 1);
+    cpu_physical_memory_write(cur_offs,
+                              dev->vdev->config, dev->vdev->config_len);
     cur_offs += dev->vdev->config_len;
 }
 
@@ -246,7 +247,7 @@ void s390_virtio_device_update_status(VirtIOS390Device *dev)
 
     /* Update guest supported feature bitmap */
 
-    features = ldl_phys(dev->feat_offs);
+    features = bswap32(ldl_phys(dev->feat_offs));
     if (vdev->set_features) {
         vdev->set_features(vdev, features);
     }

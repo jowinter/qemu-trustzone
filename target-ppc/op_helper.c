@@ -528,19 +528,7 @@ target_ulong helper_popcntw (target_ulong val)
 
 target_ulong helper_popcntd (target_ulong val)
 {
-    val = (val & 0x5555555555555555ULL) + ((val >>  1) &
-                                           0x5555555555555555ULL);
-    val = (val & 0x3333333333333333ULL) + ((val >>  2) &
-                                           0x3333333333333333ULL);
-    val = (val & 0x0f0f0f0f0f0f0f0fULL) + ((val >>  4) &
-                                           0x0f0f0f0f0f0f0f0fULL);
-    val = (val & 0x00ff00ff00ff00ffULL) + ((val >>  8) &
-                                           0x00ff00ff00ff00ffULL);
-    val = (val & 0x0000ffff0000ffffULL) + ((val >> 16) &
-                                           0x0000ffff0000ffffULL);
-    val = (val & 0x00000000ffffffffULL) + ((val >> 32) &
-                                           0x00000000ffffffffULL);
-    return val;
+    return ctpop64(val);
 }
 #else
 target_ulong helper_popcntb (target_ulong val)
@@ -1299,7 +1287,6 @@ uint64_t helper_fmadd (uint64_t arg1, uint64_t arg2, uint64_t arg3)
             /* sNaN operation */
             fload_invalid_op_excp(POWERPC_EXCP_FP_VXSNAN);
         }
-#ifdef FLOAT128
         /* This is the way the PowerPC specification defines it */
         float128 ft0_128, ft1_128;
 
@@ -1315,10 +1302,6 @@ uint64_t helper_fmadd (uint64_t arg1, uint64_t arg2, uint64_t arg3)
             ft0_128 = float128_add(ft0_128, ft1_128, &env->fp_status);
             farg1.d = float128_to_float64(ft0_128, &env->fp_status);
         }
-#else
-        /* This is OK on x86 hosts */
-        farg1.d = (farg1.d * farg2.d) + farg3.d;
-#endif
     }
 
     return farg1.ll;
@@ -1344,7 +1327,6 @@ uint64_t helper_fmsub (uint64_t arg1, uint64_t arg2, uint64_t arg3)
             /* sNaN operation */
             fload_invalid_op_excp(POWERPC_EXCP_FP_VXSNAN);
         }
-#ifdef FLOAT128
         /* This is the way the PowerPC specification defines it */
         float128 ft0_128, ft1_128;
 
@@ -1360,10 +1342,6 @@ uint64_t helper_fmsub (uint64_t arg1, uint64_t arg2, uint64_t arg3)
             ft0_128 = float128_sub(ft0_128, ft1_128, &env->fp_status);
             farg1.d = float128_to_float64(ft0_128, &env->fp_status);
         }
-#else
-        /* This is OK on x86 hosts */
-        farg1.d = (farg1.d * farg2.d) - farg3.d;
-#endif
     }
     return farg1.ll;
 }
@@ -1388,7 +1366,6 @@ uint64_t helper_fnmadd (uint64_t arg1, uint64_t arg2, uint64_t arg3)
             /* sNaN operation */
             fload_invalid_op_excp(POWERPC_EXCP_FP_VXSNAN);
         }
-#ifdef FLOAT128
         /* This is the way the PowerPC specification defines it */
         float128 ft0_128, ft1_128;
 
@@ -1404,10 +1381,6 @@ uint64_t helper_fnmadd (uint64_t arg1, uint64_t arg2, uint64_t arg3)
             ft0_128 = float128_add(ft0_128, ft1_128, &env->fp_status);
             farg1.d = float128_to_float64(ft0_128, &env->fp_status);
         }
-#else
-        /* This is OK on x86 hosts */
-        farg1.d = (farg1.d * farg2.d) + farg3.d;
-#endif
         if (likely(!float64_is_any_nan(farg1.d))) {
             farg1.d = float64_chs(farg1.d);
         }
@@ -1435,7 +1408,6 @@ uint64_t helper_fnmsub (uint64_t arg1, uint64_t arg2, uint64_t arg3)
             /* sNaN operation */
             fload_invalid_op_excp(POWERPC_EXCP_FP_VXSNAN);
         }
-#ifdef FLOAT128
         /* This is the way the PowerPC specification defines it */
         float128 ft0_128, ft1_128;
 
@@ -1451,10 +1423,6 @@ uint64_t helper_fnmsub (uint64_t arg1, uint64_t arg2, uint64_t arg3)
             ft0_128 = float128_sub(ft0_128, ft1_128, &env->fp_status);
             farg1.d = float128_to_float64(ft0_128, &env->fp_status);
         }
-#else
-        /* This is OK on x86 hosts */
-        farg1.d = (farg1.d * farg2.d) - farg3.d;
-#endif
         if (likely(!float64_is_any_nan(farg1.d))) {
             farg1.d = float64_chs(farg1.d);
         }
