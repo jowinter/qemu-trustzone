@@ -12,6 +12,14 @@ here. For full change detail consult the git history:
 Bug numbers refer to Launchpad qemu-linaro bugs, eg:
 https://bugs.launchpad.net/qemu-linaro/+bug/703094
 
+version 2011.04-0:
+ - Fixes #731095: compiling for an ARM host in Thumb mode
+   now works (QEMU no longer segfaults on startup)
+ - Some minor fixes to Neon corner cases (correctly handle
+   some UNDEF patterns, generate correct results for
+   VABAL, handle denormals and NaNs correctly in Neon floating
+   point arithmetic)
+
 version 2011.03-1:
  - Fixes #731093: models with a PL181 (including vexpress-a9,
    versatilepb and realview) would crash unless an SD card
