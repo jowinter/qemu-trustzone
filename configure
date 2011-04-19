@@ -2235,7 +2235,12 @@ int main(void)
     return 0;
 }
 EOF
-if compile_prog "$ARCH_CFLAGS" "" ; then
+# We need to build this with -Werror to handle a bug in some
+# SPARC glibc where the function is defined but not declared
+# in the header file. Without -Werror gcc warns about an implicit
+# declaration of the function but the link succeeds; however
+# qemu itself will fail to build if it is compiled -Werror.
+if compile_prog "$ARCH_CFLAGS -Werror" "" ; then
   epoll_create1=yes
 fi
 
