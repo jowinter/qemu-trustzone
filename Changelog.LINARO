@@ -15,6 +15,7 @@ https://bugs.launchpad.net/qemu-linaro/+bug/703094
 version 2011.04-0:
  - Fixes #731095: compiling for an ARM host in Thumb mode
    now works (QEMU no longer segfaults on startup)
+ - Fixes #731279: compilation failures on SPARC Lucid fixed
  - Some minor fixes to Neon corner cases (correctly handle
    some UNDEF patterns, generate correct results for
    VABAL, handle denormals and NaNs correctly in Neon floating
