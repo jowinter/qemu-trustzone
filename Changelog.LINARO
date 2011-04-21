@@ -12,6 +12,9 @@ here. For full change detail consult the git history:
 Bug numbers refer to Launchpad qemu-linaro bugs, eg:
 https://bugs.launchpad.net/qemu-linaro/+bug/703094
 
+version 2011.04-1:
+ - Fixes a compilation failure with gcc 4.5
+
 version 2011.04-0:
  - Fixes #731095: compiling for an ARM host in Thumb mode
    now works (QEMU no longer segfaults on startup)
