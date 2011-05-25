@@ -67,7 +67,6 @@
 #include <hw/isa.h>
 #include "block.h"
 #include "block_int.h"
-#include "sysemu.h"
 #include "dma.h"
 
 #include <hw/ide/pci.h>
@@ -94,14 +93,13 @@ static int pci_ich9_ahci_init(PCIDevice *dev)
 
     qemu_register_reset(ahci_reset, d);
 
-    /* XXX BAR size should be 1k, but that breaks, so bump it to 4k for now */
-    pci_register_bar(&d->card, 5, 0x1000, PCI_BASE_ADDRESS_SPACE_MEMORY,
-                     ahci_pci_map);
-
     msi_init(dev, 0x50, 1, true, false);
 
     ahci_init(&d->ahci, &dev->qdev, 6);
     d->ahci.irq = d->card.irq[0];
+
+    /* XXX BAR size should be 1k, but that breaks, so bump it to 4k for now */
+    pci_register_bar_simple(&d->card, 5, 0x1000, 0, d->ahci.mem);
 
     return 0;
 }
@@ -111,10 +109,7 @@ static int pci_ich9_uninit(PCIDevice *dev)
     struct AHCIPCIState *d;
     d = DO_UPCAST(struct AHCIPCIState, card, dev);
 
-    if (msi_enabled(dev)) {
-        msi_uninit(dev);
-    }
-
+    msi_uninit(dev);
     qemu_unregister_reset(ahci_reset, d);
     ahci_uninit(&d->ahci);
 

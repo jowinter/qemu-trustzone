@@ -1,7 +1,6 @@
 #include <signal.h>
 #include "xen_backend.h"
 #include "xen_domainbuild.h"
-#include "sysemu.h"
 #include "qemu-timer.h"
 #include "qemu-log.h"
 
@@ -176,8 +175,9 @@ static int xen_domain_watcher(void)
     for (i = 3; i < n; i++) {
         if (i == fd[0])
             continue;
-        if (i == xen_xc)
+        if (i == xc_fd(xen_xc)) {
             continue;
+        }
         close(i);
     }
 

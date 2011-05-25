@@ -12,6 +12,7 @@
 #endif
 
 #define QEMU_BUILD_BUG_ON(x) typedef char __build_bug_on__##__LINE__[(x)?-1:1];
+#define TFR(expr) do { if ((expr) != -1) break; } while (errno == EINTR)
 
 typedef struct QEMUTimer QEMUTimer;
 typedef struct QEMUFile QEMUFile;
@@ -38,6 +39,14 @@ typedef struct Monitor Monitor;
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <assert.h>
+
+#ifdef _WIN32
+#include "qemu-os-win32.h"
+#endif
+
+#ifdef CONFIG_POSIX
+#include "qemu-os-posix.h"
+#endif
 
 #ifndef O_LARGEFILE
 #define O_LARGEFILE 0
@@ -192,11 +201,6 @@ const char *path(const char *pathname);
 #define qemu_isascii(c)		isascii((unsigned char)(c))
 #define qemu_toascii(c)		toascii((unsigned char)(c))
 
-#ifdef _WIN32
-/* ffs() in oslib-win32.c for WIN32, strings.h for the rest of the world */
-int ffs(int i);
-#endif
-
 void *qemu_oom_check(void *ptr);
 void *qemu_malloc(size_t size);
 void *qemu_realloc(void *ptr, size_t size);
@@ -298,6 +302,7 @@ void qemu_notify_event(void);
 void qemu_cpu_kick(void *env);
 void qemu_cpu_kick_self(void);
 int qemu_cpu_is_self(void *env);
+bool all_cpu_threads_idle(void);
 
 /* work queue */
 struct qemu_work_item {
@@ -336,7 +341,17 @@ void qemu_iovec_memset_skip(QEMUIOVector *qiov, int c, size_t count,
 
 void qemu_progress_init(int enabled, float min_skip);
 void qemu_progress_end(void);
-void qemu_progress_print(float percent, int max);
+void qemu_progress_print(float delta, int max);
+
+#define QEMU_FILE_TYPE_BIOS   0
+#define QEMU_FILE_TYPE_KEYMAP 1
+char *qemu_find_file(int type, const char *name);
+
+/* OS specific functions */
+void os_setup_early_signal_handling(void);
+char *os_find_datadir(const char *argv0);
+void os_parse_cmd_args(int index, const char *optarg);
+void os_pidfile_error(void);
 
 /* Convert a byte between binary and BCD.  */
 static inline uint8_t to_bcd(uint8_t val)

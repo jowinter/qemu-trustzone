@@ -15,11 +15,11 @@
 #include "monitor.h"
 #include "qemu-timer.h"
 #include "qemu-log.h"
-#include "sysemu.h"
 
 #include <sys/time.h>
 
 QEMUClock *rt_clock;
+QEMUClock *vm_clock;
 
 FILE *logfile;
 
@@ -71,4 +71,28 @@ int qemu_set_fd_handler2(int fd,
 
 void qemu_notify_event(void)
 {
+}
+
+QEMUTimer *qemu_new_timer(QEMUClock *clock, int scale,
+                          QEMUTimerCB *cb, void *opaque)
+{
+    return qemu_malloc(1);
+}
+
+void qemu_free_timer(QEMUTimer *ts)
+{
+    qemu_free(ts);
+}
+
+void qemu_del_timer(QEMUTimer *ts)
+{
+}
+
+void qemu_mod_timer(QEMUTimer *ts, int64_t expire_time)
+{
+}
+
+int64_t qemu_get_clock_ns(QEMUClock *clock)
+{
+    return 0;
 }

@@ -34,10 +34,21 @@ typedef unsigned long ram_addr_t;
 typedef void CPUWriteMemoryFunc(void *opaque, target_phys_addr_t addr, uint32_t value);
 typedef uint32_t CPUReadMemoryFunc(void *opaque, target_phys_addr_t addr);
 
-void cpu_register_physical_memory_offset(target_phys_addr_t start_addr,
-                                         ram_addr_t size,
-                                         ram_addr_t phys_offset,
-                                         ram_addr_t region_offset);
+void cpu_register_physical_memory_log(target_phys_addr_t start_addr,
+                                      ram_addr_t size,
+                                      ram_addr_t phys_offset,
+                                      ram_addr_t region_offset,
+                                      bool log_dirty);
+
+static inline void cpu_register_physical_memory_offset(target_phys_addr_t start_addr,
+                                                       ram_addr_t size,
+                                                       ram_addr_t phys_offset,
+                                                       ram_addr_t region_offset)
+{
+    cpu_register_physical_memory_log(start_addr, size, phys_offset,
+                                     region_offset, false);
+}
+
 static inline void cpu_register_physical_memory(target_phys_addr_t start_addr,
                                                 ram_addr_t size,
                                                 ram_addr_t phys_offset)
@@ -56,6 +67,7 @@ void *qemu_get_ram_ptr(ram_addr_t addr);
 /* Same but slower, to use for migration, where the order of
  * RAMBlocks must not change. */
 void *qemu_safe_ram_ptr(ram_addr_t addr);
+void qemu_put_ram_ptr(void *addr);
 /* This should not be used by devices.  */
 int qemu_ram_addr_from_host(void *ptr, ram_addr_t *ram_addr);
 ram_addr_t qemu_ram_addr_from_host_nofail(void *ptr);
@@ -91,7 +103,8 @@ struct CPUPhysMemoryClient {
     void (*set_memory)(struct CPUPhysMemoryClient *client,
                        target_phys_addr_t start_addr,
                        ram_addr_t size,
-                       ram_addr_t phys_offset);
+                       ram_addr_t phys_offset,
+                       bool log_dirty);
     int (*sync_dirty_bitmap)(struct CPUPhysMemoryClient *client,
                              target_phys_addr_t start_addr,
                              target_phys_addr_t end_addr);

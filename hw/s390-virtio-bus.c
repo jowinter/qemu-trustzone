@@ -43,6 +43,8 @@
     do { } while (0)
 #endif
 
+#define VIRTIO_EXT_CODE   0x2603
+
 struct BusInfo s390_virtio_bus_info = {
     .name       = "s390-virtio",
     .size       = sizeof(VirtIOS390Bus),
@@ -57,6 +59,9 @@ typedef struct {
 static const VirtIOBindings virtio_s390_bindings;
 
 static ram_addr_t s390_virtio_device_num_vq(VirtIOS390Device *dev);
+
+/* length of VirtIO device pages */
+const target_phys_addr_t virtio_size = S390_DEVICE_PAGES * TARGET_PAGE_SIZE;
 
 VirtIOS390Bus *s390_virtio_bus_init(ram_addr_t *ram_size)
 {
@@ -305,9 +310,13 @@ static void virtio_s390_notify(void *opaque, uint16_t vector)
 {
     VirtIOS390Device *dev = (VirtIOS390Device*)opaque;
     uint64_t token = s390_virtio_device_vq_token(dev, vector);
+    CPUState *env = s390_cpu_addr2state(0);
 
-    /* XXX kvm dependency! */
-    kvm_s390_virtio_irq(s390_cpu_addr2state(0), 0, token);
+    if (kvm_enabled()) {
+        kvm_s390_virtio_irq(env, 0, token);
+    } else {
+        cpu_inject_ext(env, VIRTIO_EXT_CODE, 0, token);
+    }
 }
 
 static unsigned virtio_s390_get_features(void *opaque)

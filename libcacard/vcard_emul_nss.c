@@ -955,7 +955,7 @@ count_tokens(const char *str, char token, char token_end)
 static const char *
 strip(const char *str)
 {
-    for (; *str && !isspace(*str); str++) {
+    for (; *str && isspace(*str); str++) {
     }
     return str;
 }
@@ -963,7 +963,7 @@ strip(const char *str)
 static const char *
 find_blank(const char *str)
 {
-    for (; *str && isspace(*str); str++) {
+    for (; *str && !isspace(*str); str++) {
     }
     return str;
 }
@@ -971,7 +971,7 @@ find_blank(const char *str)
 
 /*
  *  We really want to use some existing argument parsing library here. That
- *  would give us a consistant look */
+ *  would give us a consistent look */
 static VCardEmulOptions options;
 #define READER_STEP 4
 

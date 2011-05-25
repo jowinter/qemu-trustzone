@@ -82,13 +82,12 @@ CPUState *s390_cpu_addr2state(uint16_t cpu_addr)
     return ipi_states[cpu_addr];
 }
 
-int s390_virtio_hypercall(CPUState *env)
+int s390_virtio_hypercall(CPUState *env, uint64_t mem, uint64_t hypercall)
 {
     int r = 0, i;
-    target_ulong mem = env->regs[2];
 
-    dprintf("KVM hypercall: %ld\n", env->regs[1]);
-    switch (env->regs[1]) {
+    dprintf("KVM hypercall: %ld\n", hypercall);
+    switch (hypercall) {
     case KVM_S390_VIRTIO_NOTIFY:
         if (mem > ram_size) {
             VirtIOS390Device *dev = s390_virtio_bus_find_vring(s390_bus,
@@ -128,12 +127,11 @@ int s390_virtio_hypercall(CPUState *env)
         break;
     }
 
-    env->regs[2] = r;
-    return 0;
+    return r;
 }
 
 /* PC hardware initialisation */
-static void s390_init(ram_addr_t ram_size,
+static void s390_init(ram_addr_t my_ram_size,
                       const char *boot_device,
                       const char *kernel_filename,
                       const char *kernel_cmdline,
@@ -145,21 +143,29 @@ static void s390_init(ram_addr_t ram_size,
     ram_addr_t kernel_size = 0;
     ram_addr_t initrd_offset;
     ram_addr_t initrd_size = 0;
+    int shift = 0;
+    uint8_t *storage_keys;
     int i;
 
-    /* XXX we only work on KVM for now */
-
-    if (!kvm_enabled()) {
-        fprintf(stderr, "The S390 target only works with KVM enabled\n");
-        exit(1);
+    /* s390x ram size detection needs a 16bit multiplier + an increment. So
+       guests > 64GB can be specified in 2MB steps etc. */
+    while ((my_ram_size >> (20 + shift)) > 65535) {
+        shift++;
     }
+    my_ram_size = my_ram_size >> (20 + shift) << (20 + shift);
+
+    /* lets propagate the changed ram size into the global variable. */
+    ram_size = my_ram_size;
 
     /* get a BUS */
-    s390_bus = s390_virtio_bus_init(&ram_size);
+    s390_bus = s390_virtio_bus_init(&my_ram_size);
 
     /* allocate RAM */
-    ram_addr = qemu_ram_alloc(NULL, "s390.ram", ram_size);
-    cpu_register_physical_memory(0, ram_size, ram_addr);
+    ram_addr = qemu_ram_alloc(NULL, "s390.ram", my_ram_size);
+    cpu_register_physical_memory(0, my_ram_size, ram_addr);
+
+    /* allocate storage keys */
+    storage_keys = qemu_mallocz(my_ram_size / TARGET_PAGE_SIZE);
 
     /* init CPUs */
     if (cpu_model == NULL) {
@@ -178,6 +184,7 @@ static void s390_init(ram_addr_t ram_size,
         ipi_states[i] = tmp_env;
         tmp_env->halted = 1;
         tmp_env->exception_index = EXCP_HLT;
+        tmp_env->storage_keys = storage_keys;
     }
 
     env->halted = 0;

@@ -127,6 +127,7 @@ vnc_jpeg=""
 vnc_png=""
 vnc_thread="no"
 xen=""
+xen_ctrl_version=""
 linux_aio=""
 attr=""
 vhost_net=""
@@ -177,7 +178,7 @@ spice=""
 rbd=""
 smartcard=""
 smartcard_nss=""
-opengl="no"
+opengl=""
 
 # If this is a Linaro QEMU tarball then default the pkgversion
 # string to say so, so that we clearly distinguish ourselves
@@ -829,6 +830,74 @@ esac
 
 [ -z "$guest_base" ] && guest_base="$host_guest_base"
 
+
+default_target_list=""
+
+# these targets are portable
+if [ "$softmmu" = "yes" ] ; then
+    default_target_list="\
+i386-softmmu \
+x86_64-softmmu \
+arm-softmmu \
+cris-softmmu \
+lm32-softmmu \
+m68k-softmmu \
+microblaze-softmmu \
+microblazeel-softmmu \
+mips-softmmu \
+mipsel-softmmu \
+mips64-softmmu \
+mips64el-softmmu \
+ppc-softmmu \
+ppcemb-softmmu \
+ppc64-softmmu \
+sh4-softmmu \
+sh4eb-softmmu \
+sparc-softmmu \
+sparc64-softmmu \
+s390x-softmmu \
+"
+fi
+# the following are Linux specific
+if [ "$linux_user" = "yes" ] ; then
+    default_target_list="${default_target_list}\
+i386-linux-user \
+x86_64-linux-user \
+alpha-linux-user \
+arm-linux-user \
+armeb-linux-user \
+cris-linux-user \
+m68k-linux-user \
+microblaze-linux-user \
+microblazeel-linux-user \
+mips-linux-user \
+mipsel-linux-user \
+ppc-linux-user \
+ppc64-linux-user \
+ppc64abi32-linux-user \
+sh4-linux-user \
+sh4eb-linux-user \
+sparc-linux-user \
+sparc64-linux-user \
+sparc32plus-linux-user \
+unicore32-linux-user \
+s390x-linux-user \
+"
+fi
+# the following are Darwin specific
+if [ "$darwin_user" = "yes" ] ; then
+    default_target_list="$default_target_list i386-darwin-user ppc-darwin-user "
+fi
+# the following are BSD specific
+if [ "$bsd_user" = "yes" ] ; then
+    default_target_list="${default_target_list}\
+i386-bsd-user \
+x86_64-bsd-user \
+sparc-bsd-user \
+sparc64-bsd-user \
+"
+fi
+
 if test x"$show_help" = x"yes" ; then
 cat << EOF
 
@@ -841,7 +910,9 @@ echo "  --help                   print this message"
 echo "  --prefix=PREFIX          install in PREFIX [$prefix]"
 echo "  --interp-prefix=PREFIX   where to find shared libraries, etc."
 echo "                           use %M for cpu name [$interp_prefix]"
-echo "  --target-list=LIST       set target list [$target_list]"
+echo "  --target-list=LIST       set target list (default: build everything)"
+echo "Available targets: $default_target_list" | \
+    fold -s -w 53 | sed -e 's/^/                           /'
 echo ""
 echo "Advanced options (experts only):"
 echo "  --source-path=PATH       path of source code [$source_path]"
@@ -902,6 +973,7 @@ echo "  --disable-check-utests   disable check unit-tests"
 echo "  --enable-check-utests    enable check unit-tests"
 echo "  --disable-bluez          disable bluez stack connectivity"
 echo "  --enable-bluez           enable bluez stack connectivity"
+echo "  --disable-slirp          disable SLIRP userspace network connectivity"
 echo "  --disable-kvm            disable KVM acceleration support"
 echo "  --enable-kvm             enable KVM acceleration support"
 echo "  --disable-nptl           disable usermode NPTL support"
@@ -1010,70 +1082,8 @@ if test "$solaris" = "yes" ; then
   fi
 fi
 
-
 if test -z "$target_list" ; then
-# these targets are portable
-    if [ "$softmmu" = "yes" ] ; then
-        target_list="\
-i386-softmmu \
-x86_64-softmmu \
-arm-softmmu \
-cris-softmmu \
-lm32-softmmu \
-m68k-softmmu \
-microblaze-softmmu \
-microblazeel-softmmu \
-mips-softmmu \
-mipsel-softmmu \
-mips64-softmmu \
-mips64el-softmmu \
-ppc-softmmu \
-ppcemb-softmmu \
-ppc64-softmmu \
-sh4-softmmu \
-sh4eb-softmmu \
-sparc-softmmu \
-sparc64-softmmu \
-"
-    fi
-# the following are Linux specific
-    if [ "$linux_user" = "yes" ] ; then
-        target_list="${target_list}\
-i386-linux-user \
-x86_64-linux-user \
-alpha-linux-user \
-arm-linux-user \
-armeb-linux-user \
-cris-linux-user \
-m68k-linux-user \
-microblaze-linux-user \
-microblazeel-linux-user \
-mips-linux-user \
-mipsel-linux-user \
-ppc-linux-user \
-ppc64-linux-user \
-ppc64abi32-linux-user \
-sh4-linux-user \
-sh4eb-linux-user \
-sparc-linux-user \
-sparc64-linux-user \
-sparc32plus-linux-user \
-unicore32-linux-user \
-"
-    fi
-# the following are Darwin specific
-    if [ "$darwin_user" = "yes" ] ; then
-        target_list="$target_list i386-darwin-user ppc-darwin-user "
-    fi
-# the following are BSD specific
-    if [ "$bsd_user" = "yes" ] ; then
-        target_list="${target_list}\
-i386-bsd-user \
-x86_64-bsd-user \
-sparc-bsd-user \
-sparc64-bsd-user \
-"
-    fi
+    target_list="$default_target_list"
 else
     target_list=`echo "$target_list" | sed -e 's/,/ /g'`
 fi
@@ -1186,19 +1196,80 @@ fi
 
 if test "$xen" != "no" ; then
   xen_libs="-lxenstore -lxenctrl -lxenguest"
+
+  # Xen unstable
   cat > $TMPC <<EOF
 #include <xenctrl.h>
 #include <xs.h>
-int main(void) { xs_daemon_open(); xc_interface_open(); return 0; }
+#include <stdint.h>
+#include <xen/hvm/hvm_info_table.h>
+#if !defined(HVM_MAX_VCPUS)
+# error HVM_MAX_VCPUS not defined
+#endif
+int main(void) {
+  xc_interface *xc;
+  xs_daemon_open();
+  xc = xc_interface_open(0, 0, 0);
+  xc_hvm_set_mem_type(0, 0, HVMMEM_ram_ro, 0, 0);
+  xc_gnttab_open(NULL, 0);
+  return 0;
+}
 EOF
   if compile_prog "" "$xen_libs" ; then
+    xen_ctrl_version=410
     xen=yes
-    libs_softmmu="$xen_libs $libs_softmmu"
+
+  # Xen 4.0.0
+  elif (
+      cat > $TMPC <<EOF
+#include <xenctrl.h>
+#include <xs.h>
+#include <stdint.h>
+#include <xen/hvm/hvm_info_table.h>
+#if !defined(HVM_MAX_VCPUS)
+# error HVM_MAX_VCPUS not defined
+#endif
+int main(void) {
+  xs_daemon_open();
+  xc_interface_open();
+  xc_gnttab_open();
+  xc_hvm_set_mem_type(0, 0, HVMMEM_ram_ro, 0, 0);
+  return 0;
+}
+EOF
+      compile_prog "" "$xen_libs"
+    ) ; then
+    xen_ctrl_version=400
+    xen=yes
+
+  # Xen 3.3.0, 3.4.0
+  elif (
+      cat > $TMPC <<EOF
+#include <xenctrl.h>
+#include <xs.h>
+int main(void) {
+  xs_daemon_open();
+  xc_interface_open();
+  xc_gnttab_open();
+  xc_hvm_set_mem_type(0, 0, HVMMEM_ram_ro, 0, 0);
+  return 0;
+}
+EOF
+      compile_prog "" "$xen_libs"
+    ) ; then
+    xen_ctrl_version=330
+    xen=yes
+
+  # Xen not found or unsupported
   else
     if test "$xen" = "yes" ; then
       feature_not_found "xen"
     fi
     xen=no
+  fi
+
+  if test "$xen" = yes; then
+    libs_softmmu="$xen_libs $libs_softmmu"
   fi
 fi
 
@@ -1778,6 +1849,21 @@ recent kvm-kmod from http://sourceforge.net/projects/kvm."
 fi
 
 ##########################################
+# test for ppc kvm pvr setting
+
+if test "$kvm" = "yes" && test "$cpu" = "ppc" -o "$cpu" = "ppc64"; then
+            cat > $TMPC <<EOF
+    #include <asm/kvm.h>
+    int main(void) { struct kvm_sregs s; s.pvr = 0; return 0; }
+EOF
+    if compile_prog "$kvm_cflags" "" ; then
+        kvm_ppc_pvr=yes
+    else
+        kvm_ppc_pvr=no
+    fi
+fi
+
+##########################################
 # test for vhost net
 
 if test "$vhost_net" != "no"; then
@@ -1952,11 +2038,11 @@ int main(void) { return 0; }
 EOF
   if compile_prog "" "$fdt_libs" ; then
     fdt=yes
-    libs_softmmu="$fdt_libs $libs_softmmu"
   else
     if test "$fdt" = "yes" ; then
       feature_not_found "fdt"
     fi
+    fdt_libs=
     fdt=no
   fi
 fi
@@ -1973,11 +2059,11 @@ int main(void) { GL_VERSION; return 0; }
 EOF
   if compile_prog "" "-lGL" ; then
     opengl=yes
-       libs_softmmu="$opengl_libs $libs_softmmu"
   else
     if test "$opengl" = "yes" ; then
       feature_not_found "opengl"
     fi
+    opengl_libs=
     opengl=no
   fi
 fi
@@ -2231,7 +2317,15 @@ cat > $TMPC << EOF
 
 int main(void)
 {
-    epoll_create1(0);
+    /* Note that we use epoll_create1 as a value, not as
+     * a function being called. This is necessary so that on
+     * old SPARC glibc versions where the function was present in
+     * the library but not declared in the header file we will
+     * fail the configure check. (Otherwise we will get a compiler
+     * warning but not an error, and will proceed to fail the
+     * qemu compile where we compile with -Werror.)
+     */
+    epoll_create1;
     return 0;
 }
 EOF
@@ -2543,7 +2637,7 @@ if test \( "$cpu" = "i386" -o "$cpu" = "x86_64" \) -a \
         "$softmmu" = yes ; then
   roms="optionrom"
 fi
-if test "$cpu" = "ppc64" ; then
+if test "$cpu" = "ppc64" -a "$targetos" != "Darwin" ; then
   roms="$roms spapr-rtas"
 fi
 
@@ -2858,6 +2952,7 @@ if test "$bluez" = "yes" ; then
 fi
 if test "$xen" = "yes" ; then
   echo "CONFIG_XEN=y" >> $config_host_mak
+  echo "CONFIG_XEN_CTRL_INTERFACE_VERSION=$xen_ctrl_version" >> $config_host_mak
 fi
 if test "$io_thread" = "yes" ; then
   echo "CONFIG_IOTHREAD=y" >> $config_host_mak
@@ -3065,6 +3160,7 @@ mkdir -p $target_dir
 mkdir -p $target_dir/fpu
 mkdir -p $target_dir/tcg
 mkdir -p $target_dir/ide
+mkdir -p $target_dir/9pfs
 if test "$target" = "arm-linux-user" -o "$target" = "armeb-linux-user" -o "$target" = "arm-bsd-user" -o "$target" = "armeb-bsd-user" ; then
   mkdir -p $target_dir/nwfpe
 fi
@@ -3082,6 +3178,7 @@ target_short_alignment=2
 target_int_alignment=4
 target_long_alignment=4
 target_llong_alignment=8
+target_libs_softmmu=
 
 TARGET_ARCH="$target_arch2"
 TARGET_BASE_ARCH=""
@@ -3115,6 +3212,7 @@ case "$target_arch2" in
   ;;
   lm32)
     target_phys_bits=32
+    target_libs_softmmu="$opengl_libs"
   ;;
   m68k)
     bflt="yes"
@@ -3129,6 +3227,7 @@ case "$target_arch2" in
     bflt="yes"
     target_nptl="yes"
     target_phys_bits=32
+    target_libs_softmmu="$fdt_libs"
   ;;
   mips|mipsel)
     TARGET_ARCH=mips
@@ -3153,6 +3252,7 @@ case "$target_arch2" in
     gdb_xml_files="power-core.xml power-fpu.xml power-altivec.xml power-spe.xml"
     target_phys_bits=32
     target_nptl="yes"
+    target_libs_softmmu="$fdt_libs"
   ;;
   ppcemb)
     TARGET_BASE_ARCH=ppc
@@ -3160,6 +3260,7 @@ case "$target_arch2" in
     gdb_xml_files="power-core.xml power-fpu.xml power-altivec.xml power-spe.xml"
     target_phys_bits=64
     target_nptl="yes"
+    target_libs_softmmu="$fdt_libs"
   ;;
   ppc64)
     TARGET_BASE_ARCH=ppc
@@ -3167,6 +3268,7 @@ case "$target_arch2" in
     gdb_xml_files="power64-core.xml power-fpu.xml power-altivec.xml power-spe.xml"
     target_phys_bits=64
     target_long_alignment=8
+    target_libs_softmmu="$fdt_libs"
   ;;
   ppc64abi32)
     TARGET_ARCH=ppc64
@@ -3175,6 +3277,7 @@ case "$target_arch2" in
     echo "TARGET_ABI32=y" >> $config_target_mak
     gdb_xml_files="power64-core.xml power-fpu.xml power-altivec.xml power-spe.xml"
     target_phys_bits=64
+    target_libs_softmmu="$fdt_libs"
   ;;
   sh4|sh4eb)
     TARGET_ARCH=sh4
@@ -3230,7 +3333,11 @@ echo "TARGET_ABI_DIR=$TARGET_ABI_DIR" >> $config_target_mak
 case "$target_arch2" in
   i386|x86_64)
     if test "$xen" = "yes" -a "$target_softmmu" = "yes" ; then
+      target_phys_bits=64
       echo "CONFIG_XEN=y" >> $config_target_mak
+      if test "$cpu" = "i386" -o "$cpu" = "x86_64"; then
+          echo "CONFIG_XEN_MAPCACHE=y" >> $config_target_mak
+      fi
     fi
 esac
 case "$target_arch2" in
@@ -3252,6 +3359,9 @@ case "$target_arch2" in
       if test $vhost_net = "yes" ; then
         echo "CONFIG_VHOST_NET=y" >> $config_target_mak
       fi
+      if test "$kvm_ppc_pvr" = "yes" ; then
+        echo "CONFIG_KVM_PPC_PVR=y" >> $config_target_mak
+      fi
     fi
 esac
 if test "$target_bigendian" = "yes" ; then
@@ -3260,7 +3370,7 @@ fi
 if test "$target_softmmu" = "yes" ; then
   echo "TARGET_PHYS_ADDR_BITS=$target_phys_bits" >> $config_target_mak
   echo "CONFIG_SOFTMMU=y" >> $config_target_mak
-  echo "LIBS+=$libs_softmmu" >> $config_target_mak
+  echo "LIBS+=$libs_softmmu $target_libs_softmmu" >> $config_target_mak
   echo "HWDIR=../libhw$target_phys_bits" >> $config_target_mak
   echo "subdir-$target: subdir-libhw$target_phys_bits" >> $config_host_mak
 fi
@@ -3286,14 +3396,7 @@ if test ! -z "$gdb_xml_files" ; then
   echo "TARGET_XML_FILES=$list" >> $config_target_mak
 fi
 
-case "$target_arch2" in
-  i386|x86_64)
-    echo "CONFIG_NOSOFTFLOAT=y" >> $config_target_mak
-    ;;
-  *)
-    echo "CONFIG_SOFTFLOAT=y" >> $config_target_mak
-    ;;
-esac
+echo "CONFIG_SOFTFLOAT=y" >> $config_target_mak
 
 if test "$target_user_only" = "yes" -a "$bflt" = "yes"; then
   echo "TARGET_HAS_BFLT=y" >> $config_target_mak
@@ -3459,13 +3562,15 @@ done # for target in $targets
 
 # build tree in object directory in case the source is not in the current directory
 DIRS="tests tests/cris slirp audio block net pc-bios/optionrom"
+DIRS="$DIRS pc-bios/spapr-rtas"
 DIRS="$DIRS roms/seabios roms/vgabios"
 DIRS="$DIRS fsdev ui"
 FILES="Makefile tests/Makefile"
 FILES="$FILES tests/cris/Makefile tests/cris/.gdbinit"
 FILES="$FILES pc-bios/optionrom/Makefile pc-bios/keymaps"
+FILES="$FILES pc-bios/spapr-rtas/Makefile"
 FILES="$FILES roms/seabios/Makefile roms/vgabios/Makefile"
-for bios_file in $source_path/pc-bios/*.bin $source_path/pc-bios/*.dtb $source_path/pc-bios/openbios-*; do
+for bios_file in $source_path/pc-bios/*.bin $source_path/pc-bios/*.rom $source_path/pc-bios/*.dtb $source_path/pc-bios/openbios-*; do
     [ -e "$bios_file" ] || continue
     FILES="$FILES pc-bios/`basename $bios_file`"
 done
@@ -3492,6 +3597,7 @@ for hwlib in 32 64; do
   mkdir -p $d
   mkdir -p $d/ide
   symlink $source_path/Makefile.hw $d/Makefile
+  mkdir -p $d/9pfs
   echo "QEMU_CFLAGS+=-DTARGET_PHYS_ADDR_BITS=$hwlib" > $d/config.mak
 done
 

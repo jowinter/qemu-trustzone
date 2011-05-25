@@ -22,13 +22,12 @@ enum {
 extern const uint32_t arch_type;
 
 void select_soundhw(const char *optarg);
-int ram_save_live(Monitor *mon, QEMUFile *f, int stage, void *opaque);
-int ram_load(QEMUFile *f, void *opaque, int version_id);
 void do_acpitable_option(const char *optarg);
 void do_smbios_option(const char *optarg);
 void cpudef_init(void);
 int audio_available(void);
 void audio_init(qemu_irq *isa_pic, PCIBus *pci_bus);
+int tcg_available(void);
 int kvm_available(void);
 int xen_available(void);
 

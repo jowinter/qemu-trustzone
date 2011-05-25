@@ -257,7 +257,9 @@ static NotifierList exit_notifiers =
 static NotifierList machine_init_done_notifiers =
     NOTIFIER_LIST_INITIALIZER(machine_init_done_notifiers);
 
+static int tcg_allowed = 1;
 int kvm_allowed = 0;
+int xen_allowed = 0;
 uint32_t xen_domid;
 enum xen_mode xen_mode = XEN_EMULATE;
 
@@ -277,7 +279,10 @@ static struct {
     { .driver = "isa-serial",           .flag = &default_serial    },
     { .driver = "isa-parallel",         .flag = &default_parallel  },
     { .driver = "isa-fdc",              .flag = &default_floppy    },
+    { .driver = "ide-cd",               .flag = &default_cdrom     },
+    { .driver = "ide-hd",               .flag = &default_cdrom     },
     { .driver = "ide-drive",            .flag = &default_cdrom     },
+    { .driver = "scsi-cd",              .flag = &default_cdrom     },
     { .driver = "virtio-serial-pci",    .flag = &default_virtcon   },
     { .driver = "virtio-serial-s390",   .flag = &default_virtcon   },
     { .driver = "virtio-serial",        .flag = &default_virtcon   },
@@ -756,7 +761,7 @@ void add_boot_device_path(int32_t bootindex, DeviceState *dev,
 
 /*
  * This function returns null terminated string that consist of new line
- * separated device pathes.
+ * separated device paths.
  *
  * memory pointed by "size" is assigned total length of the array in bytes
  *
@@ -1158,6 +1163,16 @@ static pid_t shutdown_pid;
 static int powerdown_requested;
 static int debug_requested;
 static int vmstop_requested;
+
+int qemu_shutdown_requested_get(void)
+{
+    return shutdown_requested;
+}
+
+int qemu_reset_requested_get(void)
+{
+    return reset_requested;
+}
 
 int qemu_shutdown_requested(void)
 {
@@ -1876,6 +1891,83 @@ static int debugcon_parse(const char *devname)
     return 0;
 }
 
+static int tcg_init(void)
+{
+    return 0;
+}
+
+static struct {
+    const char *opt_name;
+    const char *name;
+    int (*available)(void);
+    int (*init)(void);
+    int *allowed;
+} accel_list[] = {
+    { "tcg", "tcg", tcg_available, tcg_init, &tcg_allowed },
+    { "xen", "Xen", xen_available, xen_init, &xen_allowed },
+    { "kvm", "KVM", kvm_available, kvm_init, &kvm_allowed },
+};
+
+static int configure_accelerator(void)
+{
+    const char *p = NULL;
+    char buf[10];
+    int i, ret;
+    bool accel_initalised = 0;
+    bool init_failed = 0;
+
+    QemuOptsList *list = qemu_find_opts("machine");
+    if (!QTAILQ_EMPTY(&list->head)) {
+        p = qemu_opt_get(QTAILQ_FIRST(&list->head), "accel");
+    }
+
+    if (p == NULL) {
+        /* Use the default "accelerator", tcg */
+        p = "tcg";
+    }
+
+    while (!accel_initalised && *p != '\0') {
+        if (*p == ':') {
+            p++;
+        }
+        p = get_opt_name(buf, sizeof (buf), p, ':');
+        for (i = 0; i < ARRAY_SIZE(accel_list); i++) {
+            if (strcmp(accel_list[i].opt_name, buf) == 0) {
+                ret = accel_list[i].init();
+                if (ret < 0) {
+                    init_failed = 1;
+                    if (!accel_list[i].available()) {
+                        printf("%s not supported for this target\n",
+                               accel_list[i].name);
+                    } else {
+                        fprintf(stderr, "failed to initialize %s: %s\n",
+                                accel_list[i].name,
+                                strerror(-ret));
+                    }
+                } else {
+                    accel_initalised = 1;
+                    *(accel_list[i].allowed) = 1;
+                }
+                break;
+            }
+        }
+        if (i == ARRAY_SIZE(accel_list)) {
+            fprintf(stderr, "\"%s\" accelerator does not exist.\n", buf);
+        }
+    }
+
+    if (!accel_initalised) {
+        fprintf(stderr, "No accelerator found!\n");
+        exit(1);
+    }
+
+    if (init_failed) {
+        fprintf(stderr, "Back to %s accelerator.\n", accel_list[i].name);
+    }
+
+    return !accel_initalised;
+}
+
 void qemu_add_exit_notifier(Notifier *notify)
 {
     notifier_list_add(&exit_notifiers, notify);
@@ -2449,9 +2541,8 @@ int main(int argc, char **argv, char **envp)
                 }
                 break;
             case QEMU_OPTION_virtfs: {
-                char *arg_fsdev = NULL;
-                char *arg_9p = NULL;
-                int len = 0;
+                QemuOpts *fsdev;
+                QemuOpts *device;
 
                 olist = qemu_find_opts("virtfs");
                 if (!olist) {
@@ -2470,45 +2561,28 @@ int main(int argc, char **argv, char **envp)
                         qemu_opt_get(opts, "security_model") == NULL) {
                     fprintf(stderr, "Usage: -virtfs fstype,path=/share_path/,"
                             "security_model=[mapped|passthrough|none],"
-                            "mnt_tag=tag.\n");
+                            "mount_tag=tag.\n");
                     exit(1);
                 }
 
-                len = strlen(",id=,path=,security_model=");
-                len += strlen(qemu_opt_get(opts, "fstype"));
-                len += strlen(qemu_opt_get(opts, "mount_tag"));
-                len += strlen(qemu_opt_get(opts, "path"));
-                len += strlen(qemu_opt_get(opts, "security_model"));
-                arg_fsdev = qemu_malloc((len + 1) * sizeof(*arg_fsdev));
-
-                snprintf(arg_fsdev, (len + 1) * sizeof(*arg_fsdev),
-                         "%s,id=%s,path=%s,security_model=%s",
-                         qemu_opt_get(opts, "fstype"),
-                         qemu_opt_get(opts, "mount_tag"),
-                         qemu_opt_get(opts, "path"),
-                         qemu_opt_get(opts, "security_model"));
-
-                len = strlen("virtio-9p,fsdev=,mount_tag=");
-                len += 2*strlen(qemu_opt_get(opts, "mount_tag"));
-                arg_9p = qemu_malloc((len + 1) * sizeof(*arg_9p));
-
-                snprintf(arg_9p, (len + 1) * sizeof(*arg_9p),
-                         "virtio-9p,fsdev=%s,mount_tag=%s",
-                         qemu_opt_get(opts, "mount_tag"),
-                         qemu_opt_get(opts, "mount_tag"));
-
-                if (!qemu_opts_parse(qemu_find_opts("fsdev"), arg_fsdev, 1)) {
-                    fprintf(stderr, "parse error [fsdev]: %s\n", optarg);
+                fsdev = qemu_opts_create(qemu_find_opts("fsdev"),
+                                         qemu_opt_get(opts, "mount_tag"), 1);
+                if (!fsdev) {
+                    fprintf(stderr, "duplicate fsdev id: %s\n",
+                            qemu_opt_get(opts, "mount_tag"));
                     exit(1);
                 }
+                qemu_opt_set(fsdev, "fstype", qemu_opt_get(opts, "fstype"));
+                qemu_opt_set(fsdev, "path", qemu_opt_get(opts, "path"));
+                qemu_opt_set(fsdev, "security_model",
+                             qemu_opt_get(opts, "security_model"));
 
-                if (!qemu_opts_parse(qemu_find_opts("device"), arg_9p, 1)) {
-                    fprintf(stderr, "parse error [device]: %s\n", optarg);
-                    exit(1);
-                }
-
-                qemu_free(arg_fsdev);
-                qemu_free(arg_9p);
+                device = qemu_opts_create(qemu_find_opts("device"), NULL, 0);
+                qemu_opt_set(device, "driver", "virtio-9p-pci");
+                qemu_opt_set(device, "fsdev",
+                             qemu_opt_get(opts, "mount_tag"));
+                qemu_opt_set(device, "mount_tag",
+                             qemu_opt_get(opts, "mount_tag"));
                 break;
             }
             case QEMU_OPTION_serial:
@@ -2596,7 +2670,18 @@ int main(int argc, char **argv, char **envp)
                 do_smbios_option(optarg);
                 break;
             case QEMU_OPTION_enable_kvm:
-                kvm_allowed = 1;
+                olist = qemu_find_opts("machine");
+                qemu_opts_reset(olist);
+                qemu_opts_parse(olist, "accel=kvm", 0);
+                break;
+            case QEMU_OPTION_machine:
+                olist = qemu_find_opts("machine");
+                qemu_opts_reset(olist);
+                opts = qemu_opts_parse(olist, optarg, 0);
+                if (!opts) {
+                    fprintf(stderr, "parse error: %s\n", optarg);
+                    exit(1);
+                }
                 break;
             case QEMU_OPTION_usb:
                 usb_enabled = 1;
@@ -2846,6 +2931,28 @@ int main(int argc, char **argv, char **envp)
         exit(1);
     }
 
+    /*
+     * Get the default machine options from the machine if it is not already
+     * specified either by the configuration file or by the command line.
+     */
+    if (machine->default_machine_opts) {
+        QemuOptsList *list = qemu_find_opts("machine");
+        const char *p = NULL;
+
+        if (!QTAILQ_EMPTY(&list->head)) {
+            p = qemu_opt_get(QTAILQ_FIRST(&list->head), "accel");
+        }
+        if (p == NULL) {
+            opts = qemu_opts_parse(qemu_find_opts("machine"),
+                                   machine->default_machine_opts, 0);
+            if (!opts) {
+                fprintf(stderr, "parse error for machine %s: %s\n",
+                        machine->name, machine->default_machine_opts);
+                exit(1);
+            }
+        }
+    }
+
     qemu_opts_foreach(qemu_find_opts("device"), default_driver_check, NULL, 0);
     qemu_opts_foreach(qemu_find_opts("global"), default_driver_check, NULL, 0);
 
@@ -2916,17 +3023,7 @@ int main(int argc, char **argv, char **envp)
         exit(1);
     }
 
-    if (kvm_allowed) {
-        int ret = kvm_init();
-        if (ret < 0) {
-            if (!kvm_available()) {
-                printf("KVM not supported for this target\n");
-            } else {
-                fprintf(stderr, "failed to initialize KVM: %s\n", strerror(-ret));
-            }
-            exit(1);
-        }
-    }
+    configure_accelerator();
 
     if (qemu_init_main_loop()) {
         fprintf(stderr, "qemu_init_main_loop failed\n");

@@ -62,7 +62,7 @@ struct NANDFlashState {
     BlockDriverState *bdrv;
     int mem_oob;
 
-    int cle, ale, ce, wp, gnd;
+    uint8_t cle, ale, ce, wp, gnd;
 
     uint8_t io[MAX_PAGE + MAX_OOB + 0x400];
     uint8_t *ioaddr;
@@ -77,6 +77,8 @@ struct NANDFlashState {
     void (*blk_write)(NANDFlashState *s);
     void (*blk_erase)(NANDFlashState *s);
     void (*blk_load)(NANDFlashState *s, uint64_t addr, int offset);
+
+    uint32_t ioaddr_vmstate;
 };
 
 # define NAND_NO_AUTOINCR	0x00000001
@@ -302,47 +304,50 @@ static void nand_command(NANDFlashState *s)
     }
 }
 
-static void nand_save(QEMUFile *f, void *opaque)
+static void nand_pre_save(void *opaque)
 {
-    NANDFlashState *s = (NANDFlashState *) opaque;
-    qemu_put_byte(f, s->cle);
-    qemu_put_byte(f, s->ale);
-    qemu_put_byte(f, s->ce);
-    qemu_put_byte(f, s->wp);
-    qemu_put_byte(f, s->gnd);
-    qemu_put_buffer(f, s->io, sizeof(s->io));
-    qemu_put_be32(f, s->ioaddr - s->io);
-    qemu_put_be32(f, s->iolen);
+    NANDFlashState *s = opaque;
 
-    qemu_put_be32s(f, &s->cmd);
-    qemu_put_be64s(f, &s->addr);
-    qemu_put_be32(f, s->addrlen);
-    qemu_put_be32(f, s->status);
-    qemu_put_be32(f, s->offset);
-    /* XXX: do we want to save s->storage too? */
+    s->ioaddr_vmstate = s->ioaddr - s->io;
 }
 
-static int nand_load(QEMUFile *f, void *opaque, int version_id)
+static int nand_post_load(void *opaque, int version_id)
 {
-    NANDFlashState *s = (NANDFlashState *) opaque;
-    s->cle = qemu_get_byte(f);
-    s->ale = qemu_get_byte(f);
-    s->ce = qemu_get_byte(f);
-    s->wp = qemu_get_byte(f);
-    s->gnd = qemu_get_byte(f);
-    qemu_get_buffer(f, s->io, sizeof(s->io));
-    s->ioaddr = s->io + qemu_get_be32(f);
-    s->iolen = qemu_get_be32(f);
-    if (s->ioaddr >= s->io + sizeof(s->io) || s->ioaddr < s->io)
-        return -EINVAL;
+    NANDFlashState *s = opaque;
 
-    qemu_get_be32s(f, &s->cmd);
-    qemu_get_be64s(f, &s->addr);
-    s->addrlen = qemu_get_be32(f);
-    s->status = qemu_get_be32(f);
-    s->offset = qemu_get_be32(f);
+    if (s->ioaddr_vmstate > sizeof(s->io)) {
+        return -EINVAL;
+    }
+    s->ioaddr = s->io + s->ioaddr_vmstate;
+
     return 0;
 }
+
+static const VMStateDescription vmstate_nand = {
+    .name = "nand",
+    .version_id = 0,
+    .minimum_version_id = 0,
+    .minimum_version_id_old = 0,
+    .pre_save = nand_pre_save,
+    .post_load = nand_post_load,
+    .fields      = (VMStateField[]) {
+        VMSTATE_UINT8(cle, NANDFlashState),
+        VMSTATE_UINT8(ale, NANDFlashState),
+        VMSTATE_UINT8(ce, NANDFlashState),
+        VMSTATE_UINT8(wp, NANDFlashState),
+        VMSTATE_UINT8(gnd, NANDFlashState),
+        VMSTATE_BUFFER(io, NANDFlashState),
+        VMSTATE_UINT32(ioaddr_vmstate, NANDFlashState),
+        VMSTATE_INT32(iolen, NANDFlashState),
+        VMSTATE_UINT32(cmd, NANDFlashState),
+        VMSTATE_UINT64(addr, NANDFlashState),
+        VMSTATE_INT32(addrlen, NANDFlashState),
+        VMSTATE_INT32(status, NANDFlashState),
+        VMSTATE_INT32(offset, NANDFlashState),
+        /* XXX: do we want to save s->storage too? */
+        VMSTATE_END_OF_LIST()
+    }
+};
 
 static int nand_device_init(SysBusDevice *dev)
 {
@@ -388,8 +393,7 @@ static int nand_device_init(SysBusDevice *dev)
     /* Give s->ioaddr a sane value in case we save state before it
      is used.  */
     s->ioaddr = s->io;
-    
-    register_savevm(&dev->qdev, "nand", -1, 0, nand_save, nand_load, s);
+
     return 0;
 }
 
@@ -398,6 +402,7 @@ static SysBusDeviceInfo nand_info = {
     .qdev.name = "nand",
     .qdev.size = sizeof(NANDFlashState),
     .qdev.reset = nand_reset,
+    .qdev.vmsd = &vmstate_nand,
     .qdev.props = (Property[]) {
         DEFINE_PROP_UINT8("manufacturer_id", NANDFlashState, manf_id, 0),
         DEFINE_PROP_UINT8("chip_id", NANDFlashState, chip_id, 0),
@@ -417,8 +422,8 @@ static void nand_create_device(void)
  *
  * CE, WP and R/B are active low.
  */
-void nand_setpins(DeviceState *dev,
-                  int cle, int ale, int ce, int wp, int gnd)
+void nand_setpins(DeviceState *dev, uint8_t cle, uint8_t ale,
+                  uint8_t ce, uint8_t wp, uint8_t gnd)
 {
     NANDFlashState *s = (NANDFlashState *)dev;
     s->cle = cle;
@@ -589,6 +594,7 @@ DeviceState *nand_init(int manf_id, int chip_id, BlockDriverState *bs)
     if (bs) {
         qdev_prop_set_drive_nofail(dev, "drive", bs);
     }
+
     qdev_init_nofail(dev);
     return dev;
 }

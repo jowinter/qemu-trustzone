@@ -346,6 +346,8 @@ int cpu_exec(CPUState *env1)
                     do_interrupt(env);
 #elif defined(TARGET_M68K)
                     do_interrupt(0);
+#elif defined(TARGET_S390X)
+                    do_interrupt(env);
 #endif
                     env->exception_index = -1;
 #endif
@@ -358,10 +360,7 @@ int cpu_exec(CPUState *env1)
                 if (unlikely(interrupt_request)) {
                     if (unlikely(env->singlestep_enabled & SSTEP_NOIRQ)) {
                         /* Mask out external interrupts for this step. */
-                        interrupt_request &= ~(CPU_INTERRUPT_HARD |
-                                               CPU_INTERRUPT_FIQ |
-                                               CPU_INTERRUPT_SMI |
-                                               CPU_INTERRUPT_NMI);
+                        interrupt_request &= ~CPU_INTERRUPT_SSTEP_MASK;
                     }
                     if (interrupt_request & CPU_INTERRUPT_DEBUG) {
                         env->interrupt_request &= ~CPU_INTERRUPT_DEBUG;
@@ -490,9 +489,6 @@ int cpu_exec(CPUState *env1)
                                 next_tb = 0;
                             }
                         }
-		    } else if (interrupt_request & CPU_INTERRUPT_TIMER) {
-			//do_interrupt(0, 0, 0, 0, 0);
-			env->interrupt_request &= ~CPU_INTERRUPT_TIMER;
 		    }
 #elif defined(TARGET_ARM)
                     if (interrupt_request & CPU_INTERRUPT_FIQ
@@ -507,7 +503,7 @@ int cpu_exec(CPUState *env1)
                        jump normally, then does the exception return when the
                        CPU tries to execute code at the magic address.
                        This will cause the magic PC value to be pushed to
-                       the stack if an interrupt occured at the wrong time.
+                       the stack if an interrupt occurred at the wrong time.
                        We avoid this by disabling interrupts when
                        pc contains a magic address.  */
                     if (interrupt_request & CPU_INTERRUPT_HARD
@@ -560,8 +556,14 @@ int cpu_exec(CPUState *env1)
                         do_interrupt(1);
                         next_tb = 0;
                     }
+#elif defined(TARGET_S390X) && !defined(CONFIG_USER_ONLY)
+                    if ((interrupt_request & CPU_INTERRUPT_HARD) &&
+                        (env->psw.mask & PSW_MASK_EXT)) {
+                        do_interrupt(env);
+                        next_tb = 0;
+                    }
 #endif
-                   /* Don't use the cached interupt_request value,
+                   /* Don't use the cached interrupt_request value,
                       do_interrupt may have updated the EXITTB flag. */
                     if (env->interrupt_request & CPU_INTERRUPT_EXITTB) {
                         env->interrupt_request &= ~CPU_INTERRUPT_EXITTB;
@@ -702,19 +704,6 @@ int cpu_exec(CPUState *env1)
     return ret;
 }
 
-/* must only be called from the generated code as an exception can be
-   generated */
-void tb_invalidate_page_range(target_ulong start, target_ulong end)
-{
-    /* XXX: cannot enable it yet because it yields to MMU exception
-       where NIP != read address on PowerPC */
-#if 0
-    target_ulong phys_addr;
-    phys_addr = get_phys_addr_code(env, start);
-    tb_invalidate_phys_page_range(phys_addr, phys_addr + end - start, 0);
-#endif
-}
-
 #if defined(TARGET_I386) && defined(CONFIG_USER_ONLY)
 
 void cpu_x86_load_seg(CPUX86State *s, int seg_reg, int selector)
@@ -800,7 +789,7 @@ static inline int handle_cpu_signal(unsigned long pc, unsigned long address,
     if (tb) {
         /* the PC is inside the translated code. It means that we have
            a virtual CPU fault */
-        cpu_restore_state(tb, env, pc, puc);
+        cpu_restore_state(tb, env, pc);
     }
 
     /* we restore the process signal mask as the sigreturn should

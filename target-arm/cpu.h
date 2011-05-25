@@ -56,6 +56,10 @@
 #define ARMV7M_EXCP_PENDSV  14
 #define ARMV7M_EXCP_SYSTICK 15
 
+/* ARM-specific interrupt pending bits.  */
+#define CPU_INTERRUPT_FIQ   CPU_INTERRUPT_TGT_EXT_1
+
+
 typedef void ARMWriteCPFunc(void *opaque, int cp_info,
                             int srcreg, int operand, uint32_t value,
                             void *retaddr);
@@ -375,6 +379,7 @@ enum arm_features {
     ARM_FEATURE_V7MP,    /* v7 Multiprocessing Extensions */
     ARM_FEATURE_V4T,
     ARM_FEATURE_V5,
+    ARM_FEATURE_STRONGARM,
     ARM_FEATURE_TRUSTZONE /* TrustZone Security Extensions. */
 };
 
@@ -406,6 +411,8 @@ void cpu_arm_set_cp_io(CPUARMState *env, int cpnum,
 #define ARM_CPUID_ARM946      0x41059461
 #define ARM_CPUID_TI915T      0x54029152
 #define ARM_CPUID_TI925T      0x54029252
+#define ARM_CPUID_SA1100      0x4401A11B
+#define ARM_CPUID_SA1110      0x6901B119
 #define ARM_CPUID_PXA250      0x69052100
 #define ARM_CPUID_PXA255      0x69052d00
 #define ARM_CPUID_PXA260      0x69052903

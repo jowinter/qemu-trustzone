@@ -26,15 +26,18 @@
 #include "osdep.h"
 #include "sysemu.h"
 #include <stdio.h>
+#include <signal.h>
 
 struct progress_state {
-    int enabled;
     float current;
     float last_print;
     float min_skip;
+    void (*print)(void);
+    void (*end)(void);
 };
 
 static struct progress_state state;
+static volatile sig_atomic_t print_pending;
 
 /*
  * Simple progress print function.
@@ -43,38 +46,97 @@ static struct progress_state state;
  */
 static void progress_simple_print(void)
 {
-    if (state.enabled) {
-        printf("    (%3.2f/100%%)\r", state.current);
-        fflush(stdout);
-    }
+    printf("    (%3.2f/100%%)\r", state.current);
+    fflush(stdout);
 }
 
 static void progress_simple_end(void)
 {
-    if (state.enabled) {
-        printf("\n");
+    printf("\n");
+}
+
+static void progress_simple_init(void)
+{
+    state.print = progress_simple_print;
+    state.end = progress_simple_end;
+}
+
+#ifdef CONFIG_POSIX
+static void sigusr_print(int signal)
+{
+    print_pending = 1;
+}
+#endif
+
+static void progress_dummy_print(void)
+{
+    if (print_pending) {
+        fprintf(stderr, "    (%3.2f/100%%)\n", state.current);
+        print_pending = 0;
     }
 }
 
+static void progress_dummy_end(void)
+{
+}
+
+static void progress_dummy_init(void)
+{
+#ifdef CONFIG_POSIX
+    struct sigaction action;
+
+    memset(&action, 0, sizeof(action));
+    sigfillset(&action.sa_mask);
+    action.sa_handler = sigusr_print;
+    action.sa_flags = 0;
+    sigaction(SIGUSR1, &action, NULL);
+#endif
+
+    state.print = progress_dummy_print;
+    state.end = progress_dummy_end;
+}
+
+/*
+ * Initialize progress reporting.
+ * If @enabled is false, actual reporting is suppressed.  The user can
+ * still trigger a report by sending a SIGUSR1.
+ * Reports are also suppressed unless we've had at least @min_skip
+ * percent progress since the last report.
+ */
 void qemu_progress_init(int enabled, float min_skip)
 {
-    state.enabled = enabled;
     state.min_skip = min_skip;
+    if (enabled) {
+        progress_simple_init();
+    } else {
+        progress_dummy_init();
+    }
 }
 
 void qemu_progress_end(void)
 {
-    progress_simple_end();
+    state.end();
 }
 
-void qemu_progress_print(float percent, int max)
+/*
+ * Report progress.
+ * @delta is how much progress we made.
+ * If @max is zero, @delta is an absolut value of the total job done.
+ * Else, @delta is a progress delta since the last call, as a fraction
+ * of @max.  I.e. the delta is @delta * @max / 100. This allows
+ * relative accounting of functions which may be a different fraction of
+ * the full job, depending on the context they are called in. I.e.
+ * a function might be considered 40% of the full job if used from
+ * bdrv_img_create() but only 20% if called from img_convert().
+ */
+void qemu_progress_print(float delta, int max)
 {
     float current;
 
     if (max == 0) {
-        current = percent;
+        current = delta;
     } else {
-        current = state.current + percent / 100 * max;
+        current = state.current + delta / 100 * max;
     }
     if (current > 100) {
         current = 100;
@@ -84,6 +146,6 @@ void qemu_progress_print(float percent, int max)
     if (current > (state.last_print + state.min_skip) ||
         (current == 100) || (current == 0)) {
         state.last_print = state.current;
-        progress_simple_print();
+        state.print();
     }
 }

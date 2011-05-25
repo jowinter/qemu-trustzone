@@ -584,9 +584,6 @@ static void dec_orhi(DisasContext *dc)
 
 static void dec_scall(DisasContext *dc)
 {
-    TCGv t0;
-    int l1;
-
     if (dc->imm5 == 7) {
         LOG_DIS("scall\n");
     } else if (dc->imm5 == 2) {
@@ -595,39 +592,10 @@ static void dec_scall(DisasContext *dc)
         cpu_abort(dc->env, "invalid opcode\n");
     }
 
-    t0 = tcg_temp_new();
-    l1 = gen_new_label();
-
-    /* save IE.IE */
-    tcg_gen_andi_tl(t0, cpu_ie, IE_IE);
-
-    /* IE.IE = 0 */
-    tcg_gen_andi_tl(cpu_ie, cpu_ie, ~IE_IE);
-
     if (dc->imm5 == 7) {
-        /* IE.EIE = IE.IE */
-        tcg_gen_ori_tl(cpu_ie, cpu_ie, IE_EIE);
-        tcg_gen_brcondi_tl(TCG_COND_EQ, t0, IE_IE, l1);
-        tcg_gen_andi_tl(cpu_ie, cpu_ie, ~IE_EIE);
-        gen_set_label(l1);
-
-        /* gpr[ea] = PC */
-        tcg_gen_movi_tl(cpu_R[R_EA], dc->pc);
-        tcg_temp_free(t0);
-
         tcg_gen_movi_tl(cpu_pc, dc->pc);
         t_gen_raise_exception(dc, EXCP_SYSTEMCALL);
     } else {
-        /* IE.BIE = IE.IE */
-        tcg_gen_ori_tl(cpu_ie, cpu_ie, IE_BIE);
-        tcg_gen_brcondi_tl(TCG_COND_EQ, t0, IE_IE, l1);
-        tcg_gen_andi_tl(cpu_ie, cpu_ie, ~IE_BIE);
-        gen_set_label(l1);
-
-        /* gpr[ba] = PC */
-        tcg_gen_movi_tl(cpu_R[R_BA], dc->pc);
-        tcg_temp_free(t0);
-
         tcg_gen_movi_tl(cpu_pc, dc->pc);
         t_gen_raise_exception(dc, EXCP_BREAKPOINT);
     }
@@ -1212,8 +1180,7 @@ void cpu_dump_state(CPUState *env, FILE *f, fprintf_function cpu_fprintf,
     cpu_fprintf(f, "\n\n");
 }
 
-void gen_pc_load(CPUState *env, struct TranslationBlock *tb,
-                 unsigned long searched_pc, int pc_pos, void *puc)
+void restore_state_to_opc(CPUState *env, TranslationBlock *tb, int pc_pos)
 {
     env->pc = gen_opc_pc[pc_pos];
 }

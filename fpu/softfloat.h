@@ -154,6 +154,7 @@ typedef struct {
     uint64_t low;
     uint16_t high;
 } floatx80;
+#define make_floatx80(exp, mant) ((floatx80) { mant, exp })
 #endif
 #ifdef FLOAT128
 typedef struct {
@@ -192,7 +193,8 @@ enum {
     float_flag_overflow  =  8,
     float_flag_underflow = 16,
     float_flag_inexact   = 32,
-    float_flag_input_denormal = 64
+    float_flag_input_denormal = 64,
+    float_flag_output_denormal = 128
 };
 
 typedef struct float_status {
@@ -323,9 +325,11 @@ float32 float32_log2( float32 STATUS_PARAM );
 int float32_eq( float32, float32 STATUS_PARAM );
 int float32_le( float32, float32 STATUS_PARAM );
 int float32_lt( float32, float32 STATUS_PARAM );
-int float32_eq_signaling( float32, float32 STATUS_PARAM );
+int float32_unordered( float32, float32 STATUS_PARAM );
+int float32_eq_quiet( float32, float32 STATUS_PARAM );
 int float32_le_quiet( float32, float32 STATUS_PARAM );
 int float32_lt_quiet( float32, float32 STATUS_PARAM );
+int float32_unordered_quiet( float32, float32 STATUS_PARAM );
 int float32_compare( float32, float32 STATUS_PARAM );
 int float32_compare_quiet( float32, float32 STATUS_PARAM );
 float32 float32_min(float32, float32 STATUS_PARAM);
@@ -384,6 +388,7 @@ INLINE float32 float32_set_sign(float32 a, int sign)
 #define float32_zero make_float32(0)
 #define float32_one make_float32(0x3f800000)
 #define float32_ln2 make_float32(0x3f317218)
+#define float32_pi make_float32(0x40490fdb)
 #define float32_half make_float32(0x3f000000)
 #define float32_infinity make_float32(0x7f800000)
 
@@ -437,9 +442,11 @@ float64 float64_log2( float64 STATUS_PARAM );
 int float64_eq( float64, float64 STATUS_PARAM );
 int float64_le( float64, float64 STATUS_PARAM );
 int float64_lt( float64, float64 STATUS_PARAM );
-int float64_eq_signaling( float64, float64 STATUS_PARAM );
+int float64_unordered( float64, float64 STATUS_PARAM );
+int float64_eq_quiet( float64, float64 STATUS_PARAM );
 int float64_le_quiet( float64, float64 STATUS_PARAM );
 int float64_lt_quiet( float64, float64 STATUS_PARAM );
+int float64_unordered_quiet( float64, float64 STATUS_PARAM );
 int float64_compare( float64, float64 STATUS_PARAM );
 int float64_compare_quiet( float64, float64 STATUS_PARAM );
 float64 float64_min(float64, float64 STATUS_PARAM);
@@ -494,6 +501,7 @@ INLINE float64 float64_set_sign(float64 a, int sign)
 #define float64_zero make_float64(0)
 #define float64_one make_float64(0x3ff0000000000000LL)
 #define float64_ln2 make_float64(0x3fe62e42fefa39efLL)
+#define float64_pi make_float64(0x400921fb54442d18LL)
 #define float64_half make_float64(0x3fe0000000000000LL)
 #define float64_infinity make_float64(0x7ff0000000000000LL)
 
@@ -538,9 +546,13 @@ floatx80 floatx80_sqrt( floatx80 STATUS_PARAM );
 int floatx80_eq( floatx80, floatx80 STATUS_PARAM );
 int floatx80_le( floatx80, floatx80 STATUS_PARAM );
 int floatx80_lt( floatx80, floatx80 STATUS_PARAM );
-int floatx80_eq_signaling( floatx80, floatx80 STATUS_PARAM );
+int floatx80_unordered( floatx80, floatx80 STATUS_PARAM );
+int floatx80_eq_quiet( floatx80, floatx80 STATUS_PARAM );
 int floatx80_le_quiet( floatx80, floatx80 STATUS_PARAM );
 int floatx80_lt_quiet( floatx80, floatx80 STATUS_PARAM );
+int floatx80_unordered_quiet( floatx80, floatx80 STATUS_PARAM );
+int floatx80_compare( floatx80, floatx80 STATUS_PARAM );
+int floatx80_compare_quiet( floatx80, floatx80 STATUS_PARAM );
 int floatx80_is_quiet_nan( floatx80 );
 int floatx80_is_signaling_nan( floatx80 );
 floatx80 floatx80_maybe_silence_nan( floatx80 );
@@ -560,7 +572,7 @@ INLINE floatx80 floatx80_chs(floatx80 a)
 
 INLINE int floatx80_is_infinity(floatx80 a)
 {
-    return (a.high & 0x7fff) == 0x7fff && a.low == 0;
+    return (a.high & 0x7fff) == 0x7fff && a.low == 0x8000000000000000LL;
 }
 
 INLINE int floatx80_is_neg(floatx80 a)
@@ -577,6 +589,13 @@ INLINE int floatx80_is_any_nan(floatx80 a)
 {
     return ((a.high & 0x7fff) == 0x7fff) && (a.low<<1);
 }
+
+#define floatx80_zero make_floatx80(0x0000, 0x0000000000000000LL)
+#define floatx80_one make_floatx80(0x3fff, 0x8000000000000000LL)
+#define floatx80_ln2 make_floatx80(0x3ffe, 0xb17217f7d1cf79acLL)
+#define floatx80_pi make_floatx80(0x4000, 0xc90fdaa22168c235LL)
+#define floatx80_half make_floatx80(0x3ffe, 0x8000000000000000LL)
+#define floatx80_infinity make_floatx80(0x7fff, 0x8000000000000000LL)
 
 /*----------------------------------------------------------------------------
 | The pattern for a default generated extended double-precision NaN.  The
@@ -621,9 +640,11 @@ float128 float128_sqrt( float128 STATUS_PARAM );
 int float128_eq( float128, float128 STATUS_PARAM );
 int float128_le( float128, float128 STATUS_PARAM );
 int float128_lt( float128, float128 STATUS_PARAM );
-int float128_eq_signaling( float128, float128 STATUS_PARAM );
+int float128_unordered( float128, float128 STATUS_PARAM );
+int float128_eq_quiet( float128, float128 STATUS_PARAM );
 int float128_le_quiet( float128, float128 STATUS_PARAM );
 int float128_lt_quiet( float128, float128 STATUS_PARAM );
+int float128_unordered_quiet( float128, float128 STATUS_PARAM );
 int float128_compare( float128, float128 STATUS_PARAM );
 int float128_compare_quiet( float128, float128 STATUS_PARAM );
 int float128_is_quiet_nan( float128 );

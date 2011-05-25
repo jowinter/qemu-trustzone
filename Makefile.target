@@ -194,7 +194,7 @@ obj-$(CONFIG_VIRTIO) += virtio-blk.o virtio-balloon.o virtio-net.o virtio-serial
 obj-$(CONFIG_VIRTIO_PCI) += virtio-pci.o
 obj-y += vhost_net.o
 obj-$(CONFIG_VHOST_NET) += vhost.o
-obj-$(CONFIG_REALLY_VIRTFS) += virtio-9p.o
+obj-$(CONFIG_REALLY_VIRTFS) += 9pfs/virtio-9p.o
 obj-y += rwhandler.o
 obj-$(CONFIG_KVM) += kvm.o kvm-all.o
 obj-$(CONFIG_NO_KVM) += kvm-stub.o
@@ -206,7 +206,19 @@ QEMU_CFLAGS += $(VNC_JPEG_CFLAGS)
 QEMU_CFLAGS += $(VNC_PNG_CFLAGS)
 
 # xen backend driver support
-obj-$(CONFIG_XEN) += xen_machine_pv.o xen_domainbuild.o
+obj-i386-$(CONFIG_XEN) += xen_machine_pv.o xen_domainbuild.o
+
+ifeq ($(TARGET_BASE_ARCH), i386)
+  CONFIG_NO_XEN = $(if $(subst n,,$(CONFIG_XEN)),n,y)
+else
+  CONFIG_NO_XEN = y
+endif
+# xen support
+CONFIG_NO_XEN_MAPCACHE = $(if $(subst n,,$(CONFIG_XEN_MAPCACHE)),n,y)
+obj-i386-$(CONFIG_XEN) += xen-all.o
+obj-$(CONFIG_NO_XEN) += xen-stub.o
+obj-i386-$(CONFIG_XEN_MAPCACHE) += xen-mapcache.o
+obj-$(CONFIG_NO_XEN_MAPCACHE) += xen-mapcache-stub.o
 
 # Inter-VM PCI shared memory
 CONFIG_IVSHMEM =
@@ -271,7 +283,7 @@ obj-lm32-y += lm32_sys.o
 obj-lm32-y += milkymist-ac97.o
 obj-lm32-y += milkymist-hpdmc.o
 obj-lm32-y += milkymist-memcard.o
-obj-lm32-y += milkymist-minimac.o
+obj-lm32-y += milkymist-minimac2.o
 obj-lm32-y += milkymist-pfpu.o
 obj-lm32-y += milkymist-softusb.o
 obj-lm32-y += milkymist-sysctl.o
@@ -353,6 +365,8 @@ obj-arm-y += syborg.o syborg_fb.o syborg_interrupt.o syborg_keyboard.o
 obj-arm-y += syborg_serial.o syborg_timer.o syborg_pointer.o syborg_rtc.o
 obj-arm-y += syborg_virtio.o
 obj-arm-y += vexpress.o
+obj-arm-y += strongarm.o
+obj-arm-y += collie.o
 
 obj-sh4-y = shix.o r2d.o sh7750.o sh7750_regnames.o tc58128.o
 obj-sh4-y += sh_timer.o sh_serial.o sh_intc.o sh_pci.o sm501.o
@@ -400,9 +414,11 @@ hmp-commands.h: $(SRC_PATH)/hmp-commands.hx
 qmp-commands.h: $(SRC_PATH)/qmp-commands.hx
 	$(call quiet-command,sh $(SRC_PATH)/scripts/hxtool -h < $< > $@,"  GEN   $(TARGET_DIR)$@")
 
+9pfs/virtio-9p.o: CFLAGS +=  -I$(SRC_PATH)/hw/
+
 clean:
 	rm -f *.o *.a *~ $(PROGS) nwfpe/*.o fpu/*.o
-	rm -f *.d */*.d tcg/*.o ide/*.o
+	rm -f *.d */*.d tcg/*.o ide/*.o 9pfs/*.o
 	rm -f hmp-commands.h qmp-commands.h gdbstub-xml.c
 ifdef CONFIG_SYSTEMTAP_TRACE
 	rm -f *.stp

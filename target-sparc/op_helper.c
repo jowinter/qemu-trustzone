@@ -4092,12 +4092,6 @@ void helper_write_softint(uint64_t value)
 }
 #endif
 
-void helper_flush(target_ulong addr)
-{
-    addr &= ~7;
-    tb_invalidate_page_range(addr, addr + 8);
-}
-
 #ifdef TARGET_SPARC64
 #ifdef DEBUG_PCALL
 static const char * const excp_names[0x80] = {
@@ -4375,7 +4369,7 @@ static void cpu_restore_state2(void *retaddr)
         if (tb) {
             /* the PC is inside the translated code. It means that we have
                a virtual CPU fault */
-            cpu_restore_state(tb, env, pc, (void *)(long)env->cond);
+            cpu_restore_state(tb, env, pc);
         }
     }
 }

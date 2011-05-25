@@ -496,14 +496,37 @@ static int img_commit(int argc, char **argv)
     return 0;
 }
 
+/*
+ * Checks whether the sector is not a zero sector.
+ *
+ * Attention! The len must be a multiple of 4 * sizeof(long) due to
+ * restriction of optimizations in this function.
+ */
 static int is_not_zero(const uint8_t *sector, int len)
 {
+    /*
+     * Use long as the biggest available internal data type that fits into the
+     * CPU register and unroll the loop to smooth out the effect of memory
+     * latency.
+     */
+
     int i;
-    len >>= 2;
-    for(i = 0;i < len; i++) {
-        if (((uint32_t *)sector)[i] != 0)
+    long d0, d1, d2, d3;
+    const long * const data = (const long *) sector;
+
+    len /= sizeof(long);
+
+    for(i = 0; i < len; i += 4) {
+        d0 = data[i + 0];
+        d1 = data[i + 1];
+        d2 = data[i + 2];
+        d3 = data[i + 3];
+
+        if (d0 || d1 || d2 || d3) {
             return 1;
+        }
     }
+
     return 0;
 }
 
@@ -785,7 +808,7 @@ static int img_convert(int argc, char **argv)
 
         nb_sectors = total_sectors;
         local_progress = (float)100 /
-            (nb_sectors / MIN(nb_sectors, (cluster_sectors)));
+            (nb_sectors / MIN(nb_sectors, cluster_sectors));
 
         for(;;) {
             int64_t bs_num;
@@ -856,7 +879,7 @@ static int img_convert(int argc, char **argv)
         sector_num = 0; // total number of sectors converted so far
         nb_sectors = total_sectors - sector_num;
         local_progress = (float)100 /
-            (nb_sectors / MIN(nb_sectors, (IO_BUF_SIZE / 512)));
+            (nb_sectors / MIN(nb_sectors, IO_BUF_SIZE / 512));
 
         for(;;) {
             nb_sectors = total_sectors - sector_num;
@@ -1240,7 +1263,7 @@ static int img_rebase(int argc, char **argv)
         }
     }
 
-    if ((optind >= argc) || !out_baseimg) {
+    if ((optind >= argc) || (!unsafe && !out_baseimg)) {
         help();
     }
     filename = argv[optind++];
@@ -1331,7 +1354,7 @@ static int img_rebase(int argc, char **argv)
         bdrv_get_geometry(bs, &num_sectors);
 
         local_progress = (float)100 /
-            (num_sectors / MIN(num_sectors, (IO_BUF_SIZE / 512)));
+            (num_sectors / MIN(num_sectors, IO_BUF_SIZE / 512));
         for (sector = 0; sector < num_sectors; sector += n) {
 
             /* How many sectors can we handle with the next read? */
@@ -1442,6 +1465,16 @@ static int img_resize(int argc, char **argv)
         { NULL }
     };
 
+    /* Remove size from argv manually so that negative numbers are not treated
+     * as options by getopt. */
+    if (argc < 3) {
+        help();
+        return 1;
+    }
+
+    size = argv[--argc];
+
+    /* Parse getopt arguments */
     fmt = NULL;
     for(;;) {
         c = getopt(argc, argv, "f:h");
@@ -1458,11 +1491,10 @@ static int img_resize(int argc, char **argv)
             break;
         }
     }
-    if (optind + 1 >= argc) {
+    if (optind >= argc) {
         help();
     }
     filename = argv[optind++];
-    size = argv[optind++];
 
     /* Choose grow, shrink, or absolute resize mode */
     switch (size[0]) {

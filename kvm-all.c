@@ -245,48 +245,60 @@ err:
 /*
  * dirty pages logging control
  */
-static int kvm_dirty_pages_log_change(target_phys_addr_t phys_addr,
-                                      ram_addr_t size, int flags, int mask)
+
+static int kvm_mem_flags(KVMState *s, bool log_dirty)
+{
+    return log_dirty ? KVM_MEM_LOG_DIRTY_PAGES : 0;
+}
+
+static int kvm_slot_dirty_pages_log_change(KVMSlot *mem, bool log_dirty)
 {
     KVMState *s = kvm_state;
-    KVMSlot *mem = kvm_lookup_matching_slot(s, phys_addr, phys_addr + size);
+    int flags, mask = KVM_MEM_LOG_DIRTY_PAGES;
     int old_flags;
-
-    if (mem == NULL)  {
-            fprintf(stderr, "BUG: %s: invalid parameters " TARGET_FMT_plx "-"
-                    TARGET_FMT_plx "\n", __func__, phys_addr,
-                    (target_phys_addr_t)(phys_addr + size - 1));
-            return -EINVAL;
-    }
 
     old_flags = mem->flags;
 
-    flags = (mem->flags & ~mask) | flags;
+    flags = (mem->flags & ~mask) | kvm_mem_flags(s, log_dirty);
     mem->flags = flags;
 
     /* If nothing changed effectively, no need to issue ioctl */
     if (s->migration_log) {
         flags |= KVM_MEM_LOG_DIRTY_PAGES;
     }
+
     if (flags == old_flags) {
-            return 0;
+        return 0;
     }
 
     return kvm_set_user_memory_region(s, mem);
 }
 
+static int kvm_dirty_pages_log_change(target_phys_addr_t phys_addr,
+                                      ram_addr_t size, bool log_dirty)
+{
+    KVMState *s = kvm_state;
+    KVMSlot *mem = kvm_lookup_matching_slot(s, phys_addr, phys_addr + size);
+
+    if (mem == NULL)  {
+        fprintf(stderr, "BUG: %s: invalid parameters " TARGET_FMT_plx "-"
+                TARGET_FMT_plx "\n", __func__, phys_addr,
+                (target_phys_addr_t)(phys_addr + size - 1));
+        return -EINVAL;
+    }
+    return kvm_slot_dirty_pages_log_change(mem, log_dirty);
+}
+
 static int kvm_log_start(CPUPhysMemoryClient *client,
                          target_phys_addr_t phys_addr, ram_addr_t size)
 {
-    return kvm_dirty_pages_log_change(phys_addr, size, KVM_MEM_LOG_DIRTY_PAGES,
-                                      KVM_MEM_LOG_DIRTY_PAGES);
+    return kvm_dirty_pages_log_change(phys_addr, size, true);
 }
 
 static int kvm_log_stop(CPUPhysMemoryClient *client,
                         target_phys_addr_t phys_addr, ram_addr_t size)
 {
-    return kvm_dirty_pages_log_change(phys_addr, size, 0,
-                                      KVM_MEM_LOG_DIRTY_PAGES);
+    return kvm_dirty_pages_log_change(phys_addr, size, false);
 }
 
 static int kvm_set_migration_log(int enable)
@@ -373,7 +385,20 @@ static int kvm_physical_sync_dirty_bitmap(target_phys_addr_t start_addr,
             break;
         }
 
-        size = ALIGN(((mem->memory_size) >> TARGET_PAGE_BITS), HOST_LONG_BITS) / 8;
+        /* XXX bad kernel interface alert
+         * For dirty bitmap, kernel allocates array of size aligned to
+         * bits-per-long.  But for case when the kernel is 64bits and
+         * the userspace is 32bits, userspace can't align to the same
+         * bits-per-long, since sizeof(long) is different between kernel
+         * and user space.  This way, userspace will provide buffer which
+         * may be 4 bytes less than the kernel will use, resulting in
+         * userspace memory corruption (which is not detectable by valgrind
+         * too, in most cases).
+         * So for now, let's align to 64 instead of HOST_LONG_BITS here, in
+         * a hope that sizeof(long) wont become >8 any time soon.
+         */
+        size = ALIGN(((mem->memory_size) >> TARGET_PAGE_BITS),
+                     /*HOST_LONG_BITS*/ 64) / 8;
         if (!d.dirty_bitmap) {
             d.dirty_bitmap = qemu_malloc(size);
         } else if (size > allocated_size) {
@@ -495,7 +520,7 @@ kvm_check_extension_list(KVMState *s, const KVMCapabilityInfo *list)
 }
 
 static void kvm_set_phys_mem(target_phys_addr_t start_addr, ram_addr_t size,
-                             ram_addr_t phys_offset)
+                             ram_addr_t phys_offset, bool log_dirty)
 {
     KVMState *s = kvm_state;
     ram_addr_t flags = phys_offset & ~TARGET_PAGE_MASK;
@@ -520,7 +545,8 @@ static void kvm_set_phys_mem(target_phys_addr_t start_addr, ram_addr_t size,
             (start_addr + size <= mem->start_addr + mem->memory_size) &&
             (phys_offset - start_addr == mem->phys_offset - mem->start_addr)) {
             /* The new slot fits into the existing one and comes with
-             * identical parameters - nothing to be done. */
+             * identical parameters - update flags and done. */
+            kvm_slot_dirty_pages_log_change(mem, log_dirty);
             return;
         }
 
@@ -550,7 +576,7 @@ static void kvm_set_phys_mem(target_phys_addr_t start_addr, ram_addr_t size,
             mem->memory_size = old.memory_size;
             mem->start_addr = old.start_addr;
             mem->phys_offset = old.phys_offset;
-            mem->flags = 0;
+            mem->flags = kvm_mem_flags(s, log_dirty);
 
             err = kvm_set_user_memory_region(s, mem);
             if (err) {
@@ -571,12 +597,17 @@ static void kvm_set_phys_mem(target_phys_addr_t start_addr, ram_addr_t size,
             mem->memory_size = start_addr - old.start_addr;
             mem->start_addr = old.start_addr;
             mem->phys_offset = old.phys_offset;
-            mem->flags = 0;
+            mem->flags =  kvm_mem_flags(s, log_dirty);
 
             err = kvm_set_user_memory_region(s, mem);
             if (err) {
                 fprintf(stderr, "%s: error registering prefix slot: %s\n",
                         __func__, strerror(-err));
+#ifdef TARGET_PPC
+                fprintf(stderr, "%s: This is probably because your kernel's " \
+                                "PAGE_SIZE is too big. Please try to use 4k " \
+                                "PAGE_SIZE!\n", __func__);
+#endif
                 abort();
             }
         }
@@ -590,7 +621,7 @@ static void kvm_set_phys_mem(target_phys_addr_t start_addr, ram_addr_t size,
             size_delta = mem->start_addr - old.start_addr;
             mem->memory_size = old.memory_size - size_delta;
             mem->phys_offset = old.phys_offset + size_delta;
-            mem->flags = 0;
+            mem->flags = kvm_mem_flags(s, log_dirty);
 
             err = kvm_set_user_memory_region(s, mem);
             if (err) {
@@ -613,7 +644,7 @@ static void kvm_set_phys_mem(target_phys_addr_t start_addr, ram_addr_t size,
     mem->memory_size = size;
     mem->start_addr = start_addr;
     mem->phys_offset = phys_offset;
-    mem->flags = 0;
+    mem->flags = kvm_mem_flags(s, log_dirty);
 
     err = kvm_set_user_memory_region(s, mem);
     if (err) {
@@ -625,9 +656,10 @@ static void kvm_set_phys_mem(target_phys_addr_t start_addr, ram_addr_t size,
 
 static void kvm_client_set_memory(struct CPUPhysMemoryClient *client,
                                   target_phys_addr_t start_addr,
-                                  ram_addr_t size, ram_addr_t phys_offset)
+                                  ram_addr_t size, ram_addr_t phys_offset,
+                                  bool log_dirty)
 {
-    kvm_set_phys_mem(start_addr, size, phys_offset);
+    kvm_set_phys_mem(start_addr, size, phys_offset, log_dirty);
 }
 
 static int kvm_client_sync_dirty_bitmap(struct CPUPhysMemoryClient *client,
@@ -650,6 +682,15 @@ static CPUPhysMemoryClient kvm_cpu_phys_memory_client = {
     .log_start = kvm_log_start,
     .log_stop = kvm_log_stop,
 };
+
+static void kvm_handle_interrupt(CPUState *env, int mask)
+{
+    env->interrupt_request |= mask;
+
+    if (!qemu_cpu_is_self(env)) {
+        qemu_cpu_kick(env);
+    }
+}
 
 int kvm_init(void)
 {
@@ -758,6 +799,8 @@ int kvm_init(void)
     cpu_register_phys_memory_client(&kvm_cpu_phys_memory_client);
 
     s->many_ioeventfds = kvm_check_many_ioeventfds();
+
+    cpu_interrupt_handler = kvm_handle_interrupt;
 
     return 0;
 
@@ -1167,7 +1210,7 @@ int kvm_insert_breakpoint(CPUState *current_env, target_ulong addr,
         bp->use_count = 1;
         err = kvm_arch_insert_sw_breakpoint(current_env, bp);
         if (err) {
-            free(bp);
+            qemu_free(bp);
             return err;
         }
 
@@ -1291,7 +1334,7 @@ int kvm_set_signal_mask(CPUState *env, const sigset_t *sigset)
     sigmask->len = 8;
     memcpy(sigmask->sigset, sigset, sizeof(*sigset));
     r = kvm_vcpu_ioctl(env, KVM_SET_SIGNAL_MASK, sigmask);
-    free(sigmask);
+    qemu_free(sigmask);
 
     return r;
 }
