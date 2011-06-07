@@ -297,6 +297,10 @@ static uint8_t twl4030_48_read(TWL4030NodeState *s, uint8_t addr)
         case 0xad: /* POWER_SET */
         case 0xae: /* POWER_CLR */
             return s->reg_data[0xac];
+        case 0xbb: /* CARKIT_AND_CTRL */
+        case 0xbc: /* CARKIT_ANA_SET */
+        case 0xbd: /* CARKIT_ANA_CLR */
+            return s->reg_data[0xbb];
         case 0xfd: /* PHY_PWR_CTRL */
         case 0xfe: /* PHY_CLK_CTRL */
             return s->reg_data[addr];
