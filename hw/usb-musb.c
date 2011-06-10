@@ -380,7 +380,7 @@ struct MUSBState *musb_init(DeviceState *parent_device, int gpio_base)
     }
     musb_reset(s);
 
-    usb_bus_new(&s->bus, NULL /* FIXME */);
+    usb_bus_new(&s->bus, parent_device);
     usb_register_port(&s->bus, &s->port, s, 0, &musb_port_ops,
                       USB_SPEED_MASK_LOW | USB_SPEED_MASK_FULL);
     usb_port_location(&s->port, NULL, 1);
