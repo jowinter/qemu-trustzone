@@ -51,9 +51,6 @@ uint32_t spi_txrx(SPIBus *bus, int channel, uint32_t data, int len)
             if (dev->info->txrx) {
                 return dev->info->txrx(dev, data, len);
             }
-        } else {
-            fprintf(stderr, "%s: no device attached on channel %d\n",
-                    __FUNCTION__, channel);
         }
     } else {
         hw_error("%s: invalid channel %d\n", __FUNCTION__, channel);
