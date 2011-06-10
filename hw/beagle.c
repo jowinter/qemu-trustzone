@@ -50,7 +50,6 @@ struct beagle_s {
     DeviceState *smc;
 };
 
-
 static void beagle_common_init(ram_addr_t ram_size,
                         const char *boot_device,
                         const char *kernel_filename,
