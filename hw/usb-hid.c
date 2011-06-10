@@ -713,7 +713,6 @@ static void usb_keyboard_handle_reset(USBDevice *dev)
 {
     USBHIDState *s = (USBHIDState *)dev;
 
-    qemu_add_kbd_event_handler(usb_keyboard_event, s);
     memset(s->kbd.keycodes, 0, sizeof (s->kbd.keycodes));
     s->head = 0;
     s->n = 0;
@@ -868,6 +867,8 @@ static int usb_hid_initfn(USBDevice *dev, int kind)
     } else if (s->kind == USB_TABLET) {
         s->ptr.eh_entry = qemu_add_mouse_event_handler(usb_pointer_event, s,
                                                        1, "QEMU USB Tablet");
+    } else if (s->kind == USB_KEYBOARD) {
+        qemu_add_kbd_event_handler(usb_keyboard_event, s);
     }
 
     /* Force poll routine to be run and grab input the first time.  */
