@@ -48,6 +48,7 @@ struct beagle_s {
     DeviceState *nand;
     void *twl4030;
     DeviceState *smc;
+    DeviceState *ddc;
 };
 
 static void beagle_common_init(ram_addr_t ram_size,
@@ -101,6 +102,12 @@ static void beagle_common_init(ram_addr_t ram_size,
         hw_error("%s: no NIC for smc91c111\n", __FUNCTION__);
     }
     omap_gpmc_attach(s->cpu->gpmc, BEAGLE_SMC_CS, s->smc, 0, 0);
+
+    /* Wire up an I2C slave which returns EDID monitor information;
+     * newer Linux kernels won't turn on the display unless they
+     * detect a monitor over DDC.
+     */
+    s->ddc = i2c_create_slave(omap_i2c_bus(s->cpu->i2c, 2), "i2c-ddc", 0x50);
 
     omap_lcd_panel_attach(s->cpu->dss);
 }
