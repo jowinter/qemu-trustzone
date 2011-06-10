@@ -452,7 +452,7 @@ static int omap3_hsusb_host_init(SysBusDevice *dev)
                      cpu_register_io_memory(omap3_hsusb_ehci_readfn,
                                             omap3_hsusb_ehci_writefn, s,
                                             DEVICE_NATIVE_ENDIAN));
-    /* TODO: OHCI */
+    /* OHCI is instantiated by omap3.c */
     vmstate_register(&dev->qdev, -1, &vmstate_omap3_hsusb_host, s);
     return 0;
 }

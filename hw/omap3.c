@@ -32,6 +32,7 @@
 #include "sysbus.h"
 #include "audio/audio.h"
 #include "block.h"
+#include "qdev-addr.h"
 
 //#define OMAP3_DEBUG
 //#define OMAP3_DEBUG_SCM
@@ -4363,6 +4364,15 @@ struct omap_mpu_state_s *omap3_mpu_init(int model, int emulate_bootrom,
         omap3_l4ta_init(s->l4, L4A_USBHS_HOST);
     sysbus_mmio_map(busdev, 1, omap_l4_base(usbhost_ta, 0));
     sysbus_mmio_map(busdev, 2, omap_l4_base(usbhost_ta, 2));
+
+    s->omap3_usb_ohci = qdev_create(NULL, "sysbus-ohci");
+    qdev_prop_set_uint32(s->omap3_usb_ohci, "num-ports", 3);
+    qdev_prop_set_taddr(s->omap3_usb_ohci, "dma-offset", 0);
+    qdev_init_nofail(s->omap3_usb_ohci);
+    busdev = sysbus_from_qdev(s->omap3_usb_ohci);
+    sysbus_mmio_resize(busdev, 0, 0x400);
+    sysbus_mmio_map(busdev, 0, omap_l4_base(usbhost_ta, 1));
+    sysbus_connect_irq(busdev, 0, s->irq[0][OMAP_INT_3XXX_OHCI_IRQ]);
 
     s->mcspi = qdev_create(NULL, "omap_mcspi");
     qdev_prop_set_int32(s->mcspi, "mpu_model", s->mpu_model);

@@ -1120,6 +1120,7 @@ struct omap_mpu_state_s {
     DeviceState *omap3_mmc[3];
     DeviceState *omap3_usb_otg;
     DeviceState *omap3_usb_host;
+    DeviceState *omap3_usb_ohci;
     ram_addr_t bootrom_base;
 };
 
