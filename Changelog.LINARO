@@ -12,6 +12,24 @@ here. For full change detail consult the git history:
 Bug numbers refer to Launchpad qemu-linaro bugs, eg:
 https://bugs.launchpad.net/qemu-linaro/+bug/703094
 
+version 2011.06:
+ - Introduces a model of the Gumstix Overo board ("overo")
+ - Fixes #708703: the OMAP3 OHCI USB controller is implemented
+   and works for USB keyboard and mouse
+ - Fixes #768650: suppresses a "Bad register 0x000000f8"
+   warning caused by the Linux kernel deliberately accessing
+   a non-existent OMAP3 interrupt controller register
+ - Models a DDC I2C slave to pass fake EDID monitor data,
+   to satisfy Linux kernels which insist on probing for a
+   monitor before turning on the display
+ - Fixes overflow when calculating result of signed VABAL
+ - Fixes handling of Neon UNDEF cases
+ - Fixes setting of floating point exception flags for
+   various Neon and VFP instructions
+ - Fixes corruption of base register for an abort midway
+   through a Thumb LDM which includes the base register in
+   the set of registers to be loaded
+
 version 2011.04-1:
  - Fixes a compilation failure with gcc 4.5
 
