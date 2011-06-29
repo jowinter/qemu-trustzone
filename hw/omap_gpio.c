@@ -17,6 +17,7 @@
  * You should have received a copy of the GNU General Public License along
  * with this program; if not, see <http://www.gnu.org/licenses/>.
  */
+
 #include "hw.h"
 #include "omap.h"
 #include "sysbus.h"
@@ -38,7 +39,7 @@ struct omap2_gpio_s {
     qemu_irq irq[2];
     qemu_irq wkup;
     qemu_irq *handler;
-    
+
     uint8_t revision;
     uint8_t config[2];
     uint32_t inputs;
@@ -372,7 +373,6 @@ static void omap2_gpio_module_write(void *opaque, target_phys_addr_t addr,
     case 0x14:	/* GPIO_SYSSTATUS */
     case 0x38:	/* GPIO_DATAIN */
         /* read-only, ignore quietly */
-        //OMAP_RO_REG(addr);
         break;
 
     case 0x10:	/* GPIO_SYSCONFIG */
@@ -518,7 +518,7 @@ static void omap2_gpio_module_writep(void *opaque, target_phys_addr_t addr,
     case 0x00:	/* GPIO_REVISION */
     case 0x14:	/* GPIO_SYSSTATUS */
     case 0x38:	/* GPIO_DATAIN */
-        OMAP_RO_REG(addr);
+        /* read-only, ignore quietly */
         break;
 
     case 0x10:	/* GPIO_SYSCONFIG */

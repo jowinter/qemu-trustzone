@@ -169,7 +169,7 @@ static void palmte_gpio_setup(struct omap_mpu_state_s *cpu)
 
     misc_gpio = qemu_allocate_irqs(palmte_onoff_gpios, cpu, 7);
     qdev_connect_gpio_out(cpu->gpio, PALMTE_MMC_POWER_GPIO, misc_gpio[0]);
-    qdev_connect_gpio_out(cpu->gpio, PALMTE_SPEAKER_GPIO,	misc_gpio[1]);
+    qdev_connect_gpio_out(cpu->gpio, PALMTE_SPEAKER_GPIO,   misc_gpio[1]);
     qdev_connect_gpio_out(cpu->gpio, 11,                    misc_gpio[2]);
     qdev_connect_gpio_out(cpu->gpio, 12,                    misc_gpio[3]);
     qdev_connect_gpio_out(cpu->gpio, 13,                    misc_gpio[4]);

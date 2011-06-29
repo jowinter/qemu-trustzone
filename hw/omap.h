@@ -1043,7 +1043,9 @@ struct omap_mpu_state_s {
 
     /* MPUI-TIPB peripherals */
     DeviceState *uart[4];
+
     DeviceState *gpio;
+
     struct omap_mcbsp_s *mcbsp1;
     struct omap_mcbsp_s *mcbsp3;
 

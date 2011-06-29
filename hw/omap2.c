@@ -2228,6 +2228,8 @@ struct omap_mpu_state_s *omap2420_mpu_init(unsigned long sdram_size,
     qemu_irq dma_irqs[4];
     DriveInfo *dinfo;
     int i;
+    SysBusDevice *busdev;
+    struct omap_target_agent_s *ta;
 
     /* Core */
     s->mpu_model = omap2420;
@@ -2287,7 +2289,7 @@ struct omap_mpu_state_s *omap2420_mpu_init(unsigned long sdram_size,
                          omap_clk_getrate(omap_findclk(s, "uart1_fclk")) / 16);
     qdev_prop_set_chr(s->uart[0], "chardev", serial_hds[0]);
     qdev_init_nofail(s->uart[0]);
-    SysBusDevice *busdev = sysbus_from_qdev(s->uart[0]);
+    busdev = sysbus_from_qdev(s->uart[0]);
     sysbus_connect_irq(busdev, 0, s->irq[0][OMAP_INT_24XX_UART1_IRQ]);
     sysbus_connect_irq(busdev, 1, s->drq[OMAP24XX_DMA_UART1_TX]);
     sysbus_connect_irq(busdev, 2, s->drq[OMAP24XX_DMA_UART1_RX]);
@@ -2397,7 +2399,7 @@ struct omap_mpu_state_s *omap2420_mpu_init(unsigned long sdram_size,
     sysbus_connect_irq(busdev, 3, s->irq[0][OMAP_INT_24XX_GPIO_BANK2]);
     sysbus_connect_irq(busdev, 6, s->irq[0][OMAP_INT_24XX_GPIO_BANK3]);
     sysbus_connect_irq(busdev, 9, s->irq[0][OMAP_INT_24XX_GPIO_BANK4]);
-    struct omap_target_agent_s *ta = omap_l4ta(s->l4, 3);
+    ta = omap_l4ta(s->l4, 3);
     sysbus_mmio_map(busdev, 0, omap_l4_base(ta, 1));
     sysbus_mmio_map(busdev, 1, omap_l4_base(ta, 0));
     sysbus_mmio_map(busdev, 2, omap_l4_base(ta, 2));
