@@ -36,7 +36,6 @@
 #include "qemu-timer.h"
 #if defined(CONFIG_USER_ONLY)
 #include <qemu.h>
-#include <signal.h>
 #if defined(__FreeBSD__) || defined(__FreeBSD_kernel__)
 #include <sys/param.h>
 #if __FreeBSD_version >= 700104
@@ -54,6 +53,7 @@
 #endif
 #else /* !CONFIG_USER_ONLY */
 #include "xen-mapcache.h"
+#include "trace.h"
 #endif
 
 //#define DEBUG_TB_INVALIDATE
@@ -1753,14 +1753,21 @@ static int cpu_notify_migration_log(int enable)
     return 0;
 }
 
+struct last_map {
+    target_phys_addr_t start_addr;
+    ram_addr_t size;
+    ram_addr_t phys_offset;
+};
+
 /* The l1_phys_map provides the upper P_L1_BITs of the guest physical
  * address.  Each intermediate table provides the next L2_BITs of guest
  * physical address space.  The number of levels vary based on host and
  * guest configuration, making it efficient to build the final guest
  * physical address by seeding the L1 offset and shifting and adding in
  * each L2 offset as we recurse through them. */
-static void phys_page_for_each_1(CPUPhysMemoryClient *client,
-                                 int level, void **lp, target_phys_addr_t addr)
+static void phys_page_for_each_1(CPUPhysMemoryClient *client, int level,
+                                 void **lp, target_phys_addr_t addr,
+                                 struct last_map *map)
 {
     int i;
 
@@ -1772,15 +1779,29 @@ static void phys_page_for_each_1(CPUPhysMemoryClient *client,
         addr <<= L2_BITS + TARGET_PAGE_BITS;
         for (i = 0; i < L2_SIZE; ++i) {
             if (pd[i].phys_offset != IO_MEM_UNASSIGNED) {
-                client->set_memory(client, addr | i << TARGET_PAGE_BITS,
-                                   TARGET_PAGE_SIZE, pd[i].phys_offset, false);
+                target_phys_addr_t start_addr = addr | i << TARGET_PAGE_BITS;
+
+                if (map->size &&
+                    start_addr == map->start_addr + map->size &&
+                    pd[i].phys_offset == map->phys_offset + map->size) {
+
+                    map->size += TARGET_PAGE_SIZE;
+                    continue;
+                } else if (map->size) {
+                    client->set_memory(client, map->start_addr,
+                                       map->size, map->phys_offset, false);
+                }
+
+                map->start_addr = start_addr;
+                map->size = TARGET_PAGE_SIZE;
+                map->phys_offset = pd[i].phys_offset;
             }
         }
     } else {
         void **pp = *lp;
         for (i = 0; i < L2_SIZE; ++i) {
             phys_page_for_each_1(client, level - 1, pp + i,
-                                 (addr << L2_BITS) | i);
+                                 (addr << L2_BITS) | i, map);
         }
     }
 }
@@ -1788,9 +1809,15 @@ static void phys_page_for_each_1(CPUPhysMemoryClient *client,
 static void phys_page_for_each(CPUPhysMemoryClient *client)
 {
     int i;
+    struct last_map map = { };
+
     for (i = 0; i < P_L1_SIZE; ++i) {
         phys_page_for_each_1(client, P_L1_SHIFT / L2_BITS - 1,
-                             l1_phys_map + i, i);
+                             l1_phys_map + i, i, &map);
+    }
+    if (map.size) {
+        client->set_memory(client, map.start_addr, map.size, map.phys_offset,
+                           false);
     }
 }
 
@@ -3085,11 +3112,12 @@ void *qemu_get_ram_ptr(ram_addr_t addr)
             if (xen_mapcache_enabled()) {
                 /* We need to check if the requested address is in the RAM
                  * because we don't want to map the entire memory in QEMU.
+                 * In that case just map until the end of the page.
                  */
                 if (block->offset == 0) {
-                    return qemu_map_cache(addr, 0, 1);
+                    return qemu_map_cache(addr, 0, 0);
                 } else if (block->host == NULL) {
-                    block->host = xen_map_block(block->offset, block->length);
+                    block->host = qemu_map_cache(block->offset, block->length, 1);
                 }
             }
             return block->host + (addr - block->offset);
@@ -3114,11 +3142,12 @@ void *qemu_safe_ram_ptr(ram_addr_t addr)
             if (xen_mapcache_enabled()) {
                 /* We need to check if the requested address is in the RAM
                  * because we don't want to map the entire memory in QEMU.
+                 * In that case just map until the end of the page.
                  */
                 if (block->offset == 0) {
-                    return qemu_map_cache(addr, 0, 1);
+                    return qemu_map_cache(addr, 0, 0);
                 } else if (block->host == NULL) {
-                    block->host = xen_map_block(block->offset, block->length);
+                    block->host = qemu_map_cache(block->offset, block->length, 1);
                 }
             }
             return block->host + (addr - block->offset);
@@ -3131,31 +3160,45 @@ void *qemu_safe_ram_ptr(ram_addr_t addr)
     return NULL;
 }
 
-void qemu_put_ram_ptr(void *addr)
+/* Return a host pointer to guest's ram. Similar to qemu_get_ram_ptr
+ * but takes a size argument */
+void *qemu_ram_ptr_length(target_phys_addr_t addr, target_phys_addr_t *size)
 {
-    trace_qemu_put_ram_ptr(addr);
-
-    if (xen_mapcache_enabled()) {
+    if (xen_mapcache_enabled())
+        return qemu_map_cache(addr, *size, 1);
+    else {
         RAMBlock *block;
 
         QLIST_FOREACH(block, &ram_list.blocks, next) {
-            if (addr == block->host) {
-                break;
+            if (addr - block->offset < block->length) {
+                if (addr - block->offset + *size > block->length)
+                    *size = block->length - addr + block->offset;
+                return block->host + (addr - block->offset);
             }
         }
-        if (block && block->host) {
-            xen_unmap_block(block->host, block->length);
-            block->host = NULL;
-        } else {
-            qemu_map_cache_unlock(addr);
-        }
+
+        fprintf(stderr, "Bad ram offset %" PRIx64 "\n", (uint64_t)addr);
+        abort();
+
+        *size = 0;
+        return NULL;
     }
+}
+
+void qemu_put_ram_ptr(void *addr)
+{
+    trace_qemu_put_ram_ptr(addr);
 }
 
 int qemu_ram_addr_from_host(void *ptr, ram_addr_t *ram_addr)
 {
     RAMBlock *block;
     uint8_t *host = ptr;
+
+    if (xen_mapcache_enabled()) {
+        *ram_addr = qemu_ram_addr_from_mapcache(ptr);
+        return 0;
+    }
 
     QLIST_FOREACH(block, &ram_list.blocks, next) {
         /* This case append when the block is not mapped. */
@@ -3166,11 +3209,6 @@ int qemu_ram_addr_from_host(void *ptr, ram_addr_t *ram_addr)
             *ram_addr = block->offset + (host - block->host);
             return 0;
         }
-    }
-
-    if (xen_mapcache_enabled()) {
-        *ram_addr = qemu_ram_addr_from_mapcache(ptr);
-        return 0;
     }
 
     return -1;
@@ -3194,7 +3232,7 @@ static uint32_t unassigned_mem_readb(void *opaque, target_phys_addr_t addr)
 #ifdef DEBUG_UNASSIGNED
     printf("Unassigned mem read " TARGET_FMT_plx "\n", addr);
 #endif
-#if defined(TARGET_SPARC) || defined(TARGET_MICROBLAZE)
+#if defined(TARGET_ALPHA) || defined(TARGET_SPARC) || defined(TARGET_MICROBLAZE)
     do_unassigned_access(addr, 0, 0, 0, 1);
 #endif
     return 0;
@@ -3205,7 +3243,7 @@ static uint32_t unassigned_mem_readw(void *opaque, target_phys_addr_t addr)
 #ifdef DEBUG_UNASSIGNED
     printf("Unassigned mem read " TARGET_FMT_plx "\n", addr);
 #endif
-#if defined(TARGET_SPARC) || defined(TARGET_MICROBLAZE)
+#if defined(TARGET_ALPHA) || defined(TARGET_SPARC) || defined(TARGET_MICROBLAZE)
     do_unassigned_access(addr, 0, 0, 0, 2);
 #endif
     return 0;
@@ -3216,7 +3254,7 @@ static uint32_t unassigned_mem_readl(void *opaque, target_phys_addr_t addr)
 #ifdef DEBUG_UNASSIGNED
     printf("Unassigned mem read " TARGET_FMT_plx "\n", addr);
 #endif
-#if defined(TARGET_SPARC) || defined(TARGET_MICROBLAZE)
+#if defined(TARGET_ALPHA) || defined(TARGET_SPARC) || defined(TARGET_MICROBLAZE)
     do_unassigned_access(addr, 0, 0, 0, 4);
 #endif
     return 0;
@@ -3227,7 +3265,7 @@ static void unassigned_mem_writeb(void *opaque, target_phys_addr_t addr, uint32_
 #ifdef DEBUG_UNASSIGNED
     printf("Unassigned mem write " TARGET_FMT_plx " = 0x%x\n", addr, val);
 #endif
-#if defined(TARGET_SPARC) || defined(TARGET_MICROBLAZE)
+#if defined(TARGET_ALPHA) || defined(TARGET_SPARC) || defined(TARGET_MICROBLAZE)
     do_unassigned_access(addr, 1, 0, 0, 1);
 #endif
 }
@@ -3237,7 +3275,7 @@ static void unassigned_mem_writew(void *opaque, target_phys_addr_t addr, uint32_
 #ifdef DEBUG_UNASSIGNED
     printf("Unassigned mem write " TARGET_FMT_plx " = 0x%x\n", addr, val);
 #endif
-#if defined(TARGET_SPARC) || defined(TARGET_MICROBLAZE)
+#if defined(TARGET_ALPHA) || defined(TARGET_SPARC) || defined(TARGET_MICROBLAZE)
     do_unassigned_access(addr, 1, 0, 0, 2);
 #endif
 }
@@ -3247,7 +3285,7 @@ static void unassigned_mem_writel(void *opaque, target_phys_addr_t addr, uint32_
 #ifdef DEBUG_UNASSIGNED
     printf("Unassigned mem write " TARGET_FMT_plx " = 0x%x\n", addr, val);
 #endif
-#if defined(TARGET_SPARC) || defined(TARGET_MICROBLAZE)
+#if defined(TARGET_ALPHA) || defined(TARGET_SPARC) || defined(TARGET_MICROBLAZE)
     do_unassigned_access(addr, 1, 0, 0, 4);
 #endif
 }
@@ -4004,14 +4042,12 @@ void *cpu_physical_memory_map(target_phys_addr_t addr,
                               int is_write)
 {
     target_phys_addr_t len = *plen;
-    target_phys_addr_t done = 0;
+    target_phys_addr_t todo = 0;
     int l;
-    uint8_t *ret = NULL;
-    uint8_t *ptr;
     target_phys_addr_t page;
     unsigned long pd;
     PhysPageDesc *p;
-    unsigned long addr1;
+    target_phys_addr_t addr1 = addr;
 
     while (len > 0) {
         page = addr & TARGET_PAGE_MASK;
@@ -4026,7 +4062,7 @@ void *cpu_physical_memory_map(target_phys_addr_t addr,
         }
 
         if ((pd & ~TARGET_PAGE_MASK) != IO_MEM_RAM) {
-            if (done || bounce.buffer) {
+            if (todo || bounce.buffer) {
                 break;
             }
             bounce.buffer = qemu_memalign(TARGET_PAGE_SIZE, TARGET_PAGE_SIZE);
@@ -4035,23 +4071,17 @@ void *cpu_physical_memory_map(target_phys_addr_t addr,
             if (!is_write) {
                 cpu_physical_memory_read(addr, bounce.buffer, l);
             }
-            ptr = bounce.buffer;
-        } else {
-            addr1 = (pd & TARGET_PAGE_MASK) + (addr & ~TARGET_PAGE_MASK);
-            ptr = qemu_get_ram_ptr(addr1);
-        }
-        if (!done) {
-            ret = ptr;
-        } else if (ret + done != ptr) {
-            break;
+
+            *plen = l;
+            return bounce.buffer;
         }
 
         len -= l;
         addr += l;
-        done += l;
+        todo += l;
     }
-    *plen = done;
-    return ret;
+    *plen = todo;
+    return qemu_ram_ptr_length(addr1, plen);
 }
 
 /* Unmaps a memory region previously mapped by cpu_physical_memory_map().
@@ -4081,13 +4111,7 @@ void cpu_physical_memory_unmap(void *buffer, target_phys_addr_t len,
             }
         }
         if (xen_mapcache_enabled()) {
-            uint8_t *buffer1 = buffer;
-            uint8_t *end_buffer = buffer + len;
-
-            while (buffer1 < end_buffer) {
-                qemu_put_ram_ptr(buffer1);
-                buffer1 += TARGET_PAGE_SIZE;
-            }
+            qemu_invalidate_entry(buffer);
         }
         return;
     }

@@ -14,7 +14,7 @@ endif
 
 TARGET_PATH=$(SRC_PATH)/target-$(TARGET_BASE_ARCH)
 $(call set-vpath, $(SRC_PATH):$(TARGET_PATH):$(SRC_PATH)/hw)
-QEMU_CFLAGS+= -I.. -I$(TARGET_PATH) -DNEED_CPU_H
+QEMU_CFLAGS+= -I.. -I../linux-headers -I$(TARGET_PATH) -DNEED_CPU_H
 
 include $(SRC_PATH)/Makefile.objs
 
@@ -36,8 +36,6 @@ STPFILES=
 ifndef CONFIG_HAIKU
 LIBS+=-lm
 endif
-
-kvm.o kvm-all.o vhost.o vhost_net.o kvmclock.o: QEMU_CFLAGS+=$(KVM_CFLAGS)
 
 config-target.h: config-target.h-timestamp
 config-target.h-timestamp: config-target.mak
@@ -190,10 +188,9 @@ obj-y = arch_init.o cpus.o monitor.o machine.o gdbstub.o balloon.o
 # need to fix this properly
 obj-$(CONFIG_NO_PCI) += pci-stub.o
 obj-$(CONFIG_VIRTIO) += virtio-blk.o virtio-balloon.o virtio-net.o virtio-serial-bus.o
-obj-$(CONFIG_VIRTIO_PCI) += virtio-pci.o
 obj-y += vhost_net.o
 obj-$(CONFIG_VHOST_NET) += vhost.o
-obj-$(CONFIG_REALLY_VIRTFS) += 9pfs/virtio-9p.o
+obj-$(CONFIG_REALLY_VIRTFS) += 9pfs/virtio-9p-device.o
 obj-y += rwhandler.o
 obj-$(CONFIG_KVM) += kvm.o kvm-all.o
 obj-$(CONFIG_NO_KVM) += kvm-stub.o
@@ -219,6 +216,8 @@ obj-$(CONFIG_NO_XEN) += xen-stub.o
 obj-i386-$(CONFIG_XEN_MAPCACHE) += xen-mapcache.o
 obj-$(CONFIG_NO_XEN_MAPCACHE) += xen-mapcache-stub.o
 
+obj-i386-$(CONFIG_XEN) += xen_platform.o
+
 # Inter-VM PCI shared memory
 CONFIG_IVSHMEM =
 ifeq ($(CONFIG_KVM), y)
@@ -231,7 +230,7 @@ obj-$(CONFIG_IVSHMEM) += ivshmem.o
 # Hardware support
 obj-i386-y += vga.o
 obj-i386-y += mc146818rtc.o i8259.o pc.o
-obj-i386-y += cirrus_vga.o apic.o ioapic.o piix_pci.o
+obj-i386-y += cirrus_vga.o sga.o apic.o ioapic.o piix_pci.o
 obj-i386-y += vmport.o
 obj-i386-y += device-hotplug.o pci-hotplug.o smbios.o wdt_ib700.o
 obj-i386-y += debugcon.o multiboot.o
@@ -376,7 +375,8 @@ obj-m68k-y += m68k-semi.o dummy_m68k.o
 
 obj-s390x-y = s390-virtio-bus.o s390-virtio.o
 
-obj-alpha-y = alpha_palcode.o
+obj-alpha-y = i8259.o mc146818rtc.o
+obj-alpha-y += vga.o cirrus_vga.o
 
 main.o: QEMU_CFLAGS+=$(GPROF_CFLAGS)
 
@@ -412,8 +412,6 @@ hmp-commands.h: $(SRC_PATH)/hmp-commands.hx
 
 qmp-commands.h: $(SRC_PATH)/qmp-commands.hx
 	$(call quiet-command,sh $(SRC_PATH)/scripts/hxtool -h < $< > $@,"  GEN   $(TARGET_DIR)$@")
-
-9pfs/virtio-9p.o: CFLAGS +=  -I$(SRC_PATH)/hw/
 
 clean:
 	rm -f *.o *.a *~ $(PROGS) nwfpe/*.o fpu/*.o

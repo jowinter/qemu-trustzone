@@ -263,11 +263,16 @@
 static void musb_attach(USBPort *port);
 static void musb_detach(USBPort *port);
 static void musb_schedule_cb(USBDevice *dev, USBPacket *p);
+static void musb_device_destroy(USBBus *bus, USBDevice *dev);
 
 static USBPortOps musb_port_ops = {
     .attach = musb_attach,
     .detach = musb_detach,
     .complete = musb_schedule_cb,
+};
+
+static USBBusOps musb_bus_ops = {
+    .device_destroy = musb_device_destroy,
 };
 
 typedef struct MUSBPacket MUSBPacket;
@@ -380,7 +385,7 @@ struct MUSBState *musb_init(DeviceState *parent_device, int gpio_base)
     }
     musb_reset(s);
 
-    usb_bus_new(&s->bus, parent_device);
+    usb_bus_new(&s->bus, &musb_bus_ops, parent_device);
     usb_register_port(&s->bus, &s->port, s, 0, &musb_port_ops,
                       USB_SPEED_MASK_LOW | USB_SPEED_MASK_FULL);
     usb_port_location(&s->port, NULL, 1);
@@ -795,6 +800,22 @@ static void musb_rx_packet_complete(USBPacket *packey, void *opaque)
 
     /* Only if DMA has not been asserted */
     musb_rx_intr_set(s, epnum, 1);
+}
+
+static void musb_device_destroy(USBBus *bus, USBDevice *dev)
+{
+    MUSBState *s = container_of(bus, MUSBState, bus);
+    int ep, dir;
+
+    for (ep = 0; ep < 16; ep++) {
+        for (dir = 0; dir < 2; dir++) {
+            if (s->ep[ep].packey[dir].p.owner != dev) {
+                continue;
+            }
+            usb_cancel_packet(&s->ep[ep].packey[dir].p);
+            /* status updates needed here? */
+        }
+    }
 }
 
 static void musb_tx_rdy(MUSBState *s, int epnum)

@@ -297,7 +297,7 @@ static void qemu_event_increment(void)
 
     /* EAGAIN is fine, a read must be pending.  */
     if (ret < 0 && errno != EAGAIN) {
-        fprintf(stderr, "qemu_event_increment: write() filed: %s\n",
+        fprintf(stderr, "qemu_event_increment: write() failed: %s\n",
                 strerror(errno));
         exit (1);
     }
@@ -1140,6 +1140,11 @@ void set_cpu_log(const char *optarg)
         exit(1);
     }
     cpu_set_log(mask);
+}
+
+void set_cpu_log_filename(const char *optarg)
+{
+    cpu_set_log_filename(optarg);
 }
 
 /* Return the virtual CPU time, based on the instruction counter.  */

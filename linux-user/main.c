@@ -2508,49 +2508,27 @@ void cpu_loop (CPUState *env)
             fprintf(stderr, "Machine check exception. Exit\n");
             exit(1);
             break;
-        case EXCP_ARITH:
-            env->lock_addr = -1;
-            info.si_signo = TARGET_SIGFPE;
-            info.si_errno = 0;
-            info.si_code = TARGET_FPE_FLTINV;
-            info._sifields._sigfault._addr = env->pc;
-            queue_signal(env, info.si_signo, &info);
-            break;
-        case EXCP_HW_INTERRUPT:
+        case EXCP_SMP_INTERRUPT:
+        case EXCP_CLK_INTERRUPT:
+        case EXCP_DEV_INTERRUPT:
             fprintf(stderr, "External interrupt. Exit\n");
             exit(1);
             break;
-        case EXCP_DFAULT:
+        case EXCP_MMFAULT:
             env->lock_addr = -1;
             info.si_signo = TARGET_SIGSEGV;
             info.si_errno = 0;
-            info.si_code = (page_get_flags(env->ipr[IPR_EXC_ADDR]) & PAGE_VALID
+            info.si_code = (page_get_flags(env->trap_arg0) & PAGE_VALID
                             ? TARGET_SEGV_ACCERR : TARGET_SEGV_MAPERR);
-            info._sifields._sigfault._addr = env->ipr[IPR_EXC_ADDR];
+            info._sifields._sigfault._addr = env->trap_arg0;
             queue_signal(env, info.si_signo, &info);
-            break;
-        case EXCP_DTB_MISS_PAL:
-            fprintf(stderr, "MMU data TLB miss in PALcode\n");
-            exit(1);
-            break;
-        case EXCP_ITB_MISS:
-            fprintf(stderr, "MMU instruction TLB miss\n");
-            exit(1);
-            break;
-        case EXCP_ITB_ACV:
-            fprintf(stderr, "MMU instruction access violation\n");
-            exit(1);
-            break;
-        case EXCP_DTB_MISS_NATIVE:
-            fprintf(stderr, "MMU data TLB miss\n");
-            exit(1);
             break;
         case EXCP_UNALIGN:
             env->lock_addr = -1;
             info.si_signo = TARGET_SIGBUS;
             info.si_errno = 0;
             info.si_code = TARGET_BUS_ADRALN;
-            info._sifields._sigfault._addr = env->ipr[IPR_EXC_ADDR];
+            info._sifields._sigfault._addr = env->trap_arg0;
             queue_signal(env, info.si_signo, &info);
             break;
         case EXCP_OPCDEC:
@@ -2562,12 +2540,20 @@ void cpu_loop (CPUState *env)
             info._sifields._sigfault._addr = env->pc;
             queue_signal(env, info.si_signo, &info);
             break;
+        case EXCP_ARITH:
+            env->lock_addr = -1;
+            info.si_signo = TARGET_SIGFPE;
+            info.si_errno = 0;
+            info.si_code = TARGET_FPE_FLTINV;
+            info._sifields._sigfault._addr = env->pc;
+            queue_signal(env, info.si_signo, &info);
+            break;
         case EXCP_FEN:
             /* No-op.  Linux simply re-enables the FPU.  */
             break;
-        case EXCP_CALL_PAL ... (EXCP_CALL_PALP - 1):
+        case EXCP_CALL_PAL:
             env->lock_addr = -1;
-            switch ((trapnr >> 6) | 0x80) {
+            switch (env->error_code) {
             case 0x80:
                 /* BPT */
                 info.si_signo = TARGET_SIGTRAP;
@@ -2658,8 +2644,6 @@ void cpu_loop (CPUState *env)
                 goto do_sigill;
             }
             break;
-        case EXCP_CALL_PALP ... (EXCP_CALL_PALE - 1):
-            goto do_sigill;
         case EXCP_DEBUG:
             info.si_signo = gdb_handlesig (env, TARGET_SIGTRAP);
             if (info.si_signo) {
@@ -2848,6 +2832,8 @@ int main(int argc, char **argv, char **envp)
 {
     const char *filename;
     const char *cpu_model;
+    const char *log_file = DEBUG_LOGFILE;
+    const char *log_mask = NULL;
     struct target_pt_regs regs1, *regs = &regs1;
     struct image_info info1, *info = &info1;
     struct linux_binprm bprm;
@@ -2868,9 +2854,6 @@ int main(int argc, char **argv, char **envp)
         usage();
 
     qemu_cache_utils_init(envp);
-
-    /* init debug */
-    cpu_set_log_filename(DEBUG_LOGFILE);
 
     if ((envlist = envlist_create()) == NULL) {
         (void) fprintf(stderr, "Unable to allocate envlist\n");
@@ -2910,22 +2893,15 @@ int main(int argc, char **argv, char **envp)
         if (!strcmp(r, "-")) {
             break;
         } else if (!strcmp(r, "d")) {
-            int mask;
-            const CPULogItem *item;
-
-	    if (optind >= argc)
+            if (optind >= argc) {
 		break;
-
-	    r = argv[optind++];
-            mask = cpu_str_to_log_mask(r);
-            if (!mask) {
-                printf("Log items (comma separated):\n");
-                for(item = cpu_log_items; item->mask != 0; item++) {
-                    printf("%-10s %s\n", item->name, item->help);
-                }
-                exit(1);
             }
-            cpu_set_log(mask);
+            log_mask = argv[optind++];
+        } else if (!strcmp(r, "D")) {
+            if (optind >= argc) {
+                break;
+            }
+            log_file = argv[optind++];
         } else if (!strcmp(r, "E")) {
             r = argv[optind++];
             if (envlist_setenv(envlist, r) != 0)
@@ -3037,6 +3013,23 @@ int main(int argc, char **argv, char **envp)
         usage();
     filename = argv[optind];
     exec_path = argv[optind];
+
+    /* init debug */
+    cpu_set_log_filename(log_file);
+    if (log_mask) {
+        int mask;
+        const CPULogItem *item;
+
+        mask = cpu_str_to_log_mask(r);
+        if (!mask) {
+            printf("Log items (comma separated):\n");
+            for (item = cpu_log_items; item->mask != 0; item++) {
+                printf("%-10s %s\n", item->name, item->help);
+            }
+            exit(1);
+        }
+        cpu_set_log(mask);
+    }
 
     /* Zero out regs */
     memset(regs, 0, sizeof(struct target_pt_regs));

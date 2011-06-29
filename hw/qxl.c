@@ -357,7 +357,9 @@ static int interface_get_command(QXLInstance *sin, struct QXLCommandExt *ext)
             ret = true;
         }
         qemu_mutex_unlock(&qxl->ssd.lock);
-        qxl_log_command(qxl, "vga", ext);
+        if (ret) {
+            qxl_log_command(qxl, "vga", ext);
+        }
         return ret;
     case QXL_MODE_COMPAT:
     case QXL_MODE_NATIVE:
@@ -1229,7 +1231,6 @@ static int qxl_init_common(PCIQXLDevice *qxl)
         break;
     }
 
-    pci_config_set_vendor_id(config, REDHAT_PCI_VENDOR_ID);
     pci_config_set_device_id(config, pci_device_id);
     pci_set_byte(&config[PCI_REVISION_ID], pci_device_rev);
     pci_set_byte(&config[PCI_INTERRUPT_PIN], 1);
@@ -1309,7 +1310,6 @@ static int qxl_init_primary(PCIDevice *dev)
     qxl0 = qxl;
     register_displaychangelistener(vga->ds, &display_listener);
 
-    pci_config_set_class(dev->config, PCI_CLASS_DISPLAY_VGA);
     return qxl_init_common(qxl);
 }
 
@@ -1329,7 +1329,6 @@ static int qxl_init_secondary(PCIDevice *dev)
                                           qxl->vga.vram_size);
     qxl->vga.vram_ptr = qemu_get_ram_ptr(qxl->vga.vram_offset);
 
-    pci_config_set_class(dev->config, PCI_CLASS_DISPLAY_OTHER);
     return qxl_init_common(qxl);
 }
 
@@ -1492,6 +1491,8 @@ static PCIDeviceInfo qxl_info_primary = {
     .init         = qxl_init_primary,
     .config_write = qxl_write_config,
     .romfile      = "vgabios-qxl.bin",
+    .vendor_id    = REDHAT_PCI_VENDOR_ID,
+    .class_id     = PCI_CLASS_DISPLAY_VGA,
     .qdev.props = (Property[]) {
         DEFINE_PROP_UINT32("ram_size", PCIQXLDevice, vga.vram_size, 64 * 1024 * 1024),
         DEFINE_PROP_UINT32("vram_size", PCIQXLDevice, vram_size, 64 * 1024 * 1024),
@@ -1510,6 +1511,8 @@ static PCIDeviceInfo qxl_info_secondary = {
     .qdev.reset   = qxl_reset_handler,
     .qdev.vmsd    = &qxl_vmstate,
     .init         = qxl_init_secondary,
+    .vendor_id    = REDHAT_PCI_VENDOR_ID,
+    .class_id     = PCI_CLASS_DISPLAY_OTHER,
     .qdev.props = (Property[]) {
         DEFINE_PROP_UINT32("ram_size", PCIQXLDevice, vga.vram_size, 64 * 1024 * 1024),
         DEFINE_PROP_UINT32("vram_size", PCIQXLDevice, vram_size, 64 * 1024 * 1024),

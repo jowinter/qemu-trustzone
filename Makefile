@@ -119,6 +119,23 @@ version.o: $(SRC_PATH)/version.rc config-host.mak
 
 version-obj-$(CONFIG_WIN32) += version.o
 ######################################################################
+# Support building shared library libcacard
+
+.PHONY: libcacard.la install-libcacard
+ifeq ($(LIBTOOL),)
+libcacard.la:
+	@echo "libtool is missing, please install and rerun configure"; exit 1
+
+install-libcacard:
+	@echo "libtool is missing, please install and rerun configure"; exit 1
+else
+libcacard.la: $(GENERATED_HEADERS) $(oslib-obj-y) qemu-malloc.o qemu-timer-common.o $(addsuffix .lo, $(basename $(trace-obj-y)))
+	$(call quiet-command,$(MAKE) $(SUBDIR_MAKEFLAGS) -C libcacard V="$(V)" TARGET_DIR="$*/" libcacard.la,)
+
+install-libcacard: libcacard.la
+	$(call quiet-command,$(MAKE) $(SUBDIR_MAKEFLAGS) -C libcacard V="$(V)" TARGET_DIR="$*/" install-libcacard,)
+endif
+######################################################################
 
 qemu-img.o: qemu-img-cmds.h
 qemu-img.o qemu-tool.o qemu-nbd.o qemu-io.o cmd.o: $(GENERATED_HEADERS)
@@ -134,14 +151,14 @@ qemu-img-cmds.h: $(SRC_PATH)/qemu-img-cmds.hx
 
 check-qint.o check-qstring.o check-qdict.o check-qlist.o check-qfloat.o check-qjson.o: $(GENERATED_HEADERS)
 
-CHECK_PROG_DEPS = qemu-malloc.o $(oslib-obj-y) $(trace-obj-y)
+CHECK_PROG_DEPS = qemu-malloc.o $(oslib-obj-y) $(trace-obj-y) qemu-tool.o
 
 check-qint: check-qint.o qint.o $(CHECK_PROG_DEPS)
 check-qstring: check-qstring.o qstring.o $(CHECK_PROG_DEPS)
 check-qdict: check-qdict.o qdict.o qfloat.o qint.o qstring.o qbool.o qlist.o $(CHECK_PROG_DEPS)
 check-qlist: check-qlist.o qlist.o qint.o $(CHECK_PROG_DEPS)
 check-qfloat: check-qfloat.o qfloat.o $(CHECK_PROG_DEPS)
-check-qjson: check-qjson.o qfloat.o qint.o qdict.o qstring.o qlist.o qbool.o qjson.o json-streamer.o json-lexer.o json-parser.o $(CHECK_PROG_DEPS)
+check-qjson: check-qjson.o qfloat.o qint.o qdict.o qstring.o qlist.o qbool.o qjson.o json-streamer.o json-lexer.o json-parser.o error.o qerror.o qemu-error.o $(CHECK_PROG_DEPS)
 
 QEMULIBS=libhw32 libhw64 libuser libdis libdis-user
 
@@ -149,7 +166,8 @@ clean:
 # avoid old build problems by removing potentially incorrect old files
 	rm -f config.mak op-i386.h opc-i386.h gen-op-i386.h op-arm.h opc-arm.h gen-op-arm.h
 	rm -f qemu-options.def
-	rm -f *.o *.d *.a $(TOOLS) TAGS cscope.* *.pod *~ */*~
+	rm -f *.o *.d *.a *.lo $(TOOLS) TAGS cscope.* *.pod *~ */*~
+	rm -Rf .libs
 	rm -f slirp/*.o slirp/*.d audio/*.o audio/*.d block/*.o block/*.d net/*.o net/*.d fsdev/*.o fsdev/*.d ui/*.o ui/*.d
 	rm -f qemu-img-cmds.h
 	rm -f trace.c trace.h trace.c-timestamp trace.h-timestamp
