@@ -8,7 +8,7 @@
 
 #include "config.h"
 
-#include "exec-all.h"
+#include "cpu.h"
 #include "qemu-common.h"
 #include "cpu-common.h"
 #include "xen-mapcache.h"

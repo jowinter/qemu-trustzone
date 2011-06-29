@@ -54,7 +54,6 @@
    instructions */
 #define NO_CPU_IO_DEFS
 #include "cpu.h"
-#include "exec-all.h"
 
 #include "tcg-op.h"
 #include "elf.h"
@@ -1440,13 +1439,19 @@ static void temp_allocate_frame(TCGContext *s, int temp)
 {
     TCGTemp *ts;
     ts = &s->temps[temp];
-    s->current_frame_offset = (s->current_frame_offset + sizeof(tcg_target_long) - 1) & ~(sizeof(tcg_target_long) - 1);
-    if (s->current_frame_offset + sizeof(tcg_target_long) > s->frame_end)
+#ifndef __sparc_v9__ /* Sparc64 stack is accessed with offset of 2047 */
+    s->current_frame_offset = (s->current_frame_offset +
+                               (tcg_target_long)sizeof(tcg_target_long) - 1) &
+        ~(sizeof(tcg_target_long) - 1);
+#endif
+    if (s->current_frame_offset + (tcg_target_long)sizeof(tcg_target_long) >
+        s->frame_end) {
         tcg_abort();
+    }
     ts->mem_offset = s->current_frame_offset;
     ts->mem_reg = s->frame_reg;
     ts->mem_allocated = 1;
-    s->current_frame_offset += sizeof(tcg_target_long);
+    s->current_frame_offset += (tcg_target_long)sizeof(tcg_target_long);
 }
 
 /* free register 'reg' by spilling the corresponding temporary if necessary */
@@ -1842,13 +1847,14 @@ static int tcg_reg_alloc_call(TCGContext *s, const TCGOpDef *def,
         nb_regs = nb_params;
 
     /* assign stack slots first */
-    /* XXX: preallocate call stack */
     call_stack_size = (nb_params - nb_regs) * sizeof(tcg_target_long);
     call_stack_size = (call_stack_size + TCG_TARGET_STACK_ALIGN - 1) & 
         ~(TCG_TARGET_STACK_ALIGN - 1);
     allocate_args = (call_stack_size > TCG_STATIC_CALL_ARGS_SIZE);
     if (allocate_args) {
-        tcg_out_addi(s, TCG_REG_CALL_STACK, -STACK_DIR(call_stack_size));
+        /* XXX: if more than TCG_STATIC_CALL_ARGS_SIZE is needed,
+           preallocate call stack */
+        tcg_abort();
     }
 
     stack_offset = TCG_TARGET_CALL_STACK_OFFSET;
@@ -1967,10 +1973,6 @@ static int tcg_reg_alloc_call(TCGContext *s, const TCGOpDef *def,
     }
 
     tcg_out_op(s, opc, &func_arg, &const_func_arg);
-    
-    if (allocate_args) {
-        tcg_out_addi(s, TCG_REG_CALL_STACK, STACK_DIR(call_stack_size));
-    }
 
     /* assign output registers and emit moves if needed */
     for(i = 0; i < nb_oargs; i++) {
