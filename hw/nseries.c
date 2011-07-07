@@ -172,12 +172,13 @@ static const uint8_t n8x0_cal_bt_id[] = {
 static void n8x0_nand_setup(struct n800_s *s)
 {
     char *otp_region;
+    DriveInfo *dinfo;
 
+    dinfo = drive_get(IF_MTD, 0, 0);
     /* Either 0x40 or 0x48 are OK for the device ID */
-    DriveInfo *dinfo = drive_get(IF_MTD, 0, 0);
-    s->nand = onenand_create(NAND_MFR_SAMSUNG, 0x48, 0, 1,
-                             qdev_get_gpio_in(s->cpu->gpio, N8X0_ONENAND_GPIO),
-                             dinfo ? dinfo->bdrv : NULL);
+    s->nand = onenand_init(dinfo ? dinfo->bdrv : 0,
+                           NAND_MFR_SAMSUNG, 0x48, 0, 1,
+                           qdev_get_gpio_in(s->cpu->gpio, N8X0_ONENAND_GPIO));
     omap_gpmc_attach(s->cpu->gpmc, N8X0_ONENAND_CS, s->nand, 0, 0);
     otp_region = onenand_raw_otp(s->nand);
 
@@ -2501,9 +2502,9 @@ static void n900_init(ram_addr_t ram_size,
     qdev_prop_set_uint8(s->mipid, "n900", 1);
     qdev_init_nofail(s->mipid);
 
-    s->nand = onenand_create(NAND_MFR_SAMSUNG, 0x40, 0x121, 1, 
-                             qdev_get_gpio_in(s->cpu->gpio, N900_ONENAND_GPIO),
-                             dmtd ? dmtd->bdrv : NULL);
+    s->nand = onenand_init(dmtd ? dmtd->bdrv : NULL,
+                           NAND_MFR_SAMSUNG, 0x40, 0x121, 1,
+                           qdev_get_gpio_in(s->cpu->gpio, N900_ONENAND_GPIO));
     omap_gpmc_attach(s->cpu->gpmc, 0, s->nand, 0, 0);
 
     if (dsd) {
