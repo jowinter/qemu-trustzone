@@ -4210,7 +4210,8 @@ struct omap_mpu_state_s *omap3_mpu_init(int model, int emulate_bootrom,
     sysbus_connect_irq(busdev, 0, s->irq[0][OMAP_INT_3XXX_UART1_IRQ]);
     sysbus_connect_irq(busdev, 1, s->drq[OMAP3XXX_DMA_UART1_TX]);
     sysbus_connect_irq(busdev, 2, s->drq[OMAP3XXX_DMA_UART1_RX]);
-    sysbus_mmio_map(busdev,0,omap_l4_base(omap3_l4ta_init(s->l4,L4A_UART1),0));
+    sysbus_mmio_map(busdev, 0,
+                    omap_l4_region_base(omap3_l4ta_init(s->l4,L4A_UART1), 0));
 
     s->uart[1] = qdev_create(NULL, "omap_uart");
     s->uart[1]->id = "uart2";
@@ -4224,7 +4225,8 @@ struct omap_mpu_state_s *omap3_mpu_init(int model, int emulate_bootrom,
     sysbus_connect_irq(busdev, 0, s->irq[0][OMAP_INT_3XXX_UART2_IRQ]);
     sysbus_connect_irq(busdev, 1, s->drq[OMAP3XXX_DMA_UART2_TX]);
     sysbus_connect_irq(busdev, 2, s->drq[OMAP3XXX_DMA_UART2_RX]);
-    sysbus_mmio_map(busdev,0,omap_l4_base(omap3_l4ta_init(s->l4,L4A_UART2),0));
+    sysbus_mmio_map(busdev, 0,
+                    omap_l4_region_base(omap3_l4ta_init(s->l4,L4A_UART2), 0));
 
     s->uart[2] = qdev_create(NULL, "omap_uart");
     s->uart[2]->id = "uart3";
@@ -4238,7 +4240,8 @@ struct omap_mpu_state_s *omap3_mpu_init(int model, int emulate_bootrom,
     sysbus_connect_irq(busdev, 0, s->irq[0][OMAP_INT_3XXX_UART3_IRQ]);
     sysbus_connect_irq(busdev, 1, s->drq[OMAP3XXX_DMA_UART3_TX]);
     sysbus_connect_irq(busdev, 2, s->drq[OMAP3XXX_DMA_UART3_RX]);
-    sysbus_mmio_map(busdev,0,omap_l4_base(omap3_l4ta_init(s->l4,L4A_UART3),0));
+    sysbus_mmio_map(busdev, 0,
+                    omap_l4_region_base(omap3_l4ta_init(s->l4,L4A_UART3), 0));
 
     if (model == omap3630) {
         s->uart[3] = qdev_create(NULL, "omap_uart");
@@ -4254,7 +4257,7 @@ struct omap_mpu_state_s *omap3_mpu_init(int model, int emulate_bootrom,
         sysbus_connect_irq(busdev, 0, s->irq[0][OMAP_INT_3XXX_UART4_IRQ]);
         sysbus_connect_irq(busdev, 1, s->drq[OMAP3XXX_DMA_UART4_TX]);
         sysbus_connect_irq(busdev, 2, s->drq[OMAP3XXX_DMA_UART4_RX]);
-        sysbus_mmio_map(busdev, 0, omap_l4_base(omap3_l4ta_init(s->l4,
+        sysbus_mmio_map(busdev, 0, omap_l4_region_base(omap3_l4ta_init(s->l4,
                                                                 L4A_UART4),0));
     }
 
@@ -4269,11 +4272,11 @@ struct omap_mpu_state_s *omap3_mpu_init(int model, int emulate_bootrom,
     sysbus_connect_irq(busdev, 4, s->drq[OMAP3XXX_DMA_DSS2]);
     sysbus_connect_irq(busdev, 5, s->drq[OMAP3XXX_DMA_DSS3]);
     struct omap_target_agent_s *ta = omap3_l4ta_init(s->l4, L4A_DSS);
-    sysbus_mmio_map(busdev, 0, omap_l4_base(ta, 1));
-    sysbus_mmio_map(busdev, 1, omap_l4_base(ta, 2));
-    sysbus_mmio_map(busdev, 2, omap_l4_base(ta, 3));
-    sysbus_mmio_map(busdev, 3, omap_l4_base(ta, 4));
-    sysbus_mmio_map(busdev, 4, omap_l4_base(ta, 0));
+    sysbus_mmio_map(busdev, 0, omap_l4_region_base(ta, 1));
+    sysbus_mmio_map(busdev, 1, omap_l4_region_base(ta, 2));
+    sysbus_mmio_map(busdev, 2, omap_l4_region_base(ta, 3));
+    sysbus_mmio_map(busdev, 3, omap_l4_region_base(ta, 4));
+    sysbus_mmio_map(busdev, 4, omap_l4_region_base(ta, 0));
 
     s->gpio = qdev_create(NULL, "omap_gpio");
     qdev_prop_set_int32(s->gpio, "mpu_model", s->mpu_model);
@@ -4286,17 +4289,17 @@ struct omap_mpu_state_s *omap3_mpu_init(int model, int emulate_bootrom,
     sysbus_connect_irq(busdev, 12, s->irq[0][OMAP_INT_3XXX_GPIO5_MPU_IRQ]);
     sysbus_connect_irq(busdev, 15, s->irq[0][OMAP_INT_3XXX_GPIO6_MPU_IRQ]);
     sysbus_mmio_map(busdev, 0,
-                    omap_l4_base(omap3_l4ta_init(s->l4, L4A_GPIO1), 0));
+                    omap_l4_region_base(omap3_l4ta_init(s->l4, L4A_GPIO1), 0));
     sysbus_mmio_map(busdev, 1,
-                    omap_l4_base(omap3_l4ta_init(s->l4, L4A_GPIO2), 0));
+                    omap_l4_region_base(omap3_l4ta_init(s->l4, L4A_GPIO2), 0));
     sysbus_mmio_map(busdev, 2,
-                    omap_l4_base(omap3_l4ta_init(s->l4, L4A_GPIO3), 0));
+                    omap_l4_region_base(omap3_l4ta_init(s->l4, L4A_GPIO3), 0));
     sysbus_mmio_map(busdev, 3,
-                    omap_l4_base(omap3_l4ta_init(s->l4, L4A_GPIO4), 0));
+                    omap_l4_region_base(omap3_l4ta_init(s->l4, L4A_GPIO4), 0));
     sysbus_mmio_map(busdev, 4,
-                    omap_l4_base(omap3_l4ta_init(s->l4, L4A_GPIO5), 0));
+                    omap_l4_region_base(omap3_l4ta_init(s->l4, L4A_GPIO5), 0));
     sysbus_mmio_map(busdev, 5,
-                    omap_l4_base(omap3_l4ta_init(s->l4, L4A_GPIO6), 0));
+                    omap_l4_region_base(omap3_l4ta_init(s->l4, L4A_GPIO6), 0));
 
     omap_tap_init(omap3_l4ta_init(s->l4, L4A_TAP), s);
 
@@ -4307,7 +4310,8 @@ struct omap_mpu_state_s *omap3_mpu_init(int model, int emulate_bootrom,
     sysbus_connect_irq(busdev, 0, s->irq[0][OMAP_INT_3XXX_MMC1_IRQ]);
     sysbus_connect_irq(busdev, 1, s->drq[OMAP3XXX_DMA_MMC1_TX]);
     sysbus_connect_irq(busdev, 2, s->drq[OMAP3XXX_DMA_MMC1_RX]);
-    sysbus_mmio_map(busdev,0,omap_l4_base(omap3_l4ta_init(s->l4, L4A_MMC1),0));
+    sysbus_mmio_map(busdev, 0,
+                    omap_l4_region_base(omap3_l4ta_init(s->l4, L4A_MMC1), 0));
     s->omap3_mmc[1] = qdev_create(NULL, "omap3_mmc");
     s->omap3_mmc[1]->id = "mmc2";
     qdev_init_nofail(s->omap3_mmc[1]);
@@ -4315,7 +4319,8 @@ struct omap_mpu_state_s *omap3_mpu_init(int model, int emulate_bootrom,
     sysbus_connect_irq(busdev, 0, s->irq[0][OMAP_INT_3XXX_MMC2_IRQ]);
     sysbus_connect_irq(busdev, 1, s->drq[OMAP3XXX_DMA_MMC2_TX]);
     sysbus_connect_irq(busdev, 2, s->drq[OMAP3XXX_DMA_MMC2_RX]);
-    sysbus_mmio_map(busdev,0,omap_l4_base(omap3_l4ta_init(s->l4, L4A_MMC2),0));
+    sysbus_mmio_map(busdev, 0,
+                    omap_l4_region_base(omap3_l4ta_init(s->l4, L4A_MMC2), 0));
     s->omap3_mmc[2] = qdev_create(NULL, "omap3_mmc");
     s->omap3_mmc[2]->id = "mmc3";
     qdev_init_nofail(s->omap3_mmc[2]);
@@ -4323,8 +4328,9 @@ struct omap_mpu_state_s *omap3_mpu_init(int model, int emulate_bootrom,
     sysbus_connect_irq(busdev, 0, s->irq[0][OMAP_INT_3XXX_MMC3_IRQ]);
     sysbus_connect_irq(busdev, 1, s->drq[OMAP3XXX_DMA_MMC3_TX]);
     sysbus_connect_irq(busdev, 2, s->drq[OMAP3XXX_DMA_MMC3_RX]);
-    sysbus_mmio_map(busdev,0,omap_l4_base(omap3_l4ta_init(s->l4, L4A_MMC3),0));
-    
+    sysbus_mmio_map(busdev, 0,
+                    omap_l4_region_base(omap3_l4ta_init(s->l4, L4A_MMC3), 0));
+
     s->i2c = qdev_create(NULL, "omap_i2c");
     qdev_prop_set_int32(s->i2c, "mpu_model", s->mpu_model);
     qdev_init_nofail(s->i2c);
@@ -4338,9 +4344,12 @@ struct omap_mpu_state_s *omap3_mpu_init(int model, int emulate_bootrom,
     sysbus_connect_irq(busdev, 6, s->irq[0][OMAP_INT_3XXX_I2C3_IRQ]);
     sysbus_connect_irq(busdev, 7, s->drq[OMAP3XXX_DMA_I2C3_TX]);
     sysbus_connect_irq(busdev, 8, s->drq[OMAP3XXX_DMA_I2C3_RX]);
-    sysbus_mmio_map(busdev,0,omap_l4_base(omap3_l4ta_init(s->l4,L4A_I2C1),0));
-    sysbus_mmio_map(busdev,1,omap_l4_base(omap3_l4ta_init(s->l4,L4A_I2C2),0));
-    sysbus_mmio_map(busdev,2,omap_l4_base(omap3_l4ta_init(s->l4,L4A_I2C3),0));
+    sysbus_mmio_map(busdev, 0,
+                    omap_l4_region_base(omap3_l4ta_init(s->l4,L4A_I2C1), 0));
+    sysbus_mmio_map(busdev, 1,
+                    omap_l4_region_base(omap3_l4ta_init(s->l4,L4A_I2C2), 0));
+    sysbus_mmio_map(busdev, 2,
+                    omap_l4_region_base(omap3_l4ta_init(s->l4,L4A_I2C3), 0));
 
     s->omap3_usb_otg = qdev_create(NULL, "omap3_hsusb_otg");
     qdev_init_nofail(s->omap3_usb_otg);
@@ -4350,20 +4359,22 @@ struct omap_mpu_state_s *omap3_mpu_init(int model, int emulate_bootrom,
     sysbus_connect_irq(busdev, 2,
                        qemu_allocate_irqs(omap3_cm_hsusb_otg_stdby_callback,
                                           s->omap3_cm, 1)[0]);
-    sysbus_mmio_map(busdev, 0, 
-                    omap_l4_base(omap3_l4ta_init(s->l4, L4A_USBHS_OTG), 0));
-    
+    sysbus_mmio_map(busdev, 0,
+                    omap_l4_region_base(omap3_l4ta_init(s->l4, L4A_USBHS_OTG),
+                                        0));
+
     s->omap3_usb_host = qdev_create(NULL, "omap3_hsusb_host");
     qdev_init_nofail(s->omap3_usb_host);
     busdev =  sysbus_from_qdev(s->omap3_usb_host);
     sysbus_connect_irq(busdev, 0, s->irq[0][OMAP_INT_3XXX_EHCI_IRQ]);
     sysbus_connect_irq(busdev, 1, s->irq[0][OMAP_INT_3XXX_TLL_IRQ]);
     sysbus_mmio_map(busdev, 0,
-                    omap_l4_base(omap3_l4ta_init(s->l4, L4A_USBHS_TLL), 0));
+                    omap_l4_region_base(omap3_l4ta_init(s->l4, L4A_USBHS_TLL),
+                                        0));
     struct omap_target_agent_s *usbhost_ta =
         omap3_l4ta_init(s->l4, L4A_USBHS_HOST);
-    sysbus_mmio_map(busdev, 1, omap_l4_base(usbhost_ta, 0));
-    sysbus_mmio_map(busdev, 2, omap_l4_base(usbhost_ta, 2));
+    sysbus_mmio_map(busdev, 1, omap_l4_region_base(usbhost_ta, 0));
+    sysbus_mmio_map(busdev, 2, omap_l4_region_base(usbhost_ta, 2));
 
     s->omap3_usb_ohci = qdev_create(NULL, "sysbus-ohci");
     qdev_prop_set_uint32(s->omap3_usb_ohci, "num-ports", 3);
@@ -4371,7 +4382,7 @@ struct omap_mpu_state_s *omap3_mpu_init(int model, int emulate_bootrom,
     qdev_init_nofail(s->omap3_usb_ohci);
     busdev = sysbus_from_qdev(s->omap3_usb_ohci);
     sysbus_mmio_resize(busdev, 0, 0x400);
-    sysbus_mmio_map(busdev, 0, omap_l4_base(usbhost_ta, 1));
+    sysbus_mmio_map(busdev, 0, omap_l4_region_base(usbhost_ta, 1));
     sysbus_connect_irq(busdev, 0, s->irq[0][OMAP_INT_3XXX_OHCI_IRQ]);
 
     s->mcspi = qdev_create(NULL, "omap_mcspi");
@@ -4401,18 +4412,18 @@ struct omap_mpu_state_s *omap3_mpu_init(int model, int emulate_bootrom,
     sysbus_connect_irq(busdev, 20, s->drq[OMAP3XXX_DMA_SPI4_TX0]);
     sysbus_connect_irq(busdev, 21, s->drq[OMAP3XXX_DMA_SPI4_RX0]);
     sysbus_mmio_map(busdev, 0,
-                    omap_l4_base(omap3_l4ta_init(s->l4, L4A_MCSPI1), 0));
+                    omap_l4_region_base(omap3_l4ta_init(s->l4, L4A_MCSPI1), 0));
     sysbus_mmio_map(busdev, 1,
-                    omap_l4_base(omap3_l4ta_init(s->l4, L4A_MCSPI2), 0));
+                    omap_l4_region_base(omap3_l4ta_init(s->l4, L4A_MCSPI2), 0));
     sysbus_mmio_map(busdev, 2,
-                    omap_l4_base(omap3_l4ta_init(s->l4, L4A_MCSPI3), 0));
+                    omap_l4_region_base(omap3_l4ta_init(s->l4, L4A_MCSPI3), 0));
     sysbus_mmio_map(busdev, 3,
-                    omap_l4_base(omap3_l4ta_init(s->l4, L4A_MCSPI4), 0));
-    
+                    omap_l4_region_base(omap3_l4ta_init(s->l4, L4A_MCSPI4), 0));
+
     if (emulate_bootrom) {
         omap3_boot_rom_init(s);
     }
-    
+
     qemu_register_reset(omap3_reset, s);
     return s;
 }

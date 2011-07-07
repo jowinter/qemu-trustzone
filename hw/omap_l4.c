@@ -191,7 +191,8 @@ target_phys_addr_t omap_l4_attach(struct omap_target_agent_s *ta, int region,
     return base;
 }
 
-target_phys_addr_t omap_l4_base(struct omap_target_agent_s *ta, int region)
+target_phys_addr_t omap_l4_region_base(struct omap_target_agent_s *ta,
+                                       int region)
 {
     return ta->bus->base + ta->start[region].offset;
 }
