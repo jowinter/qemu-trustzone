@@ -18,7 +18,7 @@ pflash_t *pflash_cfi02_register(target_phys_addr_t base, ram_addr_t off,
                                 int be);
 
 /* nand.c */
-DeviceState *nand_init(int manf_id, int chip_id, BlockDriverState *bs);
+DeviceState *nand_init(BlockDriverState *bdrv, int manf_id, int chip_id);
 void nand_setpins(DeviceState *dev,
                 uint8_t cle, uint8_t ale, uint8_t ce, uint8_t wp, uint8_t gnd);
 void nand_getpins(DeviceState *dev, int *rb);

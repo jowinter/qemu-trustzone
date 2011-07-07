@@ -42,9 +42,9 @@ void sysbus_connect_irq(SysBusDevice *dev, int n, qemu_irq irq)
 void sysbus_mmio_unmap(SysBusDevice *dev, int n)
 {
     assert(n >= 0 && n < dev->num_mmio);
-    
+
     if (dev->mmio[n].addr == (target_phys_addr_t)-1) {
-        /* ??? region already unmapped */
+        /* region already unmapped */
         return;
     }
     if (dev->mmio[n].cb) {
@@ -85,12 +85,14 @@ void sysbus_mmio_resize(SysBusDevice *dev, int n, target_phys_addr_t newsize)
     if (newsize != dev->mmio[n].size) {
         addr = dev->mmio[n].addr;
         if (addr != (target_phys_addr_t)-1) {
-            /* ??? region currently mapped --> unmap  */
+            /* The expected use case is that resizes will only happen
+             * on unmapped regions, but we handle the already-mapped
+             * case by temporarily unmapping and remapping.
+             */
             sysbus_mmio_unmap(dev, n);
         }
         dev->mmio[n].size = newsize;
         if (addr != (target_phys_addr_t)-1) {
-            /* ??? region was mapped --> remap */
             sysbus_mmio_map(dev, n, addr);
         }
     }

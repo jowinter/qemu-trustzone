@@ -64,7 +64,7 @@ static void overo_init(ram_addr_t ram_size,
     s->cpu = omap3_mpu_init(omap3430, 1, ram_size,
                             NULL, NULL, serial_hds[0], NULL);
 
-    s->nand = nand_init(NAND_MFR_MICRON, 0xba, dmtd ? dmtd->bdrv : NULL);
+    s->nand = nand_init(dmtd ? dmtd->bdrv : NULL, NAND_MFR_MICRON, 0xba);
     nand_setpins(s->nand, 0, 0, 0, 1, 0); /* no write-protect */
     omap_gpmc_attach(s->cpu->gpmc, OVERO_NAND_CS, s->nand, 0, 2);
 
