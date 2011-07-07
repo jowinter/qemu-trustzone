@@ -2391,7 +2391,7 @@ struct omap_mpu_state_s *omap2420_mpu_init(unsigned long sdram_size,
     sysbus_mmio_map(busdev, 0, omap_l4_region_base(omap_l4tao(s->l4, 5), 0));
     sysbus_mmio_map(busdev, 1, omap_l4_region_base(omap_l4tao(s->l4, 6), 0));
 
-    s->gpio = qdev_create(NULL, "omap_gpio");
+    s->gpio = qdev_create(NULL, "omap2_gpio");
     qdev_prop_set_int32(s->gpio, "mpu_model", s->mpu_model);
     qdev_init_nofail(s->gpio);
     busdev = sysbus_from_qdev(s->gpio);
