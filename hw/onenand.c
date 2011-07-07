@@ -23,8 +23,6 @@
 #include "flash.h"
 #include "irq.h"
 #include "blockdev.h"
-#include "sysemu.h"
-#include "hw.h"
 #include "sysbus.h"
 
 /* 11 for 2kB-page OneNAND ("2nd generation") and 10 for 1kB-page chips */
@@ -217,9 +215,9 @@ static void onenand_reset(OneNANDState *s, int cold)
     s->wpstatus = 0x0002;
     s->cycle = 0;
     s->otpmode = 0;
+    s->bdrv_cur = s->bdrv;
     s->current = s->image;
     s->secs_cur = s->secs;
-    s->bdrv_cur = s->bdrv ? s->bdrv : NULL;
 
     if (cold) {
         /* Lock the whole flash */
@@ -446,7 +444,6 @@ static void onenand_command(OneNANDState *s)
         SETADDR(ONEN_BUF_BLOCK, ONEN_BUF_PAGE)
 
         SETBUF_M()
-
         if (onenand_prog_main(s, sec, s->count, buf))
             s->status |= ONEN_ERR_CMD | ONEN_ERR_PROG;
 

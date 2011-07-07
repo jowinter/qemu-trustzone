@@ -1,5 +1,3 @@
-#include "sysemu.h"
-
 /* NOR flash devices */
 typedef struct pflash_t pflash_t;
 
