@@ -4280,6 +4280,13 @@ struct omap_mpu_state_s *omap3_mpu_init(int model, int emulate_bootrom,
 
     s->gpio = qdev_create(NULL, "omap2-gpio");
     qdev_prop_set_int32(s->gpio, "mpu_model", s->mpu_model);
+    qdev_prop_set_ptr(s->gpio, "iclk", omap_findclk(s, "omap3_wkup_l4_iclk"));
+    qdev_prop_set_ptr(s->gpio, "fclk0", omap_findclk(s, "omap3_wkup_32k_fclk"));
+    qdev_prop_set_ptr(s->gpio, "fclk1", omap_findclk(s, "omap3_per_32k_fclk"));
+    qdev_prop_set_ptr(s->gpio, "fclk2", omap_findclk(s, "omap3_per_32k_fclk"));
+    qdev_prop_set_ptr(s->gpio, "fclk3", omap_findclk(s, "omap3_per_32k_fclk"));
+    qdev_prop_set_ptr(s->gpio, "fclk4", omap_findclk(s, "omap3_per_32k_fclk"));
+    qdev_prop_set_ptr(s->gpio, "fclk5", omap_findclk(s, "omap3_per_32k_fclk"));
     qdev_init_nofail(s->gpio);
     busdev = sysbus_from_qdev(s->gpio);
     sysbus_connect_irq(busdev, 0, s->irq[0][OMAP_INT_3XXX_GPIO1_MPU_IRQ]);

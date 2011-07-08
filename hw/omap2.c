@@ -2393,6 +2393,14 @@ struct omap_mpu_state_s *omap2420_mpu_init(unsigned long sdram_size,
 
     s->gpio = qdev_create(NULL, "omap2-gpio");
     qdev_prop_set_int32(s->gpio, "mpu_model", s->mpu_model);
+    qdev_prop_set_ptr(s->gpio, "iclk", omap_findclk(s, "gpio_iclk"));
+    qdev_prop_set_ptr(s->gpio, "fclk0", omap_findclk(s, "gpio1_dbclk"));
+    qdev_prop_set_ptr(s->gpio, "fclk1", omap_findclk(s, "gpio2_dbclk"));
+    qdev_prop_set_ptr(s->gpio, "fclk2", omap_findclk(s, "gpio3_dbclk"));
+    qdev_prop_set_ptr(s->gpio, "fclk3", omap_findclk(s, "gpio4_dbclk"));
+    if (s->mpu_model == omap2430) {
+        qdev_prop_set_ptr(s->gpio, "fclk4", omap_findclk(s, "gpio5_dbclk"));
+    }
     qdev_init_nofail(s->gpio);
     busdev = sysbus_from_qdev(s->gpio);
     sysbus_connect_irq(busdev, 0, s->irq[0][OMAP_INT_24XX_GPIO_BANK1]);

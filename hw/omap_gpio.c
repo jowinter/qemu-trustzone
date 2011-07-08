@@ -38,6 +38,7 @@ struct omap_gpio_s {
 struct omap_gpif_s {
     SysBusDevice busdev;
     int mpu_model;
+    void *clk;
     struct omap_gpio_s omap1;
 };
 
@@ -200,6 +201,8 @@ struct omap2_gpio_s {
 struct omap2_gpif_s {
     SysBusDevice busdev;
     int mpu_model;
+    void *iclk;
+    void *fclk[6];
     int modulecount;
     struct omap2_gpio_s *modules;
     qemu_irq *handler;
@@ -662,6 +665,9 @@ static CPUWriteMemoryFunc * const omap2_gpif_top_writefn[] = {
 static int omap_gpio_init(SysBusDevice *dev)
 {
     struct omap_gpif_s *s = FROM_SYSBUS(struct omap_gpif_s, dev);
+    if (!s->clk) {
+        hw_error("omap-gpio: clk not connected\n");
+    }
     qdev_init_gpio_in(&dev->qdev, omap_gpio_set, 16);
     qdev_init_gpio_out(&dev->qdev, s->omap1.handler, 16);
     sysbus_init_irq(dev, &s->omap1.irq);
@@ -677,6 +683,9 @@ static int omap2_gpio_init(SysBusDevice *dev)
 {
     int i;
     struct omap2_gpif_s *s = FROM_SYSBUS(struct omap2_gpif_s, dev);
+    if (!s->iclk) {
+        hw_error("omap2-gpio: iclk not connected\n");
+    }
     if (s->mpu_model < omap3430) {
         s->modulecount = (s->mpu_model < omap2430) ? 4 : 5;
         sysbus_init_mmio(dev, 0x1000,
@@ -692,6 +701,9 @@ static int omap2_gpio_init(SysBusDevice *dev)
     qdev_init_gpio_out(&dev->qdev, s->handler, s->modulecount * 32);
     for (i = 0; i < s->modulecount; i++) {
         struct omap2_gpio_s *m = &s->modules[i];
+        if (!s->fclk[i]) {
+            hw_error("omap2-gpio: fclk%d not connected\n", i);
+        }
         m->revision = (s->mpu_model < omap3430) ? 0x18 : 0x25;
         m->handler = &s->handler[i * 32];
         sysbus_init_irq(dev, &m->irq[0]); /* mpu irq */
@@ -712,6 +724,7 @@ static SysBusDeviceInfo omap_gpio_info = {
     .qdev.reset = omap_gpif_reset,
     .qdev.props = (Property[]) {
         DEFINE_PROP_INT32("mpu_model", struct omap_gpif_s, mpu_model, 0),
+        DEFINE_PROP_PTR("clk", struct omap_gpif_s, clk),
         DEFINE_PROP_END_OF_LIST()
     }
 };
@@ -723,6 +736,13 @@ static SysBusDeviceInfo omap2_gpio_info = {
     .qdev.reset = omap2_gpif_reset,
     .qdev.props = (Property[]) {
         DEFINE_PROP_INT32("mpu_model", struct omap2_gpif_s, mpu_model, 0),
+        DEFINE_PROP_PTR("iclk", struct omap2_gpif_s, iclk),
+        DEFINE_PROP_PTR("fclk0", struct omap2_gpif_s, fclk[0]),
+        DEFINE_PROP_PTR("fclk1", struct omap2_gpif_s, fclk[1]),
+        DEFINE_PROP_PTR("fclk2", struct omap2_gpif_s, fclk[2]),
+        DEFINE_PROP_PTR("fclk3", struct omap2_gpif_s, fclk[3]),
+        DEFINE_PROP_PTR("fclk4", struct omap2_gpif_s, fclk[4]),
+        DEFINE_PROP_PTR("fclk5", struct omap2_gpif_s, fclk[5]),
         DEFINE_PROP_END_OF_LIST()
     }
 };
