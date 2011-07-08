@@ -3913,7 +3913,7 @@ struct omap_mpu_state_s *omap310_mpu_init(unsigned long sdram_size,
                     s->irq[1][OMAP_INT_KEYBOARD], s->irq[1][OMAP_INT_MPUIO],
                     s->wakeup, omap_findclk(s, "clk32-kHz"));
 
-    s->gpio = qdev_create(NULL, "omap_gpio");
+    s->gpio = qdev_create(NULL, "omap-gpio");
     qdev_prop_set_int32(s->gpio, "mpu_model", s->mpu_model);
     qdev_init_nofail(s->gpio);
     sysbus_connect_irq(sysbus_from_qdev(s->gpio), 0,

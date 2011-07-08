@@ -4278,7 +4278,7 @@ struct omap_mpu_state_s *omap3_mpu_init(int model, int emulate_bootrom,
     sysbus_mmio_map(busdev, 3, omap_l4_region_base(ta, 4));
     sysbus_mmio_map(busdev, 4, omap_l4_region_base(ta, 0));
 
-    s->gpio = qdev_create(NULL, "omap2_gpio");
+    s->gpio = qdev_create(NULL, "omap2-gpio");
     qdev_prop_set_int32(s->gpio, "mpu_model", s->mpu_model);
     qdev_init_nofail(s->gpio);
     busdev = sysbus_from_qdev(s->gpio);

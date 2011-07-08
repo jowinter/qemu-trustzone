@@ -707,7 +707,7 @@ static int omap2_gpio_init(SysBusDevice *dev)
 
 static SysBusDeviceInfo omap_gpio_info = {
     .init = omap_gpio_init,
-    .qdev.name = "omap_gpio",
+    .qdev.name = "omap-gpio",
     .qdev.size = sizeof(struct omap_gpif_s),
     .qdev.reset = omap_gpif_reset,
     .qdev.props = (Property[]) {
@@ -718,7 +718,7 @@ static SysBusDeviceInfo omap_gpio_info = {
 
 static SysBusDeviceInfo omap2_gpio_info = {
     .init = omap2_gpio_init,
-    .qdev.name = "omap2_gpio",
+    .qdev.name = "omap2-gpio",
     .qdev.size = sizeof(struct omap2_gpif_s),
     .qdev.reset = omap2_gpif_reset,
     .qdev.props = (Property[]) {
