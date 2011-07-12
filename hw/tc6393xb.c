@@ -12,7 +12,6 @@
 #include "flash.h"
 #include "console.h"
 #include "pixel_ops.h"
-#include "sysemu.h"
 #include "blockdev.h"
 
 #define IRQ_TC6393_NAND		0
