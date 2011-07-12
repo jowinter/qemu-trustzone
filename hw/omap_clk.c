@@ -855,9 +855,9 @@ static struct clk gpio_dbclk[5] = {
         .flags	= CLOCK_IN_OMAP242X | CLOCK_IN_OMAP243X,
         .parent	= &wu_32k_clk,
     }, {
-        .name	= "gpio5_dbclk",
-        .flags	= CLOCK_IN_OMAP243X,
-        .parent	= &wu_32k_clk,
+        .name   = "gpio5_dbclk",
+        .flags  = CLOCK_IN_OMAP243X,
+        .parent = &wu_32k_clk,
     },
 };
 

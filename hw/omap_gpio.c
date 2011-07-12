@@ -717,6 +717,18 @@ static int omap2_gpio_init(SysBusDevice *dev)
     return 0;
 }
 
+/* Using qdev pointer properties for the clocks is not ideal.
+ * qdev should support a generic means of defining a 'port' with
+ * an arbitrary interface for connecting two devices. Then we
+ * could reframe the omap clock API in terms of clock ports,
+ * and get some type safety. For now the best qdev provides is
+ * passing an arbitrary pointer.
+ * (It's not possible to pass in the string which is the clock
+ * name, because this device does not have the necessary information
+ * (ie the struct omap_mpu_state_s*) to do the clockname to pointer
+ * translation.)
+ */
+
 static SysBusDeviceInfo omap_gpio_info = {
     .init = omap_gpio_init,
     .qdev.name = "omap-gpio",
