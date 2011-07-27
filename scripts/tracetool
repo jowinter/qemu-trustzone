@@ -99,6 +99,13 @@ get_fmt()
     local fmt
     fmt=${1#*\"}
     fmt=${fmt%\"*}
+
+    if [ "$backend" = "ust" ]; then
+	# WORKAROUND: Remove width/precision specifiers
+	# (not supported by UST)
+        fmt=$(echo "$fmt" | sed -e 's/%[0-9]\+/%/g')	
+    fi
+
     echo "$fmt"
 }
 
