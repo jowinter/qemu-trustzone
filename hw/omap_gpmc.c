@@ -411,14 +411,13 @@ static CPUWriteMemoryFunc *omap_gpmc_prefetch_writefn[] =
 static void omap_gpmc_cs_map(struct omap_gpmc_s *s, int cs)
 {
     struct omap_gpmc_cs_file_s *f = &s->cs_file[cs];
+    uint32_t mask = (f->config[6] >> 8) & 0xf;
+    uint32_t base = f->config[6] & 0x3f;
+    uint32_t size;
     if (!(f->config[6] & (1 << 6))) {
         /* Do nothing unless CSVALID */
         return;
     }
-
-    uint32_t mask = (f->config[6] >> 8) & 0xf;
-    uint32_t base = f->config[6] & 0x3f;
-    uint32_t size;
     /* TODO: check for overlapping regions and report access errors */
     if (mask != 0x8 && mask != 0xc && mask != 0xe && mask != 0xf
          && !(s->accept_256 && !mask)) {
@@ -499,7 +498,7 @@ void omap_gpmc_reset(struct omap_gpmc_s *s)
         s->cs_file[i].config[1] = 0x00101001;
         s->cs_file[i].config[2] = 0x00020201;
         s->cs_file[i].config[3] = 0x10031003;
-        s->cs_file[i].config[4] = 0x010f1111;
+        s->cs_file[i].config[4] = 0x10f1111;
         s->cs_file[i].config[5] = 0;
         s->cs_file[i].config[6] = 0xf00;
         /* FIXME: attached devices should be probed for some of the CFG1 bits
@@ -642,7 +641,7 @@ static uint32_t omap_gpmc_read8(void *opaque, target_phys_addr_t addr)
             }
             return 0;
         default:
-            return 0;
+            break;
         }
         break;
     default:
