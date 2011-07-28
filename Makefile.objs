@@ -367,6 +367,10 @@ ifeq ($(TRACE_BACKEND),simple)
 trace-obj-y += simpletrace.o
 user-obj-y += qemu-timer-common.o
 endif
+ifeq ($(TRACE_BACKEND),zsimple)
+trace-obj-y += simpletrace.o
+user-obj-y += qemu-timer-common.o
+endif
 endif
 
 ######################################################################

@@ -64,6 +64,12 @@ else
 stap:
 endif
 
+ifdef CONFIG_SIMPLE_TRACE_COMPRESSION
+ifdef CONFIG_USER_ONLY
+LIBS+=-lz
+endif
+endif
+
 all: $(PROGS) stap
 
 # Dummy command so that make thinks it has done something

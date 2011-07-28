@@ -17,6 +17,45 @@
 #include "qemu-timer.h"
 #include "trace.h"
 
+#if defined(CONFIG_SIMPLE_TRACE_COMPRESSION)
+/* Enable zlib-based compression of the trace files */
+#include <zlib.h>
+
+typedef gzFile trace_file_t;
+#define trace_file_open(path,mode) gzopen(path, mode)
+#define trace_file_close(file)     gzclose(file)
+
+static inline size_t trace_file_write(const void *ptr, size_t size, size_t count, gzFile file)
+{
+  const char *current = ptr;
+  size_t written = 0;
+
+  while (written < count) {
+    if (gzwrite(file, current, size) != size) {
+      break;
+    }
+
+    written += 1;
+    current += size;
+  }
+
+  return written;
+}
+
+#define trace_file_flush(file) gzflush(file, Z_NO_FLUSH)
+#define trace_file_sync(file)  gzflush(file, Z_FINISH)
+
+#else
+
+/* Standard trace behavior */
+typedef FILE* trace_file_t;
+#define trace_file_open(path,mode) fopen(path, mode)
+#define trace_file_close(file)     fclose(file)
+#define trace_file_write(ptr,size,nmemb,file) fwrite(ptr,size,nmemb,file)
+#define trace_file_flush(file) fflush(file)
+#define trace_file_sync(file)  fflush(file)
+#endif
+
 /** Trace file header event ID */
 #define HEADER_EVENT_ID (~(uint64_t)0) /* avoids conflicting with TraceEventIDs */
 
@@ -58,10 +97,11 @@ static pthread_cond_t trace_available_cond = PTHREAD_COND_INITIALIZER;
 static pthread_cond_t trace_empty_cond = PTHREAD_COND_INITIALIZER;
 static bool trace_available;
 static bool trace_writeout_enabled;
+static bool trace_sync;
 
 static TraceRecord trace_buf[TRACE_BUF_LEN];
 static unsigned int trace_idx;
-static FILE *trace_fp;
+static trace_file_t trace_fp;
 static char *trace_file_name = NULL;
 
 /**
@@ -89,11 +129,15 @@ static bool get_trace_record(unsigned int idx, TraceRecord *record)
  * Kick writeout thread
  *
  * @wait        Whether to wait for writeout thread to complete
+ * @sync        Whether to synchronize the trace file (used with gzip compression)
  */
-static void flush_trace_file(bool wait)
+static void flush_trace_file(bool wait, bool sync)
 {
     pthread_mutex_lock(&trace_lock);
     trace_available = true;
+    if (sync) {
+      trace_sync = true;
+    }
     pthread_cond_signal(&trace_available_cond);
 
     if (wait) {
@@ -103,15 +147,21 @@ static void flush_trace_file(bool wait)
     pthread_mutex_unlock(&trace_lock);
 }
 
-static void wait_for_trace_records_available(void)
-{
+static bool wait_for_trace_records_available(void)
+{   
+    bool sync;
+ 
     pthread_mutex_lock(&trace_lock);
     while (!(trace_available && trace_writeout_enabled)) {
         pthread_cond_signal(&trace_empty_cond);
         pthread_cond_wait(&trace_available_cond, &trace_lock);
     }
+    sync = trace_sync;
     trace_available = false;
+    trace_sync = false;
     pthread_mutex_unlock(&trace_lock);
+
+    return sync;
 }
 
 static void *writeout_thread(void *opaque)
@@ -120,29 +170,37 @@ static void *writeout_thread(void *opaque)
     unsigned int writeout_idx = 0;
     unsigned int num_available, idx;
     size_t unused __attribute__ ((unused));
+    bool sync;
 
     for (;;) {
-        wait_for_trace_records_available();
-
+        sync = wait_for_trace_records_available();
+       
         num_available = trace_idx - writeout_idx;
         if (num_available > TRACE_BUF_LEN) {
             record = (TraceRecord){
                 .event = DROPPED_EVENT_ID,
                 .x1 = num_available,
             };
-            unused = fwrite(&record, sizeof(record), 1, trace_fp);
+            unused = trace_file_write(&record, sizeof(record), 1, trace_fp);
             writeout_idx += num_available;
         }
 
         idx = writeout_idx % TRACE_BUF_LEN;
         while (get_trace_record(idx, &record)) {
             trace_buf[idx].event = 0; /* clear valid bit */
-            unused = fwrite(&record, sizeof(record), 1, trace_fp);
+            unused = trace_file_write(&record, sizeof(record), 1, trace_fp);
             idx = ++writeout_idx % TRACE_BUF_LEN;
         }
 
-        fflush(trace_fp);
+	if (sync) {
+	  /* Synchronize the trace file */
+	  trace_file_sync(trace_fp);
+	} else {
+	  /* Flush the trace file  */
+	  trace_file_flush(trace_fp);
+	}
     }
+
     return NULL;
 }
 
@@ -173,7 +231,7 @@ static void trace(TraceEventID event, uint64_t x1, uint64_t x2, uint64_t x3,
     trace_buf[idx].event |= TRACE_RECORD_VALID;
 
     if ((idx + 1) % TRACE_BUF_FLUSH_THRESHOLD == 0) {
-        flush_trace_file(false);
+      flush_trace_file(false, false);
     }
 }
 
@@ -219,9 +277,9 @@ void st_set_trace_file_enabled(bool enable)
     }
 
     /* Halt trace writeout */
-    flush_trace_file(true);
+    flush_trace_file(true, false);
     trace_writeout_enabled = false;
-    flush_trace_file(true);
+    flush_trace_file(true, false);
 
     if (enable) {
         static const TraceRecord header = {
@@ -230,22 +288,22 @@ void st_set_trace_file_enabled(bool enable)
             .x1 = HEADER_VERSION,
         };
 
-        trace_fp = fopen(trace_file_name, "w");
+        trace_fp = trace_file_open(trace_file_name, "w");
         if (!trace_fp) {
             return;
         }
 
-        if (fwrite(&header, sizeof header, 1, trace_fp) != 1) {
-            fclose(trace_fp);
+        if (trace_file_write(&header, sizeof header, 1, trace_fp) != 1) {
+            trace_file_close(trace_fp);
             trace_fp = NULL;
             return;
         }
 
         /* Resume trace writeout */
         trace_writeout_enabled = true;
-        flush_trace_file(false);
+        flush_trace_file(false, false);
     } else {
-        fclose(trace_fp);
+        trace_file_close(trace_fp);
         trace_fp = NULL;
     }
 }
@@ -327,7 +385,12 @@ bool st_change_trace_event_state(const char *name, bool enabled)
 
 void st_flush_trace_buffer(void)
 {
-    flush_trace_file(true);
+  flush_trace_file(true, false);
+}
+
+static void st_shutdown_trace(void)
+{
+  flush_trace_file(true, true);
 }
 
 bool st_init(const char *file)
@@ -349,7 +412,7 @@ bool st_init(const char *file)
         return false;
     }
 
-    atexit(st_flush_trace_buffer);
+    atexit(st_shutdown_trace);
     st_set_trace_file(file);
     return true;
 }

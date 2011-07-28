@@ -3040,9 +3040,16 @@ echo "TRACE_BACKEND=$trace_backend" >> $config_host_mak
 if test "$trace_backend" = "simple"; then
   echo "CONFIG_SIMPLE_TRACE=y" >> $config_host_mak
 fi
+if test "$trace_backend" = "zsimple"; then
+  echo "CONFIG_SIMPLE_TRACE=y" >> $config_host_mak
+  echo "CONFIG_SIMPLE_TRACE_COMPRESSION=y" >> $config_host_mak
+fi
 # Set the appropriate trace file.
 if test "$trace_backend" = "simple"; then
   trace_file="\"$trace_file-\" FMT_pid"
+fi
+if test "$trace_backend" = "zsimple"; then
+  trace_file="\"$trace_file-\" FMT_pid \".gz\""
 fi
 if test "$trace_backend" = "dtrace" -a "$trace_backend_stap" = "yes" ; then
   echo "CONFIG_SYSTEMTAP_TRACE=y" >> $config_host_mak
