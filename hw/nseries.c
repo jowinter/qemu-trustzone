@@ -179,7 +179,7 @@ static void n8x0_nand_setup(struct n800_s *s)
     s->nand = onenand_init(dinfo ? dinfo->bdrv : 0,
                            NAND_MFR_SAMSUNG, 0x48, 0, 1,
                            qdev_get_gpio_in(s->cpu->gpio, N8X0_ONENAND_GPIO));
-    omap_gpmc_attach(s->cpu->gpmc, N8X0_ONENAND_CS, s->nand, 0, 0);
+    omap_gpmc_attach(s->cpu->gpmc, N8X0_ONENAND_CS, s->nand, 0, OMAP_GPMC_NOR);
     otp_region = onenand_raw_otp(s->nand);
 
     memcpy(otp_region + 0x000, n8x0_cal_wlan_mac, sizeof(n8x0_cal_wlan_mac));
@@ -897,8 +897,8 @@ static void n8x0_usb_setup(struct n800_s *s)
     sysbus_connect_irq(sysbus_from_qdev(s->usb), 0,
                        qdev_get_gpio_in(s->cpu->gpio, N8X0_TUSB_INT_GPIO));
     /* Using the NOR interface */
-    omap_gpmc_attach(s->cpu->gpmc, N8X0_USB_SYNC_CS, s->usb, 0, 0);
-    omap_gpmc_attach(s->cpu->gpmc, N8X0_USB_ASYNC_CS, s->usb, 1, 0);
+    omap_gpmc_attach(s->cpu->gpmc, N8X0_USB_SYNC_CS, s->usb, 0, OMAP_GPMC_NOR);
+    omap_gpmc_attach(s->cpu->gpmc, N8X0_USB_ASYNC_CS, s->usb, 1, OMAP_GPMC_NOR);
     qdev_connect_gpio_out(s->cpu->gpio, N8X0_TUSB_ENABLE_GPIO,
                           qdev_get_gpio_in(s->usb, 0)); // tusb_power
 }

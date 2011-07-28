@@ -57,6 +57,19 @@ struct omap_gpmc_s {
     } prefetch;
 };
 
+#define OMAP_GPMC_8BIT 0
+#define OMAP_GPMC_16BIT 1
+
+static int omap_gpmc_devtype(struct omap_gpmc_cs_file_s *f)
+{
+    return (f->config[0] >> 10) & 3;
+}
+
+static int omap_gpmc_devsize(struct omap_gpmc_cs_file_s *f)
+{
+    return (f->config[0] >> 12) & 3;
+}
+
 /* Extract the chip-select value from the prefetch config1 register */
 static int prefetch_cs(uint32_t config1)
 {
@@ -103,10 +116,10 @@ static uint32_t omap_nand_read8(void *opaque, target_phys_addr_t addr)
 {
     struct omap_gpmc_cs_file_s *f = (struct omap_gpmc_cs_file_s *)opaque;
     nand_setpins(f->dev, 0, 0, 0, 1, 0);
-    switch (((f->config[0] >> 12) & 3)) {
-    case 0: /* 8bit */
+    switch (omap_gpmc_devsize(f)) {
+    case OMAP_GPMC_8BIT:
         return nand_getio(f->dev);
-    case 1: /* 16bit */
+    case OMAP_GPMC_16BIT:
         /* reading 8bits from a 16bit device?! */
         return nand_getio(f->dev);
     default:
@@ -119,12 +132,12 @@ static uint32_t omap_nand_read16(void *opaque, target_phys_addr_t addr)
     struct omap_gpmc_cs_file_s *f = (struct omap_gpmc_cs_file_s *)opaque;
     uint32_t x1, x2;
     nand_setpins(f->dev, 0, 0, 0, 1, 0);
-    switch (((f->config[0] >> 12) & 3)) {
-    case 0: /* 8bit */
+    switch (omap_gpmc_devsize(f)) {
+    case OMAP_GPMC_8BIT:
         x1 = nand_getio(f->dev);
         x2 = nand_getio(f->dev);
         return (x2 << 8) | x1;
-    case 1: /* 16bit */
+    case OMAP_GPMC_16BIT:
         return nand_getio(f->dev);
     default:
         return 0;
@@ -136,14 +149,14 @@ static uint32_t omap_nand_read32(void *opaque, target_phys_addr_t addr)
     struct omap_gpmc_cs_file_s *f = (struct omap_gpmc_cs_file_s *)opaque;
     uint32_t x1, x2, x3, x4;
     nand_setpins(f->dev, 0, 0, 0, 1, 0);
-    switch (((f->config[0] >> 12) & 3)) {
-    case 0: /* 8bit */
+    switch (omap_gpmc_devsize(f)) {
+    case OMAP_GPMC_8BIT:
         x1 = nand_getio(f->dev);
         x2 = nand_getio(f->dev);
         x3 = nand_getio(f->dev);
         x4 = nand_getio(f->dev);
         return (x4 << 24) | (x3 << 16) | (x2 << 8) | x1;
-    case 1: /* 16bit */
+    case OMAP_GPMC_16BIT:
         x1 = nand_getio(f->dev);
         x2 = nand_getio(f->dev);
         return (x2 << 16) | x1;
@@ -156,11 +169,11 @@ static void omap_nand_write8(void *opaque, target_phys_addr_t addr, uint32_t val
 {
     struct omap_gpmc_cs_file_s *f = (struct omap_gpmc_cs_file_s *)opaque;
     nand_setpins(f->dev, 0, 0, 0, 1, 0);
-    switch (((f->config[0] >> 12) & 3)) {
-    case 0: /* 8bit */
+    switch (omap_gpmc_devsize(f)) {
+    case OMAP_GPMC_8BIT:
         nand_setio(f->dev, value & 0xff);
         break;
-    case 1: /* 16bit */
+    case OMAP_GPMC_16BIT:
         /* writing to a 16bit device with 8bit access!? */
         nand_setio(f->dev, value & 0xffff);
         break;
@@ -173,12 +186,12 @@ static void omap_nand_write16(void *opaque, target_phys_addr_t addr, uint32_t va
 {
     struct omap_gpmc_cs_file_s *f = (struct omap_gpmc_cs_file_s *)opaque;
     nand_setpins(f->dev, 0, 0, 0, 1, 0);
-    switch (((f->config[0] >> 12) & 3)) {
-    case 0: /* 8bit */
+    switch (omap_gpmc_devsize(f)) {
+    case OMAP_GPMC_8BIT:
         nand_setio(f->dev, value & 0xff);
         nand_setio(f->dev, (value >> 8) & 0xff);
         break;
-    case 1: /* 16bit */
+    case OMAP_GPMC_16BIT:
         nand_setio(f->dev, value & 0xffff);
         break;
     default:
@@ -190,14 +203,14 @@ static void omap_nand_write32(void *opaque, target_phys_addr_t addr, uint32_t va
 {
     struct omap_gpmc_cs_file_s *f = (struct omap_gpmc_cs_file_s *)opaque;
     nand_setpins(f->dev, 0, 0, 0, 1, 0);
-    switch (((f->config[0] >> 12) & 3)) {
-    case 0: /* 8bit */
+    switch (omap_gpmc_devsize(f)) {
+    case OMAP_GPMC_8BIT:
         nand_setio(f->dev, value & 0xff);
         nand_setio(f->dev, (value >> 8) & 0xff);
         nand_setio(f->dev, (value >> 16) & 0xff);
         nand_setio(f->dev, (value >> 24) & 0xff);
         break;
-    case 1: /* 16bit */
+    case OMAP_GPMC_16BIT:
         nand_setio(f->dev, value & 0xffff);
         nand_setio(f->dev, (value >> 16) & 0xffff);
         break;
@@ -426,8 +439,8 @@ static void omap_gpmc_cs_map(struct omap_gpmc_s *s, int cs)
     }
     base <<= 24;
     size = (0x0fffffff & ~(mask << 24)) + 1;
-    switch ((f->config[0] >> 10) & 3) {
-    case 0: /* DEVICETYPE == NOR */
+    switch (omap_gpmc_devtype(f)) {
+    case OMAP_GPMC_NOR:
         /* TODO: rather than setting the size of the mapping (which should be
          * constant), the mask should cause wrapping of the address space, so
          * that the same memory becomes accessible at every <i>size</i> bytes
@@ -437,7 +450,7 @@ static void omap_gpmc_cs_map(struct omap_gpmc_s *s, int cs)
             sysbus_mmio_map(sysbus_from_qdev(f->dev), f->mmio_index, base);
         }
         break;
-    case 2: /* DEVICETYPE == NAND */
+    case OMAP_GPMC_NAND:
         if ((s->prefetch.config1 & 0x80) &&
             (prefetch_cs(s->prefetch.config1) == cs)) {
             /* The prefetch engine is enabled for this CS: map the FIFO */
@@ -459,13 +472,13 @@ static void omap_gpmc_cs_unmap(struct omap_gpmc_s *s, int cs)
         return;
     }
 
-    switch ((f->config[0] >> 10) & 3) {
-    case 0: /* DEVICETYPE == NOR */
+    switch (omap_gpmc_devtype(f)) {
+    case OMAP_GPMC_NOR:
         if (f->dev && f->mmio_index >= 0) {
             sysbus_mmio_unmap(sysbus_from_qdev(f->dev), f->mmio_index);
         }
         break;
-    case 2: /* DEVICETYPE == NAND */
+    case OMAP_GPMC_NAND:
         {
             uint32_t mask = (f->config[6] >> 8) & 0xf;
             uint32_t base = (f->config[6] & 0x3f) << 24;
@@ -577,7 +590,7 @@ static uint32_t omap_gpmc_read32(void *opaque, target_phys_addr_t addr)
         case 0x78:	/* GPMC_CONFIG7 */
             return f->config[6];
         case 0x84:	/* GPMC_NAND_DATA */
-            if (((f->config[0] >> 10) & 3) == 2) { /* NAND like? */
+            if (omap_gpmc_devtype(f) == OMAP_GPMC_NAND) {
                 return omap_nand_read32(f, 0);
             }
             return 0;
@@ -636,7 +649,7 @@ static uint32_t omap_gpmc_read8(void *opaque, target_phys_addr_t addr)
         f = s->cs_file + cs;
         switch (addr) {
         case 0x84 ... 0x87:	/* GPMC_NAND_DATA */
-            if (((f->config[0] >> 10) & 3) == 2) { /* NAND like? */
+            if (omap_gpmc_devtype(f) == OMAP_GPMC_NAND) {
                 return omap_nand_read8(f, 0);
             }
             return 0;
@@ -665,7 +678,7 @@ static uint32_t omap_gpmc_read16(void *opaque, target_phys_addr_t addr)
         switch (addr) {
         case 0x84:	/* GPMC_NAND_DATA */
         case 0x86:
-            if (((f->config[0] >> 10) & 3) == 2) { /* NAND like? */
+            if (omap_gpmc_devtype(f) == OMAP_GPMC_NAND) {
                 return omap_nand_read16(f, 0);
             }
             return 0;
@@ -761,20 +774,20 @@ static void omap_gpmc_write32(void *opaque, target_phys_addr_t addr,
             break;
         case 0x7c:	/* GPMC_NAND_COMMAND */
         case 0x80:	/* GPMC_NAND_ADDRESS */
-            if (((f->config[0] >> 10) & 3) == 2) { /* NAND like? */
+            if (omap_gpmc_devtype(f) == OMAP_GPMC_NAND) {
                 switch (addr) {
                 case 0x7c: nand_setpins(f->dev, 1, 0, 0, 1, 0); break; /* CLE */
                 case 0x80: nand_setpins(f->dev, 0, 1, 0, 1, 0); break; /* ALE */
                 default: break;
                 }
-                switch (((f->config[0] >> 12) & 3)) {
-                case 0: /* 8bit */
+                switch (omap_gpmc_devsize(f)) {
+                case OMAP_GPMC_8BIT:
                     nand_setio(f->dev, value & 0xff);
                     nand_setio(f->dev, (value >> 8) & 0xff);
                     nand_setio(f->dev, (value >> 16) & 0xff);
                     nand_setio(f->dev, (value >> 24) & 0xff);
                     break;
-                case 1: /* 16bit */
+                case OMAP_GPMC_16BIT:
                     nand_setio(f->dev, value & 0xffff);
                     nand_setio(f->dev, (value >> 16) & 0xffff);
                     break;
@@ -784,7 +797,7 @@ static void omap_gpmc_write32(void *opaque, target_phys_addr_t addr,
             }
             break;
         case 0x84:  /* GPMC_NAND_DATA */
-            if (((f->config[0] >> 10) & 3) == 2) { /* NAND like? */
+            if (omap_gpmc_devtype(f) == OMAP_GPMC_NAND) {
                 omap_nand_write32(f, 0, value);
             }
             break;
@@ -894,7 +907,7 @@ static void omap_gpmc_write8(void *opaque, target_phys_addr_t addr,
         switch (addr) {
         case 0x7c ... 0x7f:	/* GPMC_NAND_COMMAND */
         case 0x80 ... 0x83:	/* GPMC_NAND_ADDRESS */
-            if (((f->config[0] >> 10) & 3) == 2) { /* NAND like? */
+            if (omap_gpmc_devtype(f) == OMAP_GPMC_NAND) {
                 switch (addr) {
                 case 0x7c ... 0x7f:
                     nand_setpins(f->dev, 1, 0, 0, 1, 0); /* CLE */
@@ -905,11 +918,11 @@ static void omap_gpmc_write8(void *opaque, target_phys_addr_t addr,
                 default:
                     break;
                 }
-                switch (((f->config[0] >> 12) & 3)) {
-                case 0: /* 8bit */
+                switch (omap_gpmc_devsize(f)) {
+                case OMAP_GPMC_8BIT:
                     nand_setio(f->dev, value & 0xff);
                     break;
-                case 1: /* 16bit */
+                case OMAP_GPMC_16BIT:
                     /* writing to a 16bit device with 8bit access!? */
                     nand_setio(f->dev, value & 0xffff);
                     break;
@@ -919,7 +932,7 @@ static void omap_gpmc_write8(void *opaque, target_phys_addr_t addr,
             }
             break;
         case 0x84 ... 0x87: /* GPMC_NAND_DATA */
-            if (((f->config[0] >> 10) & 3) == 2) { /* NAND like? */
+            if (omap_gpmc_devtype(f) == OMAP_GPMC_NAND) {
                 omap_nand_write8(f, 0, value);
             }
             break;
@@ -951,7 +964,7 @@ static void omap_gpmc_write16(void *opaque, target_phys_addr_t addr,
         case 0x7e:
         case 0x80:	/* GPMC_NAND_ADDRESS */
         case 0x82:
-            if (((f->config[0] >> 10) & 3) == 2) { /* NAND like? */
+            if (omap_gpmc_devtype(f) == OMAP_GPMC_NAND) {
                 switch (addr) {
                 case 0x7c:
                 case 0x7e: 
@@ -968,12 +981,12 @@ static void omap_gpmc_write16(void *opaque, target_phys_addr_t addr,
                 default:
                     break;
                 }
-                switch (((f->config[0] >> 12) & 3)) {
-                case 0: /* 8bit */
+                switch (omap_gpmc_devsize(f)) {
+                case OMAP_GPMC_8BIT:
                     nand_setio(f->dev, value & 0xff);
                     nand_setio(f->dev, (value >> 8) & 0xff);
                     break;
-                case 1: /* 16bit */
+                case OMAP_GPMC_16BIT:
                     nand_setio(f->dev, value & 0xffff);
                     break;
                 default:
@@ -983,7 +996,7 @@ static void omap_gpmc_write16(void *opaque, target_phys_addr_t addr,
             break;
         case 0x84:  /* GPMC_NAND_DATA */
         case 0x86:
-            if (((f->config[0] >> 10) & 3) == 2) { /* NAND like? */
+            if (omap_gpmc_devtype(f) == OMAP_GPMC_NAND) {
                 omap_nand_write16(f, 0, value);
             }
             break;
@@ -1053,16 +1066,17 @@ void omap_gpmc_attach(struct omap_gpmc_s *s, int cs, DeviceState *dev,
     }
     f = &s->cs_file[cs];
     if (dev != f->dev || mmio_index != f->mmio_index ||
-        devicetype != ((f->config[0] >> 10) & 3)) {
+        devicetype != omap_gpmc_devtype(f)) {
         omap_gpmc_cs_unmap(s, cs);
         f->dev = dev;
         f->mmio_index = mmio_index;
         f->config[0] &= ~(0x3 << 10);
         f->config[0] |= (devicetype & 3) << 10;
-        if (devicetype == 2) { /* NAND */
-            f->config[0] &= ~(0x3 << 12);
-            if (nand_getbuswidth(f->dev) == 16)
-                f->config[0] |= 1 << 12;
+        f->config[0] &= ~(0x3 << 12);
+        if (omap_gpmc_devtype(f) == OMAP_GPMC_NAND) {
+            if (nand_getbuswidth(f->dev) == 16) {
+                f->config[0] |= OMAP_GPMC_16BIT << 12;
+            }
         }
         omap_gpmc_cs_map(s, cs);
     }
