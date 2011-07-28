@@ -573,21 +573,21 @@ static uint32_t omap_gpmc_read32(void *opaque, target_phys_addr_t addr)
         addr -= cs * 0x30;
         f = s->cs_file + cs;
         switch (addr) {
-        case 0x60:	/* GPMC_CONFIG1 */
+        case 0x60:      /* GPMC_CONFIG1 */
             return f->config[0];
-        case 0x64:	/* GPMC_CONFIG2 */
+        case 0x64:      /* GPMC_CONFIG2 */
             return f->config[1];
-        case 0x68:	/* GPMC_CONFIG3 */
+        case 0x68:      /* GPMC_CONFIG3 */
             return f->config[2];
-        case 0x6c:	/* GPMC_CONFIG4 */
+        case 0x6c:      /* GPMC_CONFIG4 */
             return f->config[3];
-        case 0x70:	/* GPMC_CONFIG5 */
+        case 0x70:      /* GPMC_CONFIG5 */
             return f->config[4];
-        case 0x74:	/* GPMC_CONFIG6 */
+        case 0x74:      /* GPMC_CONFIG6 */
             return f->config[5];
-        case 0x78:	/* GPMC_CONFIG7 */
+        case 0x78:      /* GPMC_CONFIG7 */
             return f->config[6];
-        case 0x84:	/* GPMC_NAND_DATA */
+        case 0x84:      /* GPMC_NAND_DATA */
             if (omap_gpmc_devtype(f) == OMAP_GPMC_NAND) {
                 return omap_nand_read32(f, 0);
             }
@@ -744,38 +744,43 @@ static void omap_gpmc_write32(void *opaque, target_phys_addr_t addr,
         addr -= cs * 0x30;
         f = s->cs_file + cs;
         switch (addr) {
-        case 0x60:	/* GPMC_CONFIG1 */
+        case 0x60:      /* GPMC_CONFIG1 */
             f->config[0] = value & 0xffef3e13;
             break;
-        case 0x64:	/* GPMC_CONFIG2 */
+        case 0x64:      /* GPMC_CONFIG2 */
             f->config[1] = value & 0x001f1f8f;
             break;
-        case 0x68:	/* GPMC_CONFIG3 */
+        case 0x68:      /* GPMC_CONFIG3 */
             f->config[2] = value & 0x001f1f8f;
             break;
-        case 0x6c:	/* GPMC_CONFIG4 */
+        case 0x6c:      /* GPMC_CONFIG4 */
             f->config[3] = value & 0x1f8f1f8f;
             break;
-        case 0x70:	/* GPMC_CONFIG5 */
+        case 0x70:      /* GPMC_CONFIG5 */
             f->config[4] = value & 0x0f1f1f1f;
             break;
-        case 0x74:	/* GPMC_CONFIG6 */
+        case 0x74:      /* GPMC_CONFIG6 */
             f->config[5] = value & 0x00000fcf;
             break;
-        case 0x78:	/* GPMC_CONFIG7 */
+        case 0x78:      /* GPMC_CONFIG7 */
             if ((f->config[6] ^ value) & 0xf7f) {
                 omap_gpmc_cs_unmap(s, cs);
                 f->config[6] = value & 0x00000f7f;
                 omap_gpmc_cs_map(s, cs);
             }
             break;
-        case 0x7c:	/* GPMC_NAND_COMMAND */
-        case 0x80:	/* GPMC_NAND_ADDRESS */
+        case 0x7c:      /* GPMC_NAND_COMMAND */
+        case 0x80:      /* GPMC_NAND_ADDRESS */
             if (omap_gpmc_devtype(f) == OMAP_GPMC_NAND) {
                 switch (addr) {
-                case 0x7c: nand_setpins(f->dev, 1, 0, 0, 1, 0); break; /* CLE */
-                case 0x80: nand_setpins(f->dev, 0, 1, 0, 1, 0); break; /* ALE */
-                default: break;
+                case 0x7c: /* CLE */
+                    nand_setpins(f->dev, 1, 0, 0, 1, 0);
+                    break;
+                case 0x80: /* ALE */
+                    nand_setpins(f->dev, 0, 1, 0, 1, 0);
+                    break;
+                default:
+                    break;
                 }
                 switch (omap_gpmc_devsize(f)) {
                 case OMAP_GPMC_8BIT:
