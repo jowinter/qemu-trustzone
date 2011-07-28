@@ -119,7 +119,7 @@ static void onenand_base_update(SysBusDevice *dev, target_phys_addr_t new)
                                          0x0200 << s->shift, s->iomemtype);
             cpu_register_physical_memory(new + (0x0200 << s->shift),
                                          0xbe00 << s->shift,
-                                         (s->ram +(0x0200 << s->shift))
+                                         (s->ram + (0x0200 << s->shift))
                                          | IO_MEM_RAM);
             if (s->iomemtype) {
                 cpu_register_physical_memory_offset(new + (0xc000 << s->shift),
@@ -140,28 +140,29 @@ static void onenand_intr_update(OneNANDState *s)
 static void onenand_pre_save(void *opaque)
 {
     OneNANDState *s = opaque;
-    if (s->current == s->otp)
+    if (s->current == s->otp) {
         s->current_direction = 1;
-    else if (s->current == s->image)
+    } else if (s->current == s->image) {
         s->current_direction = 2;
-    else
+    } else {
         s->current_direction = 0;
+    }
 }
 
 static int onenand_post_load(void *opaque, int version_id)
 {
     OneNANDState *s = opaque;
     switch (s->current_direction) {
-        case 0:
-            break;
-        case 1:
-            s->current = s->otp;
-            break;
-        case 2:
-            s->current = s->image;
-            break;
-        default:
-            return -1;
+    case 0:
+        break;
+    case 1:
+        s->current = s->otp;
+        break;
+    case 2:
+        s->current = s->image;
+        break;
+    default:
+        return -1;
     }
     onenand_intr_update(s);
     return 0;
@@ -223,8 +224,9 @@ static void onenand_reset(OneNANDState *s, int cold)
         /* Lock the whole flash */
         memset(s->blockwp, ONEN_LOCK_LOCKED, s->blocks);
 
-        if (s->bdrv_cur && bdrv_read(s->bdrv_cur, 0, s->boot[0], 8) < 0)
-            hw_error("%s: Loading the BootRAM failed.\n", __FUNCTION__);
+        if (s->bdrv_cur && bdrv_read(s->bdrv_cur, 0, s->boot[0], 8) < 0) {
+            hw_error("%s: Loading the BootRAM failed.\n", __func__);
+        }
     }
 }
 
@@ -588,7 +590,7 @@ static void onenand_command(OneNANDState *s)
         s->status |= ONEN_ERR_CMD;
         s->intstatus |= ONEN_INT;
         fprintf(stderr, "%s: unknown OneNAND command %x\n",
-                        __FUNCTION__, s->command);
+                        __func__, s->command);
     }
 
     onenand_intr_update(s);

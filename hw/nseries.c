@@ -900,7 +900,7 @@ static void n8x0_usb_setup(struct n800_s *s)
     omap_gpmc_attach(s->cpu->gpmc, N8X0_USB_SYNC_CS, s->usb, 0, OMAP_GPMC_NOR);
     omap_gpmc_attach(s->cpu->gpmc, N8X0_USB_ASYNC_CS, s->usb, 1, OMAP_GPMC_NOR);
     qdev_connect_gpio_out(s->cpu->gpio, N8X0_TUSB_ENABLE_GPIO,
-                          qdev_get_gpio_in(s->usb, 0)); // tusb_power
+                          qdev_get_gpio_in(s->usb, 0)); /* tusb_power */
 }
 
 /* Setup done before the main bootloader starts by some early setup code

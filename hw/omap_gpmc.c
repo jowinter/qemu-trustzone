@@ -165,7 +165,8 @@ static uint32_t omap_nand_read32(void *opaque, target_phys_addr_t addr)
     }
 }
 
-static void omap_nand_write8(void *opaque, target_phys_addr_t addr, uint32_t value)
+static void omap_nand_write8(void *opaque, target_phys_addr_t addr,
+                             uint32_t value)
 {
     struct omap_gpmc_cs_file_s *f = (struct omap_gpmc_cs_file_s *)opaque;
     nand_setpins(f->dev, 0, 0, 0, 1, 0);
@@ -182,7 +183,8 @@ static void omap_nand_write8(void *opaque, target_phys_addr_t addr, uint32_t val
     }
 }
 
-static void omap_nand_write16(void *opaque, target_phys_addr_t addr, uint32_t value)
+static void omap_nand_write16(void *opaque, target_phys_addr_t addr,
+                              uint32_t value)
 {
     struct omap_gpmc_cs_file_s *f = (struct omap_gpmc_cs_file_s *)opaque;
     nand_setpins(f->dev, 0, 0, 0, 1, 0);
@@ -199,7 +201,8 @@ static void omap_nand_write16(void *opaque, target_phys_addr_t addr, uint32_t va
     }
 }
 
-static void omap_nand_write32(void *opaque, target_phys_addr_t addr, uint32_t value)
+static void omap_nand_write32(void *opaque, target_phys_addr_t addr,
+                              uint32_t value)
 {
     struct omap_gpmc_cs_file_s *f = (struct omap_gpmc_cs_file_s *)opaque;
     nand_setpins(f->dev, 0, 0, 0, 1, 0);
@@ -219,15 +222,13 @@ static void omap_nand_write32(void *opaque, target_phys_addr_t addr, uint32_t va
     }
 }
 
-static CPUReadMemoryFunc *omap_nand_readfn[] =
-{
+static CPUReadMemoryFunc *omap_nand_readfn[] = {
     omap_nand_read8,
     omap_nand_read16,
     omap_nand_read32,
 };
 
-static CPUWriteMemoryFunc *omap_nand_writefn[] =
-{
+static CPUWriteMemoryFunc *omap_nand_writefn[] = {
     omap_nand_write8,
     omap_nand_write16,
     omap_nand_write32,
@@ -317,7 +318,7 @@ static uint32_t omap_gpmc_prefetch_read8(void *opaque, target_phys_addr_t addr)
     }
     data = s->prefetch.fifo[63 - s->prefetch.fifopointer];
     if (s->prefetch.fifopointer ==
-        (64 - prefetch_threshold (s->prefetch.config1))) {
+        (64 - prefetch_threshold(s->prefetch.config1))) {
         /* We've drained THRESHOLD bytes now. So deassert the
          * DMA request, then refill the FIFO (which will probably
          * assert it again.)
@@ -407,15 +408,13 @@ static void omap_gpmc_prefetch_write32(void *opaque, target_phys_addr_t addr,
     omap_gpmc_prefetch_write8(opaque, addr, (value >> 24) & 0xff);
 }
 
-static CPUReadMemoryFunc *omap_gpmc_prefetch_readfn[] =
-{
+static CPUReadMemoryFunc *omap_gpmc_prefetch_readfn[] = {
     omap_gpmc_prefetch_read8,
     omap_gpmc_prefetch_read16,
     omap_gpmc_prefetch_read32,
 };
 
-static CPUWriteMemoryFunc *omap_gpmc_prefetch_writefn[] =
-{
+static CPUWriteMemoryFunc *omap_gpmc_prefetch_writefn[] = {
     omap_gpmc_prefetch_write8,
     omap_gpmc_prefetch_write16,
     omap_gpmc_prefetch_write32,
@@ -435,7 +434,7 @@ static void omap_gpmc_cs_map(struct omap_gpmc_s *s, int cs)
     if (mask != 0x8 && mask != 0xc && mask != 0xe && mask != 0xf
          && !(s->accept_256 && !mask)) {
         fprintf(stderr, "%s: invalid chip-select mask address (0x%x)\n",
-                 __FUNCTION__, mask);
+                 __func__, mask);
     }
     base <<= 24;
     size = (0x0fffffff & ~(mask << 24)) + 1;
@@ -530,9 +529,8 @@ void omap_gpmc_reset(struct omap_gpmc_s *s)
     s->ecc_cs = 0;
     s->ecc_ptr = 0;
     s->ecc_cfg = 0x3fcff000;
-    for (i = 0; i < 9; i ++) {
+    for (i = 0; i < 9; i ++)
         ecc_reset(&s->ecc[i]);
-    }
 }
 
 static uint32_t omap_gpmc_read32(void *opaque, target_phys_addr_t addr)
@@ -647,7 +645,7 @@ static uint32_t omap_gpmc_read8(void *opaque, target_phys_addr_t addr)
         addr -= cs * 0x30;
         f = s->cs_file + cs;
         switch (addr) {
-        case 0x84 ... 0x87:	/* GPMC_NAND_DATA */
+        case 0x84 ... 0x87: /* GPMC_NAND_DATA */
             if (omap_gpmc_devtype(f) == OMAP_GPMC_NAND) {
                 return omap_nand_read8(f, 0);
             }
@@ -675,7 +673,7 @@ static uint32_t omap_gpmc_read16(void *opaque, target_phys_addr_t addr)
         addr -= cs * 0x30;
         f = s->cs_file + cs;
         switch (addr) {
-        case 0x84:	/* GPMC_NAND_DATA */
+        case 0x84: /* GPMC_NAND_DATA */
         case 0x86:
             if (omap_gpmc_devtype(f) == OMAP_GPMC_NAND) {
                 return omap_nand_read16(f, 0);
@@ -713,7 +711,7 @@ static void omap_gpmc_write32(void *opaque, target_phys_addr_t addr,
     case 0x010:	/* GPMC_SYSCONFIG */
         if ((value >> 3) == 0x3)
             fprintf(stderr, "%s: bad SDRAM idle mode %i\n",
-                    __FUNCTION__, value >> 3);
+                            __FUNCTION__, value >> 3);
         if (value & 2)
             omap_gpmc_reset(s);
         s->sysconfig = value & 0x19;
@@ -904,8 +902,8 @@ static void omap_gpmc_write8(void *opaque, target_phys_addr_t addr,
         addr -= cs * 0x30;
         f = s->cs_file + cs;
         switch (addr) {
-        case 0x7c ... 0x7f:	/* GPMC_NAND_COMMAND */
-        case 0x80 ... 0x83:	/* GPMC_NAND_ADDRESS */
+        case 0x7c ... 0x7f:     /* GPMC_NAND_COMMAND */
+        case 0x80 ... 0x83:     /* GPMC_NAND_ADDRESS */
             if (omap_gpmc_devtype(f) == OMAP_GPMC_NAND) {
                 switch (addr) {
                 case 0x7c ... 0x7f:
@@ -959,14 +957,14 @@ static void omap_gpmc_write16(void *opaque, target_phys_addr_t addr,
         addr -= cs * 0x30;
         f = s->cs_file + cs;
         switch (addr) {
-        case 0x7c:	/* GPMC_NAND_COMMAND */
+        case 0x7c:      /* GPMC_NAND_COMMAND */
         case 0x7e:
-        case 0x80:	/* GPMC_NAND_ADDRESS */
+        case 0x80:      /* GPMC_NAND_ADDRESS */
         case 0x82:
             if (omap_gpmc_devtype(f) == OMAP_GPMC_NAND) {
                 switch (addr) {
                 case 0x7c:
-                case 0x7e: 
+                case 0x7e:
                     nand_setpins(f->dev, 1, 0, 0, 1, 0); /* CLE */
                     break;
                 case 0x80:
@@ -993,7 +991,7 @@ static void omap_gpmc_write16(void *opaque, target_phys_addr_t addr,
                 }
             }
             break;
-        case 0x84:  /* GPMC_NAND_DATA */
+        case 0x84:      /* GPMC_NAND_DATA */
         case 0x86:
             if (omap_gpmc_devtype(f) == OMAP_GPMC_NAND) {
                 omap_nand_write16(f, 0, value);
@@ -1062,7 +1060,8 @@ void omap_gpmc_attach(struct omap_gpmc_s *s, int cs, DeviceState *dev,
     struct omap_gpmc_cs_file_s *f;
 
     if (cs < 0 || cs >= 8) {
-        hw_error("%s: bad chip-select %i\n", __FUNCTION__, cs);
+        fprintf(stderr, "%s: bad chip-select %i\n", __FUNCTION__, cs);
+        exit(-1);
     }
     f = &s->cs_file[cs];
     if (dev != f->dev || mmio_index != f->mmio_index ||
