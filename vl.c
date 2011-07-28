@@ -1398,7 +1398,6 @@ static void main_loop(void)
             monitor_protocol_event(QEVENT_SHUTDOWN, NULL);
             if (no_shutdown) {
                 vm_stop(VMSTOP_SHUTDOWN);
-                no_shutdown = 0;
             } else
                 break;
         }
@@ -1899,6 +1898,27 @@ static int debugcon_parse(const char *devname)
     return 0;
 }
 
+static QEMUMachine *machine_parse(const char *name)
+{
+    QEMUMachine *m, *machine = NULL;
+
+    if (name) {
+        machine = find_machine(name);
+    }
+    if (machine) {
+        return machine;
+    }
+    printf("Supported machines are:\n");
+    for (m = first_machine; m != NULL; m = m->next) {
+        if (m->alias) {
+            printf("%-10s %s (alias of %s)\n", m->alias, m->desc, m->name);
+        }
+        printf("%-10s %s%s\n", m->name, m->desc,
+               m->is_default ? " (default)" : "");
+    }
+    exit(!name || *name != '?');
+}
+
 static int tcg_init(void)
 {
     return 0;
@@ -1989,7 +2009,7 @@ void qemu_remove_exit_notifier(Notifier *notify)
 
 static void qemu_run_exit_notifiers(void)
 {
-    notifier_list_notify(&exit_notifiers);
+    notifier_list_notify(&exit_notifiers, NULL);
 }
 
 void qemu_add_machine_init_done_notifier(Notifier *notify)
@@ -1999,7 +2019,7 @@ void qemu_add_machine_init_done_notifier(Notifier *notify)
 
 static void qemu_run_machine_init_done_notifiers(void)
 {
-    notifier_list_notify(&machine_init_done_notifiers);
+    notifier_list_notify(&machine_init_done_notifiers, NULL);
 }
 
 static const QEMUOption *lookup_opt(int argc, char **argv,
@@ -2157,20 +2177,7 @@ int main(int argc, char **argv, char **envp)
             }
             switch(popt->index) {
             case QEMU_OPTION_M:
-                machine = find_machine(optarg);
-                if (!machine) {
-                    QEMUMachine *m;
-                    printf("Supported machines are:\n");
-                    for(m = first_machine; m != NULL; m = m->next) {
-                        if (m->alias)
-                            printf("%-10s %s (alias of %s)\n",
-                                   m->alias, m->desc, m->name);
-                        printf("%-10s %s%s\n",
-                               m->name, m->desc,
-                               m->is_default ? " (default)" : "");
-                    }
-                    exit(*optarg != '?');
-                }
+                machine = machine_parse(optarg);
                 break;
             case QEMU_OPTION_cpu:
                 /* hw initialization will check this */
@@ -2302,7 +2309,16 @@ int main(int argc, char **argv, char **envp)
 #endif
                 break;
             case QEMU_OPTION_portrait:
-                graphic_rotate = 1;
+                graphic_rotate = 90;
+                break;
+            case QEMU_OPTION_rotate:
+                graphic_rotate = strtol(optarg, (char **) &optarg, 10);
+                if (graphic_rotate != 0 && graphic_rotate != 90 &&
+                    graphic_rotate != 180 && graphic_rotate != 270) {
+                    fprintf(stderr,
+                        "qemu: only 90, 180, 270 deg rotation is available\n");
+                    exit(1);
+                }
                 break;
             case QEMU_OPTION_kernel:
                 kernel_filename = optarg;
@@ -2691,11 +2707,12 @@ int main(int argc, char **argv, char **envp)
             case QEMU_OPTION_machine:
                 olist = qemu_find_opts("machine");
                 qemu_opts_reset(olist);
-                opts = qemu_opts_parse(olist, optarg, 0);
+                opts = qemu_opts_parse(olist, optarg, 1);
                 if (!opts) {
                     fprintf(stderr, "parse error: %s\n", optarg);
                     exit(1);
                 }
+                machine = machine_parse(qemu_opt_get(opts, "type"));
                 break;
             case QEMU_OPTION_usb:
                 usb_enabled = 1;
@@ -2969,8 +2986,8 @@ int main(int argc, char **argv, char **envp)
             p = qemu_opt_get(QTAILQ_FIRST(&list->head), "accel");
         }
         if (p == NULL) {
-            opts = qemu_opts_parse(qemu_find_opts("machine"),
-                                   machine->default_machine_opts, 0);
+            qemu_opts_reset(list);
+            opts = qemu_opts_parse(list, machine->default_machine_opts, 0);
             if (!opts) {
                 fprintf(stderr, "parse error for machine %s: %s\n",
                         machine->name, machine->default_machine_opts);
@@ -3113,8 +3130,8 @@ int main(int argc, char **argv, char **envp)
     if (nb_numa_nodes > 0) {
         int i;
 
-        if (nb_numa_nodes > smp_cpus) {
-            nb_numa_nodes = smp_cpus;
+        if (nb_numa_nodes > MAX_NODES) {
+            nb_numa_nodes = MAX_NODES;
         }
 
         /* If no memory size if given for any node, assume the default case

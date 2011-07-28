@@ -38,6 +38,12 @@ static uint32_t arm1136_cp15_c0_c1[8] =
 static uint32_t arm1136_cp15_c0_c2[8] =
 { 0x00140011, 0x12002111, 0x11231111, 0x01102131, 0x141, 0, 0, 0 };
 
+static uint32_t arm1176_cp15_c0_c1[8] =
+{ 0x111, 0x11, 0x33, 0, 0x01130003, 0x10030302, 0x01222100, 0 };
+
+static uint32_t arm1176_cp15_c0_c2[8] =
+{ 0x0140011, 0x12002111, 0x11231121, 0x01102131, 0x01141, 0, 0, 0 };
+
 static uint32_t cpu_arm_find_by_name(const char *name);
 
 static inline void set_feature(CPUARMState *env, int feature)
@@ -73,18 +79,46 @@ static void cpu_reset_model_id(CPUARMState *env, uint32_t id)
         env->cp15.c0_cachetype = 0x1dd20d2;
         env->cp15.c1_sys = 0x00090078;
         break;
-    case ARM_CPUID_ARM1136_R2:
     case ARM_CPUID_ARM1136:
+        /* This is the 1136 r1, which is a v6K core */
+        set_feature(env, ARM_FEATURE_V6K);
+        /* Fall through */
+    case ARM_CPUID_ARM1136_R2:
+        /* What qemu calls "arm1136_r2" is actually the 1136 r0p2, ie an
+         * older core than plain "arm1136". In particular this does not
+         * have the v6K features.
+         */
         set_feature(env, ARM_FEATURE_V4T);
         set_feature(env, ARM_FEATURE_V5);
         set_feature(env, ARM_FEATURE_V6);
         set_feature(env, ARM_FEATURE_VFP);
         set_feature(env, ARM_FEATURE_AUXCR);
+        /* These ID register values are correct for 1136 but may be wrong
+         * for 1136_r2 (in particular r0p2 does not actually implement most
+         * of the ID registers).
+         */
         env->vfp.xregs[ARM_VFP_FPSID] = 0x410120b4;
         env->vfp.xregs[ARM_VFP_MVFR0] = 0x11111111;
         env->vfp.xregs[ARM_VFP_MVFR1] = 0x00000000;
         memcpy(env->cp15.c0_c1, arm1136_cp15_c0_c1, 8 * sizeof(uint32_t));
         memcpy(env->cp15.c0_c2, arm1136_cp15_c0_c2, 8 * sizeof(uint32_t));
+        env->cp15.c0_cachetype = 0x1dd20d2;
+        env->cp15.c1_sys = 0x00050078;
+        break;
+    case ARM_CPUID_ARM1176:
+        set_feature(env, ARM_FEATURE_V4T);
+        set_feature(env, ARM_FEATURE_V5);
+        set_feature(env, ARM_FEATURE_V6);
+        set_feature(env, ARM_FEATURE_V6K);
+        set_feature(env, ARM_FEATURE_VFP);
+        set_feature(env, ARM_FEATURE_AUXCR);
+        set_feature(env, ARM_FEATURE_VAPA);
+        set_feature(env, ARM_FEATURE_TRUSTZONE);
+        env->vfp.xregs[ARM_VFP_FPSID] = 0x410120b5;
+        env->vfp.xregs[ARM_VFP_MVFR0] = 0x11111111;
+        env->vfp.xregs[ARM_VFP_MVFR1] = 0x00000000;
+        memcpy(env->cp15.c0_c1, arm1176_cp15_c0_c1, 8 * sizeof(uint32_t));
+        memcpy(env->cp15.c0_c2, arm1176_cp15_c0_c2, 8 * sizeof(uint32_t));
         env->cp15.c0_cachetype = 0x1dd20d2;
         env->cp15.c1_sys = 0x00050078;
         break;
@@ -95,6 +129,7 @@ static void cpu_reset_model_id(CPUARMState *env, uint32_t id)
         set_feature(env, ARM_FEATURE_V6K);
         set_feature(env, ARM_FEATURE_VFP);
         set_feature(env, ARM_FEATURE_AUXCR);
+        set_feature(env, ARM_FEATURE_VAPA);
         env->vfp.xregs[ARM_VFP_FPSID] = 0x410120b4;
         env->vfp.xregs[ARM_VFP_MVFR0] = 0x11111111;
         env->vfp.xregs[ARM_VFP_MVFR1] = 0x00000000;
@@ -252,6 +287,11 @@ static void cpu_reset_model_id(CPUARMState *env, uint32_t id)
         cpu_abort(env, "Bad CPU ID: %x\n", id);
         break;
     }
+
+    /* Some features automatically imply others: */
+    if (arm_feature(env, ARM_FEATURE_V7)) {
+        set_feature(env, ARM_FEATURE_VAPA);
+    }
 }
 
 void cpu_reset(CPUARMState *env)
@@ -299,6 +339,10 @@ void cpu_reset(CPUARMState *env)
     }
     env->vfp.xregs[ARM_VFP_FPEXC] = 0;
     env->cp15.c2_base_mask = 0xffffc000u;
+    /* v7 performance monitor control register: same implementor
+     * field as main ID register, and we implement no event counters.
+     */
+    env->cp15.c9_pmcr = (id & 0xff000000);
 #endif
     set_flush_to_zero(1, &env->vfp.standard_fp_status);
     set_flush_inputs_to_zero(1, &env->vfp.standard_fp_status);
@@ -406,6 +450,7 @@ static const struct arm_cpu_t arm_cpu_names[] = {
     { ARM_CPUID_ARM1026, "arm1026"},
     { ARM_CPUID_ARM1136, "arm1136"},
     { ARM_CPUID_ARM1136_R2, "arm1136-r2"},
+    { ARM_CPUID_ARM1176, "arm1176"},
     { ARM_CPUID_ARM11MPCORE, "arm11mpcore"},
     { ARM_CPUID_CORTEXM3, "cortex-m3"},
     { ARM_CPUID_CORTEXA8, "cortex-a8"},
@@ -989,7 +1034,7 @@ static inline int check_ap(CPUState *env, int ap, int domain, int access_type,
   case 6:
       return prot_ro;
   case 7:
-      if (!arm_feature (env, ARM_FEATURE_V7))
+      if (!arm_feature (env, ARM_FEATURE_V6K))
           return 0;
       return prot_ro;
   default:
@@ -1548,7 +1593,7 @@ void HELPER(set_cp15)(CPUState *env, uint32_t insn, uint32_t val)
             goto bad_reg;
         }
         /* No cache, so nothing to do except VA->PA translations. */
-        if (arm_feature(env, ARM_FEATURE_V6K)) {
+        if (arm_feature(env, ARM_FEATURE_VAPA)) {
             switch (crm) {
             case 4:
                 if (arm_feature(env, ARM_FEATURE_V7)) {
@@ -1628,84 +1673,88 @@ void HELPER(set_cp15)(CPUState *env, uint32_t insn, uint32_t val)
                 }
                 break;
             case 1: /* L2 cache.  */
-                switch (op2) {
-                case 0: /* L2 cache lockdown */
-                case 2: /* L2 cache auxiliary control */
-                    /* ignore */
-                    break;
-                default:
-                    goto bad_reg;
-                }
+                /* Ignore writes to L2 lockdown/auxiliary registers.  */
                 break;
             default:
                 goto bad_reg;
             }
             break;
         case 1: /* TCM memory region registers.  */
-        case 2:
             /* Not implemented.  */
             goto bad_reg;
-        case 12: /* performance monitor control */
-            if (arm_feature(env, ARM_FEATURE_V7)) {
-                switch (op2) {
-                case 0: /* performance monitor control */
-                    env->cp15.c9_pmcr_data = val;
-                    break;
-                case 1: /* count enable set */
-                case 2: /* count enable clear */
-                case 3: /* overflow flag status */
-                case 4: /* software increment */
-                case 5: /* performance counter selection */
-                    /* not implemented */
-                    goto bad_reg;
-                default:
-                    goto bad_reg;
-                }
-            } else {
+        case 12: /* Performance monitor control */
+            /* Performance monitors are implementation defined in v7,
+             * but with an ARM recommended set of registers, which we
+             * follow (although we don't actually implement any counters)
+             */
+            if (!arm_feature(env, ARM_FEATURE_V7)) {
+                goto bad_reg;
+            }
+            switch (op2) {
+            case 0: /* performance monitor control register */
+                /* only the DP, X, D and E bits are writable */
+                env->cp15.c9_pmcr &= ~0x39;
+                env->cp15.c9_pmcr |= (val & 0x39);
+                break;
+            case 1: /* Count enable set register */
+                val &= (1 << 31);
+                env->cp15.c9_pmcnten |= val;
+                break;
+            case 2: /* Count enable clear */
+                val &= (1 << 31);
+                env->cp15.c9_pmcnten &= ~val;
+                break;
+            case 3: /* Overflow flag status */
+                env->cp15.c9_pmovsr &= ~val;
+                break;
+            case 4: /* Software increment */
+                /* RAZ/WI since we don't implement the software-count event */
+                break;
+            case 5: /* Event counter selection register */
+                /* Since we don't implement any events, writing to this register
+                 * is actually UNPREDICTABLE. So we choose to RAZ/WI.
+                 */
+                break;
+            default:
                 goto bad_reg;
             }
             break;
-        case 13: /* performance counters */
-            if (arm_feature(env, ARM_FEATURE_V7)) {
-                switch (op2) {
-                case 0: /* cycle count */
-                case 1: /* event selection */
-                case 2: /* performance monitor count */
-                    /* not implemented */
-                    goto bad_reg;
-                default:
-                    goto bad_reg;
-                }
-            } else {
+        case 13: /* Performance counters */
+            if (!arm_feature(env, ARM_FEATURE_V7)) {
+                goto bad_reg;
+            }
+            switch (op2) {
+            case 0: /* Cycle count register: not implemented, so RAZ/WI */
+                break;
+            case 1: /* Event type select */
+                env->cp15.c9_pmxevtyper = val & 0xff;
+                break;
+            case 2: /* Event count register */
+                /* Unimplemented (we have no events), RAZ/WI */
+                break;
+            default:
                 goto bad_reg;
             }
             break;
-        case 14: /* performance monitor control */
-            if (arm_feature(env, ARM_FEATURE_V7)) {
-                switch (op2) {
-                case 0: /* user enable */
-                    if ((env->uncached_cpsr & CPSR_M) == ARM_CPU_MODE_USR) {
-                        goto bad_reg;
-                    }
-                    env->cp15.c9_useren = val & 1;
-                    break;
-                case 1: /* interrupt enable set */
-                    if ((env->uncached_cpsr & CPSR_M) == ARM_CPU_MODE_USR) {
-                        goto bad_reg;
-                    }
-                    env->cp15.c9_inten |= val & 0xf;
-                    break;
-                case 2: /* interrupt enable clear */
-                    if ((env->uncached_cpsr & CPSR_M) == ARM_CPU_MODE_USR) {
-                        goto bad_reg;
-                    }
-                    env->cp15.c9_inten &= ~(val & 0xf);
-                    break;
-                default:
-                    goto bad_reg;
-                }
-            } else {
+        case 14: /* Performance monitor control */
+            if (!arm_feature(env, ARM_FEATURE_V7)) {
                 goto bad_reg;
+            }
+            switch (op2) {
+            case 0: /* user enable */
+                env->cp15.c9_pmuserenr = val & 1;
+                /* changes access rights for cp registers, so flush tbs */
+                tb_flush(env);
+                break;
+            case 1: /* interrupt enable set */
+                /* We have no event counters so only the C bit can be changed */
+                val &= (1 << 31);
+                env->cp15.c9_pminten |= val;
+                break;
+            case 2: /* interrupt enable clear */
+                val &= (1 << 31);
+                env->cp15.c9_pminten &= ~val;
+                break;
             }
             break;
         default:
@@ -1915,6 +1964,7 @@ uint32_t HELPER(get_cp15)(CPUState *env, uint32_t insn)
                     return 1;
                 case ARM_CPUID_ARM1136:
                 case ARM_CPUID_ARM1136_R2:
+                case ARM_CPUID_ARM1176:
                     return 7;
                 case ARM_CPUID_ARM11MPCORE:
                     return 1;
@@ -2049,13 +2099,14 @@ uint32_t HELPER(get_cp15)(CPUState *env, uint32_t insn)
         return 0;
     case 8: /* MMU TLB control.  */
         goto bad_reg;
-    case 9: /* Cache lockdown.  */
-        switch (op1) {
-        case 0:
-            if (arm_feature(env, ARM_FEATURE_OMAPCP))
-                return 0;
-            switch (crm) {
-            case 0: /* L1 cache */
+    case 9:
+        switch (crm) {
+        case 0: /* Cache lockdown */
+            switch (op1) {
+            case 0: /* L1 cache.  */
+                if (arm_feature(env, ARM_FEATURE_OMAPCP)) {
+                    return 0;
+                }
                 switch (op2) {
                 case 0:
                     return env->cp15.c9_data;
@@ -2064,45 +2115,65 @@ uint32_t HELPER(get_cp15)(CPUState *env, uint32_t insn)
                 default:
                     goto bad_reg;
                 }
-                break;
-            case 12:
-                switch (op2) {
-                case 0:
-                    return env->cp15.c9_pmcr_data;
-                default:
+            case 1: /* L2 cache */
+                if (crm != 0) {
                     goto bad_reg;
                 }
-                break;
-            case 14: /* performance monitor control */
-                if (arm_feature(env, ARM_FEATURE_V7)) {
-                    switch (op2) {
-                    case 0: /* user enable */
-                        return env->cp15.c9_useren;
-                    case 1: /* interrupt enable set */
-                    case 2: /* interrupt enable clear */
-                        if ((env->uncached_cpsr & CPSR_M) == ARM_CPU_MODE_USR) {
-                            goto bad_reg;
-                        }
-                        return env->cp15.c9_inten;
-                    default:
-                        goto bad_reg;
-                    }
-                } else {
-                    goto bad_reg;
-                }
-                break;
+                /* L2 Lockdown and Auxiliary control.  */
+                return 0;
             default:
                 goto bad_reg;
             }
             break;
-        case 1: /* L2 cache */
-            if (crm != 0)
+        case 12: /* Performance monitor control */
+            if (!arm_feature(env, ARM_FEATURE_V7)) {
                 goto bad_reg;
-            /* L2 Lockdown and Auxiliary control.  */
-            return 0;
+            }
+            switch (op2) {
+            case 0: /* performance monitor control register */
+                return env->cp15.c9_pmcr;
+            case 1: /* count enable set */
+            case 2: /* count enable clear */
+                return env->cp15.c9_pmcnten;
+            case 3: /* overflow flag status */
+                return env->cp15.c9_pmovsr;
+            case 4: /* software increment */
+            case 5: /* event counter selection register */
+                return 0; /* Unimplemented, RAZ/WI */
+            default:
+                goto bad_reg;
+            }
+        case 13: /* Performance counters */
+            if (!arm_feature(env, ARM_FEATURE_V7)) {
+                goto bad_reg;
+            }
+            switch (op2) {
+            case 1: /* Event type select */
+                return env->cp15.c9_pmxevtyper;
+            case 0: /* Cycle count register */
+            case 2: /* Event count register */
+                /* Unimplemented, so RAZ/WI */
+                return 0;
+            default:
+                goto bad_reg;
+            }
+        case 14: /* Performance monitor control */
+            if (!arm_feature(env, ARM_FEATURE_V7)) {
+                goto bad_reg;
+            }
+            switch (op2) {
+            case 0: /* user enable */
+                return env->cp15.c9_pmuserenr;
+            case 1: /* interrupt enable set */
+            case 2: /* interrupt enable clear */
+                return env->cp15.c9_pminten;
+            default:
+                goto bad_reg;
+            }
         default:
             goto bad_reg;
         }
+        break;
     case 10: /* MMU TLB lockdown.  */
         /* ??? TLB lockdown not implemented.  */
         return 0;
@@ -2214,11 +2285,11 @@ uint32_t HELPER(v7m_mrs)(CPUState *env, uint32_t reg)
         return env->v7m.current_sp ? env->regs[13] : env->v7m.other_sp;
     case 16: /* PRIMASK */
         return (env->uncached_cpsr & CPSR_I) != 0;
-    case 17: /* FAULTMASK */
-        return (env->uncached_cpsr & CPSR_F) != 0;
-    case 18: /* BASEPRI */
-    case 19: /* BASEPRI_MAX */
+    case 17: /* BASEPRI */
+    case 18: /* BASEPRI_MAX */
         return env->v7m.basepri;
+    case 19: /* FAULTMASK */
+        return (env->uncached_cpsr & CPSR_F) != 0;
     case 20: /* CONTROL */
         return env->v7m.control;
     default:
@@ -2270,19 +2341,19 @@ void HELPER(v7m_msr)(CPUState *env, uint32_t reg, uint32_t val)
         else
             env->uncached_cpsr &= ~CPSR_I;
         break;
-    case 17: /* FAULTMASK */
+    case 17: /* BASEPRI */
+        env->v7m.basepri = val & 0xff;
+        break;
+    case 18: /* BASEPRI_MAX */
+        val &= 0xff;
+        if (val != 0 && (val < env->v7m.basepri || env->v7m.basepri == 0))
+            env->v7m.basepri = val;
+        break;
+    case 19: /* FAULTMASK */
         if (val & 1)
             env->uncached_cpsr |= CPSR_F;
         else
             env->uncached_cpsr &= ~CPSR_F;
-        break;
-    case 18: /* BASEPRI */
-        env->v7m.basepri = val & 0xff;
-        break;
-    case 19: /* BASEPRI_MAX */
-        val &= 0xff;
-        if (val != 0 && (val < env->v7m.basepri || env->v7m.basepri == 0))
-            env->v7m.basepri = val;
         break;
     case 20: /* CONTROL */
         env->v7m.control = val & 3;
@@ -2672,13 +2743,15 @@ void vfp_set_fpscr(CPUState *env, uint32_t val)
 #define VFP_HELPER(name, p) HELPER(glue(glue(vfp_,name),p))
 
 #define VFP_BINOP(name) \
-float32 VFP_HELPER(name, s)(float32 a, float32 b, CPUState *env) \
+float32 VFP_HELPER(name, s)(float32 a, float32 b, void *fpstp) \
 { \
-    return float32_ ## name (a, b, &env->vfp.fp_status); \
+    float_status *fpst = fpstp; \
+    return float32_ ## name(a, b, fpst); \
 } \
-float64 VFP_HELPER(name, d)(float64 a, float64 b, CPUState *env) \
+float64 VFP_HELPER(name, d)(float64 a, float64 b, void *fpstp) \
 { \
-    return float64_ ## name (a, b, &env->vfp.fp_status); \
+    float_status *fpst = fpstp; \
+    return float64_ ## name(a, b, fpst); \
 }
 VFP_BINOP(add)
 VFP_BINOP(sub)

@@ -1875,7 +1875,7 @@ static const uint8_t mips_syscall_args[] = {
 	MIPS_SYS(sys_getcwd	, 2)
 	MIPS_SYS(sys_capget	, 2)
 	MIPS_SYS(sys_capset	, 2)	/* 4205 */
-	MIPS_SYS(sys_sigaltstack	, 0)
+	MIPS_SYS(sys_sigaltstack	, 2)
 	MIPS_SYS(sys_sendfile	, 4)
 	MIPS_SYS(sys_ni_syscall	, 0)
 	MIPS_SYS(sys_ni_syscall	, 0)
@@ -2080,7 +2080,7 @@ void cpu_loop(CPUMIPSState *env)
             syscall_num = env->active_tc.gpr[2] - 4000;
             env->active_tc.PC += 4;
             if (syscall_num >= sizeof(mips_syscall_args)) {
-                ret = -ENOSYS;
+                ret = -TARGET_ENOSYS;
             } else {
                 int nb_args;
                 abi_ulong sp_reg;
@@ -2120,6 +2120,8 @@ void cpu_loop(CPUMIPSState *env)
             break;
         case EXCP_TLBL:
         case EXCP_TLBS:
+        case EXCP_AdEL:
+        case EXCP_AdES:
             info.si_signo = TARGET_SIGSEGV;
             info.si_errno = 0;
             /* XXX: check env->error_code */
