@@ -129,7 +129,7 @@ static void onenand_base_update(SysBusDevice *dev, target_phys_addr_t new)
             }
         }
         s->base = new;
-    }        
+    }
 }
 
 static void onenand_intr_update(OneNANDState *s)

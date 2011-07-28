@@ -18,7 +18,7 @@
 # include "hw.h"
 # include "flash.h"
 # include "blockdev.h"
-#include "sysbus.h"
+# include "sysbus.h"
 
 # define NAND_CMD_READ0		0x00
 # define NAND_CMD_READ1		0x01
@@ -367,7 +367,7 @@ static int nand_device_init(SysBusDevice *dev)
 {
     int pagesize;
     NANDFlashState *s = FROM_SYSBUS(NANDFlashState, dev);
-    s->buswidth = (uint8_t)(nand_flash_ids[s->chip_id].width >> 3);
+    s->buswidth = nand_flash_ids[s->chip_id].width >> 3;
     s->size = nand_flash_ids[s->chip_id].size << 20;
     if (nand_flash_ids[s->chip_id].options & NAND_SAMSUNG_LP) {
         s->page_shift = 11;
@@ -376,21 +376,21 @@ static int nand_device_init(SysBusDevice *dev)
         s->page_shift = nand_flash_ids[s->chip_id].page_shift;
         s->erase_shift = nand_flash_ids[s->chip_id].erase_shift;
     }
-    
+
     switch (1 << s->page_shift) {
-        case 256:
-            nand_init_256(s);
-            break;
-        case 512:
-            nand_init_512(s);
-            break;
-        case 2048:
-            nand_init_2048(s);
-            break;
-        default:
-            hw_error("%s: Unsupported NAND block size.\n", __FUNCTION__);
+    case 256:
+        nand_init_256(s);
+        break;
+    case 512:
+        nand_init_512(s);
+        break;
+    case 2048:
+        nand_init_2048(s);
+        break;
+    default:
+        hw_error("%s: Unsupported NAND block size.\n", __func__);
     }
-    
+
     pagesize = 1 << s->oob_shift;
     s->mem_oob = 1;
     if (s->bdrv && bdrv_getlength(s->bdrv) >=
@@ -398,14 +398,15 @@ static int nand_device_init(SysBusDevice *dev)
         pagesize = 0;
         s->mem_oob = 0;
     }
-    
-    if (!s->bdrv)
+
+    if (!s->bdrv) {
         pagesize += 1 << s->page_shift;
-    if (pagesize)
+    }
+    if (pagesize) {
         s->storage = (uint8_t *) memset(qemu_malloc(s->pages * pagesize),
                                         0xff, s->pages * pagesize);
-    /* Give s->ioaddr a sane value in case we save state before it
-     is used.  */
+    }
+    /* Give s->ioaddr a sane value in case we save state before it is used. */
     s->ioaddr = s->io;
 
     return 0;
