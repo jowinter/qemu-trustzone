@@ -508,8 +508,8 @@ void omap_gpmc_reset(struct omap_gpmc_s *s)
     s->prefetch.count = 0;
     for (i = 0; i < 8; i ++) {
         omap_gpmc_cs_unmap(s, i);
-        s->cs_file[i].config[1] = 0x00101001;
-        s->cs_file[i].config[2] = 0x00020201;
+        s->cs_file[i].config[1] = 0x101001;
+        s->cs_file[i].config[2] = 0x020201;
         s->cs_file[i].config[3] = 0x10031003;
         s->cs_file[i].config[4] = 0x10f1111;
         s->cs_file[i].config[5] = 0;
@@ -594,8 +594,6 @@ static uint32_t omap_gpmc_read32(void *opaque, target_phys_addr_t addr)
                 return omap_nand_read32(f, 0);
             }
             return 0;
-        default:
-            break;
         }
         break;
 
@@ -620,7 +618,8 @@ static uint32_t omap_gpmc_read32(void *opaque, target_phys_addr_t addr)
     case 0x200 ... 0x220:	/* GPMC_ECC_RESULT */
         cs = (addr & 0x1f) >> 2;
         /* TODO: check correctness */
-        return ((s->ecc[cs].cp    &  0x07) <<  0) |
+        return
+                ((s->ecc[cs].cp    &  0x07) <<  0) |
                 ((s->ecc[cs].cp    &  0x38) << 13) |
                 ((s->ecc[cs].lp[0] & 0x1ff) <<  3) |
                 ((s->ecc[cs].lp[1] & 0x1ff) << 19);
@@ -1028,7 +1027,8 @@ struct omap_gpmc_s *omap_gpmc_init(struct omap_mpu_state_s *mpu,
                                    qemu_irq irq, qemu_irq drq)
 {
     int iomemtype, cs;
-    struct omap_gpmc_s *s = qemu_mallocz(sizeof(*s));
+    struct omap_gpmc_s *s = (struct omap_gpmc_s *)
+            qemu_mallocz(sizeof(struct omap_gpmc_s));
 
     s->irq = irq;
     s->drq = drq;
