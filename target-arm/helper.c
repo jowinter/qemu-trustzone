@@ -1117,6 +1117,9 @@ void do_interrupt(CPUARMState *env)
     } else if ((arm_cp15_banked(env, c1_sys, is_secure) & (1 << 13))) {
         /* High vectors.  */
         addr += 0xffff0000;        
+    } else if (arm_feature(env, ARM_FEATURE_SECURITY)) {
+        /* Vector base address register */
+        addr += arm_cp15_banked(env, c12_vbar, is_secure);
     }
 #else
     if ((env->cp15.c1_sys & (1 << 13))) {
