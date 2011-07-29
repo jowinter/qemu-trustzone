@@ -37,6 +37,8 @@ typedef struct {
 typedef struct mpcore_priv_state {
     gic_state gic;
     uint32_t scu_control;
+    uint32_t access;
+    uint32_t nonsecure_access;
     int iomemtype;
     mpcore_timer_state timer[8];
     uint32_t num_cpu;
@@ -168,6 +170,10 @@ static uint32_t mpcore_priv_read(void *opaque, target_phys_addr_t offset)
             return 0;
         case 0x0c: /* Invalidate all.  */
             return 0;
+        case 0x50: /* SCU Access Control */
+            return s->access;
+        case 0x54: /* SCU Non-Secure Access Control */
+            return s->nonsecure_access;
         default:
             goto bad_reg;
         }
@@ -217,6 +223,12 @@ static void mpcore_priv_write(void *opaque, target_phys_addr_t offset,
         case 0x0c: /* Invalidate all.  */
             /* This is a no-op as cache is not emulated.  */
             break;
+        case 0x50: /* SCU Access Control */
+            s->access = value & 0xf;
+            break;
+        case 0x54: /* SCU Non-Secure Access Control */
+            s->nonsecure_access = value & 0xfff;
+            break;
         default:
             goto bad_reg;
         }
@@ -247,7 +259,7 @@ static void mpcore_priv_write(void *opaque, target_phys_addr_t offset,
     }
     return;
 bad_reg:
-    hw_error("mpcore_priv_read: Bad offset %x\n", (int)offset);
+    hw_error("mpcore_priv_write: Bad offset %x\n", (int)offset);
 }
 
 static CPUReadMemoryFunc * const mpcore_priv_readfn[] = {
@@ -273,6 +285,8 @@ static int mpcore_priv_init(SysBusDevice *dev)
 {
     mpcore_priv_state *s = FROM_SYSBUSGIC(mpcore_priv_state, dev);
     int i;
+
+    s->access = 0xf;
 
     gic_init(&s->gic, s->num_cpu);
     s->iomemtype = cpu_register_io_memory(mpcore_priv_readfn,
