@@ -25,6 +25,9 @@
 #include "net.h"
 #include "sysemu.h"
 #include "boards.h"
+#if defined(TARGET_HAS_TRUSTZONE)
+#include "arm_trustzone.h"
+#endif
 
 #define SMP_BOOT_ADDR 0xe0000000
 
@@ -33,6 +36,16 @@
 static struct arm_boot_info vexpress_binfo = {
     .smp_loader_start = SMP_BOOT_ADDR,
 };
+
+/* Helper for attaching BP147 "slaves" */
+#if defined(TARGET_HAS_TRUSTZONE)
+#define bp147_attach(_dev, _reg, _bit) do {             \
+    bp147_attach_slave(bp147, (_dev), (_reg), (_bit));  \
+  } while(0)
+#else
+#define bp147_attach(_dev, _reg, _bit) do {     \
+  } while(0)
+#endif
 
 static void vexpress_a9_init(ram_addr_t ram_size,
                      const char *boot_device,
@@ -43,6 +56,9 @@ static void vexpress_a9_init(ram_addr_t ram_size,
     ram_addr_t ram_offset, vram_offset, sram_offset;
     DeviceState *dev, *sysctl;
     SysBusDevice *busdev;
+#if defined(TARGET_HAS_TRUSTZONE)
+    SysBusDevice *bp147;
+#endif
     qemu_irq *irqp;
     qemu_irq pic[64];
     int n;
@@ -54,6 +70,11 @@ static void vexpress_a9_init(ram_addr_t ram_size,
     if (!cpu_model) {
         cpu_model = "cortex-a9";
     }
+
+#if defined(TARGET_HAS_TRUSTZONE)
+    /* Initialize the virtual root address space controller */
+    arm_trustzone_init_vrootasc();
+#endif
 
     for (n = 0; n < smp_cpus; n++) {
         env = cpu_init(cpu_model);
@@ -157,12 +178,20 @@ static void vexpress_a9_init(ram_addr_t ram_size,
     /* 0x100e1000 PL354 Static Memory Controller */
     /* 0x100e2000 System Configuration Controller */
 
-    sysbus_create_simple("sp804", 0x100e4000, pic[48]);
+    busdev = sysbus_from_qdev(sysbus_create_simple("sp804", 0x100e4000, pic[48]));
     /* 0x100e5000 SP805 Watchdog module */
     /* 0x100e6000 BP147 TrustZone Protection Controller */
+#if defined(TARGET_HAS_TRUSTZONE)
+    bp147 = sysbus_from_qdev(sysbus_create_simple("bp147", 0x100e6000, NULL));
+    bp147_attach_slave(bp147, bp147,  0, 6);
+    bp147_attach_slave(bp147, busdev, 0, 4);
+#endif
     /* 0x100e9000 PL301 'Fast' AXI matrix */
     /* 0x100ea000 PL301 'Slow' AXI matrix */
     /* 0x100ec000 TrustZone Address Space Controller */
+#if defined(TARGET_HAS_TRUSTZONE)
+    sysbus_create_simple("tzc380", 0x100ec000, NULL);
+#endif
     /* 0x10200000 CoreSight debug APB */
     /* 0x1e00a000 PL310 L2 Cache Controller */
 
