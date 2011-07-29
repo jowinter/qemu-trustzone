@@ -1064,18 +1064,35 @@ void do_interrupt(CPUARMState *env)
         /* Fall through to prefetch abort.  */
     case EXCP_PREFETCH_ABORT:
         new_mode = ARM_CPU_MODE_ABT;
+#if defined(TARGET_HAS_TRUSTZONE)
+        /* todo: interpret CPSR_A and external aborts, update
+           the correct version of the IFAR and IFSR registers
+
+           trap_to_mvbar = (env->cp15.c1_scr & SCR_EA)? 1 : 0;
+        */
+#endif
         addr = 0x0c;
         mask = CPSR_A | CPSR_I;
         offset = 4;
         break;
     case EXCP_DATA_ABORT:
         new_mode = ARM_CPU_MODE_ABT;
+#if defined(TARGET_HAS_TRUSTZONE)
+        /* todo: interpret CPSR_A and external aborts, update
+           the correct version of the DFAR and DFSR registers
+
+           trap_to_mvbar = (env->cp15.c1_scr & SCR_EA)? 1 : 0;
+        */
+#endif
         addr = 0x10;
         mask = CPSR_A | CPSR_I;
         offset = 8;
         break;
     case EXCP_IRQ:
         new_mode = ARM_CPU_MODE_IRQ;
+#if defined(TARGET_HAS_TRUSTZONE)
+        trap_to_mvbar = (env->cp15.c1_scr & SCR_IRQ)? 1 : 0;
+#endif
         addr = 0x18;
         /* Disable IRQ and imprecise data aborts.  */
         mask = CPSR_A | CPSR_I;
@@ -1083,6 +1100,9 @@ void do_interrupt(CPUARMState *env)
         break;
     case EXCP_FIQ:
         new_mode = ARM_CPU_MODE_FIQ;
+#if defined(TARGET_HAS_TRUSTZONE)
+        trap_to_mvbar = (env->cp15.c1_scr & SCR_FIQ)? 1 : 0;
+#endif
         addr = 0x1c;
         /* Disable FIQ, IRQ and imprecise data aborts.  */
         mask = CPSR_A | CPSR_I | CPSR_F;
