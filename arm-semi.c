@@ -392,9 +392,12 @@ uint32_t do_arm_semihosting(CPUState *env)
 
             /* Compute the size of the output string.  */
 #if !defined(CONFIG_USER_ONLY)
-            output_size = strlen(ts->boot_info->kernel_filename)
+	    const char *kernel_file = ts->boot_info ? ts->boot_info->kernel_filename : "<rom>";
+	    const char *kernel_cmdline = ts->boot_info ? ts->boot_info->kernel_cmdline : "";
+
+            output_size = strlen(kernel_file)
                         + 1  /* Separating space.  */
-                        + strlen(ts->boot_info->kernel_cmdline)
+ 	                + strlen(kernel_cmdline)
                         + 1; /* Terminating null byte.  */
 #else
             unsigned int i;
@@ -423,9 +426,9 @@ uint32_t do_arm_semihosting(CPUState *env)
 
             /* Copy the command-line arguments.  */
 #if !defined(CONFIG_USER_ONLY)
-            pstrcpy(output_buffer, output_size, ts->boot_info->kernel_filename);
+            pstrcpy(output_buffer, output_size, kernel_file);
             pstrcat(output_buffer, output_size, " ");
-            pstrcat(output_buffer, output_size, ts->boot_info->kernel_cmdline);
+            pstrcat(output_buffer, output_size, kernel_cmdline);
 #else
             if (output_size == 1) {
                 /* Empty command-line.  */
