@@ -14,6 +14,13 @@
 #include "hw/arm_trustzone.h"
 #endif
 
+#include "trace.h"
+
+#if !defined(CONFIG_USER_ONLY)
+/* Instruction tracing (defined in vl.c) */
+extern int trace_instructions;
+#endif
+
 /* #define DEBUG_SECURITY_STATE_CONFUSION 1 - to debug MMU index issues */
 
 static uint32_t cortexa9_cp15_c0_c1[8] =
@@ -305,6 +312,17 @@ static void cpu_reset_model_id(CPUARMState *env, uint32_t id)
     }
 }
 
+/* Maps a processor ID for the trace file */
+static inline int arm_trace_cpu_ex(CPUARMState *env, int is_secure)
+{
+  return is_secure? (4096 + env->cpu_index) : env->cpu_index;
+}
+
+static inline int arm_trace_cpu(CPUARMState *env, int mon_is_secure)
+{
+  return arm_trace_cpu_ex(env, arm_is_secure(env, mon_is_secure));
+}
+
 void cpu_reset(CPUARMState *env)
 {
     uint32_t id;
@@ -318,6 +336,14 @@ void cpu_reset(CPUARMState *env)
     memset(env, 0, offsetof(CPUARMState, breakpoints));
     if (id)
         cpu_reset_model_id(env, id);
+#if !defined(CONFIG_USER_ONLY)
+    /* Process global trace enable in system mode (before potential
+     * override with -cpu xxx,-trace-instructions)
+     */
+    if (trace_instructions) {
+      set_feature(env, ARM_FEATURE_ITRACE);
+    }
+#endif
     if (env->cpu_model_str)
         cpu_arm_apply_extra_features(env, env->cpu_model_str);
 #if defined (CONFIG_USER_ONLY)
@@ -530,6 +556,7 @@ static const struct arm_feature_t arm_cpu_features[] = {
 #if defined(TARGET_HAS_TRUSTZONE)
     { ARM_FEATURE_TRUSTZONE, "trustzone", 1 },
 #endif
+    { ARM_FEATURE_ITRACE, "trace-instructions", 1 },
     { 0, NULL }
 };
 
@@ -1008,8 +1035,8 @@ static void do_interrupt_v7m(CPUARMState *env)
 /* Handle a CPU exception.  */
 void do_interrupt(CPUARMState *env)
 {
-#if defined(TARGET_HAS_TRUSTZONE)
     int is_secure = arm_is_secure(env, 1);
+#if defined(TARGET_HAS_TRUSTZONE)
     int trap_to_mvbar = 0;
 #endif
     uint32_t addr;
@@ -1169,6 +1196,8 @@ void do_interrupt(CPUARMState *env)
     env->regs[14] = env->regs[15] + offset;
     env->regs[15] = addr;
     env->interrupt_request |= CPU_INTERRUPT_EXITTB;
+
+    trace_arm_dispatch_interrupt(arm_trace_cpu_ex(env, is_secure), env->regs[15], env->regs[14], env->exception_index);
 }
 
 /* Check section/page access permissions.
@@ -1630,11 +1659,16 @@ void HELPER(set_cp15)(CPUState *env, uint32_t insn, uint32_t val)
     int op1;
     int op2;
     int crm;
+    int crn;
 
     op1 = (insn >> 21) & 7;
     op2 = (insn >> 5) & 7;
     crm = insn & 0xf;
-    switch ((insn >> 16) & 0xf) {
+    crn = (insn >> 16 & 0xf);
+    
+    trace_arm_cp15_write(arm_trace_cpu(env, 0), crn, crm, op1, op2, val);
+
+    switch (crn) {
     case 0:
         /* ID codes.  */
         if (arm_feature(env, ARM_FEATURE_XSCALE))
@@ -2082,20 +2116,22 @@ bad_reg:
               (insn >> 16) & 0xf, crm, op1, op2);
 }
 
-uint32_t HELPER(get_cp15)(CPUState *env, uint32_t insn)
+static inline uint32_t do_get_cp15(CPUState *env, uint32_t insn)
 {
 #if defined(TARGET_HAS_TRUSTZONE)
-    int is_secure = arm_is_secure(env, 1);
+    int is_secure = arm_is_secure(env, 0);
 #endif
     int op1;
     int op2;
     int crm;
+    int crn;
 
     op1 = (insn >> 21) & 7;
     op2 = (insn >> 5) & 7;
     crm = insn & 0xf;    
+    crn = (insn >> 16) & 0xf;  
 
-    switch ((insn >> 16) & 0xf) {
+    switch (crn) {
     case 0: /* ID codes.  */
         switch (op1) {
         case 0:
@@ -2489,6 +2525,29 @@ bad_reg:
     cpu_abort(env, "Unimplemented cp15 register read (c%d, c%d, {%d, %d})\n",
               (insn >> 16) & 0xf, crm, op1, op2);
     return 0;
+}
+
+uint32_t HELPER(get_cp15)(CPUState *env, uint32_t insn)
+{
+  uint32_t val;
+  int op1;
+  int op2;
+  int crm;
+  int crn;
+
+  /* Decode the opcode fields */
+  op1 = (insn >> 21) & 7;
+  op2 = (insn >> 5) & 7;
+  crm = insn & 0xf;
+  crn = (insn >> 16 & 0xf);
+
+  /* Do the real work */
+  val = do_get_cp15(env, insn);
+  
+  /* Trace the CP15 read operation */
+  trace_arm_cp15_read(arm_trace_cpu(env, 0), crn, crm, op1, op2, val);
+
+  return val;
 }
 
 void HELPER(set_r13_banked)(CPUState *env, uint32_t mode, uint32_t val)
@@ -3453,4 +3512,9 @@ void HELPER(set_teecr)(CPUState *env, uint32_t val)
         env->teecr = val;
         tb_flush(env);
     }
+}
+
+void HELPER(trace_idecode)(CPUState *env, uint32_t pc, uint32_t opcode)
+{
+  trace_arm_idecode(arm_trace_cpu(env, 1), pc, cpsr_read(env), opcode);
 }

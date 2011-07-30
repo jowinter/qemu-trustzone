@@ -2451,7 +2451,31 @@ STEXI
 Specify a trace file to log output traces to.
 ETEXI
 #endif
+#ifndef CONFIG_USER_ONLY
+DEF("trace-instructions", 0, QEMU_OPTION_instruction_trace,
+    "-trace-instructions\n"
+    "                Enables instruction tracing (HUGE trace output!)\n",
+    QEMU_ARCH_ARM)
+#endif
+STEXI
+@item -trace-instructions
+@findex -trace-instructions
+Globally enables trace event generation for each instruction executed by the 
+emulated CPU. This option generates huge trace files and should be used
+with care. It is currently only supported on ARM targets.
 
+The @code{-trace-instructions} option can be used to globally enable
+instruction tracing for all CPUs on an ARM system emulation target without
+touching the remaining CPU configuration.
+
+Alternatively the @code{-cpu xxx,trace-instructions} option can be used
+to override the CPU configuration and the trace configuration of ARM
+system and user-mode emulation targets. Note that the @code{-cpu xxx} 
+variant is not honored by some ARM system emulation targets like most
+OMAP3 based boards (i.e. @code{-M beagle}). On such board the
+@code{-trace-instructions} option is the only method to enable system
+emulation.
+ETEXI
 HXCOMM This is the last statement. Insert new options before this line!
 STEXI
 @end table

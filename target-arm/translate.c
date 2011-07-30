@@ -245,6 +245,23 @@ static void gen_exception(int excp)
     tcg_temp_free_i32(tmp);
 }
 
+/* Emit instruction tracing code (if trace_instructions is defined) */
+static inline void gen_instruction_trace(CPUState * env, DisasContext *s, uint32_t insn)
+{  
+  TCGv v_pc;
+  TCGv v_op;
+
+  if (arm_feature(env, ARM_FEATURE_ITRACE)) {
+    v_pc = tcg_const_i32(s->pc);
+    v_op = tcg_const_i32(insn);
+
+    gen_helper_trace_idecode(cpu_env, v_pc, v_op);
+
+    tcg_temp_free_i32(v_pc);
+    tcg_temp_free_i32(v_op);
+  }
+}
+
 static void gen_smul_dual(TCGv a, TCGv b)
 {
     TCGv tmp1 = tcg_temp_new_i32();
@@ -6688,6 +6705,9 @@ static void disas_arm_insn(CPUState * env, DisasContext *s)
     insn = ldl_code(s->pc);
     s->pc += 4;
 
+    /* Trace the instruction */
+    gen_instruction_trace(env, s, insn);
+
     /* M variants do not implement ARM mode.  */
     if (IS_M(env))
         goto illegal_op;
@@ -9129,6 +9149,9 @@ static void disas_thumb_insn(CPUState *env, DisasContext *s)
 
     insn = lduw_code(s->pc);
     s->pc += 2;
+
+    /* Trace the instruction */
+    gen_instruction_trace(env, s, insn);
 
     switch (insn >> 12) {
     case 0: case 1:

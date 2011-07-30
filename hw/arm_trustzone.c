@@ -13,6 +13,7 @@
 #include "qdev-addr.h"
 
 #include "arm_trustzone.h"
+#include "trace.h"
 
 static ASCBus *arm_trustzone_get_subpartitions(ASCPartition* part);
 
@@ -76,6 +77,10 @@ int arm_trustzone_check_access(CPUState *cpu, target_phys_addr_t addr,
                   (prot & PAGE_EXEC)? 'x' : '-', (granted & PAGE_READ)? 'r' : '-', 
                   (granted & PAGE_WRITE)? 'w' : '-', (granted & PAGE_EXEC)? 'x' : '-');
 
+  trace_arm_tz_check(addr, 
+                     (is_secure? 0x0 : 0x1) | 
+                     (arm_is_secure(cpu, 1) ? 0x0 : 0x2),
+                     prot, granted);
   return granted;
 }
 

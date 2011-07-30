@@ -229,6 +229,7 @@ int ctrl_grab = 0;
 unsigned int nb_prom_envs = 0;
 const char *prom_envs[MAX_PROM_ENVS];
 int boot_menu;
+int trace_instructions = 0;
 uint8_t *boot_splash_filedata;
 int boot_splash_filedata_size;
 uint8_t qemu_extra_params_fw[2];
@@ -2904,6 +2905,9 @@ int main(int argc, char **argv, char **envp)
                 }
                 break;
 #endif
+	    case QEMU_OPTION_instruction_trace:
+	       trace_instructions = 1;
+	       break;
             case QEMU_OPTION_readconfig:
                 {
                     int ret = qemu_read_config_file(optarg);

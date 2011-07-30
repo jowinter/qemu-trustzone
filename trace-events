@@ -425,3 +425,13 @@ disable qemu_put_ram_ptr(void* addr) "%p"
 
 # hw/xen_platform.c
 disable xen_platform_log(char *s) "xen platform: %s"
+
+# target-arm/helper.c
+arm_cp15_write(int cpu, unsigned crn, unsigned crm, unsigned op1, unsigned op2, unsigned value) "cpu %d mcr cp15, c%u, c%u, {%u, %u} <= %08x" 
+arm_cp15_read(int cpu, unsigned crn,  unsigned crm, unsigned op1, unsigned op2, unsigned value) "cpu %d mrc cp15, c%u, c%u, {%u, %u} => %08x"
+arm_dispatch_interrupt(int cpu, uint32_t vector, uint32_t lr, unsigned cause) "cpu %d vector %08x lr %08x cause %u"
+arm_idecode(int cpu, uint32_t pc, uint32_t cpsr, uint32_t opcode) "cpu %d pc %08x cpsr %08x opcode %08x"
+
+# hw/arm_trustzone.h
+disable arm_tz_check(uint32_t addr, int secure, int prot, int grant) "addr %08x secure %02x prot %02x grant %02x"
+
