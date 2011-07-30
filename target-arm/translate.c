@@ -10099,6 +10099,8 @@ void cpu_dump_state(CPUState *env, FILE *f, fprintf_function cpu_fprintf,
     }
     cpu_fprintf(f, "FPSCR: %08x\n", (int)env->vfp.xregs[ARM_VFP_FPSCR]);
 #endif
+
+    arm_dump_features(env, f, cpu_fprintf);
 }
 
 void restore_state_to_opc(CPUState *env, TranslationBlock *tb, int pc_pos)
