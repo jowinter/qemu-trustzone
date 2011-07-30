@@ -67,14 +67,14 @@ static void cpu_reset_model_id(CPUARMState *env, uint32_t id)
         set_feature(env, ARM_FEATURE_VFP);
         env->vfp.xregs[ARM_VFP_FPSID] = 0x41011090;
         env->cp15.c0_cachetype = 0x1dd20d2;
-        env->cp15.c1_sys = 0x00090078;
+        arm_cp15_secure(env, c1_sys) = 0x00090078;
         break;
     case ARM_CPUID_ARM946:
         set_feature(env, ARM_FEATURE_V4T);
         set_feature(env, ARM_FEATURE_V5);
         set_feature(env, ARM_FEATURE_MPU);
         env->cp15.c0_cachetype = 0x0f004006;
-        env->cp15.c1_sys = 0x00000078;
+        arm_cp15_secure(env, c1_sys) = 0x00000078;
         break;
     case ARM_CPUID_ARM1026:
         set_feature(env, ARM_FEATURE_V4T);
@@ -83,7 +83,7 @@ static void cpu_reset_model_id(CPUARMState *env, uint32_t id)
         set_feature(env, ARM_FEATURE_AUXCR);
         env->vfp.xregs[ARM_VFP_FPSID] = 0x410110a0;
         env->cp15.c0_cachetype = 0x1dd20d2;
-        env->cp15.c1_sys = 0x00090078;
+        arm_cp15_secure(env, c1_sys) = 0x00090078;
         break;
     case ARM_CPUID_ARM1136:
         /* This is the 1136 r1, which is a v6K core */
@@ -109,7 +109,7 @@ static void cpu_reset_model_id(CPUARMState *env, uint32_t id)
         memcpy(env->cp15.c0_c1, arm1136_cp15_c0_c1, 8 * sizeof(uint32_t));
         memcpy(env->cp15.c0_c2, arm1136_cp15_c0_c2, 8 * sizeof(uint32_t));
         env->cp15.c0_cachetype = 0x1dd20d2;
-        env->cp15.c1_sys = 0x00050078;
+        arm_cp15_secure(env, c1_sys) = 0x00050078;
         break;
     case ARM_CPUID_ARM1176:
         set_feature(env, ARM_FEATURE_V4T);
@@ -126,7 +126,7 @@ static void cpu_reset_model_id(CPUARMState *env, uint32_t id)
         memcpy(env->cp15.c0_c1, arm1176_cp15_c0_c1, 8 * sizeof(uint32_t));
         memcpy(env->cp15.c0_c2, arm1176_cp15_c0_c2, 8 * sizeof(uint32_t));
         env->cp15.c0_cachetype = 0x1dd20d2;
-        env->cp15.c1_sys = 0x00050078;
+        arm_cp15_secure(env, c1_sys) = 0x00050078;
         break;
     case ARM_CPUID_ARM11MPCORE:
         set_feature(env, ARM_FEATURE_V4T);
@@ -166,7 +166,7 @@ static void cpu_reset_model_id(CPUARMState *env, uint32_t id)
         env->cp15.c0_ccsid[0] = 0xe007e01a; /* 16k L1 dcache. */
         env->cp15.c0_ccsid[1] = 0x2007e01a; /* 16k L1 icache. */
         env->cp15.c0_ccsid[2] = 0xf0000000; /* No L2 icache. */
-        env->cp15.c1_sys = 0x00c50078;
+        arm_cp15_secure(env, c1_sys) = 0x00c50078;
         break;
     case ARM_CPUID_CORTEXA8_R2:
         set_feature(env, ARM_FEATURE_V4T);
@@ -191,7 +191,7 @@ static void cpu_reset_model_id(CPUARMState *env, uint32_t id)
         env->cp15.c0_ccsid[0] = 0xe007e01a; /* 16k L1 dcache. */
         env->cp15.c0_ccsid[1] = 0x2007e01a; /* 16k L1 icache. */
         env->cp15.c0_ccsid[2] = 0xf03fe03a; /* 256k L2 cache. */
-        env->cp15.c1_sys = 0x00c50078;
+        arm_cp15_secure(env, c1_sys) = 0x00c50078;
         break;
     case ARM_CPUID_CORTEXA9:
         set_feature(env, ARM_FEATURE_V4T);
@@ -221,7 +221,7 @@ static void cpu_reset_model_id(CPUARMState *env, uint32_t id)
         env->cp15.c0_clid = (1 << 27) | (1 << 24) | 3;
         env->cp15.c0_ccsid[0] = 0xe00fe015; /* 16k L1 dcache. */
         env->cp15.c0_ccsid[1] = 0x200fe015; /* 16k L1 icache. */
-        env->cp15.c1_sys = 0x00c50078;
+        arm_cp15_secure(env, c1_sys) = 0x00c50078;
         break;
     case ARM_CPUID_CORTEXM3:
         set_feature(env, ARM_FEATURE_V4T);
@@ -253,7 +253,7 @@ static void cpu_reset_model_id(CPUARMState *env, uint32_t id)
         set_feature(env, ARM_FEATURE_OMAPCP);
         env->cp15.c0_cpuid = ARM_CPUID_TI925T; /* Depends on wiring.  */
         env->cp15.c0_cachetype = 0x5109149;
-        env->cp15.c1_sys = 0x00000070;
+        arm_cp15_secure(env, c1_sys) = 0x00000070;
         env->cp15.c15_i_max = 0x000;
         env->cp15.c15_i_min = 0xff0;
         break;
@@ -267,7 +267,7 @@ static void cpu_reset_model_id(CPUARMState *env, uint32_t id)
         set_feature(env, ARM_FEATURE_XSCALE);
         /* JTAG_ID is ((id << 28) | 0x09265013) */
         env->cp15.c0_cachetype = 0xd172172;
-        env->cp15.c1_sys = 0x00000078;
+        arm_cp15_secure(env, c1_sys) = 0x00000078;
         break;
     case ARM_CPUID_PXA270_A0:
     case ARM_CPUID_PXA270_A1:
@@ -282,12 +282,12 @@ static void cpu_reset_model_id(CPUARMState *env, uint32_t id)
         set_feature(env, ARM_FEATURE_IWMMXT);
         env->iwmmxt.cregs[ARM_IWMMXT_wCID] = 0x69051000 | 'Q';
         env->cp15.c0_cachetype = 0xd172172;
-        env->cp15.c1_sys = 0x00000078;
+        arm_cp15_secure(env, c1_sys) = 0x00000078;
         break;
     case ARM_CPUID_SA1100:
     case ARM_CPUID_SA1110:
         set_feature(env, ARM_FEATURE_STRONGARM);
-        env->cp15.c1_sys = 0x00000070;
+        arm_cp15_secure(env, c1_sys) = 0x00000070;
         break;
     default:
         cpu_abort(env, "Bad CPU ID: %x\n", id);
@@ -346,11 +346,27 @@ void cpu_reset(CPUARMState *env)
         }
     }
     env->vfp.xregs[ARM_VFP_FPEXC] = 0;
-    env->cp15.c2_base_mask = 0xffffc000u;
     /* v7 performance monitor control register: same implementor
      * field as main ID register, and we implement no event counters.
      */
     env->cp15.c9_pmcr = (id & 0xff000000);
+
+#if defined(TARGET_HAS_TRUSTZONE)
+    /* Security extensions */
+    env->cp15.c1_secfg  = 0;
+    env->cp15.c1_sedbg = 0;
+    env->cp15.c1_nseac = 0;
+
+    arm_cp15_nonsecure(env, c1_sys) = arm_cp15_secure(env, c1_sys);
+    arm_cp15_nonsecure(env, c2_base_mask) = 0xffffc000u;
+
+    arm_cp15_nonsecure(env, c1_sys) = arm_cp15_secure(env, c1_sys);
+
+    /* Reset the secure-world VBAR only ... (see ARM ARMv7) */
+    arm_cp15_secure(env, c12_vbar) = 0;
+    env->cp15.c12_mvbar = 0;
+#endif
+
 #endif
     set_flush_to_zero(1, &env->vfp.standard_fp_status);
     set_flush_inputs_to_zero(1, &env->vfp.standard_fp_status);
@@ -987,7 +1003,7 @@ static void do_interrupt_v7m(CPUARMState *env)
 void do_interrupt(CPUARMState *env)
 {
 #if defined(TARGET_HAS_TRUSTZONE)
-  /* int is_secure = arm_is_secure(env, 1); */
+    int is_secure = arm_is_secure(env, 1);
     int trap_to_mvbar = 0;
 #endif
     uint32_t addr;
@@ -1044,7 +1060,7 @@ void do_interrupt(CPUARMState *env)
                 return;
             }
         }
-        env->cp15.c5_insn = 2;
+        arm_cp15_active_bank(env, c5_insn) = 2;
         /* Fall through to prefetch abort.  */
     case EXCP_PREFETCH_ABORT:
         new_mode = ARM_CPU_MODE_ABT;
@@ -1098,7 +1114,7 @@ void do_interrupt(CPUARMState *env)
         /* Monitor vector base address register */
         addr += env->cp15.c12_mvbar;
         new_mode = ARM_CPU_MODE_MON;
-    } else if (env->cp15.c1_sys & (1 << 13)) {
+    } else if ((arm_cp15_banked(env, c1_sys, is_secure) & (1 << 13))) {
         /* High vectors.  */
         addr += 0xffff0000;        
     }
@@ -1119,7 +1135,7 @@ void do_interrupt(CPUARMState *env)
     /* this is a lie, as the was no c1_sys on V4T/V5, but who cares
      * and we should just guard the thumb mode on V4 */
     if (arm_feature(env, ARM_FEATURE_V4T)) {
-        env->thumb = (env->cp15.c1_sys & (1 << 30)) != 0;
+        env->thumb = (arm_cp15_banked(env, c1_sys, is_secure) & (1 << 30)) != 0;
     }
     env->regs[14] = env->regs[15] + offset;
     env->regs[15] = addr;
@@ -1130,7 +1146,7 @@ void do_interrupt(CPUARMState *env)
    Returns the page protection flags, or zero if the access is not
    permitted.  */
 static inline int check_ap(CPUState *env, int ap, int domain, int access_type,
-                           int is_user)
+                           int is_user, int is_secure)
 {
   int prot_ro;
 
@@ -1146,7 +1162,7 @@ static inline int check_ap(CPUState *env, int ap, int domain, int access_type,
   case 0:
       if (access_type == 1)
           return 0;
-      switch ((env->cp15.c1_sys >> 8) & 3) {
+      switch ((arm_cp15_banked(env, c1_sys, is_secure) >> 8) & 3) {
       case 1:
           return is_user ? 0 : PAGE_READ;
       case 2:
@@ -1178,22 +1194,23 @@ static inline int check_ap(CPUState *env, int ap, int domain, int access_type,
   }
 }
 
-static uint32_t get_level1_table_address(CPUState *env, uint32_t address)
+static uint32_t get_level1_table_address(CPUState *env, uint32_t address,
+                                         int is_secure)
 {
     uint32_t table;
 
-    if (address & env->cp15.c2_mask)
-        table = env->cp15.c2_base1 & 0xffffc000;
+    if (address & arm_cp15_banked(env, c2_mask, is_secure))
+        table = arm_cp15_banked(env, c2_base1, is_secure) & 0xffffc000;
     else
-        table = env->cp15.c2_base0 & env->cp15.c2_base_mask;
+        table = arm_cp15_banked(env, c2_base0, is_secure) & arm_cp15_banked(env, c2_base_mask, is_secure);
 
     table |= (address >> 18) & 0x3ffc;
     return table;
 }
 
 static int get_phys_addr_v5(CPUState *env, uint32_t address, int access_type,
-			    int is_user, uint32_t *phys_ptr, int *prot,
-                            target_ulong *page_size)
+			    int is_user, int is_secure, uint32_t *phys_ptr, 
+                            int *prot, target_ulong *page_size)
 {
     int code;
     uint32_t table;
@@ -1205,10 +1222,10 @@ static int get_phys_addr_v5(CPUState *env, uint32_t address, int access_type,
 
     /* Pagetable walk.  */
     /* Lookup l1 descriptor.  */
-    table = get_level1_table_address(env, address);
+    table = get_level1_table_address(env, address, is_secure);
     desc = ldl_phys(table);
     type = (desc & 3);
-    domain = (env->cp15.c3 >> ((desc >> 4) & 0x1e)) & 3;
+    domain = (arm_cp15_banked(env, c3, is_secure) >> ((desc >> 4) & 0x1e)) & 3;
     if (type == 0) {
         /* Section translation fault.  */
         code = 5;
@@ -1272,7 +1289,7 @@ static int get_phys_addr_v5(CPUState *env, uint32_t address, int access_type,
         }
         code = 15;
     }
-    *prot = check_ap(env, ap, domain, access_type, is_user);
+    *prot = check_ap(env, ap, domain, access_type, is_user, is_secure);
     if (!*prot) {
         /* Access permission fault.  */
         goto do_fault;
@@ -1285,8 +1302,8 @@ do_fault:
 }
 
 static int get_phys_addr_v6(CPUState *env, uint32_t address, int access_type,
-			    int is_user, uint32_t *phys_ptr, int *prot,
-                            target_ulong *page_size)
+			    int is_user, int is_secure, uint32_t *phys_ptr, 
+                            int *prot, target_ulong *page_size)
 {
     int code;
     uint32_t table;
@@ -1299,7 +1316,7 @@ static int get_phys_addr_v6(CPUState *env, uint32_t address, int access_type,
 
     /* Pagetable walk.  */
     /* Lookup l1 descriptor.  */
-    table = get_level1_table_address(env, address);
+    table = get_level1_table_address(env, address, is_secure);
     desc = ldl_phys(table);
     type = (desc & 3);
     if (type == 0 || type == 3) {
@@ -1314,7 +1331,7 @@ static int get_phys_addr_v6(CPUState *env, uint32_t address, int access_type,
         /* Section or page.  */
         domain = (desc >> 4) & 0x1e;
     }
-    domain = (env->cp15.c3 >> domain) & 3;
+    domain = (arm_cp15_banked(env, c3, is_secure) >> domain) & 3;
     if (domain == 0 || domain == 2) {
         if (type == 2)
             code = 9; /* Section domain fault.  */
@@ -1367,12 +1384,12 @@ static int get_phys_addr_v6(CPUState *env, uint32_t address, int access_type,
             goto do_fault;
 
         /* The simplified model uses AP[0] as an access control bit.  */
-        if ((env->cp15.c1_sys & (1 << 29)) && (ap & 1) == 0) {
+    if ((arm_cp15_banked(env, c1_sys, is_secure) & (1 << 29)) && (ap & 1) == 0) {
             /* Access flag fault.  */
             code = (code == 15) ? 6 : 3;
             goto do_fault;
         }
-        *prot = check_ap(env, ap, domain, access_type, is_user);
+    *prot = check_ap(env, ap, domain, access_type, is_user, is_secure);
         if (!*prot) {
             /* Access permission fault.  */
             goto do_fault;
@@ -1388,7 +1405,7 @@ do_fault:
 }
 
 static int get_phys_addr_mpu(CPUState *env, uint32_t address, int access_type,
-			     int is_user, uint32_t *phys_ptr, int *prot)
+			     int is_user, int is_secure, uint32_t *phys_ptr, int *prot)
 {
     int n;
     uint32_t mask;
@@ -1410,9 +1427,9 @@ static int get_phys_addr_mpu(CPUState *env, uint32_t address, int access_type,
 	return 2;
 
     if (access_type == 2) {
-	mask = env->cp15.c5_insn;
+	mask = arm_cp15_banked(env, c5_insn, is_secure);
     } else {
-	mask = env->cp15.c5_data;
+	mask = arm_cp15_banked(env, c5_data, is_secure);
     }
     mask = (mask >> (n * 4)) & 0xf;
     switch (mask) {
@@ -1449,14 +1466,15 @@ static int get_phys_addr_mpu(CPUState *env, uint32_t address, int access_type,
 
 static inline int get_phys_addr(CPUState *env, uint32_t address,
                                 int access_type, int is_user,
+                                int is_secure,
                                 uint32_t *phys_ptr, int *prot,
                                 target_ulong *page_size)
 {
     /* Fast Context Switch Extension.  */
     if (address < 0x02000000)
-        address += env->cp15.c13_fcse;
+        address += arm_cp15_banked(env, c13_fcse, is_secure);
 
-    if ((env->cp15.c1_sys & 1) == 0) {
+    if ((arm_cp15_banked(env, c1_sys, is_secure) & 1) == 0) {
         /* MMU/MPU disabled.  */
         *phys_ptr = address;
         *prot = PAGE_READ | PAGE_WRITE | PAGE_EXEC;
@@ -1464,14 +1482,14 @@ static inline int get_phys_addr(CPUState *env, uint32_t address,
         return 0;
     } else if (arm_feature(env, ARM_FEATURE_MPU)) {
         *page_size = TARGET_PAGE_SIZE;
-	return get_phys_addr_mpu(env, address, access_type, is_user, phys_ptr,
-				 prot);
-    } else if (env->cp15.c1_sys & (1 << 23)) {
-        return get_phys_addr_v6(env, address, access_type, is_user, phys_ptr,
-                                prot, page_size);
+	return get_phys_addr_mpu(env, address, access_type, is_user, is_secure,
+                                 phys_ptr, prot);
+    } else if (arm_cp15_banked(env, c1_sys, is_secure) & (1 << 23)) {
+        return get_phys_addr_v6(env, address, access_type, is_user, is_secure,
+                                phys_ptr, prot, page_size);
     } else {
-        return get_phys_addr_v5(env, address, access_type, is_user, phys_ptr,
-                                prot, page_size);
+        return get_phys_addr_v5(env, address, access_type, is_user, is_secure,
+                                phys_ptr, prot, page_size);
     }
 }
 
@@ -1481,11 +1499,13 @@ int cpu_arm_handle_mmu_fault (CPUState *env, target_ulong address,
     uint32_t phys_addr;
     target_ulong page_size;
     int prot;
-    int ret, is_user;
+    int ret, is_user, is_secure;
 
-    is_user = mmu_idx == MMU_USER_IDX;
-    ret = get_phys_addr(env, address, access_type, is_user, &phys_addr, &prot,
-                        &page_size);
+    is_user = (mmu_idx == MMU_USER_IDX) || (mmu_idx == MMU_NS_USER_IDX);
+    is_secure = (mmu_idx != MMU_NS_KERNEL_IDX) && (mmu_idx != MMU_NS_USER_IDX);
+ 
+    ret = get_phys_addr(env, address, access_type, is_user, is_secure, &phys_addr,
+                        &prot, &page_size);
     if (ret == 0) {
         /* Map a single [sub]page.  */
         phys_addr &= ~(uint32_t)0x3ff;
@@ -1495,14 +1515,14 @@ int cpu_arm_handle_mmu_fault (CPUState *env, target_ulong address,
     }
 
     if (access_type == 2) {
-        env->cp15.c5_insn = ret;
-        env->cp15.c6_insn = address;
+        arm_cp15_banked(env, c5_insn, is_secure) = ret;
+        arm_cp15_banked(env, c6_insn, is_secure) = address;
         env->exception_index = EXCP_PREFETCH_ABORT;
     } else {
-        env->cp15.c5_data = ret;
+        arm_cp15_banked(env, c5_data, is_secure) = ret;
         if (access_type == 1 && arm_feature(env, ARM_FEATURE_V6))
-            env->cp15.c5_data |= (1 << 11);
-        env->cp15.c6_data = address;
+            arm_cp15_banked(env, c5_data, is_secure) |= (1 << 11);
+        arm_cp15_banked(env, c6_data, is_secure) = address;
         env->exception_index = EXCP_DATA_ABORT;
     }
     return 1;
@@ -1515,7 +1535,8 @@ target_phys_addr_t cpu_get_phys_page_debug(CPUState *env, target_ulong addr)
     int prot;
     int ret;
 
-    ret = get_phys_addr(env, addr, 0, 0, &phys_addr, &prot, &page_size);
+    ret = get_phys_addr(env, addr, 0, 0, arm_is_secure(env, 1),
+                        &phys_addr, &prot, &page_size);
 
     if (ret != 0)
         return -1;
@@ -1555,6 +1576,9 @@ static uint32_t extended_mpu_ap_bits(uint32_t val)
 
 void HELPER(set_cp15)(CPUState *env, uint32_t insn, uint32_t val)
 {
+#if defined(TARGET_HAS_TRUSTZONE)
+    int is_secure = arm_is_secure(env, 0);
+#endif
     int op1;
     int op2;
     int crm;
@@ -1580,10 +1604,11 @@ void HELPER(set_cp15)(CPUState *env, uint32_t insn, uint32_t val)
         case 0:
             if (arm_feature(env, ARM_FEATURE_OMAPCP))
                 op2 = 0;
+        
             switch (op2) {
             case 0:
                 if (!arm_feature(env, ARM_FEATURE_XSCALE))
-                    env->cp15.c1_sys = val;
+                    arm_cp15_banked(env, c1_sys, is_secure) = val;
                 /* ??? Lots of these bits are not implemented.  */
                 /* This may enable/disable the MMU, so do a TLB flush.  */
                 tlb_flush(env, 1);
@@ -1633,6 +1658,7 @@ void HELPER(set_cp15)(CPUState *env, uint32_t insn, uint32_t val)
             goto bad_reg;
         }
         break;
+        
     case 2: /* MMU Page table control / MPU cache control.  */
         if (arm_feature(env, ARM_FEATURE_MPU)) {
             switch (op2) {
@@ -1648,16 +1674,16 @@ void HELPER(set_cp15)(CPUState *env, uint32_t insn, uint32_t val)
         } else {
             switch (op2) {
             case 0:
-                env->cp15.c2_base0 = val;
+		arm_cp15_banked(env, c2_base0, is_secure) = val;
                 break;
             case 1:
-                env->cp15.c2_base1 = val;
+		arm_cp15_banked(env, c2_base1, is_secure) = val;
                 break;
             case 2:
                 val &= 7;
-                env->cp15.c2_control = val;
-                env->cp15.c2_mask = ~(((uint32_t)0xffffffffu) >> val);
-                env->cp15.c2_base_mask = ~((uint32_t)0x3fffu >> val);
+                arm_cp15_banked(env, c2_control, is_secure) = val;
+		arm_cp15_banked(env, c2_mask, is_secure) = ~(((uint32_t)0xffffffffu) >> val);
+                arm_cp15_banked(env, c2_base_mask, is_secure) = ~((uint32_t)0x3fffu >> val);
                 break;
             default:
                 goto bad_reg;
@@ -1665,7 +1691,7 @@ void HELPER(set_cp15)(CPUState *env, uint32_t insn, uint32_t val)
         }
         break;
     case 3: /* MMU Domain access control / MPU write buffer control.  */
-        env->cp15.c3 = val;
+        arm_cp15_banked(env, c3, is_secure) = val;
         tlb_flush(env, 1); /* Flush TLB as domain not tracked in TLB */
         break;
     case 4: /* Reserved.  */
@@ -1677,22 +1703,22 @@ void HELPER(set_cp15)(CPUState *env, uint32_t insn, uint32_t val)
         case 0:
             if (arm_feature(env, ARM_FEATURE_MPU))
                 val = extended_mpu_ap_bits(val);
-            env->cp15.c5_data = val;
+            arm_cp15_banked(env, c5_data, is_secure) = val;
             break;
         case 1:
             if (arm_feature(env, ARM_FEATURE_MPU))
                 val = extended_mpu_ap_bits(val);
-            env->cp15.c5_insn = val;
+            arm_cp15_banked(env, c5_insn, is_secure) = val;
             break;
         case 2:
             if (!arm_feature(env, ARM_FEATURE_MPU))
                 goto bad_reg;
-            env->cp15.c5_data = val;
+            arm_cp15_banked(env, c5_data, is_secure) = val;
             break;
         case 3:
             if (!arm_feature(env, ARM_FEATURE_MPU))
                 goto bad_reg;
-            env->cp15.c5_insn = val;
+            arm_cp15_banked(env, c5_insn, is_secure) = val;
             break;
         default:
             goto bad_reg;
@@ -1708,11 +1734,11 @@ void HELPER(set_cp15)(CPUState *env, uint32_t insn, uint32_t val)
                 op2 = 0;
             switch (op2) {
             case 0:
-                env->cp15.c6_data = val;
+                arm_cp15_banked(env, c6_data, is_secure) = val;
                 break;
             case 1: /* ??? This is WFAR on armv6 */
             case 2:
-                env->cp15.c6_insn = val;
+                arm_cp15_banked(env, c6_insn, is_secure) = val;
                 break;
             default:
                 goto bad_reg;
@@ -1741,12 +1767,22 @@ void HELPER(set_cp15)(CPUState *env, uint32_t insn, uint32_t val)
                 int prot;
                 int ret, is_user = op2 & 2;
                 int access_type = op2 & 1;
+                int core_is_secure = arm_is_secure(env, 1);
+                int other_world = (op2 & 4);
+
+                if (other_world) {
+                    /* Other states are only available with TrustZone (in secure world) */
+                    if (!core_is_secure || !arm_feature(env, ARM_FEATURE_TRUSTZONE)) {                  
+                      goto bad_reg;
+                    }
+                }
 
                 if (op2 & 4) {
                     /* Other states are only available with TrustZone */
                     goto bad_reg;
                 }
                 ret = get_phys_addr(env, val, access_type, is_user,
+                                    core_is_secure && !other_world,
                                     &phys_addr, &prot, &page_size);
                 if (ret == 0) {
                     /* We do not set any attribute bits in the PAR */
@@ -1905,7 +1941,7 @@ void HELPER(set_cp15)(CPUState *env, uint32_t insn, uint32_t val)
                 if (!arm_feature(env, ARM_FEATURE_TRUSTZONE)) {
                     goto bad_reg;
                 }
-                env->cp15.c12_vbar = val & ~0x1f;
+                arm_cp15_banked(env, c12_vbar, is_secure) = val & ~0x1f;
                 break;
             case 1:
                 if (!arm_feature(env, ARM_FEATURE_TRUSTZONE) ||
@@ -1928,16 +1964,16 @@ void HELPER(set_cp15)(CPUState *env, uint32_t insn, uint32_t val)
             /* Unlike real hardware the qemu TLB uses virtual addresses,
                not modified virtual addresses, so this causes a TLB flush.
              */
-            if (env->cp15.c13_fcse != val)
+            if (arm_cp15_banked(env, c13_fcse, is_secure) != val)
               tlb_flush(env, 1);
-            env->cp15.c13_fcse = val;
+            arm_cp15_banked(env, c13_fcse, is_secure) = val;
             break;
         case 1:
             /* This changes the ASID, so do a TLB flush.  */
-            if (env->cp15.c13_context != val
+            if (arm_cp15_banked(env, c13_context, is_secure) != val
                 && !arm_feature(env, ARM_FEATURE_MPU))
               tlb_flush(env, 0);
-            env->cp15.c13_context = val;
+            arm_cp15_banked(env, c13_context, is_secure) = val;
             break;
         default:
             goto bad_reg;
@@ -1993,13 +2029,17 @@ bad_reg:
 
 uint32_t HELPER(get_cp15)(CPUState *env, uint32_t insn)
 {
+#if defined(TARGET_HAS_TRUSTZONE)
+    int is_secure = arm_is_secure(env, 1);
+#endif
     int op1;
     int op2;
     int crm;
 
     op1 = (insn >> 21) & 7;
     op2 = (insn >> 5) & 7;
-    crm = insn & 0xf;
+    crm = insn & 0xf;    
+
     switch ((insn >> 16) & 0xf) {
     case 0: /* ID codes.  */
         switch (op1) {
@@ -2088,7 +2128,7 @@ uint32_t HELPER(get_cp15)(CPUState *env, uint32_t insn)
                 op2 = 0;
             switch (op2) {
             case 0: /* Control register.  */
-                return env->cp15.c1_sys;
+                        return arm_cp15_banked(env, c1_sys, is_secure);
             case 1: /* Auxiliary control register.  */
                 if (arm_feature(env, ARM_FEATURE_XSCALE))
                     return env->cp15.c1_xscaleauxcr;
@@ -2160,17 +2200,17 @@ uint32_t HELPER(get_cp15)(CPUState *env, uint32_t insn)
         } else {
             switch (op2) {
             case 0:
-                return env->cp15.c2_base0;
+		return arm_cp15_banked(env, c2_base0, is_secure);
             case 1:
-                return env->cp15.c2_base1;
+		return arm_cp15_banked(env, c2_base1, is_secure);
             case 2:
-                return env->cp15.c2_control;
+                return arm_cp15_banked(env, c2_control, is_secure);
             default:
                 goto bad_reg;
             }
         }
     case 3: /* MMU Domain access control / MPU write buffer control.  */
-        return env->cp15.c3;
+        return arm_cp15_banked(env, c3, is_secure);
     case 4: /* Reserved.  */
         goto bad_reg;
     case 5: /* MMU Fault status / MPU access permission.  */
@@ -2179,20 +2219,20 @@ uint32_t HELPER(get_cp15)(CPUState *env, uint32_t insn)
         switch (op2) {
         case 0:
             if (arm_feature(env, ARM_FEATURE_MPU))
-                return simple_mpu_ap_bits(env->cp15.c5_data);
-            return env->cp15.c5_data;
+                return simple_mpu_ap_bits(arm_cp15_banked(env, c5_data, is_secure));
+            return arm_cp15_banked(env, c5_data, is_secure);
         case 1:
             if (arm_feature(env, ARM_FEATURE_MPU))
-                return simple_mpu_ap_bits(env->cp15.c5_data);
-            return env->cp15.c5_insn;
+                return simple_mpu_ap_bits(arm_cp15_banked(env, c5_data, is_secure));
+            return arm_cp15_banked(env, c5_insn, is_secure);
         case 2:
             if (!arm_feature(env, ARM_FEATURE_MPU))
                 goto bad_reg;
-            return env->cp15.c5_data;
+            return arm_cp15_banked(env, c5_data, is_secure);
         case 3:
             if (!arm_feature(env, ARM_FEATURE_MPU))
                 goto bad_reg;
-            return env->cp15.c5_insn;
+            return arm_cp15_banked(env, c5_insn, is_secure);
         default:
             goto bad_reg;
         }
@@ -2206,7 +2246,7 @@ uint32_t HELPER(get_cp15)(CPUState *env, uint32_t insn)
                 op2 = 0;
             switch (op2) {
             case 0:
-                return env->cp15.c6_data;
+		return arm_cp15_banked(env, c6_data, is_secure);
             case 1:
                 if (arm_feature(env, ARM_FEATURE_V6)) {
                     /* Watchpoint Fault Adrress.  */
@@ -2215,11 +2255,11 @@ uint32_t HELPER(get_cp15)(CPUState *env, uint32_t insn)
                 /* Instruction Fault Adrress.  */
                 /* Arm9 doesn't have an IFAR, but implementing it anyway
                    shouldn't do any harm.  */
-                return env->cp15.c6_insn;
+		    return arm_cp15_banked(env, c6_insn, is_secure);
             case 2:
                 if (arm_feature(env, ARM_FEATURE_V6)) {
                     /* Instruction Fault Adrress.  */
-                    return env->cp15.c6_insn;
+		    return arm_cp15_banked(env, c6_insn, is_secure);
                 }
                 goto bad_reg;
             default:
@@ -2320,7 +2360,7 @@ uint32_t HELPER(get_cp15)(CPUState *env, uint32_t insn)
             switch (op2) {
             case 0: /* secure or nonsecure vector base address */
                 if (arm_feature(env, ARM_FEATURE_TRUSTZONE)) {
-                    return env->cp15.c12_vbar;
+                  return arm_cp15_banked(env, c12_vbar, is_secure);
                 }
                 break;
             case 1: /* monitor vector base address */
@@ -2338,7 +2378,7 @@ uint32_t HELPER(get_cp15)(CPUState *env, uint32_t insn)
             goto bad_reg;
         switch (crm) {
             case 0: /* Vector base address register */
-                return env->cp15.c12_vbar;
+                return arm_cp15_banked(env, c12_vbar, is_secure);
             case 1: /* Monitor vector base address register */
                 return env->cp15.c12_mvbar;
             default:
@@ -2349,9 +2389,9 @@ uint32_t HELPER(get_cp15)(CPUState *env, uint32_t insn)
     case 13: /* Process ID.  */
         switch (op2) {
         case 0:
-            return env->cp15.c13_fcse;
+            return arm_cp15_banked(env, c13_fcse, is_secure);
         case 1:
-            return env->cp15.c13_context;
+            return arm_cp15_banked(env, c13_context, is_secure);
         default:
             goto bad_reg;
         }

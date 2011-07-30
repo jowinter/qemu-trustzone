@@ -74,10 +74,23 @@ struct arm_boot_info;
 /* ARM emulation with security extensions (TrustZone) */
 #define NB_MMU_MODES 4
 
+/* Declares a secure/non-secure world banked CP15
+   register (when security extensions are enabled
+   at built-time)
+*/
+typedef struct {
+    /* Secure world version of the register */
+    uint32_t secure;
+
+    /* Non-secure world version of the register */
+    uint32_t nonsecure;
+} banked_uint32_t;
+
 #else /* !defined(TARGET_HAS_TRUSTZONE) */
 
 /* Normal ARM emulation without security extensions */
 #define NB_MMU_MODES 2
+typedef uint32_t banked_uint32_t;
 
 #endif
 
@@ -117,7 +130,7 @@ typedef struct CPUARMState {
     uint32_t thumb; /* cpsr[5]. 0 = arm mode, 1 = thumb mode. */
     uint32_t condexec_bits; /* IT bits.  cpsr[15:10,26:25].  */
 
-    /* System control coprocessor (cp15) */
+    /* System control coprocessor (cp15) common bank */
     struct {
         uint32_t c0_cpuid;
         uint32_t c0_cachetype;
@@ -126,28 +139,31 @@ typedef struct CPUARMState {
         uint32_t c0_cssel; /* Cache size selection.  */
         uint32_t c0_c1[8]; /* Feature registers.  */
         uint32_t c0_c2[8]; /* Instruction set registers.  */
-        uint32_t c1_sys; /* System control register.  */
+        banked_uint32_t c1_sys; /* System control register.  */
         uint32_t c1_coproc; /* Coprocessor access register.  */
+        uint32_t c1_scr;   /* Secure configuration register */
+        uint32_t c1_sder;  /* Secure debug enable register */
+        uint32_t c1_nsacr; /* Non-secure access control register */
         uint32_t c1_xscaleauxcr; /* XScale auxiliary control register.  */
 #if defined(TARGET_HAS_TRUSTZONE)
         uint32_t c1_secfg; /* Secure configuration register. */
         uint32_t c1_sedbg; /* Secure debug enable register. */
         uint32_t c1_nseac; /* Non-secure access control register. */
 #endif
-        uint32_t c2_base0; /* MMU translation table base 0.  */
-        uint32_t c2_base1; /* MMU translation table base 1.  */
-        uint32_t c2_control; /* MMU translation table base control.  */
-        uint32_t c2_mask; /* MMU translation table base selection mask.  */
-        uint32_t c2_base_mask; /* MMU translation table base 0 mask. */
+        banked_uint32_t c2_base0; /* MMU translation table base 0.  */
+        banked_uint32_t c2_base1; /* MMU translation table base 1.  */
+        banked_uint32_t c2_control; /* MMU translation table base control.  */
+        banked_uint32_t c2_mask; /* MMU translation table base selection mask.  */
+        banked_uint32_t c2_base_mask; /* MMU translation table base 0 mask. */
         uint32_t c2_data; /* MPU data cachable bits.  */
         uint32_t c2_insn; /* MPU instruction cachable bits.  */
-        uint32_t c3; /* MMU domain access control register
-                        MPU write buffer control.  */
-        uint32_t c5_insn; /* Fault status registers.  */
-        uint32_t c5_data;
+        banked_uint32_t c3; /* MMU domain access control register
+                           MPU write buffer control.  */
+        banked_uint32_t c5_insn; /* Fault status registers.  */
+        banked_uint32_t c5_data;
         uint32_t c6_region[8]; /* MPU base/size registers.  */
-        uint32_t c6_insn; /* Fault address registers.  */
-        uint32_t c6_data;
+        banked_uint32_t c6_insn; /* Fault address registers.  */
+        banked_uint32_t c6_data;
         uint32_t c7_par;  /* Translation result. */
         uint32_t c9_insn; /* Cache lockdown registers.  */
         uint32_t c9_data;
@@ -158,21 +174,21 @@ typedef struct CPUARMState {
         uint32_t c9_pmuserenr; /* perf monitor user enable */
         uint32_t c9_pminten; /* perf monitor interrupt enables */
 #if defined(TARGET_HAS_TRUSTZONE)        
-        uint32_t c12_vbar; /* secure/nonsecure vector base address register. */
+        banked_uint32_t c12_vbar; /* secure/nonsecure vector base address register. */
         uint32_t c12_mvbar; /* monitor vector base address register. */
 #endif
-        uint32_t c13_fcse; /* FCSE PID.  */
-        uint32_t c13_context; /* Context ID.  */
-        uint32_t c13_tls1; /* User RW Thread register.  */
-        uint32_t c13_tls2; /* User RO Thread register.  */
-        uint32_t c13_tls3; /* Privileged Thread register.  */
+        banked_uint32_t c13_fcse; /* FCSE PID.  */
+        banked_uint32_t c13_context; /* Context ID.  */
+        banked_uint32_t c13_tls1; /* User RW Thread register.  */
+        banked_uint32_t c13_tls2; /* User RO Thread register.  */
+        banked_uint32_t c13_tls3; /* Privileged Thread register.  */
         uint32_t c15_cpar; /* XScale Coprocessor Access Register */
         uint32_t c15_ticonfig; /* TI925T configuration byte.  */
         uint32_t c15_i_max; /* Maximum D-cache dirty line index.  */
         uint32_t c15_i_min; /* Minimum D-cache dirty line index.  */
         uint32_t c15_threadid; /* TI debugger thread-ID.  */
     } cp15;
-
+   
     struct {
         uint32_t other_sp;
         uint32_t vecbase;
@@ -269,10 +285,6 @@ int cpu_arm_handle_mmu_fault (CPUARMState *env, target_ulong address, int rw,
                               int mmu_idx, int is_softmuu);
 #define cpu_handle_mmu_fault cpu_arm_handle_mmu_fault
 
-static inline void cpu_set_tls(CPUARMState *env, target_ulong newtls)
-{
-  env->cp15.c13_tls2 = newtls;
-}
 
 #define CPSR_M (0x1f)
 #define CPSR_T (1 << 5)
@@ -354,7 +366,7 @@ enum arm_cpu_mode {
   ARM_CPU_MODE_MON = 0x16, /* Secure Monitor Mode */
   ARM_CPU_MODE_ABT = 0x17,
   ARM_CPU_MODE_UND = 0x1b,
-  ARM_CPU_MODE_SYS = 0x1f
+  ARM_CPU_MODE_SYS = 0x1f,
 };
 
 /* VFP system registers.  */
@@ -411,6 +423,41 @@ void arm_dump_features(CPUState *env, FILE *f, fprintf_function cpu_fprintf);
 
 /* Security extensions (TrustZone) */
 
+/* Secure Configuration Register (SCR) */
+#define SCR_NS  (1 << 0)
+#define SCR_IRQ (1 << 1)
+#define SCR_FIQ (1 << 2)
+#define SCR_EA  (1 << 3)
+#define SCR_FW  (1 << 4)
+#define SCR_AW  (1 << 5)
+#define SCR_nET (1 << 6)
+#define SCR_UNK 0xFFFFFFC0
+
+/* Secure Debug Enable Register (SDER) */
+#define SDER_SUIDEN  (1 << 0)
+#define SDER_SUNIDEN (1 << 1)
+#define SDER_UNK     0xFFFFFFFC
+
+/* Non-Secure Access Control Register (NSACR) */
+#define NSACR_CP0      (1 << 0)
+#define NSACR_CP1      (1 << 1)
+#define NSACR_CP2      (1 << 2)
+#define NSACR_CP3      (1 << 3)
+#define NSACR_CP4      (1 << 4)
+#define NSACR_CP5      (1 << 5)
+#define NSACR_CP6      (1 << 6)
+#define NSACR_CP7      (1 << 7)
+#define NSACR_CP8      (1 << 8)
+#define NSACR_CP9      (1 << 9)
+#define NSACR_CP10     (1 << 10)
+#define NSACR_CP11     (1 << 11)
+#define NSACR_CP12     (1 << 12)
+#define NSACR_CP13     (1 << 13)
+#define NSACR_NSD32DIS (1 << 14)
+#define NSACR_NSAEDIS  (1 << 15)
+#define NSACR_RFR      (1 << 19)
+#define NSACR_UNK      0xFFF70000
+
 #if defined(TARGET_HAS_TRUSTZONE)
 /**
  * arm_is_secure(): Tests if CPU core is currently in a secure state.
@@ -419,14 +466,33 @@ void arm_dump_features(CPUState *env, FILE *f, fprintf_function cpu_fprintf);
  * one of the following statements is true:
  *
  * a.) Security extensions are _NOT_ implemented
+ * b.) Bit 0 (SCR_NS) of the secure configuration register is cleared
  * c.) The core currently executes in secure monitor mode and
  *     the mon_is_secure parameter is non-zero.
  */
 static inline int arm_is_secure(CPUARMState *env, int mon_is_secure)
 {
     return !arm_feature(env, ARM_FEATURE_TRUSTZONE) ||
+           !(env->cp15.c1_secfg & SCR_NS) ||
         (mon_is_secure && (env->uncached_cpsr & CPSR_M) == ARM_CPU_MODE_MON);
 }
+
+/**
+ * arm_cp15_get_banked(): Gets a register of the secure or non-secure world CP15 bank.
+ *
+ * This macro can be used as lvalue on the left-hand side of expressions.
+ *
+ * @env: CPU enviroment to access
+ * @reg: Name of the CP15 register (C identifier!)
+ * @is_secure: Selects the active bank (zero=nonsecure, non-zero is secure)
+ */
+#define arm_cp15_banked(env,reg,is_secure) \
+    (*((is_secure)? &(env)->cp15.reg.secure : &(env)->cp15.reg.nonsecure))
+
+#define arm_cp15_active_bank(env,reg) arm_cp15_banked(env,reg,arm_is_secure(env,0))
+#define arm_cp15_secure(env,reg)    ((env)->cp15.reg.secure)
+#define arm_cp15_nonsecure(env,reg) ((env)->cp15.reg.nonsecure)
+
 #else /* !defined(TARGET_HAS_TRUSTZONE) */
 
 /* ARM emulation without TrustZone */
@@ -437,7 +503,18 @@ static inline int arm_is_secure(CPUARMState *env, int mon_is_secure)
     return 1;
 }
 
+#define arm_cp15_active_bank(env,reg)       ((env)->cp15.reg)
+#define arm_cp15_banked(env,reg,is_sercure) ((env)->cp15.reg)
+#define arm_cp15_secure(env,reg)            ((env)->cp15.reg)
+
 #endif
+
+/* TLS registers */
+static inline void cpu_set_tls(CPUARMState *env, target_ulong newtls)
+{
+    arm_cp15_active_bank(env, c13_tls2) = newtls;
+}
+
 /* Interface between CPU and Interrupt controller.  */
 void armv7m_nvic_set_pending(void *opaque, int irq);
 int armv7m_nvic_acknowledge_irq(void *opaque);

@@ -23,29 +23,29 @@ void cpu_save(QEMUFile *f, void *opaque)
     qemu_put_be32(f, env->cp15.c0_cpuid);
     qemu_put_be32(f, env->cp15.c0_cachetype);
     qemu_put_be32(f, env->cp15.c0_cssel);
-    qemu_put_be32(f, env->cp15.c1_sys);
-    qemu_put_be32(f, env->cp15.c1_coproc);
+    qemu_put_be32(f, arm_cp15_secure(env, c1_sys));
+    qemu_put_be32(f, env->cp15.c1_coproc);  
     qemu_put_be32(f, env->cp15.c1_xscaleauxcr);
 #if defined(TARGET_HAS_TRUSTZONE)
     qemu_put_be32(f, env->cp15.c1_secfg);
     qemu_put_be32(f, env->cp15.c1_sedbg);
     qemu_put_be32(f, env->cp15.c1_nseac);
 #endif
-    qemu_put_be32(f, env->cp15.c2_base0);
-    qemu_put_be32(f, env->cp15.c2_base1);
-    qemu_put_be32(f, env->cp15.c2_control);
-    qemu_put_be32(f, env->cp15.c2_mask);
-    qemu_put_be32(f, env->cp15.c2_base_mask);
+    qemu_put_be32(f, arm_cp15_secure(env, c2_base0));
+    qemu_put_be32(f, arm_cp15_secure(env, c2_base1));
+    qemu_put_be32(f, arm_cp15_secure(env, c2_control));
+    qemu_put_be32(f, arm_cp15_secure(env, c2_mask));
+    qemu_put_be32(f, arm_cp15_secure(env, c2_base_mask));
     qemu_put_be32(f, env->cp15.c2_data);
     qemu_put_be32(f, env->cp15.c2_insn);
-    qemu_put_be32(f, env->cp15.c3);
-    qemu_put_be32(f, env->cp15.c5_insn);
-    qemu_put_be32(f, env->cp15.c5_data);
+    qemu_put_be32(f, arm_cp15_secure(env, c3));
+    qemu_put_be32(f, arm_cp15_secure(env, c5_insn));
+    qemu_put_be32(f, arm_cp15_secure(env, c5_data));
     for (i = 0; i < 8; i++) {
         qemu_put_be32(f, env->cp15.c6_region[i]);
     }
-    qemu_put_be32(f, env->cp15.c6_insn);
-    qemu_put_be32(f, env->cp15.c6_data);
+    qemu_put_be32(f, arm_cp15_secure(env, c6_insn));
+    qemu_put_be32(f, arm_cp15_secure(env, c6_data));
     qemu_put_be32(f, env->cp15.c7_par);
     qemu_put_be32(f, env->cp15.c9_insn);
     qemu_put_be32(f, env->cp15.c9_data);
@@ -55,11 +55,11 @@ void cpu_save(QEMUFile *f, void *opaque)
     qemu_put_be32(f, env->cp15.c9_pmxevtyper);
     qemu_put_be32(f, env->cp15.c9_pmuserenr);
     qemu_put_be32(f, env->cp15.c9_pminten);
-    qemu_put_be32(f, env->cp15.c13_fcse);
-    qemu_put_be32(f, env->cp15.c13_context);
-    qemu_put_be32(f, env->cp15.c13_tls1);
-    qemu_put_be32(f, env->cp15.c13_tls2);
-    qemu_put_be32(f, env->cp15.c13_tls3);
+    qemu_put_be32(f, arm_cp15_secure(env, c13_fcse));
+    qemu_put_be32(f, arm_cp15_secure(env, c13_context));
+    qemu_put_be32(f, arm_cp15_secure(env, c13_tls1));
+    qemu_put_be32(f, arm_cp15_secure(env, c13_tls2));
+    qemu_put_be32(f, arm_cp15_secure(env, c13_tls3));
     qemu_put_be32(f, env->cp15.c15_cpar);
 
     qemu_put_be32(f, env->features);
@@ -117,7 +117,33 @@ void cpu_save(QEMUFile *f, void *opaque)
         qemu_put_be32(f, env->banked_spsr[6]);
         qemu_put_be32(f, env->banked_r13[6]);
         qemu_put_be32(f, env->banked_r14[6]);
+
+        qemu_put_be32(f, arm_cp15_nonsecure(env, c1_sys));
+        
+        qemu_put_be32(f, env->cp15.c1_secfg);
+        qemu_put_be32(f, env->cp15.c1_sedbg);
+        qemu_put_be32(f, env->cp15.c1_nseac);
+
+        /* Non-secure MMU registers */
+        qemu_put_be32(f, arm_cp15_nonsecure(env, c2_base0));
+        qemu_put_be32(f, arm_cp15_nonsecure(env, c2_base1));
+        qemu_put_be32(f, arm_cp15_nonsecure(env, c2_control));
+        qemu_put_be32(f, arm_cp15_nonsecure(env, c2_mask));
+        qemu_put_be32(f, arm_cp15_nonsecure(env, c2_base_mask));
+
+        qemu_put_be32(f, arm_cp15_nonsecure(env, c3));
+        qemu_put_be32(f, arm_cp15_nonsecure(env, c5_insn));
+        qemu_put_be32(f, arm_cp15_nonsecure(env, c5_data));
+        qemu_put_be32(f, arm_cp15_nonsecure(env, c6_insn));
+        qemu_put_be32(f, arm_cp15_nonsecure(env, c6_data));
+        qemu_put_be32(f, arm_cp15_nonsecure(env, c12_vbar));
+        qemu_put_be32(f, arm_cp15_secure(env, c12_vbar));
         qemu_put_be32(f, env->cp15.c12_mvbar);
+        qemu_put_be32(f, arm_cp15_nonsecure(env, c13_fcse));
+        qemu_put_be32(f, arm_cp15_nonsecure(env, c13_context));
+        qemu_put_be32(f, arm_cp15_nonsecure(env, c13_tls1));
+        qemu_put_be32(f, arm_cp15_nonsecure(env, c13_tls2));
+        qemu_put_be32(f, arm_cp15_nonsecure(env, c13_tls3));
     }
 #endif
 }
@@ -151,7 +177,7 @@ int cpu_load(QEMUFile *f, void *opaque, int version_id)
     env->cp15.c0_cpuid = qemu_get_be32(f);
     env->cp15.c0_cachetype = qemu_get_be32(f);
     env->cp15.c0_cssel = qemu_get_be32(f);
-    env->cp15.c1_sys = qemu_get_be32(f);
+    arm_cp15_secure(env, c1_sys) = qemu_get_be32(f);
     env->cp15.c1_coproc = qemu_get_be32(f);
     env->cp15.c1_xscaleauxcr = qemu_get_be32(f);
 #if defined(TARGET_HAS_TRUSTZONE)
@@ -159,21 +185,21 @@ int cpu_load(QEMUFile *f, void *opaque, int version_id)
     env->cp15.c1_sedbg = qemu_get_be32(f);
     env->cp15.c1_nseac = qemu_get_be32(f);
 #endif
-    env->cp15.c2_base0 = qemu_get_be32(f);
-    env->cp15.c2_base1 = qemu_get_be32(f);
-    env->cp15.c2_control = qemu_get_be32(f);
-    env->cp15.c2_mask = qemu_get_be32(f);
-    env->cp15.c2_base_mask = qemu_get_be32(f);
+    arm_cp15_secure(env, c2_base0) = qemu_get_be32(f);
+    arm_cp15_secure(env, c2_base1) = qemu_get_be32(f);
+    arm_cp15_secure(env, c2_control) = qemu_get_be32(f);
+    arm_cp15_secure(env, c2_mask) = qemu_get_be32(f);
+    arm_cp15_secure(env, c2_base_mask) = qemu_get_be32(f);
     env->cp15.c2_data = qemu_get_be32(f);
     env->cp15.c2_insn = qemu_get_be32(f);
-    env->cp15.c3 = qemu_get_be32(f);
-    env->cp15.c5_insn = qemu_get_be32(f);
-    env->cp15.c5_data = qemu_get_be32(f);
+    arm_cp15_secure(env, c3) = qemu_get_be32(f);
+    arm_cp15_secure(env, c5_insn) = qemu_get_be32(f);
+    arm_cp15_secure(env, c5_data) = qemu_get_be32(f);
     for (i = 0; i < 8; i++) {
         env->cp15.c6_region[i] = qemu_get_be32(f);
     }
-    env->cp15.c6_insn = qemu_get_be32(f);
-    env->cp15.c6_data = qemu_get_be32(f);
+    arm_cp15_secure(env, c6_insn) = qemu_get_be32(f);
+    arm_cp15_secure(env, c6_data) = qemu_get_be32(f);
     env->cp15.c7_par = qemu_get_be32(f);
     env->cp15.c9_insn = qemu_get_be32(f);
     env->cp15.c9_data = qemu_get_be32(f);
@@ -183,11 +209,11 @@ int cpu_load(QEMUFile *f, void *opaque, int version_id)
     env->cp15.c9_pmxevtyper = qemu_get_be32(f);
     env->cp15.c9_pmuserenr = qemu_get_be32(f);
     env->cp15.c9_pminten = qemu_get_be32(f);
-    env->cp15.c13_fcse = qemu_get_be32(f);
-    env->cp15.c13_context = qemu_get_be32(f);
-    env->cp15.c13_tls1 = qemu_get_be32(f);
-    env->cp15.c13_tls2 = qemu_get_be32(f);
-    env->cp15.c13_tls3 = qemu_get_be32(f);
+    arm_cp15_secure(env, c13_fcse) = qemu_get_be32(f);
+    arm_cp15_secure(env, c13_context) = qemu_get_be32(f);
+    arm_cp15_secure(env, c13_tls1) = qemu_get_be32(f);
+    arm_cp15_secure(env, c13_tls2) = qemu_get_be32(f);
+    arm_cp15_secure(env, c13_tls3) = qemu_get_be32(f);
     env->cp15.c15_cpar = qemu_get_be32(f);
 
     env->features = qemu_get_be32(f);
@@ -245,7 +271,33 @@ int cpu_load(QEMUFile *f, void *opaque, int version_id)
         env->banked_spsr[6] = qemu_get_be32(f);
         env->banked_r13[6] = qemu_get_be32(f);
         env->banked_r14[6] = qemu_get_be32(f);
+
+        arm_cp15_nonsecure(env, c1_sys) = qemu_get_be32(f);
+
+        env->cp15.c1_secfg = qemu_get_be32(f);
+        env->cp15.c1_sedbg = qemu_get_be32(f);
+        env->cp15.c1_nseac = qemu_get_be32(f);
+
+        /* Non-secure MMU registers */
+        arm_cp15_nonsecure(env, c2_base0) = qemu_get_be32(f);
+        arm_cp15_nonsecure(env, c2_base1) = qemu_get_be32(f);
+        arm_cp15_nonsecure(env, c2_control) = qemu_get_be32(f);
+        arm_cp15_nonsecure(env, c2_mask) = qemu_get_be32(f);
+        arm_cp15_nonsecure(env, c2_base_mask) = qemu_get_be32(f);
+
+        arm_cp15_nonsecure(env, c3) = qemu_get_be32(f);
+        arm_cp15_nonsecure(env, c5_insn) = qemu_get_be32(f);
+        arm_cp15_nonsecure(env, c5_data) = qemu_get_be32(f);
+        arm_cp15_nonsecure(env, c6_insn) = qemu_get_be32(f);
+        arm_cp15_nonsecure(env, c6_data) = qemu_get_be32(f);
+        arm_cp15_nonsecure(env, c12_vbar) = qemu_get_be32(f);
+        arm_cp15_secure(env, c12_vbar) = qemu_get_be32(f);
         env->cp15.c12_mvbar = qemu_get_be32(f);
+        arm_cp15_nonsecure(env, c13_fcse) = qemu_get_be32(f);
+        arm_cp15_nonsecure(env, c13_context) = qemu_get_be32(f);
+        arm_cp15_nonsecure(env, c13_tls1) = qemu_get_be32(f);
+        arm_cp15_nonsecure(env, c13_tls2) = qemu_get_be32(f);
+        arm_cp15_nonsecure(env, c13_tls3) = qemu_get_be32(f);
     }
 #endif
     return 0;

@@ -290,10 +290,10 @@ static void pxa2xx_clkpwr_write(void *opaque, int op2, int reg, int crm,
         case 3:
             s->env->uncached_cpsr =
                     ARM_CPU_MODE_SVC | CPSR_A | CPSR_F | CPSR_I;
-            s->env->cp15.c1_sys = 0;
+            arm_cp15_secure(s->env, c1_sys) = 0;
             s->env->cp15.c1_coproc = 0;
-            s->env->cp15.c2_base0 = 0;
-            s->env->cp15.c3 = 0;
+            arm_cp15_secure(s->env, c2_base0) = 0;
+            arm_cp15_secure(s->env, c3) = 0;
             s->pm_regs[PSSR >> 2] |= 0x8;	/* Set STS */
             s->pm_regs[RCSR >> 2] |= 0x8;	/* Set GPR */
 
