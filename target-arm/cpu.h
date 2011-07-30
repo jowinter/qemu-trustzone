@@ -149,6 +149,7 @@ typedef struct CPUARMState {
         uint32_t c1_secfg; /* Secure configuration register. */
         uint32_t c1_sedbg; /* Secure debug enable register. */
         uint32_t c1_nseac; /* Non-secure access control register. */
+        uint32_t c1_vctrl; /* Virtualization control register */
 #endif
         banked_uint32_t c2_base0; /* MMU translation table base 0.  */
         banked_uint32_t c2_base1; /* MMU translation table base 1.  */

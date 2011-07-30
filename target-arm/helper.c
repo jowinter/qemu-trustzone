@@ -361,6 +361,7 @@ void cpu_reset(CPUARMState *env)
     env->cp15.c1_secfg  = 0;
     env->cp15.c1_sedbg = 0;
     env->cp15.c1_nseac = 0;
+    env->cp15.c1_vctrl = 0;
 
     arm_cp15_nonsecure(env, c1_sys) = arm_cp15_secure(env, c1_sys);
     arm_cp15_nonsecure(env, c2_base_mask) = 0xffffc000u;
@@ -1696,6 +1697,9 @@ void HELPER(set_cp15)(CPUState *env, uint32_t insn, uint32_t val)
             case 2: /* Nonsecure access control register. */
                 env->cp15.c1_nseac = val;
                 break;
+	    case 3: /* Virtualization control register */
+		env->cp15.c1_vctrl = val & 0x000000E0;
+		break;
             default:
                 goto bad_reg;
             }
@@ -2001,6 +2005,7 @@ void HELPER(set_cp15)(CPUState *env, uint32_t insn, uint32_t val)
 
                 env->cp15.c12_mvbar = val & ~0x1f;
                 break;
+		
             default:
                 goto bad_reg;
             }
@@ -2226,6 +2231,8 @@ uint32_t HELPER(get_cp15)(CPUState *env, uint32_t insn)
                 return env->cp15.c1_sedbg;
             case 2: /* Nonsecure access control register. */
                 return env->cp15.c1_nseac;
+	    case 3: /* Virtualization control register */
+		return env->cp15.c1_vctrl;
             default:
                 goto bad_reg;
             }
