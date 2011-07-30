@@ -1699,6 +1699,9 @@ void HELPER(set_cp15)(CPUState *env, uint32_t insn, uint32_t val)
             default:
                 goto bad_reg;
             }
+
+            /* Coprocessor and interrupt behavior might have changed */
+            tb_flush(env);
             break;
 #endif
         default:

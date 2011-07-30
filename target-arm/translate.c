@@ -6451,6 +6451,20 @@ static int disas_coproc_insn(CPUState * env, DisasContext *s, uint32_t insn)
 	    && ((env->cp15.c15_cpar ^ 0x3fff) & (1 << cpnum)))
 	return 1;
 
+#if defined(TARGET_HAS_TRUSTZONE)
+    /* Check co-processor access by normal world */
+    if (!arm_is_secure(env, 1) && cpnum < 14) {
+      int denied = !(env->cp15.c1_nseac & (1U << cpnum));
+      if (unlikely(qemu_loglevel_mask(CPU_LOG_EXEC))) {
+        qemu_log("NSACR: CP%d: %s\n", cpnum, denied? "ABORT" : "GRANT");
+      }
+
+      if (denied) {
+        return 1;
+      }
+    }
+#endif
+
     switch (cpnum) {
       case 0:
       case 1:
