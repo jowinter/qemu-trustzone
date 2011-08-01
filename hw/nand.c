@@ -339,9 +339,9 @@ static int nand_post_load(void *opaque, int version_id)
 
 static const VMStateDescription vmstate_nand = {
     .name = "nand",
-    .version_id = 0,
-    .minimum_version_id = 0,
-    .minimum_version_id_old = 0,
+    .version_id = 1,
+    .minimum_version_id = 1,
+    .minimum_version_id_old = 1,
     .pre_save = nand_pre_save,
     .post_load = nand_post_load,
     .fields      = (VMStateField[]) {
@@ -367,6 +367,7 @@ static int nand_device_init(SysBusDevice *dev)
 {
     int pagesize;
     NANDFlashState *s = FROM_SYSBUS(NANDFlashState, dev);
+
     s->buswidth = nand_flash_ids[s->chip_id].width >> 3;
     s->size = nand_flash_ids[s->chip_id].size << 20;
     if (nand_flash_ids[s->chip_id].options & NAND_SAMSUNG_LP) {
@@ -394,7 +395,7 @@ static int nand_device_init(SysBusDevice *dev)
     pagesize = 1 << s->oob_shift;
     s->mem_oob = 1;
     if (s->bdrv && bdrv_getlength(s->bdrv) >=
-        (s->pages << s->page_shift) + (s->pages << s->oob_shift)) {
+            (s->pages << s->page_shift) + (s->pages << s->oob_shift)) {
         pagesize = 0;
         s->mem_oob = 0;
     }
@@ -404,7 +405,7 @@ static int nand_device_init(SysBusDevice *dev)
     }
     if (pagesize) {
         s->storage = (uint8_t *) memset(qemu_malloc(s->pages * pagesize),
-                                        0xff, s->pages * pagesize);
+                        0xff, s->pages * pagesize);
     }
     /* Give s->ioaddr a sane value in case we save state before it is used. */
     s->ioaddr = s->io;
@@ -440,7 +441,7 @@ static void nand_create_device(void)
 void nand_setpins(DeviceState *dev, uint8_t cle, uint8_t ale,
                   uint8_t ce, uint8_t wp, uint8_t gnd)
 {
-    NANDFlashState *s = (NANDFlashState *)dev;
+    NANDFlashState *s = (NANDFlashState *) dev;
     s->cle = cle;
     s->ale = ale;
     s->ce = ce;
@@ -460,7 +461,7 @@ void nand_getpins(DeviceState *dev, int *rb)
 void nand_setio(DeviceState *dev, uint32_t value)
 {
     int i;
-    NANDFlashState *s = (NANDFlashState *)dev;
+    NANDFlashState *s = (NANDFlashState *) dev;
     if (!s->ce && s->cle) {
         if (nand_flash_ids[s->chip_id].options & NAND_SAMSUNG_LP) {
             if (s->cmd == NAND_CMD_READ0
@@ -520,25 +521,25 @@ void nand_setio(DeviceState *dev, uint32_t value)
             s->addr <<= (s->buswidth - 1);
             break;
         case 3:
-            if (!(nand_flash_ids[s->chip_id].options & NAND_SAMSUNG_LP)
-                && (s->cmd == NAND_CMD_READ0
-                    || s->cmd == NAND_CMD_PAGEPROGRAM1)) {
+            if (!(nand_flash_ids[s->chip_id].options & NAND_SAMSUNG_LP) &&
+                    (s->cmd == NAND_CMD_READ0 ||
+                     s->cmd == NAND_CMD_PAGEPROGRAM1)) {
                 nand_command(s);
             }
             break;
         case 4:
-            if ((nand_flash_ids[s->chip_id].options & NAND_SAMSUNG_LP)
-                && nand_flash_ids[s->chip_id].size < 256 /* 1Gb or less */
-                && (s->cmd == NAND_CMD_READ0 ||
-                    s->cmd == NAND_CMD_PAGEPROGRAM1)) {
+            if ((nand_flash_ids[s->chip_id].options & NAND_SAMSUNG_LP) &&
+                    nand_flash_ids[s->chip_id].size < 256 && /* 1Gb or less */
+                    (s->cmd == NAND_CMD_READ0 ||
+                     s->cmd == NAND_CMD_PAGEPROGRAM1)) {
                 nand_command(s);
             }
             break;
         case 5:
-            if ((nand_flash_ids[s->chip_id].options & NAND_SAMSUNG_LP)
-                && nand_flash_ids[s->chip_id].size >= 256 /* 2Gb or more */
-                && (s->cmd == NAND_CMD_READ0 ||
-                    s->cmd == NAND_CMD_PAGEPROGRAM1)) {
+            if ((nand_flash_ids[s->chip_id].options & NAND_SAMSUNG_LP) &&
+                    nand_flash_ids[s->chip_id].size >= 256 && /* 2Gb or more */
+                    (s->cmd == NAND_CMD_READ0 ||
+                     s->cmd == NAND_CMD_PAGEPROGRAM1)) {
                 nand_command(s);
             }
             break;
@@ -550,15 +551,15 @@ void nand_setio(DeviceState *dev, uint32_t value)
     if (!s->cle && !s->ale && s->cmd == NAND_CMD_PAGEPROGRAM1) {
         if (s->iolen < (1 << s->page_shift) + (1 << s->oob_shift)) {
             for (i = s->buswidth; i--; value >>= 8) {
-                s->io[s->iolen++] = (uint8_t)(value & 0xff);
+                s->io[s->iolen ++] = (uint8_t) (value & 0xff);
             }
         }
     } else if (!s->cle && !s->ale && s->cmd == NAND_CMD_COPYBACKPRG1) {
         if ((s->addr & ((1 << s->addr_shift) - 1)) <
-            (1 << s->page_shift) + (1 << s->oob_shift)) {
+                (1 << s->page_shift) + (1 << s->oob_shift)) {
             for (i = s->buswidth; i--; s->addr++, value >>= 8) {
                 s->io[s->iolen + (s->addr & ((1 << s->addr_shift) - 1))] =
-                    (uint8_t)(value & 0xff);
+                    (uint8_t) (value & 0xff);
             }
         }
     }
@@ -568,11 +569,11 @@ uint32_t nand_getio(DeviceState *dev)
 {
     int offset;
     uint32_t x = 0;
-    NANDFlashState *s = (NANDFlashState *)dev;
+    NANDFlashState *s = (NANDFlashState *) dev;
 
     /* Allow sequential reading */
     if (!s->iolen && s->cmd == NAND_CMD_READ0) {
-        offset = (int)(s->addr & ((1 << s->addr_shift) - 1)) + s->offset;
+        offset = (int) (s->addr & ((1 << s->addr_shift) - 1)) + s->offset;
         s->offset = 0;
 
         s->blk_load(s, s->addr, offset);
@@ -601,13 +602,14 @@ uint32_t nand_getio(DeviceState *dev)
 
 uint32_t nand_getbuswidth(DeviceState *dev)
 {
-    NANDFlashState *s = (NANDFlashState *)dev;
+    NANDFlashState *s = (NANDFlashState *) dev;
     return s->buswidth << 3;
 }
 
 DeviceState *nand_init(BlockDriverState *bdrv, int manf_id, int chip_id)
 {
     DeviceState *dev;
+
     if (nand_flash_ids[chip_id].size == 0) {
         hw_error("%s: Unsupported NAND chip ID.\n", __FUNCTION__);
     }

@@ -884,9 +884,9 @@ static void n8x0_uart_setup(struct n800_s *s)
                     qdev_get_gpio_in(s->cpu->gpio, N8X0_BT_HOST_WKUP_GPIO));
 
     qdev_connect_gpio_out(s->cpu->gpio, N8X0_BT_RESET_GPIO,
-                          csrhci_pins_get(radio)[csrhci_pin_reset]);
+                    csrhci_pins_get(radio)[csrhci_pin_reset]);
     qdev_connect_gpio_out(s->cpu->gpio, N8X0_BT_WKUP_GPIO,
-                          csrhci_pins_get(radio)[csrhci_pin_wakeup]);
+                    csrhci_pins_get(radio)[csrhci_pin_wakeup]);
 
     omap_uart_attach(s->cpu->uart[BT_UART], radio, "bt-uart");
 }

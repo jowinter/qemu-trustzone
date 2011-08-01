@@ -163,18 +163,18 @@ static void palmte_gpio_setup(struct omap_mpu_state_s *cpu)
     qemu_irq *misc_gpio;
 
     omap_mmc_handlers(cpu->mmc,
-                      qdev_get_gpio_in(cpu->gpio, PALMTE_MMC_WP_GPIO),
-                      qemu_irq_invert(omap_mpuio_in_get(cpu->mpuio)
-                                      [PALMTE_MMC_SWITCH_GPIO]));
+                    qdev_get_gpio_in(cpu->gpio, PALMTE_MMC_WP_GPIO),
+                    qemu_irq_invert(omap_mpuio_in_get(cpu->mpuio)
+                            [PALMTE_MMC_SWITCH_GPIO]));
 
     misc_gpio = qemu_allocate_irqs(palmte_onoff_gpios, cpu, 7);
-    qdev_connect_gpio_out(cpu->gpio, PALMTE_MMC_POWER_GPIO, misc_gpio[0]);
-    qdev_connect_gpio_out(cpu->gpio, PALMTE_SPEAKER_GPIO,   misc_gpio[1]);
-    qdev_connect_gpio_out(cpu->gpio, 11,                    misc_gpio[2]);
-    qdev_connect_gpio_out(cpu->gpio, 12,                    misc_gpio[3]);
-    qdev_connect_gpio_out(cpu->gpio, 13,                    misc_gpio[4]);
-    omap_mpuio_out_set(cpu->mpuio, 1,			misc_gpio[5]);
-    omap_mpuio_out_set(cpu->mpuio, 3,			misc_gpio[6]);
+    qdev_connect_gpio_out(cpu->gpio, PALMTE_MMC_POWER_GPIO,	misc_gpio[0]);
+    qdev_connect_gpio_out(cpu->gpio, PALMTE_SPEAKER_GPIO,	misc_gpio[1]);
+    qdev_connect_gpio_out(cpu->gpio, 11,			misc_gpio[2]);
+    qdev_connect_gpio_out(cpu->gpio, 12,			misc_gpio[3]);
+    qdev_connect_gpio_out(cpu->gpio, 13,			misc_gpio[4]);
+    omap_mpuio_out_set(cpu->mpuio, 1,				misc_gpio[5]);
+    omap_mpuio_out_set(cpu->mpuio, 3,				misc_gpio[6]);
 
     /* Reset some inputs to initial state.  */
     qemu_irq_lower(qdev_get_gpio_in(cpu->gpio, PALMTE_USBDETECT_GPIO));

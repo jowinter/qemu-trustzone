@@ -3917,7 +3917,7 @@ struct omap_mpu_state_s *omap310_mpu_init(unsigned long sdram_size,
     qdev_prop_set_int32(s->gpio, "mpu_model", s->mpu_model);
     qdev_init_nofail(s->gpio);
     sysbus_connect_irq(sysbus_from_qdev(s->gpio), 0,
-                       s->irq[0][OMAP_INT_GPIO_BANK1]);
+                    s->irq[0][OMAP_INT_GPIO_BANK1]);
     sysbus_mmio_map(sysbus_from_qdev(s->gpio), 0, 0xfffce000);
 
     s->microwire = omap_uwire_init(0xfffb3000, &s->irq[1][OMAP_INT_uWireTX],

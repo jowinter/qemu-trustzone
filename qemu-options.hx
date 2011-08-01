@@ -303,10 +303,13 @@ ETEXI
 
 DEF("boot", HAS_ARG, QEMU_OPTION_boot,
     "-boot [order=drives][,once=drives][,menu=on|off]\n"
-    "                'drives': floppy (a), hard disk (c), CD-ROM (d), network (n)\n",
+    "      [,splash=sp_name][,splash-time=sp_time]\n"
+    "                'drives': floppy (a), hard disk (c), CD-ROM (d), network (n)\n"
+    "                'sp_name': the file's name that would be passed to bios as logo picture, if menu=on\n"
+    "                'sp_time': the period that splash picture last if menu=on, unit is ms\n",
     QEMU_ARCH_ALL)
 STEXI
-@item -boot [order=@var{drives}][,once=@var{drives}][,menu=on|off]
+@item -boot [order=@var{drives}][,once=@var{drives}][,menu=on|off][,splash=@var{sp_name}][,splash-time=@var{sp_time}]
 @findex -boot
 Specify boot order @var{drives} as a string of drive letters. Valid
 drive letters depend on the target achitecture. The x86 PC uses: a, b
@@ -318,11 +321,20 @@ particular boot order only on the first startup, specify it via
 Interactive boot menus/prompts can be enabled via @option{menu=on} as far
 as firmware/BIOS supports them. The default is non-interactive boot.
 
+A splash picture could be passed to bios, enabling user to show it as logo,
+when option splash=@var{sp_name} is given and menu=on, If firmware/BIOS
+supports them. Currently Seabios for X86 system support it.
+limitation: The splash file could be a jpeg file or a BMP file in 24 BPP
+format(true color). The resolution should be supported by the SVGA mode, so
+the recommended is 320x240, 640x480, 800x640.
+
 @example
 # try to boot from network first, then from hard disk
 qemu -boot order=nc
 # boot from CD-ROM first, switch back to default order after reboot
 qemu -boot once=d
+# boot with a splash picture for 5 seconds.
+qemu -boot menu=on,splash=/root/boot.bmp,splash-time=5000
 @end example
 
 Note: The legacy format '-boot @var{drives}' is still supported but its
@@ -1062,12 +1074,17 @@ Enable virtio balloon device (default), optionally with PCI address
 ETEXI
 
 DEF("acpitable", HAS_ARG, QEMU_OPTION_acpitable,
-    "-acpitable [sig=str][,rev=n][,oem_id=str][,oem_table_id=str][,oem_rev=n][,asl_compiler_id=str][,asl_compiler_rev=n][,data=file1[:file2]...]\n"
+    "-acpitable [sig=str][,rev=n][,oem_id=str][,oem_table_id=str][,oem_rev=n][,asl_compiler_id=str][,asl_compiler_rev=n][,{data|file}=file1[:file2]...]\n"
     "                ACPI table description\n", QEMU_ARCH_I386)
 STEXI
 @item -acpitable [sig=@var{str}][,rev=@var{n}][,oem_id=@var{str}][,oem_table_id=@var{str}][,oem_rev=@var{n}] [,asl_compiler_id=@var{str}][,asl_compiler_rev=@var{n}][,data=@var{file1}[:@var{file2}]...]
 @findex -acpitable
 Add ACPI table with specified header fields and context from specified files.
+For file=, take whole ACPI table from the specified files, including all
+ACPI headers (possible overridden by other options).
+For data=, only data
+portion of the table is used, all header information is specified in the
+command line.
 ETEXI
 
 DEF("smbios", HAS_ARG, QEMU_OPTION_smbios,
