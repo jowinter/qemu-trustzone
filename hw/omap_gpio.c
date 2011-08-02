@@ -54,7 +54,7 @@ static void omap_gpio_set(void *opaque, int line, int level)
         s->inputs &= ~(1 << line);
 
     if (((s->edge & s->inputs & ~prev) | (~s->edge & ~s->inputs & prev)) &
-        (1 << line) & s->dir & ~s->mask) {
+                    (1 << line) & s->dir & ~s->mask) {
         s->ints |= 1 << line;
         qemu_irq_raise(s->irq);
     }
@@ -94,7 +94,7 @@ static uint32_t omap_gpio_read(void *opaque, target_phys_addr_t addr)
 }
 
 static void omap_gpio_write(void *opaque, target_phys_addr_t addr,
-                            uint32_t value)
+                uint32_t value)
 {
     struct omap_gpio_s *s = (struct omap_gpio_s *) opaque;
     int offset = addr & OMAP_MPUI_REG_MASK;
@@ -230,7 +230,7 @@ static void omap2_gpio_module_wake(struct omap2_gpio_s *s, int line)
 }
 
 static inline void omap2_gpio_module_out_update(struct omap2_gpio_s *s,
-                                                uint32_t diff)
+                uint32_t diff)
 {
     int ln;
 
@@ -367,7 +367,7 @@ static uint32_t omap2_gpio_module_read(void *opaque, target_phys_addr_t addr)
 }
 
 static void omap2_gpio_module_write(void *opaque, target_phys_addr_t addr,
-                                    uint32_t value)
+                uint32_t value)
 {
     struct omap2_gpio_s *s = (struct omap2_gpio_s *) opaque;
     uint32_t diff;
@@ -514,7 +514,7 @@ static uint32_t omap2_gpio_module_readp(void *opaque, target_phys_addr_t addr)
 }
 
 static void omap2_gpio_module_writep(void *opaque, target_phys_addr_t addr,
-                                     uint32_t value)
+                uint32_t value)
 {
     uint32_t cur = 0;
     uint32_t mask = 0xffff;
