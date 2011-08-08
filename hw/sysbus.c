@@ -48,7 +48,10 @@ void sysbus_mmio_unmap(SysBusDevice *dev, int n)
         /* region already unmapped */
         return;
     }
-    if (dev->mmio[n].cb) {
+    if (dev->mmio[n].memory) {
+        memory_region_del_subregion(get_system_memory(),
+                                    dev->mmio[n].memory);
+    } else if (dev->mmio[n].cb) {
         dev->mmio[n].cb(dev, (target_phys_addr_t)-1);
     } else {
         cpu_register_physical_memory(dev->mmio[n].addr, dev->mmio[n].size,
