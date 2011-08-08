@@ -10,6 +10,11 @@
 #if !defined(CONFIG_USER_ONLY)
 #include "hw/loader.h"
 #endif
+#if defined(TARGET_HAS_TRUSTZONE)
+#include "hw/arm_trustzone.h"
+#endif
+
+/* #define DEBUG_SECURITY_STATE_CONFUSION 1 - to debug MMU index issues */
 
 static uint32_t cortexa9_cp15_c0_c1[8] =
 { 0x1031, 0x11, 0x000, 0, 0x00100103, 0x20000000, 0x01230000, 0x00002111 };
@@ -1068,7 +1073,7 @@ void do_interrupt(CPUARMState *env)
         /* todo: interpret CPSR_A and external aborts, update
            the correct version of the IFAR and IFSR registers
 
-           trap_to_mvbar = (env->cp15.c1_scr & SCR_EA)? 1 : 0;
+           trap_to_mvbar = (env->cp15.c1_secfg & SCR_EA)? 1 : 0;
         */
 #endif
         addr = 0x0c;
@@ -1081,7 +1086,7 @@ void do_interrupt(CPUARMState *env)
         /* todo: interpret CPSR_A and external aborts, update
            the correct version of the DFAR and DFSR registers
 
-           trap_to_mvbar = (env->cp15.c1_scr & SCR_EA)? 1 : 0;
+           trap_to_mvbar = (env->cp15.c1_secfg & SCR_EA)? 1 : 0;
         */
 #endif
         addr = 0x10;
@@ -1091,7 +1096,7 @@ void do_interrupt(CPUARMState *env)
     case EXCP_IRQ:
         new_mode = ARM_CPU_MODE_IRQ;
 #if defined(TARGET_HAS_TRUSTZONE)
-        trap_to_mvbar = (env->cp15.c1_scr & SCR_IRQ)? 1 : 0;
+        trap_to_mvbar = (env->cp15.c1_secfg & SCR_IRQ)? 1 : 0;
 #endif
         addr = 0x18;
         /* Disable IRQ and imprecise data aborts.  */
@@ -1101,7 +1106,7 @@ void do_interrupt(CPUARMState *env)
     case EXCP_FIQ:
         new_mode = ARM_CPU_MODE_FIQ;
 #if defined(TARGET_HAS_TRUSTZONE)
-        trap_to_mvbar = (env->cp15.c1_scr & SCR_FIQ)? 1 : 0;
+        trap_to_mvbar = (env->cp15.c1_secfg & SCR_FIQ)? 1 : 0;
 #endif
         addr = 0x1c;
         /* Disable FIQ, IRQ and imprecise data aborts.  */
@@ -1137,7 +1142,7 @@ void do_interrupt(CPUARMState *env)
     } else if ((arm_cp15_banked(env, c1_sys, is_secure) & (1 << 13))) {
         /* High vectors.  */
         addr += 0xffff0000;        
-    } else if (arm_feature(env, ARM_FEATURE_SECURITY)) {
+    } else if (arm_feature(env, ARM_FEATURE_TRUSTZONE)) {
         /* Vector base address register */
         addr += arm_cp15_banked(env, c12_vbar, is_secure);
     }
@@ -1529,6 +1534,25 @@ int cpu_arm_handle_mmu_fault (CPUState *env, target_ulong address,
  
     ret = get_phys_addr(env, address, access_type, is_user, is_secure, &phys_addr,
                         &prot, &page_size);
+#if defined(TARGET_HAS_TRUSTZONE)
+    if (ret == 0 && arm_feature(env, ARM_FEATURE_TRUSTZONE)) {
+#ifdef DEBUG_SECURITY_STATE_CONFUSION
+      /* The following debug code is useful for hunting down MMU index errors ... 
+       * (e.g. forgotten hardcoded constants, ...) */
+      if (is_secure != arm_is_secure(env, 1)) {
+        int cpu_secure = arm_is_secure(env, 1);
+        cpu_abort(env, "cpu security state confusion (%08x, mmu:%d, active mmu:%d, core:%ssecure)\n",
+                  phys_addr, mmu_idx, cpu_mmu_index(env), cpu_secure? "" : "non-");
+      }
+#endif
+
+      prot = arm_trustzone_check_access(env, phys_addr, is_secure, prot);
+        if (!prot) {
+          /* Synchronous external abort (TrustZone protection violation) */
+          ret = 8;
+        }
+    }
+#endif
     if (ret == 0) {
         /* Map a single [sub]page.  */
         phys_addr &= ~(uint32_t)0x3ff;

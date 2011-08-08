@@ -10131,6 +10131,18 @@ void cpu_dump_state(CPUState *env, FILE *f, fprintf_function cpu_fprintf,
                 mmu_mode_names[cpu_mmu_index(env)],
                 cpu_mode_names[psr & 0xf], (psr & 0x10) ? 32 : 26);
 
+#ifdef TARGET_HAS_TRUSTZONE
+    cpu_fprintf(f, "SCR=%08x %c%c%c%c%c%c %c\n", 
+                env->cp15.c1_secfg,
+                env->cp15.c1_secfg & SCR_IRQ ? 'E' : '-',
+                env->cp15.c1_secfg & SCR_AW  ? 'a' : '-',
+                env->cp15.c1_secfg & SCR_FW  ? 'f' : '-',
+                env->cp15.c1_secfg & SCR_EA  ? 'A' : '-',
+                env->cp15.c1_secfg & SCR_FIQ ? 'F' : '-',
+                env->cp15.c1_secfg & SCR_IRQ ? 'I' : '-',
+                env->cp15.c1_secfg & SCR_NS  ? 'N' : 'S');
+#endif
+
 #if 0
     for (i = 0; i < 16; i++) {
         d.d = env->vfp.regs[i];
