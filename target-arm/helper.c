@@ -687,8 +687,14 @@ static inline int bank_number (int mode)
         return 4;
     case ARM_CPU_MODE_FIQ:
         return 5;
-    case ARM_CPU_MODE_SMC:
+#if defined(TARGET_HAS_TRUSTZONE)
+    case ARM_CPU_MODE_MON:
+        if (!arm_feature(cpu_single_env, ARM_FEATURE_TRUSTZONE)) {
+            /* Monitor mode is not available when security is disabled */
+            break;
+        }
         return 6;
+#endif
     }
     cpu_abort(cpu_single_env, "Bad mode %x\n", mode);
     return -1;
@@ -857,6 +863,10 @@ static void do_interrupt_v7m(CPUARMState *env)
 /* Handle a CPU exception.  */
 void do_interrupt(CPUARMState *env)
 {
+#if defined(TARGET_HAS_TRUSTZONE)
+  /* int is_secure = arm_is_secure(env, 1); */
+    int trap_to_mvbar = 0;
+#endif
     uint32_t addr;
     uint32_t mask;
     int new_mode;
@@ -939,40 +949,43 @@ void do_interrupt(CPUARMState *env)
         mask = CPSR_A | CPSR_I | CPSR_F;
         offset = 4;
         break;
+#if defined(TARGET_HAS_TRUSTZONE)
     case EXCP_SMC:
         if (semihosting_enabled) {
             cpu_abort(env, "SMC handling under semihosting not implemented\n");
             return;
         }
-        if ((env->uncached_cpsr & CPSR_M) == ARM_CPU_MODE_SMC) {
+        if ((env->uncached_cpsr & CPSR_M) == ARM_CPU_MODE_MON) {
             env->cp15.c1_secfg &= ~1;
         }
         offset = env->thumb ? 2 : 0;
-        new_mode = ARM_CPU_MODE_SMC;
+        new_mode = ARM_CPU_MODE_MON;
         addr = 0x08;
         mask = CPSR_A | CPSR_I | CPSR_F;
+        trap_to_mvbar = 1;
         break;
+#endif
     default:
         cpu_abort(env, "Unhandled exception 0x%x\n", env->exception_index);
         return; /* Never happens.  Keep compiler happy.  */
     }
-    if (arm_feature(env, ARM_FEATURE_TRUSTZONE)) {
-        if (new_mode == ARM_CPU_MODE_SMC ||
-            (env->uncached_cpsr & CPSR_M) == ARM_CPU_MODE_SMC) {
-            addr += env->cp15.c12_mvbar;
-        } else {
-            if (env->cp15.c1_sys & (1 << 13)) {
-                addr += 0xffff0000;
-            } else {
-                addr += env->cp15.c12_vbar;
-            }
-        }
-    } else {
+
+#if defined(TARGET_HAS_TRUSTZONE)
+    if (trap_to_mvbar) {
+        /* Monitor vector base address register */
+        addr += env->cp15.c12_mvbar;
+        new_mode = ARM_CPU_MODE_MON;
+    } else if (env->cp15.c1_sys & (1 << 13)) {
         /* High vectors.  */
-        if (env->cp15.c1_sys & (1 << 13)) {
+        addr += 0xffff0000;        
+    }
+#else
+    if ((env->cp15.c1_sys & (1 << 13))) {
+        /* High vectors.  */
             addr += 0xffff0000;
         }
-    }
+#endif
+
     switch_mode (env, new_mode);
     env->spsr = cpsr_read(env);
     /* Clear IT bits.  */
@@ -1472,30 +1485,27 @@ void HELPER(set_cp15)(CPUState *env, uint32_t insn, uint32_t val)
                 goto bad_reg;
             }
             break;
+#if defined(TARGET_HAS_TRUSTZONE)
         case 1:
             if (!arm_feature(env, ARM_FEATURE_TRUSTZONE)
+                || !arm_is_secure(env, 1)
                 || (env->uncached_cpsr & CPSR_M) == ARM_CPU_MODE_USR)
                 goto bad_reg;
             switch (op2) {
             case 0: /* Secure configuration register. */
-                if (env->cp15.c1_secfg & 1)
-                    goto bad_reg;
                 env->cp15.c1_secfg = val;
                 break;
             case 1: /* Secure debug enable register. */
-                if (env->cp15.c1_secfg & 1)
-                    goto bad_reg;
                 env->cp15.c1_sedbg = val;
                 break;
             case 2: /* Nonsecure access control register. */
-                if (env->cp15.c1_secfg & 1)
-                    goto bad_reg;
                 env->cp15.c1_nseac = val;
                 break;
             default:
                 goto bad_reg;
             }
             break;
+#endif
         default:
             goto bad_reg;
         }
@@ -1764,7 +1774,8 @@ void HELPER(set_cp15)(CPUState *env, uint32_t insn, uint32_t val)
     case 10: /* MMU TLB lockdown.  */
         /* ??? TLB lockdown not implemented.  */
         break;
-    case 12: /* Reserved.  */
+#if defined(TARGET_HAS_TRUSTZONE)
+    case 12: /* Security extensions registers  */
         if (!op1 && !crm) {
             switch (op2) {
             case 0:
@@ -1774,12 +1785,12 @@ void HELPER(set_cp15)(CPUState *env, uint32_t insn, uint32_t val)
                 env->cp15.c12_vbar = val & ~0x1f;
                 break;
             case 1:
-                if (!arm_feature(env, ARM_FEATURE_TRUSTZONE)) {
+                if (!arm_feature(env, ARM_FEATURE_TRUSTZONE) ||
+                    !arm_is_secure(env, 1)) {
                     goto bad_reg;
                 }
-                if (!(env->cp15.c1_secfg & 1)) {
-                    env->cp15.c12_mvbar = val & ~0x1f;
-                }
+
+                env->cp15.c12_mvbar = val & ~0x1f;
                 break;
             default:
                 goto bad_reg;
@@ -1787,6 +1798,7 @@ void HELPER(set_cp15)(CPUState *env, uint32_t insn, uint32_t val)
             break;
         }
         goto bad_reg;
+#endif
     case 13: /* Process ID.  */
         switch (op2) {
         case 0:
@@ -1985,17 +1997,18 @@ uint32_t HELPER(get_cp15)(CPUState *env, uint32_t insn)
                 goto bad_reg;
             }
             break;
+#if defined(TARGET_HAS_TRUSTZONE)
         case 1:
             if (!arm_feature(env, ARM_FEATURE_TRUSTZONE)
                 || (env->uncached_cpsr & CPSR_M) == ARM_CPU_MODE_USR)
                 goto bad_reg;
             switch (op2) {
             case 0: /* Secure configuration register. */
-                if (env->cp15.c1_secfg & 1)
+                if (!arm_is_secure(env, 1))
                     goto bad_reg;
                 return env->cp15.c1_secfg;
             case 1: /* Secure debug enable register. */
-                if (env->cp15.c1_secfg & 1)
+                if (!arm_is_secure(env, 1))
                     goto bad_reg;
                 return env->cp15.c1_sedbg;
             case 2: /* Nonsecure access control register. */
@@ -2006,6 +2019,7 @@ uint32_t HELPER(get_cp15)(CPUState *env, uint32_t insn)
             break;
         default:
             goto bad_reg;
+#endif
         }
         break;
     case 2: /* MMU Page table control / MPU cache control.  */
@@ -2177,8 +2191,8 @@ uint32_t HELPER(get_cp15)(CPUState *env, uint32_t insn)
     case 10: /* MMU TLB lockdown.  */
         /* ??? TLB lockdown not implemented.  */
         return 0;
+#if defined(TARGET_HAS_TRUSTZONE)
     case 11: /* TCM DMA control.  */
-    case 12: /* Reserved.  */
         if (!op1 && !crm) {
             switch (op2) {
             case 0: /* secure or nonsecure vector base address */
@@ -2196,6 +2210,19 @@ uint32_t HELPER(get_cp15)(CPUState *env, uint32_t insn)
             }
         }
         goto bad_reg;
+    case 12: /* Security extension registers */
+        if (!arm_feature(env, ARM_FEATURE_TRUSTZONE))
+            goto bad_reg;
+        switch (crm) {
+            case 0: /* Vector base address register */
+                return env->cp15.c12_vbar;
+            case 1: /* Monitor vector base address register */
+                return env->cp15.c12_mvbar;
+            default:
+                goto bad_reg;
+        }
+#endif
+
     case 13: /* Process ID.  */
         switch (op2) {
         case 0:

@@ -119,9 +119,11 @@ typedef struct CPUARMState {
         uint32_t c1_sys; /* System control register.  */
         uint32_t c1_coproc; /* Coprocessor access register.  */
         uint32_t c1_xscaleauxcr; /* XScale auxiliary control register.  */
+#if defined(TARGET_HAS_TRUSTZONE)
         uint32_t c1_secfg; /* Secure configuration register. */
         uint32_t c1_sedbg; /* Secure debug enable register. */
         uint32_t c1_nseac; /* Non-secure access control register. */
+#endif
         uint32_t c2_base0; /* MMU translation table base 0.  */
         uint32_t c2_base1; /* MMU translation table base 1.  */
         uint32_t c2_control; /* MMU translation table base control.  */
@@ -145,8 +147,10 @@ typedef struct CPUARMState {
         uint32_t c9_pmxevtyper; /* perf monitor event type */
         uint32_t c9_pmuserenr; /* perf monitor user enable */
         uint32_t c9_pminten; /* perf monitor interrupt enables */
+#if defined(TARGET_HAS_TRUSTZONE)        
         uint32_t c12_vbar; /* secure/nonsecure vector base address register. */
         uint32_t c12_mvbar; /* monitor vector base address register. */
+#endif
         uint32_t c13_fcse; /* FCSE PID.  */
         uint32_t c13_context; /* Context ID.  */
         uint32_t c13_tls1; /* User RW Thread register.  */
@@ -337,7 +341,7 @@ enum arm_cpu_mode {
   ARM_CPU_MODE_FIQ = 0x11,
   ARM_CPU_MODE_IRQ = 0x12,
   ARM_CPU_MODE_SVC = 0x13,
-  ARM_CPU_MODE_SMC = 0x16,
+  ARM_CPU_MODE_MON = 0x16, /* Secure Monitor Mode */
   ARM_CPU_MODE_ABT = 0x17,
   ARM_CPU_MODE_UND = 0x1b,
   ARM_CPU_MODE_SYS = 0x1f
@@ -394,6 +398,35 @@ static inline int arm_feature(CPUARMState *env, int feature)
 
 void arm_cpu_list(FILE *f, fprintf_function cpu_fprintf);
 
+/* Security extensions (TrustZone) */
+
+#if defined(TARGET_HAS_TRUSTZONE)
+/**
+ * arm_is_secure(): Tests if CPU core is currently in a secure state.
+ *
+ * The core is in a secure state if at least
+ * one of the following statements is true:
+ *
+ * a.) Security extensions are _NOT_ implemented
+ * c.) The core currently executes in secure monitor mode and
+ *     the mon_is_secure parameter is non-zero.
+ */
+static inline int arm_is_secure(CPUARMState *env, int mon_is_secure)
+{
+    return !arm_feature(env, ARM_FEATURE_TRUSTZONE) ||
+        (mon_is_secure && (env->uncached_cpsr & CPSR_M) == ARM_CPU_MODE_MON);
+}
+#else /* !defined(TARGET_HAS_TRUSTZONE) */
+
+/* ARM emulation without TrustZone */
+
+/* Core is _always_ in secure state */
+static inline int arm_is_secure(CPUARMState *env, int mon_is_secure)
+{
+    return 1;
+}
+
+#endif
 /* Interface between CPU and Interrupt controller.  */
 void armv7m_nvic_set_pending(void *opaque, int irq);
 int armv7m_nvic_acknowledge_irq(void *opaque);

@@ -855,6 +855,7 @@ i386-softmmu \
 x86_64-softmmu \
 alpha-softmmu \
 arm-softmmu \
+arm-trustzone-softmmu \
 cris-softmmu \
 lm32-softmmu \
 m68k-softmmu \
@@ -3105,6 +3106,7 @@ for target in $target_list; do
 target_dir="$target"
 config_target_mak=$target_dir/config-target.mak
 target_arch2=`echo $target | cut -d '-' -f 1`
+target_arch2_suffixed="$target_arch2"
 target_bigendian="no"
 
 case "$target_arch2" in
@@ -3113,6 +3115,7 @@ case "$target_arch2" in
   ;;
 esac
 target_softmmu="no"
+target_trustzone="no"
 target_user_only="no"
 target_linux_user="no"
 target_darwin_user="no"
@@ -3120,6 +3123,16 @@ target_bsd_user="no"
 case "$target" in
   ${target_arch2}-softmmu)
     target_softmmu="yes"
+    ;;
+  ${target_arch2}-trustzone-softmmu)
+    # TODO: Add armeb support? (Is there any working armeb softmmu target?)
+    if test "$target_arch2" != "arm" ; then
+      echo "ERROR: Target '$target' is only available on a arm architecture"
+      exit 1
+    fi
+    target_softmmu="yes"
+    target_trustzone="yes"
+    target_arch2_suffixed="${target_arch2}-trustzone"
     ;;
   ${target_arch2}-linux-user)
     if test "$linux" != "yes" ; then
@@ -3315,7 +3328,7 @@ echo "TARGET_LLONG_ALIGNMENT=$target_llong_alignment" >> $config_target_mak
 echo "TARGET_ARCH=$TARGET_ARCH" >> $config_target_mak
 target_arch_name="`echo $TARGET_ARCH | tr '[:lower:]' '[:upper:]'`"
 echo "TARGET_$target_arch_name=y" >> $config_target_mak
-echo "TARGET_ARCH2=$target_arch2" >> $config_target_mak
+echo "TARGET_ARCH2=$target_arch2_suffixed" >> $config_target_mak
 # TARGET_BASE_ARCH needs to be defined after TARGET_ARCH
 if [ "$TARGET_BASE_ARCH" = "" ]; then
   TARGET_BASE_ARCH=$TARGET_ARCH
@@ -3499,6 +3512,10 @@ if test "$target_softmmu" = "yes" ; then
     cflags="-DHAS_AUDIO -DHAS_AUDIO_CHOICE $cflags"
   ;;
   esac
+fi
+
+if test "$target_trustzone" = "yes" ; then
+  echo "TARGET_HAS_TRUSTZONE=y" >> $config_target_mak
 fi
 
 if test "$target_user_only" = "yes" -a "$static" = "no" -a \

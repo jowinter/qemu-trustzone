@@ -79,7 +79,10 @@ static uint32_t gen_opc_condexec_bits[OPC_BUF_SIZE];
    conditional executions state has been updated.  */
 #define DISAS_WFI 4
 #define DISAS_SWI 5
+
+#if defined(TARGET_HAS_TRUSTZONE)
 #define DISAS_SMC 6
+#endif
 
 static TCGv_ptr cpu_env;
 /* We reuse the same 64-bit temporaries for efficiency.  */
@@ -768,11 +771,13 @@ static inline void store_reg_from_load(CPUState *env, DisasContext *s,
     }
 }
 
+#if defined(TARGET_HAS_TRUSTZONE)
 static inline void gen_smc(CPUState *env, DisasContext *s)
 {
     tcg_gen_movi_i32(cpu_R[15], s->pc);
     s->is_jmp = DISAS_SMC;
 }
+#endif
 
 static inline TCGv gen_ld8s(TCGv addr, int index)
 {
@@ -6986,6 +6991,7 @@ static void disas_arm_insn(CPUState * env, DisasContext *s)
             store_reg(s, rd, tmp);
             break;
         case 7:
+#if defined(TARGET_HAS_TRUSTZONE)
             if (op1 == 1) {
                 /* bkpt */
                 ARCH(5);
@@ -7000,6 +7006,7 @@ static void disas_arm_insn(CPUState * env, DisasContext *s)
             } else {
                 goto illegal_op;
             }
+#endif      
             break;
         case 0x8: /* signed multiply */
         case 0xa:
@@ -8618,11 +8625,15 @@ static int disas_thumb2_insn(CPUState *env, DisasContext *s, uint16_t insn_hw1)
                     goto illegal_op;
 
                 if (insn & (1 << 26)) {
+#if defined(TARGET_HAS_TRUSTZONE)
                     /* Secure monitor call / smc (v6Z) */
                     if (!(env->cp15.c0_c2[4] & 0xf000) || IS_USER(s)) {
                         goto illegal_op;
                     }
                     gen_smc(env, s);
+#else
+                    goto illegal_op;
+#endif
                 } else {
                     op = (insn >> 20) & 7;
                     switch (op) {
@@ -9932,8 +9943,10 @@ static inline void gen_intermediate_code_internal(CPUState *env,
             gen_set_condexec(dc);
             if (dc->is_jmp == DISAS_SWI) {
                 gen_exception(EXCP_SWI);
+#if defined(TARGET_HAS_TRUSTZONE)
             } else if (dc->is_jmp == DISAS_SMC) {
                 gen_exception(EXCP_SMC);
+#endif
             } else {
                 gen_exception(EXCP_DEBUG);
             }
@@ -9946,8 +9959,10 @@ static inline void gen_intermediate_code_internal(CPUState *env,
         gen_set_condexec(dc);
         if (dc->is_jmp == DISAS_SWI && !dc->condjmp) {
             gen_exception(EXCP_SWI);
+#if defined(TARGET_HAS_TRUSTZONE)
         } else if (dc->is_jmp == DISAS_SMC && !dc->condjmp) {
             gen_exception(EXCP_SMC);
+#endif
         } else {
             /* FIXME: Single stepping a WFI insn will not halt
                the CPU.  */
@@ -9982,9 +9997,11 @@ static inline void gen_intermediate_code_internal(CPUState *env,
         case DISAS_SWI:
             gen_exception(EXCP_SWI);
             break;
+#if defined(TARGET_HAS_TRUSTZONE)
         case DISAS_SMC:
             gen_exception(EXCP_SMC);
             break;
+#endif
         }
         if (dc->condjmp) {
             gen_set_label(dc->condlabel);
@@ -10028,7 +10045,7 @@ void gen_intermediate_code_pc(CPUState *env, TranslationBlock *tb)
 }
 
 static const char *cpu_mode_names[16] = {
-  "usr", "fiq", "irq", "svc", "???", "???", "???", "abt",
+  "usr", "fiq", "irq", "svc", "???", "???", "mon", "abt",
   "???", "???", "???", "und", "???", "???", "???", "sys"
 };
 
