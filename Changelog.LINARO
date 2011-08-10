@@ -12,6 +12,12 @@ here. For full change detail consult the git history:
 Bug numbers refer to Launchpad qemu-linaro bugs, eg:
 https://bugs.launchpad.net/qemu-linaro/+bug/703094
 
+version 2011.08:
+ - Fixes #816791: ARMv6 cp15 barrier instructions now work
+   in linux-user mode as well as system mode
+ - Support for ARM1176JZF-S core has been added (thanks to
+   Jamie Iles <jamie@jamieiles.com>)
+
 version 2011.07:
  - Fixes a compile failure on ia64 hosts
  - Fixes #728630: syscall 369 (prlimit64) implemented in
