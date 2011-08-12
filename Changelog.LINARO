@@ -17,6 +17,8 @@ version 2011.08:
    in linux-user mode as well as system mode
  - Support for ARM1176JZF-S core has been added (thanks to
    Jamie Iles <jamie@jamieiles.com>)
+ - Add workaround for kernel bug #727781 (which has resurfaced
+   in 3.0) to suppress warnings about bad-width omap i2c accesses
 
 version 2011.07:
  - Fixes a compile failure on ia64 hosts
