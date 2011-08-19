@@ -1865,10 +1865,6 @@ void HELPER(set_cp15)(CPUState *env, uint32_t insn, uint32_t val)
                     }
                 }
 
-                if (op2 & 4) {
-                    /* Other states are only available with TrustZone */
-                    goto bad_reg;
-                }
                 ret = get_phys_addr(env, val, access_type, is_user,
                                     core_is_secure && !other_world,
                                     &phys_addr, &prot, &page_size);
