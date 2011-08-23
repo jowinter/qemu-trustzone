@@ -377,6 +377,7 @@ void cpu_reset(CPUARMState *env)
         }
     }
     env->vfp.xregs[ARM_VFP_FPEXC] = 0;
+    arm_cp15_secure(env, c2_base_mask) = 0xffffc000u;
     /* v7 performance monitor control register: same implementor
      * field as main ID register, and we implement no event counters.
      */
