@@ -316,7 +316,7 @@ static int omap_uart_init(SysBusDevice *busdev)
 {
     struct omap_uart_s *s = FROM_SYSBUS(struct omap_uart_s, busdev);
     if (!s->chr) {
-        s->chr = qemu_chr_open(busdev->qdev.id, "null", NULL);
+        s->chr = qemu_chr_new(busdev->qdev.id, "null", NULL);
     }
     /* TODO: DMA support. Current 16550A emulation does not emulate DMA mode
      * transfers via TXRDY/RXRDY pins. We create DMA irq lines here for
@@ -359,7 +359,7 @@ void omap_uart_attach(DeviceState *qdev, CharDriverState *chr,
     /* FIXME: Should reuse or destroy current s->serial */
     fprintf(stderr, "%s: WARNING - this function is broken, avoid using it\n",
             __FUNCTION__);
-    s->chr = chr ?: qemu_chr_open(label, "null", NULL);
+    s->chr = chr ?: qemu_chr_new(label, "null", NULL);
     qemu_irq *serial_irq = NULL;
     s->serial = serial_mm_init_nomap(2, s->baudrate, s->chr, 0, &serial_irq,
                                      &s->serial_read, &s->serial_write);

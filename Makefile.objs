@@ -23,7 +23,7 @@ coroutine-obj-$(CONFIG_WIN32) += coroutine-win32.o
 #######################################################################
 # block-obj-y is code used by both qemu system emulation and qemu-img
 
-block-obj-y = cutils.o cache-utils.o qemu-malloc.o qemu-option.o module.o async.o
+block-obj-y = cutils.o cache-utils.o qemu-option.o module.o async.o
 block-obj-y += nbd.o block.o aio.o aes.o qemu-config.o qemu-progress.o qemu-sockets.o
 block-obj-y += $(coroutine-obj-y)
 block-obj-$(CONFIG_POSIX) += posix-aio-compat.o
@@ -306,8 +306,11 @@ hw-obj-$(CONFIG_SOUND) += $(sound-obj-y)
 9pfs-nested-$(CONFIG_VIRTFS) = virtio-9p.o virtio-9p-debug.o
 9pfs-nested-$(CONFIG_VIRTFS) +=  virtio-9p-local.o virtio-9p-xattr.o
 9pfs-nested-$(CONFIG_VIRTFS) +=   virtio-9p-xattr-user.o virtio-9p-posix-acl.o
+9pfs-nested-$(CONFIG_VIRTFS) += virtio-9p-coth.o cofs.o codir.o cofile.o
+9pfs-nested-$(CONFIG_VIRTFS) += coxattr.o
 
 hw-obj-$(CONFIG_REALLY_VIRTFS) += $(addprefix 9pfs/, $(9pfs-nested-y))
+$(addprefix 9pfs/, $(9pfs-nested-y)): QEMU_CFLAGS+=$(GLIB_CFLAGS)
 
 
 ######################################################################
@@ -367,7 +370,7 @@ trace-dtrace.lo: trace-dtrace.dtrace
 	@echo "missing libtool. please install and rerun configure."; exit 1
 else
 trace-dtrace.lo: trace-dtrace.dtrace
-	$(call quiet-command,libtool --mode=compile --tag=CC dtrace -o $@ -G -s $<, "  lt GEN trace-dtrace.o")
+	$(call quiet-command,$(LIBTOOL) --mode=compile --tag=CC dtrace -o $@ -G -s $<, "  lt GEN trace-dtrace.o")
 endif
 
 simpletrace.o: simpletrace.c $(GENERATED_HEADERS)
@@ -394,8 +397,18 @@ qapi-nested-y = qapi-visit-core.o qmp-input-visitor.o qmp-output-visitor.o qapi-
 qapi-nested-y += qmp-registry.o qmp-dispatch.o
 qapi-obj-y = $(addprefix qapi/, $(qapi-nested-y))
 
+######################################################################
+# guest agent
+
+qga-nested-y = guest-agent-commands.o guest-agent-command-state.o
+qga-obj-y = $(addprefix qga/, $(qga-nested-y))
+qga-obj-y += qemu-ga.o qemu-tool.o qemu-error.o qemu-sockets.o module.o qemu-option.o cutils.o osdep.o
+qga-obj-$(CONFIG_WIN32) += oslib-win32.o
+qga-obj-$(CONFIG_POSIX) += oslib-posix.o
+
 vl.o: QEMU_CFLAGS+=$(GPROF_CFLAGS)
 
 vl.o: QEMU_CFLAGS+=$(SDL_CFLAGS)
 
-vl.o: QEMU_CFLAGS+=$(GLIB_CFLAGS)
+QEMU_CFLAGS+=$(GLIB_CFLAGS)
+

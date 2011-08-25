@@ -58,7 +58,7 @@ static void beagle_common_init(ram_addr_t ram_size,
                         const char *initrd_filename,
                         int cpu_model)
 {
-    struct beagle_s *s = (struct beagle_s *) qemu_mallocz(sizeof(*s));
+    struct beagle_s *s = (struct beagle_s *) g_malloc0(sizeof(*s));
     DriveInfo *dmtd = drive_get(IF_MTD, 0, 0);
     DriveInfo *dsd  = drive_get(IF_SD, 0, 0);
     
@@ -73,7 +73,7 @@ static void beagle_common_init(ram_addr_t ram_size,
 
     s->nand = nand_init(dmtd ? dmtd->bdrv : NULL, NAND_MFR_MICRON, 0xba);
     nand_setpins(s->nand, 0, 0, 0, 1, 0); /* no write-protect */
-    omap_gpmc_attach(s->cpu->gpmc, BEAGLE_NAND_CS, s->nand, 0, 2);
+    omap_gpmc_attach_nand(s->cpu->gpmc, BEAGLE_NAND_CS, s->nand);
 
     if (dsd) {
         omap3_mmc_attach(s->cpu->omap3_mmc[0], dsd->bdrv, 0, 0);
@@ -101,7 +101,8 @@ static void beagle_common_init(ram_addr_t ram_size,
     } else {
         hw_error("%s: no NIC for smc91c111\n", __FUNCTION__);
     }
-    omap_gpmc_attach(s->cpu->gpmc, BEAGLE_SMC_CS, s->smc, 0, 0);
+    omap_gpmc_attach(s->cpu->gpmc, BEAGLE_SMC_CS,
+                     sysbus_mmio_get_region(sysbus_from_qdev(s->smc), 0));
 
     /* Wire up an I2C slave which returns EDID monitor information;
      * newer Linux kernels won't turn on the display unless they

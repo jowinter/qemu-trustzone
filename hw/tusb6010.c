@@ -28,6 +28,7 @@
 
 typedef struct TUSBState {
     SysBusDevice busdev;
+    MemoryRegion iomem[2];
     qemu_irq irq;
     MUSBState *musb;
     QEMUTimer *otg_timer;
@@ -638,16 +639,12 @@ static void tusb_async_writew(void *opaque, target_phys_addr_t addr,
     }
 }
 
-static CPUReadMemoryFunc * const tusb_async_readfn[] = {
-    tusb_async_readb,
-    tusb_async_readh,
-    tusb_async_readw,
-};
-
-static CPUWriteMemoryFunc * const tusb_async_writefn[] = {
-    tusb_async_writeb,
-    tusb_async_writeh,
-    tusb_async_writew,
+static const MemoryRegionOps tusb_async_ops = {
+    .old_mmio = {
+        .read = { tusb_async_readb, tusb_async_readh, tusb_async_readw, },
+        .write =  { tusb_async_writeb, tusb_async_writeh, tusb_async_writew, },
+    },
+    .endianness = DEVICE_NATIVE_ENDIAN,
 };
 
 static void tusb_otg_tick(void *opaque)
@@ -755,11 +752,10 @@ static int tusb6010_init(SysBusDevice *dev)
     s->otg_timer_val = 0;
     s->otg_timer = qemu_new_timer_ns(vm_clock, tusb_otg_tick, s);
     s->pwr_timer = qemu_new_timer_ns(vm_clock, tusb_power_tick, s);
-    sysbus_init_mmio(dev, 0x1000, 0); /* FIXME: sync interface?? */
-    sysbus_init_mmio(dev, 0x1000,
-                     cpu_register_io_memory(tusb_async_readfn,
-                                            tusb_async_writefn, s,
-                                            DEVICE_NATIVE_ENDIAN));
+    memory_region_init_io(&s->iomem[1], &tusb_async_ops, s, "tusb-async",
+                          UINT32_MAX);
+    sysbus_init_mmio_region(dev, &s->iomem[0]);
+    sysbus_init_mmio_region(dev, &s->iomem[1]);
     sysbus_init_irq(dev, &s->irq);
     qdev_init_gpio_in(&dev->qdev, tusb6010_irq, __musb_irq_max + 1);
     s->musb = musb_init(&dev->qdev, 1);

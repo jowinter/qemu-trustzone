@@ -40,26 +40,6 @@ void sysbus_connect_irq(SysBusDevice *dev, int n, qemu_irq irq)
     }
 }
 
-void sysbus_mmio_unmap(SysBusDevice *dev, int n)
-{
-    assert(n >= 0 && n < dev->num_mmio);
-
-    if (dev->mmio[n].addr == (target_phys_addr_t)-1) {
-        /* region already unmapped */
-        return;
-    }
-    if (dev->mmio[n].memory) {
-        memory_region_del_subregion(get_system_memory(),
-                                    dev->mmio[n].memory);
-    } else if (dev->mmio[n].cb) {
-        dev->mmio[n].cb(dev, (target_phys_addr_t)-1);
-    } else {
-        cpu_register_physical_memory(dev->mmio[n].addr, dev->mmio[n].size,
-                                     IO_MEM_UNASSIGNED);
-    }
-    dev->mmio[n].addr = (target_phys_addr_t)-1;
-}
-
 void sysbus_mmio_map(SysBusDevice *dev, int n, target_phys_addr_t addr)
 {
     assert(n >= 0 && n < dev->num_mmio);
@@ -73,6 +53,8 @@ void sysbus_mmio_map(SysBusDevice *dev, int n, target_phys_addr_t addr)
         if (dev->mmio[n].memory) {
             memory_region_del_subregion(get_system_memory(),
                                         dev->mmio[n].memory);
+        } else if (dev->mmio[n].unmap) {
+            dev->mmio[n].unmap(dev, dev->mmio[n].addr);
         } else {
             cpu_register_physical_memory(dev->mmio[n].addr, dev->mmio[n].size,
                                          IO_MEM_UNASSIGNED);
@@ -91,25 +73,6 @@ void sysbus_mmio_map(SysBusDevice *dev, int n, target_phys_addr_t addr)
     }
 }
 
-void sysbus_mmio_resize(SysBusDevice *dev, int n, target_phys_addr_t newsize)
-{
-    target_phys_addr_t addr;
-    assert(n >= 0 && n < dev->num_mmio);
-    if (newsize != dev->mmio[n].size) {
-        addr = dev->mmio[n].addr;
-        if (addr != (target_phys_addr_t)-1) {
-            /* The expected use case is that resizes will only happen
-             * on unmapped regions, but we handle the already-mapped
-             * case by temporarily unmapping and remapping.
-             */
-            sysbus_mmio_unmap(dev, n);
-        }
-        dev->mmio[n].size = newsize;
-        if (addr != (target_phys_addr_t)-1) {
-            sysbus_mmio_map(dev, n, addr);
-        }
-    }
-}
 
 /* Request an IRQ source.  The actual IRQ object may be populated later.  */
 void sysbus_init_irq(SysBusDevice *dev, qemu_irq *p)
@@ -144,16 +107,17 @@ void sysbus_init_mmio(SysBusDevice *dev, target_phys_addr_t size,
     dev->mmio[n].iofunc = iofunc;
 }
 
-void sysbus_init_mmio_cb(SysBusDevice *dev, target_phys_addr_t size,
-                         mmio_mapfunc cb)
+void sysbus_init_mmio_cb2(SysBusDevice *dev,
+                          mmio_mapfunc cb, mmio_mapfunc unmap)
 {
     int n;
 
     assert(dev->num_mmio < QDEV_MAX_MMIO);
     n = dev->num_mmio++;
     dev->mmio[n].addr = -1;
-    dev->mmio[n].size = size;
+    dev->mmio[n].size = 0;
     dev->mmio[n].cb = cb;
+    dev->mmio[n].unmap = unmap;
 }
 
 void sysbus_init_mmio_region(SysBusDevice *dev, MemoryRegion *memory)
@@ -165,6 +129,11 @@ void sysbus_init_mmio_region(SysBusDevice *dev, MemoryRegion *memory)
     dev->mmio[n].addr = -1;
     dev->mmio[n].size = memory_region_size(memory);
     dev->mmio[n].memory = memory;
+}
+
+MemoryRegion* sysbus_mmio_get_region(SysBusDevice *dev, int n)
+{
+    return dev->mmio[n].memory;
 }
 
 void sysbus_init_ioports(SysBusDevice *dev, pio_addr_t ioport, pio_addr_t size)
@@ -197,8 +166,8 @@ void sysbus_register_dev(const char *name, size_t size, sysbus_initfn init)
 {
     SysBusDeviceInfo *info;
 
-    info = qemu_mallocz(sizeof(*info));
-    info->qdev.name = qemu_strdup(name);
+    info = g_malloc0(sizeof(*info));
+    info->qdev.name = g_strdup(name);
     info->qdev.size = size;
     info->init = init;
     sysbus_register_withprop(info);

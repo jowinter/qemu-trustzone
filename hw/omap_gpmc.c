@@ -21,12 +21,14 @@
 #include "hw.h"
 #include "flash.h"
 #include "omap.h"
-#include "sysbus.h"
+#include "memory.h"
+#include "exec-memory.h"
 
 /* General-Purpose Memory Controller */
 struct omap_gpmc_s {
     qemu_irq irq;
     qemu_irq drq;
+    MemoryRegion iomem;
     int accept_256;
 
     uint8_t revision;
@@ -38,9 +40,10 @@ struct omap_gpmc_s {
     uint16_t config;
     struct omap_gpmc_cs_file_s {
         uint32_t config[7];
+        MemoryRegion *iomem;
+        MemoryRegion container;
+        MemoryRegion nandiomem;
         DeviceState *dev;
-        int mmio_index;
-        int iomemtype;
     } cs_file[8];
     int ecc_cs;
     int ecc_ptr;
@@ -52,13 +55,15 @@ struct omap_gpmc_s {
         int startengine; /* GPMC_PREFETCH_CONTROL:STARTENGINE */
         int fifopointer; /* GPMC_PREFETCH_STATUS:FIFOPOINTER */
         int count; /* GPMC_PREFETCH_STATUS:COUNTVALUE */
-        int iomemtype;
+        MemoryRegion iomem;
         uint8_t fifo[64];
     } prefetch;
 };
 
 #define OMAP_GPMC_8BIT 0
 #define OMAP_GPMC_16BIT 1
+#define OMAP_GPMC_NOR 0
+#define OMAP_GPMC_NAND 2
 
 static int omap_gpmc_devtype(struct omap_gpmc_cs_file_s *f)
 {
@@ -67,7 +72,11 @@ static int omap_gpmc_devtype(struct omap_gpmc_cs_file_s *f)
 
 static int omap_gpmc_devsize(struct omap_gpmc_cs_file_s *f)
 {
-    return (f->config[0] >> 12) & 3;
+    /* devsize field is really 2 bits but we ignore the high
+     * bit to ensure consistent behaviour if the guest sets
+     * it (values 2 and 3 are reserved in the TRM)
+     */
+    return (f->config[0] >> 12) & 1;
 }
 
 /* Extract the chip-select value from the prefetch config1 register */
@@ -112,126 +121,95 @@ static void omap_gpmc_dma_update(struct omap_gpmc_s *s, int value)
  * all addresses in the region behave like accesses to the relevant
  * GPMC_NAND_DATA_i register (which is actually implemented to call these)
  */
-static uint32_t omap_nand_read8(void *opaque, target_phys_addr_t addr)
+static uint64_t omap_nand_read(void *opaque, target_phys_addr_t addr,
+                               unsigned size)
 {
     struct omap_gpmc_cs_file_s *f = (struct omap_gpmc_cs_file_s *)opaque;
+    uint64_t v;
     nand_setpins(f->dev, 0, 0, 0, 1, 0);
     switch (omap_gpmc_devsize(f)) {
     case OMAP_GPMC_8BIT:
-        return nand_getio(f->dev);
+        v = nand_getio(f->dev);
+        if (size == 1) {
+            return v;
+        }
+        v |= (nand_getio(f->dev) << 8);
+        if (size == 2) {
+            return v;
+        }
+        v |= (nand_getio(f->dev) << 16);
+        v |= (nand_getio(f->dev) << 24);
+        return v;
     case OMAP_GPMC_16BIT:
-        /* reading 8bits from a 16bit device?! */
-        return nand_getio(f->dev);
+        v = nand_getio(f->dev);
+        if (size == 1) {
+            /* 8 bit read from 16 bit device : probably a guest bug */
+            return v & 0xff;
+        }
+        if (size == 2) {
+            return v;
+        }
+        v |= (nand_getio(f->dev) << 16);
+        return v;
     default:
-        return 0;
+        abort();
     }
 }
 
-static uint32_t omap_nand_read16(void *opaque, target_phys_addr_t addr)
+static void omap_nand_setio(DeviceState *dev, uint64_t value,
+                            int nandsize, int size)
 {
-    struct omap_gpmc_cs_file_s *f = (struct omap_gpmc_cs_file_s *)opaque;
-    uint32_t x1, x2;
-    nand_setpins(f->dev, 0, 0, 0, 1, 0);
-    switch (omap_gpmc_devsize(f)) {
+    /* Write the specified value to the NAND device, respecting
+     * both size of the NAND device and size of the write access.
+     */
+    switch (nandsize) {
     case OMAP_GPMC_8BIT:
-        x1 = nand_getio(f->dev);
-        x2 = nand_getio(f->dev);
-        return (x2 << 8) | x1;
+        switch (size) {
+        case 1:
+            nand_setio(dev, value & 0xff);
+            break;
+        case 2:
+            nand_setio(dev, value & 0xff);
+            nand_setio(dev, (value >> 8) & 0xff);
+            break;
+        case 4:
+        default:
+            nand_setio(dev, value & 0xff);
+            nand_setio(dev, (value >> 8) & 0xff);
+            nand_setio(dev, (value >> 16) & 0xff);
+            nand_setio(dev, (value >> 24) & 0xff);
+            break;
+        }
     case OMAP_GPMC_16BIT:
-        return nand_getio(f->dev);
-    default:
-        return 0;
+        switch (size) {
+        case 1:
+            /* writing to a 16bit device with 8bit access is probably a guest
+             * bug; pass the value through anyway.
+             */
+        case 2:
+            nand_setio(dev, value & 0xffff);
+            break;
+        case 4:
+        default:
+            nand_setio(dev, value & 0xffff);
+            nand_setio(dev, (value >> 16) & 0xffff);
+            break;
+        }
     }
 }
 
-static uint32_t omap_nand_read32(void *opaque, target_phys_addr_t addr)
-{
-    struct omap_gpmc_cs_file_s *f = (struct omap_gpmc_cs_file_s *)opaque;
-    uint32_t x1, x2, x3, x4;
-    nand_setpins(f->dev, 0, 0, 0, 1, 0);
-    switch (omap_gpmc_devsize(f)) {
-    case OMAP_GPMC_8BIT:
-        x1 = nand_getio(f->dev);
-        x2 = nand_getio(f->dev);
-        x3 = nand_getio(f->dev);
-        x4 = nand_getio(f->dev);
-        return (x4 << 24) | (x3 << 16) | (x2 << 8) | x1;
-    case OMAP_GPMC_16BIT:
-        x1 = nand_getio(f->dev);
-        x2 = nand_getio(f->dev);
-        return (x2 << 16) | x1;
-    default:
-        return 0;
-    }
-}
-
-static void omap_nand_write8(void *opaque, target_phys_addr_t addr,
-                             uint32_t value)
-{
-    struct omap_gpmc_cs_file_s *f = (struct omap_gpmc_cs_file_s *)opaque;
-    nand_setpins(f->dev, 0, 0, 0, 1, 0);
-    switch (omap_gpmc_devsize(f)) {
-    case OMAP_GPMC_8BIT:
-        nand_setio(f->dev, value & 0xff);
-        break;
-    case OMAP_GPMC_16BIT:
-        /* writing to a 16bit device with 8bit access!? */
-        nand_setio(f->dev, value & 0xffff);
-        break;
-    default:
-        break;
-    }
-}
-
-static void omap_nand_write16(void *opaque, target_phys_addr_t addr,
-                              uint32_t value)
-{
-    struct omap_gpmc_cs_file_s *f = (struct omap_gpmc_cs_file_s *)opaque;
-    nand_setpins(f->dev, 0, 0, 0, 1, 0);
-    switch (omap_gpmc_devsize(f)) {
-    case OMAP_GPMC_8BIT:
-        nand_setio(f->dev, value & 0xff);
-        nand_setio(f->dev, (value >> 8) & 0xff);
-        break;
-    case OMAP_GPMC_16BIT:
-        nand_setio(f->dev, value & 0xffff);
-        break;
-    default:
-        break;
-    }
-}
-
-static void omap_nand_write32(void *opaque, target_phys_addr_t addr,
-                              uint32_t value)
+static void omap_nand_write(void *opaque, target_phys_addr_t addr,
+                            uint64_t value, unsigned size)
 {
     struct omap_gpmc_cs_file_s *f = (struct omap_gpmc_cs_file_s *)opaque;
     nand_setpins(f->dev, 0, 0, 0, 1, 0);
-    switch (omap_gpmc_devsize(f)) {
-    case OMAP_GPMC_8BIT:
-        nand_setio(f->dev, value & 0xff);
-        nand_setio(f->dev, (value >> 8) & 0xff);
-        nand_setio(f->dev, (value >> 16) & 0xff);
-        nand_setio(f->dev, (value >> 24) & 0xff);
-        break;
-    case OMAP_GPMC_16BIT:
-        nand_setio(f->dev, value & 0xffff);
-        nand_setio(f->dev, (value >> 16) & 0xffff);
-        break;
-    default:
-        break;
-    }
+    omap_nand_setio(f->dev, value, omap_gpmc_devsize(f), size);
 }
 
-static CPUReadMemoryFunc *omap_nand_readfn[] = {
-    omap_nand_read8,
-    omap_nand_read16,
-    omap_nand_read32,
-};
-
-static CPUWriteMemoryFunc *omap_nand_writefn[] = {
-    omap_nand_write8,
-    omap_nand_write16,
-    omap_nand_write32,
+static const MemoryRegionOps omap_nand_ops = {
+    .read = omap_nand_read,
+    .write = omap_nand_write,
+    .endianness = DEVICE_NATIVE_ENDIAN,
 };
 
 static void fill_prefetch_fifo(struct omap_gpmc_s *s)
@@ -274,11 +252,11 @@ static void fill_prefetch_fifo(struct omap_gpmc_s *s)
     }
     while (fptr < 64) {
         if (is16bit) {
-            uint32_t v = omap_nand_read16(&s->cs_file[cs], 0);
+            uint32_t v = omap_nand_read(&s->cs_file[cs], 0, 2);
             s->prefetch.fifo[fptr++] = v & 0xff;
             s->prefetch.fifo[fptr++] = (v >> 8) & 0xff;
         } else {
-            s->prefetch.fifo[fptr++] = omap_nand_read8(&s->cs_file[cs], 0);
+            s->prefetch.fifo[fptr++] = omap_nand_read(&s->cs_file[cs], 0, 1);
         }
     }
     if (s->prefetch.startengine && (s->prefetch.count == 0)) {
@@ -301,7 +279,8 @@ static void fill_prefetch_fifo(struct omap_gpmc_s *s)
  * engine is enabled -- all addresses in the region behave alike:
  * data is read or written to the FIFO.
  */
-static uint32_t omap_gpmc_prefetch_read8(void *opaque, target_phys_addr_t addr)
+static uint64_t omap_gpmc_prefetch_read(void *opaque, target_phys_addr_t addr,
+                                        unsigned size)
 {
     struct omap_gpmc_s *s = (struct omap_gpmc_s *) opaque;
     uint32_t data;
@@ -329,23 +308,9 @@ static uint32_t omap_gpmc_prefetch_read8(void *opaque, target_phys_addr_t addr)
     omap_gpmc_int_update(s);
     return data;
 }
-static uint32_t omap_gpmc_prefetch_read16(void *opaque, target_phys_addr_t addr)
-{
-    uint32_t r = omap_gpmc_prefetch_read8(opaque, addr);
-    r |= (omap_gpmc_prefetch_read8(opaque, addr) << 8);
-    return r;
-}
-static uint32_t omap_gpmc_prefetch_read32(void *opaque, target_phys_addr_t addr)
-{
-    uint32_t r = omap_gpmc_prefetch_read8(opaque, addr);
-    r |= (omap_gpmc_prefetch_read8(opaque, addr) << 8);
-    r |= (omap_gpmc_prefetch_read8(opaque, addr) << 16);
-    r |= (omap_gpmc_prefetch_read8(opaque, addr) << 24);
-    return r;
-}
 
-static void omap_gpmc_prefetch_write8(void *opaque, target_phys_addr_t addr,
-                                      uint32_t value)
+static void omap_gpmc_prefetch_write(void *opaque, target_phys_addr_t addr,
+                                     uint64_t value, unsigned size)
 {
     struct omap_gpmc_s *s = (struct omap_gpmc_s *) opaque;
     int cs = prefetch_cs(s->prefetch.config1);
@@ -377,13 +342,13 @@ static void omap_gpmc_prefetch_write8(void *opaque, target_phys_addr_t addr,
             s->prefetch.fifopointer--;
         } else {
             value = (value << 8) | s->prefetch.fifo[0];
-            omap_nand_write16(&s->cs_file[cs], 0, value);
+            omap_nand_write(&s->cs_file[cs], 0, value, 2);
             s->prefetch.count--;
             s->prefetch.fifopointer = 64;
         }
     } else {
         /* Just write the byte : fifopointer remains 64 at all times */
-        omap_nand_write8(&s->cs_file[cs], 0, value);
+        omap_nand_write(&s->cs_file[cs], 0, value, 1);
         s->prefetch.count--;
     }
     if (s->prefetch.count == 0) {
@@ -393,32 +358,29 @@ static void omap_gpmc_prefetch_write8(void *opaque, target_phys_addr_t addr,
     }
     omap_gpmc_int_update(s);
 }
-static void omap_gpmc_prefetch_write16(void *opaque, target_phys_addr_t addr,
-                                       uint32_t value)
-{
-    omap_gpmc_prefetch_write8(opaque, addr, value & 0xff);
-    omap_gpmc_prefetch_write8(opaque, addr, (value >> 8) & 0xff);
-}
-static void omap_gpmc_prefetch_write32(void *opaque, target_phys_addr_t addr,
-                                       uint32_t value)
-{
-    omap_gpmc_prefetch_write8(opaque, addr, value & 0xff);
-    omap_gpmc_prefetch_write8(opaque, addr, (value >> 8) & 0xff);
-    omap_gpmc_prefetch_write8(opaque, addr, (value >> 16) & 0xff);
-    omap_gpmc_prefetch_write8(opaque, addr, (value >> 24) & 0xff);
-}
 
-static CPUReadMemoryFunc *omap_gpmc_prefetch_readfn[] = {
-    omap_gpmc_prefetch_read8,
-    omap_gpmc_prefetch_read16,
-    omap_gpmc_prefetch_read32,
+static const MemoryRegionOps omap_prefetch_ops = {
+    .read = omap_gpmc_prefetch_read,
+    .write = omap_gpmc_prefetch_write,
+    .endianness = DEVICE_NATIVE_ENDIAN,
+    .impl.min_access_size = 1,
+    .impl.max_access_size = 1,
 };
 
-static CPUWriteMemoryFunc *omap_gpmc_prefetch_writefn[] = {
-    omap_gpmc_prefetch_write8,
-    omap_gpmc_prefetch_write16,
-    omap_gpmc_prefetch_write32,
-};
+static MemoryRegion *omap_gpmc_cs_memregion(struct omap_gpmc_s *s, int cs)
+{
+    /* Return the MemoryRegion* to map/unmap for this chipselect */
+    struct omap_gpmc_cs_file_s *f = &s->cs_file[cs];
+    if (omap_gpmc_devtype(f) == OMAP_GPMC_NOR) {
+        return f->iomem;
+    }
+    if ((s->prefetch.config1 & 0x80) &&
+        (prefetch_cs(s->prefetch.config1) == cs)) {
+        /* The prefetch engine is enabled for this CS: map the FIFO */
+        return &s->prefetch.iomem;
+    }
+    return &f->nandiomem;
+}
 
 static void omap_gpmc_cs_map(struct omap_gpmc_s *s, int cs)
 {
@@ -426,41 +388,34 @@ static void omap_gpmc_cs_map(struct omap_gpmc_s *s, int cs)
     uint32_t mask = (f->config[6] >> 8) & 0xf;
     uint32_t base = f->config[6] & 0x3f;
     uint32_t size;
+
+    if (!f->iomem && !f->dev) {
+        return;
+    }
+
     if (!(f->config[6] & (1 << 6))) {
         /* Do nothing unless CSVALID */
         return;
     }
+
     /* TODO: check for overlapping regions and report access errors */
     if (mask != 0x8 && mask != 0xc && mask != 0xe && mask != 0xf
          && !(s->accept_256 && !mask)) {
         fprintf(stderr, "%s: invalid chip-select mask address (0x%x)\n",
                  __func__, mask);
     }
-    base <<= 24;
+
     size = (0x0fffffff & ~(mask << 24)) + 1;
-    switch (omap_gpmc_devtype(f)) {
-    case OMAP_GPMC_NOR:
-        /* TODO: rather than setting the size of the mapping (which should be
-         * constant), the mask should cause wrapping of the address space, so
-         * that the same memory becomes accessible at every <i>size</i> bytes
-         * starting from <i>base</i>.  */
-        if (f->dev && f->mmio_index >= 0) {
-            sysbus_mmio_resize(sysbus_from_qdev(f->dev), f->mmio_index, size);
-            sysbus_mmio_map(sysbus_from_qdev(f->dev), f->mmio_index, base);
-        }
-        break;
-    case OMAP_GPMC_NAND:
-        if ((s->prefetch.config1 & 0x80) &&
-            (prefetch_cs(s->prefetch.config1) == cs)) {
-            /* The prefetch engine is enabled for this CS: map the FIFO */
-            cpu_register_physical_memory(base, size, s->prefetch.iomemtype);
-        } else {
-            cpu_register_physical_memory(base, size, f->iomemtype);
-        }
-        break;
-    default:
-        break;
-    }
+
+    /* TODO: rather than setting the size of the mapping (which should be
+     * constant), the mask should cause wrapping of the address space, so
+     * that the same memory becomes accessible at every <i>size</i> bytes
+     * starting from <i>base</i>.  */
+    memory_region_init(&f->container, "omap-gpmc-file", size);
+    memory_region_add_subregion(&f->container, 0,
+                                omap_gpmc_cs_memregion(s, cs));
+    memory_region_add_subregion(get_system_memory(), base << 24,
+                                &f->container);
 }
 
 static void omap_gpmc_cs_unmap(struct omap_gpmc_s *s, int cs)
@@ -470,24 +425,13 @@ static void omap_gpmc_cs_unmap(struct omap_gpmc_s *s, int cs)
         /* Do nothing unless CSVALID */
         return;
     }
-
-    switch (omap_gpmc_devtype(f)) {
-    case OMAP_GPMC_NOR:
-        if (f->dev && f->mmio_index >= 0) {
-            sysbus_mmio_unmap(sysbus_from_qdev(f->dev), f->mmio_index);
-        }
-        break;
-    case OMAP_GPMC_NAND:
-        {
-            uint32_t mask = (f->config[6] >> 8) & 0xf;
-            uint32_t base = (f->config[6] & 0x3f) << 24;
-            uint32_t size = (0x0fffffff & ~(mask << 24)) + 1;
-            cpu_register_physical_memory(base, size, IO_MEM_UNASSIGNED);
-        }
-        break;
-    default:
-        break;
+    if (!f->iomem && !f->dev) {
+        return;
     }
+    memory_region_del_subregion(get_system_memory(), &f->container);
+    memory_region_del_subregion(&f->container,
+                                omap_gpmc_cs_memregion(s, cs));
+    memory_region_destroy(&f->container);
 }
 
 void omap_gpmc_reset(struct omap_gpmc_s *s)
@@ -512,6 +456,8 @@ void omap_gpmc_reset(struct omap_gpmc_s *s)
         s->cs_file[i].config[3] = 0x10031003;
         s->cs_file[i].config[4] = 0x10f1111;
         s->cs_file[i].config[5] = 0;
+        s->cs_file[i].config[6] = 0xf00 | (i ? 0 : 1 << 6);
+
         s->cs_file[i].config[6] = 0xf00;
         /* FIXME: attached devices should be probed for some of the CFG1 bits
          * for now we just keep those bits intact over resets as they are set
@@ -533,11 +479,35 @@ void omap_gpmc_reset(struct omap_gpmc_s *s)
         ecc_reset(&s->ecc[i]);
 }
 
-static uint32_t omap_gpmc_read32(void *opaque, target_phys_addr_t addr)
+static int gpmc_wordaccess_only(target_phys_addr_t addr)
+{
+    /* Return true if the register offset is to a register that
+     * only permits word width accesses.
+     * Non-word accesses are only OK for GPMC_NAND_DATA/ADDRESS/COMMAND
+     * for any chipselect.
+     */
+    if (addr >= 0x60 && addr <= 0x1d4) {
+        int cs = (addr - 0x60) / 0x30;
+        addr -= cs * 0x30;
+        if (addr >= 0x7c && addr < 0x88) {
+            /* GPMC_NAND_COMMAND, GPMC_NAND_ADDRESS, GPMC_NAND_DATA */
+            return 0;
+        }
+    }
+    return 1;
+}
+
+
+static uint64_t omap_gpmc_read(void *opaque, target_phys_addr_t addr,
+                               unsigned size)
 {
     struct omap_gpmc_s *s = (struct omap_gpmc_s *) opaque;
     int cs;
     struct omap_gpmc_cs_file_s *f;
+
+    if (size != 4 && gpmc_wordaccess_only(addr)) {
+        return omap_badwidth_read32(opaque, addr);
+    }
 
     switch (addr) {
     case 0x000:	/* GPMC_REVISION */
@@ -587,9 +557,9 @@ static uint32_t omap_gpmc_read32(void *opaque, target_phys_addr_t addr)
             return f->config[5];
         case 0x78:      /* GPMC_CONFIG7 */
             return f->config[6];
-        case 0x84:      /* GPMC_NAND_DATA */
+        case 0x84 ... 0x87: /* GPMC_NAND_DATA */
             if (omap_gpmc_devtype(f) == OMAP_GPMC_NAND) {
-                return omap_nand_read32(f, 0);
+                return omap_nand_read(f, 0, size);
             }
             return 0;
         }
@@ -633,69 +603,16 @@ static uint32_t omap_gpmc_read32(void *opaque, target_phys_addr_t addr)
     return 0;
 }
 
-static uint32_t omap_gpmc_read8(void *opaque, target_phys_addr_t addr)
+static void omap_gpmc_write(void *opaque, target_phys_addr_t addr,
+                            uint64_t value, unsigned size)
 {
     struct omap_gpmc_s *s = (struct omap_gpmc_s *) opaque;
     int cs;
     struct omap_gpmc_cs_file_s *f;
 
-    switch (addr) {
-    case 0x060 ... 0x1d4:
-        cs = (addr - 0x060) / 0x30;
-        addr -= cs * 0x30;
-        f = s->cs_file + cs;
-        switch (addr) {
-        case 0x84 ... 0x87: /* GPMC_NAND_DATA */
-            if (omap_gpmc_devtype(f) == OMAP_GPMC_NAND) {
-                return omap_nand_read8(f, 0);
-            }
-            return 0;
-        default:
-            break;
-        }
-        break;
-    default:
-        break;
+    if (size != 4 && gpmc_wordaccess_only(addr)) {
+        return omap_badwidth_write32(opaque, addr, value);
     }
-    OMAP_BAD_REG(addr);
-    return 0;
-}
-
-static uint32_t omap_gpmc_read16(void *opaque, target_phys_addr_t addr)
-{
-    struct omap_gpmc_s *s = (struct omap_gpmc_s *) opaque;
-    int cs;
-    struct omap_gpmc_cs_file_s *f;
-
-    switch (addr) {
-    case 0x060 ... 0x1d4:
-        cs = (addr - 0x060) / 0x30;
-        addr -= cs * 0x30;
-        f = s->cs_file + cs;
-        switch (addr) {
-        case 0x84: /* GPMC_NAND_DATA */
-        case 0x86:
-            if (omap_gpmc_devtype(f) == OMAP_GPMC_NAND) {
-                return omap_nand_read16(f, 0);
-            }
-            return 0;
-        default:
-            break;
-        }
-        break;
-    default:
-        break;
-    }
-    OMAP_BAD_REG(addr);
-    return 0;
-}
-
-static void omap_gpmc_write32(void *opaque, target_phys_addr_t addr,
-                              uint32_t value)
-{
-    struct omap_gpmc_s *s = (struct omap_gpmc_s *) opaque;
-    int cs;
-    struct omap_gpmc_cs_file_s *f;
 
     switch (addr) {
     case 0x000:	/* GPMC_REVISION */
@@ -705,12 +622,12 @@ static void omap_gpmc_write32(void *opaque, target_phys_addr_t addr,
     case 0x200 ... 0x220:	/* GPMC_ECC_RESULT */
     case 0x234:	/* GPMC_PSA_LSB */
     case 0x238:	/* GPMC_PSA_MSB */
-        OMAP_RO_REGV(addr, value);
+        OMAP_RO_REG(addr);
         break;
 
     case 0x010:	/* GPMC_SYSCONFIG */
         if ((value >> 3) == 0x3)
-            fprintf(stderr, "%s: bad SDRAM idle mode %i\n",
+            fprintf(stderr, "%s: bad SDRAM idle mode %"PRIi64"\n",
                             __FUNCTION__, value >> 3);
         if (value & 2)
             omap_gpmc_reset(s);
@@ -769,38 +686,21 @@ static void omap_gpmc_write32(void *opaque, target_phys_addr_t addr,
                 omap_gpmc_cs_map(s, cs);
             }
             break;
-        case 0x7c:      /* GPMC_NAND_COMMAND */
-        case 0x80:      /* GPMC_NAND_ADDRESS */
+        case 0x7c ... 0x7f: /* GPMC_NAND_COMMAND */
             if (omap_gpmc_devtype(f) == OMAP_GPMC_NAND) {
-                switch (addr) {
-                case 0x7c: /* CLE */
-                    nand_setpins(f->dev, 1, 0, 0, 1, 0);
-                    break;
-                case 0x80: /* ALE */
-                    nand_setpins(f->dev, 0, 1, 0, 1, 0);
-                    break;
-                default:
-                    break;
-                }
-                switch (omap_gpmc_devsize(f)) {
-                case OMAP_GPMC_8BIT:
-                    nand_setio(f->dev, value & 0xff);
-                    nand_setio(f->dev, (value >> 8) & 0xff);
-                    nand_setio(f->dev, (value >> 16) & 0xff);
-                    nand_setio(f->dev, (value >> 24) & 0xff);
-                    break;
-                case OMAP_GPMC_16BIT:
-                    nand_setio(f->dev, value & 0xffff);
-                    nand_setio(f->dev, (value >> 16) & 0xffff);
-                    break;
-                default:
-                    break;
-                }
+                nand_setpins(f->dev, 1, 0, 0, 1, 0); /* CLE */
+                omap_nand_setio(f->dev, value, omap_gpmc_devsize(f), size);
             }
             break;
-        case 0x84:  /* GPMC_NAND_DATA */
+        case 0x80 ... 0x83: /* GPMC_NAND_ADDRESS */
             if (omap_gpmc_devtype(f) == OMAP_GPMC_NAND) {
-                omap_nand_write32(f, 0, value);
+                nand_setpins(f->dev, 0, 1, 0, 1, 0); /* ALE */
+                omap_nand_setio(f->dev, value, omap_gpmc_devsize(f), size);
+            }
+            break;
+        case 0x84 ... 0x87: /* GPMC_NAND_DATA */
+            if (omap_gpmc_devtype(f) == OMAP_GPMC_NAND) {
+                omap_nand_write(f, 0, value, size);
             }
             break;
         default:
@@ -889,149 +789,27 @@ static void omap_gpmc_write32(void *opaque, target_phys_addr_t addr,
 
     default:
     bad_reg:
-        OMAP_BAD_REGV(addr, value);
+        OMAP_BAD_REG(addr);
         return;
     }
 }
 
-static void omap_gpmc_write8(void *opaque, target_phys_addr_t addr,
-                             uint32_t value)
-{
-    struct omap_gpmc_s *s = (struct omap_gpmc_s *) opaque;
-    int cs;
-    struct omap_gpmc_cs_file_s *f;
-
-    switch (addr) {
-    case 0x060 ... 0x1d4:
-        cs = (addr - 0x060) / 0x30;
-        addr -= cs * 0x30;
-        f = s->cs_file + cs;
-        switch (addr) {
-        case 0x7c ... 0x7f:     /* GPMC_NAND_COMMAND */
-        case 0x80 ... 0x83:     /* GPMC_NAND_ADDRESS */
-            if (omap_gpmc_devtype(f) == OMAP_GPMC_NAND) {
-                switch (addr) {
-                case 0x7c ... 0x7f:
-                    nand_setpins(f->dev, 1, 0, 0, 1, 0); /* CLE */
-                    break;
-                case 0x80 ... 0x83:
-                    nand_setpins(f->dev, 0, 1, 0, 1, 0); /* ALE */
-                    break;
-                default:
-                    break;
-                }
-                switch (omap_gpmc_devsize(f)) {
-                case OMAP_GPMC_8BIT:
-                    nand_setio(f->dev, value & 0xff);
-                    break;
-                case OMAP_GPMC_16BIT:
-                    /* writing to a 16bit device with 8bit access!? */
-                    nand_setio(f->dev, value & 0xffff);
-                    break;
-                default:
-                    break;
-                }
-            }
-            break;
-        case 0x84 ... 0x87: /* GPMC_NAND_DATA */
-            if (omap_gpmc_devtype(f) == OMAP_GPMC_NAND) {
-                omap_nand_write8(f, 0, value);
-            }
-            break;
-        default:
-            goto bad_reg;
-        }
-        break;
-    default:
-    bad_reg:
-        OMAP_BAD_REGV(addr, value);
-        return;
-    }
-}
-
-static void omap_gpmc_write16(void *opaque, target_phys_addr_t addr,
-                              uint32_t value)
-{
-    struct omap_gpmc_s *s = (struct omap_gpmc_s *) opaque;
-    int cs;
-    struct omap_gpmc_cs_file_s *f;
-
-    switch (addr) {
-    case 0x060 ... 0x1d4:
-        cs = (addr - 0x060) / 0x30;
-        addr -= cs * 0x30;
-        f = s->cs_file + cs;
-        switch (addr) {
-        case 0x7c:      /* GPMC_NAND_COMMAND */
-        case 0x7e:
-        case 0x80:      /* GPMC_NAND_ADDRESS */
-        case 0x82:
-            if (omap_gpmc_devtype(f) == OMAP_GPMC_NAND) {
-                switch (addr) {
-                case 0x7c:
-                case 0x7e:
-                    nand_setpins(f->dev, 1, 0, 0, 1, 0); /* CLE */
-                    break;
-                case 0x80:
-                case 0x82:
-                    nand_setpins(f->dev, 0, 1, 0, 1, 0); /* ALE */
-                    break;
-                case 0x84:
-                case 0x86:
-                    nand_setpins(f->dev, 0, 0, 0, 1, 0);
-                    break;
-                default:
-                    break;
-                }
-                switch (omap_gpmc_devsize(f)) {
-                case OMAP_GPMC_8BIT:
-                    nand_setio(f->dev, value & 0xff);
-                    nand_setio(f->dev, (value >> 8) & 0xff);
-                    break;
-                case OMAP_GPMC_16BIT:
-                    nand_setio(f->dev, value & 0xffff);
-                    break;
-                default:
-                    break;
-                }
-            }
-            break;
-        case 0x84:      /* GPMC_NAND_DATA */
-        case 0x86:
-            if (omap_gpmc_devtype(f) == OMAP_GPMC_NAND) {
-                omap_nand_write16(f, 0, value);
-            }
-            break;
-        default:
-            goto bad_reg;
-        }
-        break;
-    default:
-    bad_reg:
-        OMAP_BAD_REGV(addr, value);
-        return;
-    }
-}
-
-static CPUReadMemoryFunc * const omap_gpmc_readfn[] = {
-    omap_gpmc_read8,
-    omap_gpmc_read16,
-    omap_gpmc_read32,
-};
-
-static CPUWriteMemoryFunc * const omap_gpmc_writefn[] = {
-    omap_gpmc_write8,
-    omap_gpmc_write16,
-    omap_gpmc_write32,
+static const MemoryRegionOps omap_gpmc_ops = {
+    .read = omap_gpmc_read,
+    .write = omap_gpmc_write,
+    .endianness = DEVICE_NATIVE_ENDIAN,
 };
 
 struct omap_gpmc_s *omap_gpmc_init(struct omap_mpu_state_s *mpu,
                                    target_phys_addr_t base,
                                    qemu_irq irq, qemu_irq drq)
 {
-    int iomemtype, cs;
+    int cs;
     struct omap_gpmc_s *s = (struct omap_gpmc_s *)
-            qemu_mallocz(sizeof(struct omap_gpmc_s));
+            g_malloc0(sizeof(struct omap_gpmc_s));
+
+    memory_region_init_io(&s->iomem, &omap_gpmc_ops, s, "omap-gpmc", 0x1000);
+    memory_region_add_subregion(get_system_memory(), base, &s->iomem);
 
     s->irq = irq;
     s->drq = drq;
@@ -1040,48 +818,59 @@ struct omap_gpmc_s *omap_gpmc_init(struct omap_mpu_state_s *mpu,
     s->lastirq = 0;
     omap_gpmc_reset(s);
 
-    iomemtype = cpu_register_io_memory(omap_gpmc_readfn,
-                    omap_gpmc_writefn, s, DEVICE_NATIVE_ENDIAN);
-    cpu_register_physical_memory(base, 0x1000, iomemtype);
-
     /* We have to register a different IO memory handler for each
-     * chip select region in case a NAND device is mapped there.  */
+     * chip select region in case a NAND device is mapped there. We
+     * make the region the worst-case size of 256MB and rely on the
+     * container memory region in cs_map to chop it down to the actual
+     * guest-requested size.
+     */
     for (cs = 0; cs < 8; cs++) {
-        s->cs_file[cs].iomemtype = cpu_register_io_memory(omap_nand_readfn,
-                                                          omap_nand_writefn,
-                                                          &s->cs_file[cs],
-                                                          DEVICE_NATIVE_ENDIAN);
+        memory_region_init_io(&s->cs_file[cs].nandiomem,
+                              &omap_nand_ops,
+                              &s->cs_file[cs],
+                              "omap-nand",
+                              256 * 1024 * 1024);
     }
 
-    s->prefetch.iomemtype = cpu_register_io_memory(omap_gpmc_prefetch_readfn,
-                                                   omap_gpmc_prefetch_writefn,
-                                                   s, DEVICE_NATIVE_ENDIAN);
+    memory_region_init_io(&s->prefetch.iomem, &omap_prefetch_ops, s,
+                          "omap-gpmc-prefetch", 256 * 1024 * 1024);
     return s;
 }
 
-void omap_gpmc_attach(struct omap_gpmc_s *s, int cs, DeviceState *dev,
-                      int mmio_index, int devicetype)
+void omap_gpmc_attach(struct omap_gpmc_s *s, int cs, MemoryRegion *iomem)
 {
     struct omap_gpmc_cs_file_s *f;
+    assert(iomem);
 
     if (cs < 0 || cs >= 8) {
         fprintf(stderr, "%s: bad chip-select %i\n", __FUNCTION__, cs);
         exit(-1);
     }
     f = &s->cs_file[cs];
-    if (dev != f->dev || mmio_index != f->mmio_index ||
-        devicetype != omap_gpmc_devtype(f)) {
-        omap_gpmc_cs_unmap(s, cs);
-        f->dev = dev;
-        f->mmio_index = mmio_index;
-        f->config[0] &= ~(0x3 << 10);
-        f->config[0] |= (devicetype & 3) << 10;
-        f->config[0] &= ~(0x3 << 12);
-        if (omap_gpmc_devtype(f) == OMAP_GPMC_NAND) {
-            if (nand_getbuswidth(f->dev) == 16) {
-                f->config[0] |= OMAP_GPMC_16BIT << 12;
-            }
-        }
-        omap_gpmc_cs_map(s, cs);
+
+    omap_gpmc_cs_unmap(s, cs);
+    f->config[0] &= ~(0xf << 10);
+    f->iomem = iomem;
+    omap_gpmc_cs_map(s, cs);
+}
+
+void omap_gpmc_attach_nand(struct omap_gpmc_s *s, int cs, DeviceState *nand)
+{
+    struct omap_gpmc_cs_file_s *f;
+    assert(nand);
+
+    if (cs < 0 || cs >= 8) {
+        fprintf(stderr, "%s: bad chip-select %i\n", __FUNCTION__, cs);
+        exit(-1);
     }
+    f = &s->cs_file[cs];
+
+    omap_gpmc_cs_unmap(s, cs);
+    f->config[0] &= ~(0xf << 10);
+    f->config[0] |= (OMAP_GPMC_NAND << 10);
+    f->dev = nand;
+    if (nand_getbuswidth(f->dev) == 16) {
+        f->config[0] |= OMAP_GPMC_16BIT << 12;
+    }
+    omap_gpmc_cs_map(s, cs);
 }

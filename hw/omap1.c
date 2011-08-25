@@ -254,7 +254,7 @@ static struct omap_mpu_timer_s *omap_mpu_timer_init(target_phys_addr_t base,
 {
     int iomemtype;
     struct omap_mpu_timer_s *s = (struct omap_mpu_timer_s *)
-            qemu_mallocz(sizeof(struct omap_mpu_timer_s));
+            g_malloc0(sizeof(struct omap_mpu_timer_s));
 
     s->irq = irq;
     s->clk = clk;
@@ -379,7 +379,7 @@ static struct omap_watchdog_timer_s *omap_wd_timer_init(target_phys_addr_t base,
 {
     int iomemtype;
     struct omap_watchdog_timer_s *s = (struct omap_watchdog_timer_s *)
-            qemu_mallocz(sizeof(struct omap_watchdog_timer_s));
+            g_malloc0(sizeof(struct omap_watchdog_timer_s));
 
     s->timer.irq = irq;
     s->timer.clk = clk;
@@ -482,7 +482,7 @@ static struct omap_32khz_timer_s *omap_os_timer_init(target_phys_addr_t base,
 {
     int iomemtype;
     struct omap_32khz_timer_s *s = (struct omap_32khz_timer_s *)
-            qemu_mallocz(sizeof(struct omap_32khz_timer_s));
+            g_malloc0(sizeof(struct omap_32khz_timer_s));
 
     s->timer.irq = irq;
     s->timer.clk = clk;
@@ -1190,7 +1190,7 @@ static struct omap_tipb_bridge_s *omap_tipb_bridge_init(target_phys_addr_t base,
 {
     int iomemtype;
     struct omap_tipb_bridge_s *s = (struct omap_tipb_bridge_s *)
-            qemu_mallocz(sizeof(struct omap_tipb_bridge_s));
+            g_malloc0(sizeof(struct omap_tipb_bridge_s));
 
     s->abort = abort_irq;
     omap_tipb_bridge_reset(s);
@@ -1379,7 +1379,7 @@ static void omap_dpll_reset(struct dpll_ctl_s *s)
 static struct dpll_ctl_s *omap_dpll_init(target_phys_addr_t base,
                                          omap_clk clk)
 {
-    struct dpll_ctl_s *s = qemu_mallocz(sizeof(*s));
+    struct dpll_ctl_s *s = g_malloc0(sizeof(*s));
     int iomemtype = cpu_register_io_memory(omap_dpll_readfn,
                     omap_dpll_writefn, s, DEVICE_NATIVE_ENDIAN);
 
@@ -1810,7 +1810,7 @@ static void omap_clkm_init(target_phys_addr_t mpu_base,
                                DEVICE_NATIVE_ENDIAN),
     };
 
-    s->clkm = qemu_mallocz(sizeof(*(s->clkm)));
+    s->clkm = g_malloc0(sizeof(*(s->clkm)));
     s->clkm->arm_idlect1 = 0x03ff;
     s->clkm->arm_idlect2 = 0x0100;
     s->clkm->dsp_idlect1 = 0x0002;
@@ -2055,7 +2055,7 @@ static struct omap_mpuio_s *omap_mpuio_init(target_phys_addr_t base,
 {
     int iomemtype;
     struct omap_mpuio_s *s = (struct omap_mpuio_s *)
-            qemu_mallocz(sizeof(struct omap_mpuio_s));
+            g_malloc0(sizeof(struct omap_mpuio_s));
 
     s->irq = gpio_int;
     s->kbd_irq = kbd_int;
@@ -2242,7 +2242,7 @@ static struct omap_uwire_s *omap_uwire_init(target_phys_addr_t base,
 {
     int iomemtype;
     struct omap_uwire_s *s = (struct omap_uwire_s *)
-            qemu_mallocz(sizeof(struct omap_uwire_s));
+            g_malloc0(sizeof(struct omap_uwire_s));
 
     s->txirq = irq[0];
     s->rxirq = irq[1];
@@ -2353,7 +2353,7 @@ static void omap_pwl_clk_update(void *opaque, int line, int on)
 static struct omap_pwl_s *omap_pwl_init(target_phys_addr_t base, omap_clk clk)
 {
     int iomemtype;
-    struct omap_pwl_s *s = qemu_mallocz(sizeof(*s));
+    struct omap_pwl_s *s = g_malloc0(sizeof(*s));
 
     omap_pwl_reset(s);
 
@@ -2455,7 +2455,7 @@ static void omap_pwt_reset(struct omap_pwt_s *s)
 static struct omap_pwt_s *omap_pwt_init(target_phys_addr_t base, omap_clk clk)
 {
     int iomemtype;
-    struct omap_pwt_s *s = qemu_mallocz(sizeof(*s));
+    struct omap_pwt_s *s = g_malloc0(sizeof(*s));
 
     s->clk = clk;
     omap_pwt_reset(s);
@@ -2866,7 +2866,7 @@ static struct omap_rtc_s *omap_rtc_init(target_phys_addr_t base,
 {
     int iomemtype;
     struct omap_rtc_s *s = (struct omap_rtc_s *)
-            qemu_mallocz(sizeof(struct omap_rtc_s));
+            g_malloc0(sizeof(struct omap_rtc_s));
 
     s->irq = irq[0];
     s->alarm = irq[1];
@@ -3386,7 +3386,7 @@ struct omap_mcbsp_s *omap_mcbsp_init(target_phys_addr_t base,
 {
     int iomemtype;
     struct omap_mcbsp_s *s = (struct omap_mcbsp_s *)
-            qemu_mallocz(sizeof(struct omap_mcbsp_s));
+            g_malloc0(sizeof(struct omap_mcbsp_s));
 
     s->txirq = irq[0];
     s->rxirq = irq[1];
@@ -3562,7 +3562,7 @@ static struct omap_lpg_s *omap_lpg_init(target_phys_addr_t base, omap_clk clk)
 {
     int iomemtype;
     struct omap_lpg_s *s = (struct omap_lpg_s *)
-            qemu_mallocz(sizeof(struct omap_lpg_s));
+            g_malloc0(sizeof(struct omap_lpg_s));
 
     s->tm = qemu_new_timer_ms(rt_clock, omap_lpg_tick, s);
 
@@ -3754,7 +3754,7 @@ struct omap_mpu_state_s *omap310_mpu_init(unsigned long sdram_size,
 {
     int i;
     struct omap_mpu_state_s *s = (struct omap_mpu_state_s *)
-            qemu_mallocz(sizeof(struct omap_mpu_state_s));
+            g_malloc0(sizeof(struct omap_mpu_state_s));
     ram_addr_t imif_base, emiff_base;
     qemu_irq *cpu_irq;
     qemu_irq dma_irqs[6];

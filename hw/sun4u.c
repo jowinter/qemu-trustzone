@@ -91,6 +91,12 @@ struct hwdef {
     uint64_t console_serial_base;
 };
 
+typedef struct EbusState {
+    PCIDevice pci_dev;
+    MemoryRegion bar0;
+    MemoryRegion bar1;
+} EbusState;
+
 int DMA_get_channel_mode (int nchan)
 {
     return 0;
@@ -345,7 +351,7 @@ static CPUTimer* cpu_timer_create(const char* name, CPUState *env,
                                   QEMUBHFunc *cb, uint32_t frequency,
                                   uint64_t disabled_mask)
 {
-    CPUTimer *timer = qemu_mallocz(sizeof (CPUTimer));
+    CPUTimer *timer = g_malloc0(sizeof (CPUTimer));
 
     timer->name = name;
     timer->frequency = frequency;
@@ -518,21 +524,6 @@ void cpu_tick_set_limit(CPUTimer *timer, uint64_t limit)
     }
 }
 
-static void ebus_mmio_mapfunc(PCIDevice *pci_dev, int region_num,
-                              pcibus_t addr, pcibus_t size, int type)
-{
-    EBUS_DPRINTF("Mapping region %d registers at %" FMT_PCIBUS "\n",
-                 region_num, addr);
-    switch (region_num) {
-    case 0:
-        isa_mmio_init(addr, 0x1000000);
-        break;
-    case 1:
-        isa_mmio_init(addr, 0x800000);
-        break;
-    }
-}
-
 static void dummy_isa_irq_handler(void *opaque, int n, int level)
 {
 }
@@ -549,27 +540,29 @@ pci_ebus_init(PCIBus *bus, int devfn)
 }
 
 static int
-pci_ebus_init1(PCIDevice *s)
+pci_ebus_init1(PCIDevice *pci_dev)
 {
-    isa_bus_new(&s->qdev);
+    EbusState *s = DO_UPCAST(EbusState, pci_dev, pci_dev);
 
-    s->config[0x04] = 0x06; // command = bus master, pci mem
-    s->config[0x05] = 0x00;
-    s->config[0x06] = 0xa0; // status = fast back-to-back, 66MHz, no error
-    s->config[0x07] = 0x03; // status = medium devsel
-    s->config[0x09] = 0x00; // programming i/f
-    s->config[0x0D] = 0x0a; // latency_timer
+    isa_bus_new(&pci_dev->qdev);
 
-    pci_register_bar(s, 0, 0x1000000, PCI_BASE_ADDRESS_SPACE_MEMORY,
-                           ebus_mmio_mapfunc);
-    pci_register_bar(s, 1, 0x800000,  PCI_BASE_ADDRESS_SPACE_MEMORY,
-                           ebus_mmio_mapfunc);
+    pci_dev->config[0x04] = 0x06; // command = bus master, pci mem
+    pci_dev->config[0x05] = 0x00;
+    pci_dev->config[0x06] = 0xa0; // status = fast back-to-back, 66MHz, no error
+    pci_dev->config[0x07] = 0x03; // status = medium devsel
+    pci_dev->config[0x09] = 0x00; // programming i/f
+    pci_dev->config[0x0D] = 0x0a; // latency_timer
+
+    isa_mmio_setup(&s->bar0, 0x1000000);
+    pci_register_bar(pci_dev, 0, PCI_BASE_ADDRESS_SPACE_MEMORY, &s->bar0);
+    isa_mmio_setup(&s->bar1, 0x800000);
+    pci_register_bar(pci_dev, 1, PCI_BASE_ADDRESS_SPACE_MEMORY, &s->bar1);
     return 0;
 }
 
 static PCIDeviceInfo ebus_info = {
     .qdev.name = "ebus",
-    .qdev.size = sizeof(PCIDevice),
+    .qdev.size = sizeof(EbusState),
     .init = pci_ebus_init1,
     .vendor_id = PCI_VENDOR_ID_SUN,
     .device_id = PCI_DEVICE_ID_SUN_EBUS,
@@ -615,7 +608,7 @@ static void prom_init(target_phys_addr_t addr, const char *bios_name)
         if (ret < 0 || ret > PROM_SIZE_MAX) {
             ret = load_image_targphys(filename, addr, PROM_SIZE_MAX);
         }
-        qemu_free(filename);
+        g_free(filename);
     } else {
         ret = -1;
     }
@@ -730,7 +723,7 @@ static CPUState *cpu_devinit(const char *cpu_model, const struct hwdef *hwdef)
     env->hstick = cpu_timer_create("hstick", env, hstick_irq,
                                     hstick_frequency, TICK_INT_DIS);
 
-    reset_info = qemu_mallocz(sizeof(ResetData));
+    reset_info = g_malloc0(sizeof(ResetData));
     reset_info->env = env;
     reset_info->prom_addr = hwdef->prom_addr;
     qemu_register_reset(main_cpu_reset, reset_info);

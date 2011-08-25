@@ -54,7 +54,7 @@ static SpiceTimer *timer_add(SpiceTimerFunc func, void *opaque)
 {
     SpiceTimer *timer;
 
-    timer = qemu_mallocz(sizeof(*timer));
+    timer = g_malloc0(sizeof(*timer));
     timer->timer = qemu_new_timer_ms(rt_clock, func, opaque);
     QTAILQ_INSERT_TAIL(&timers, timer, next);
     return timer;
@@ -75,7 +75,7 @@ static void timer_remove(SpiceTimer *timer)
     qemu_del_timer(timer->timer);
     qemu_free_timer(timer->timer);
     QTAILQ_REMOVE(&timers, timer, next);
-    qemu_free(timer);
+    g_free(timer);
 }
 
 struct SpiceWatch {
@@ -118,7 +118,7 @@ static SpiceWatch *watch_add(int fd, int event_mask, SpiceWatchFunc func, void *
 {
     SpiceWatch *watch;
 
-    watch = qemu_mallocz(sizeof(*watch));
+    watch = g_malloc0(sizeof(*watch));
     watch->fd     = fd;
     watch->func   = func;
     watch->opaque = opaque;
@@ -132,7 +132,7 @@ static void watch_remove(SpiceWatch *watch)
 {
     watch_update_mask(watch, 0);
     QTAILQ_REMOVE(&watches, watch, next);
-    qemu_free(watch);
+    g_free(watch);
 }
 
 #if SPICE_INTERFACE_CORE_MINOR >= 3
@@ -148,7 +148,7 @@ static void channel_list_add(SpiceChannelEventInfo *info)
 {
     ChannelList *item;
 
-    item = qemu_mallocz(sizeof(*item));
+    item = g_malloc0(sizeof(*item));
     item->info = info;
     QTAILQ_INSERT_TAIL(&channel_list, item, link);
 }
@@ -162,7 +162,7 @@ static void channel_list_del(SpiceChannelEventInfo *info)
             continue;
         }
         QTAILQ_REMOVE(&channel_list, item, link);
-        qemu_free(item);
+        g_free(item);
         return;
     }
 }
@@ -372,6 +372,8 @@ void do_info_spice_print(Monitor *mon, const QObject *data)
         monitor_printf(mon, "     address: %s:%d [tls]\n", host, port);
     }
     monitor_printf(mon, "        auth: %s\n", qdict_get_str(server, "auth"));
+    monitor_printf(mon, "    compiled: %s\n",
+                   qdict_get_str(server, "compiled-version"));
 
     channels = qdict_get_qlist(server, "channels");
     if (qlist_empty(channels)) {
@@ -388,6 +390,7 @@ void do_info_spice(Monitor *mon, QObject **ret_data)
     QList *clist;
     const char *addr;
     int port, tls_port;
+    char version_string[20]; /* 12 = |255.255.255\0| is the max */
 
     if (!spice_server) {
         *ret_data = qobject_from_jsonf("{ 'enabled': false }");
@@ -403,6 +406,11 @@ void do_info_spice(Monitor *mon, QObject **ret_data)
     qdict_put(server, "enabled", qbool_from_int(true));
     qdict_put(server, "auth", qstring_from_str(auth));
     qdict_put(server, "host", qstring_from_str(addr ? addr : "0.0.0.0"));
+    snprintf(version_string, sizeof(version_string), "%d.%d.%d",
+             (SPICE_SERVER_VERSION & 0xff0000) >> 16,
+             (SPICE_SERVER_VERSION & 0xff00) >> 8,
+             SPICE_SERVER_VERSION & 0xff);
+    qdict_put(server, "compiled-version", qstring_from_str(version_string));
     if (port) {
         qdict_put(server, "port", qint_from_int(port));
     }
@@ -502,25 +510,25 @@ void qemu_spice_init(void)
 
         str = qemu_opt_get(opts, "x509-key-file");
         if (str) {
-            x509_key_file = qemu_strdup(str);
+            x509_key_file = g_strdup(str);
         } else {
-            x509_key_file = qemu_malloc(len);
+            x509_key_file = g_malloc(len);
             snprintf(x509_key_file, len, "%s/%s", x509_dir, X509_SERVER_KEY_FILE);
         }
 
         str = qemu_opt_get(opts, "x509-cert-file");
         if (str) {
-            x509_cert_file = qemu_strdup(str);
+            x509_cert_file = g_strdup(str);
         } else {
-            x509_cert_file = qemu_malloc(len);
+            x509_cert_file = g_malloc(len);
             snprintf(x509_cert_file, len, "%s/%s", x509_dir, X509_SERVER_CERT_FILE);
         }
 
         str = qemu_opt_get(opts, "x509-cacert-file");
         if (str) {
-            x509_cacert_file = qemu_strdup(str);
+            x509_cacert_file = g_strdup(str);
         } else {
-            x509_cacert_file = qemu_malloc(len);
+            x509_cacert_file = g_malloc(len);
             snprintf(x509_cacert_file, len, "%s/%s", x509_dir, X509_CA_CERT_FILE);
         }
 
@@ -623,9 +631,9 @@ void qemu_spice_init(void)
     qemu_spice_input_init();
     qemu_spice_audio_init();
 
-    qemu_free(x509_key_file);
-    qemu_free(x509_cert_file);
-    qemu_free(x509_cacert_file);
+    g_free(x509_key_file);
+    g_free(x509_cert_file);
+    g_free(x509_cacert_file);
 }
 
 int qemu_spice_add_interface(SpiceBaseInstance *sin)

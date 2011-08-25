@@ -49,7 +49,7 @@ static void overo_init(ram_addr_t ram_size,
                        const char *initrd_filename,
                        const char *cpu_model)
 {
-    struct overo_s *s = (struct overo_s *) qemu_mallocz(sizeof(*s));
+    struct overo_s *s = (struct overo_s *) g_malloc0(sizeof(*s));
     DriveInfo *dmtd = drive_get(IF_MTD, 0, 0);
     DriveInfo *dsd  = drive_get(IF_SD, 0, 0);
 
@@ -66,7 +66,7 @@ static void overo_init(ram_addr_t ram_size,
 
     s->nand = nand_init(dmtd ? dmtd->bdrv : NULL, NAND_MFR_MICRON, 0xba);
     nand_setpins(s->nand, 0, 0, 0, 1, 0); /* no write-protect */
-    omap_gpmc_attach(s->cpu->gpmc, OVERO_NAND_CS, s->nand, 0, 2);
+    omap_gpmc_attach_nand(s->cpu->gpmc, OVERO_NAND_CS, s->nand);
 
     if (dsd) {
         omap3_mmc_attach(s->cpu->omap3_mmc[0], dsd->bdrv, 0, 0);
@@ -93,7 +93,8 @@ static void overo_init(ram_addr_t ram_size,
         s->eth = qdev_create(NULL, "lan9118");
         qdev_set_nic_properties(s->eth, nd);
         qdev_init_nofail(s->eth);
-        omap_gpmc_attach(s->cpu->gpmc, OVERO_NET_CS, s->eth, 0, 0);
+        omap_gpmc_attach(s->cpu->gpmc, OVERO_NET_CS,
+                         sysbus_mmio_get_region(sysbus_from_qdev(s->eth), 0));
         sysbus_connect_irq(sysbus_from_qdev(s->eth), 0,
                            qdev_get_gpio_in(s->cpu->gpio, 176));
     }

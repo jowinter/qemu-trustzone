@@ -8,7 +8,7 @@
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
  * published by the Free Software Foundation; either version 2 or
- * (at your option) any later version of the License.
+ * (at your option) version 3 of the License.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -380,12 +380,13 @@ void musb_reset(MUSBState *s)
 
 struct MUSBState *musb_init(DeviceState *parent_device, int gpio_base)
 {
-    MUSBState *s = qemu_mallocz(sizeof(*s));
-    s->irqs = qemu_mallocz(__musb_irq_max * sizeof(qemu_irq));
+    MUSBState *s = g_malloc0(sizeof(*s));
+    s->irqs = g_new0(qemu_irq, __musb_irq_max);
     int i;
     for (i = 0; i < __musb_irq_max; i++) {
         s->irqs[i] = qdev_get_gpio_in(parent_device, gpio_base + i);
     }
+
     musb_reset(s);
 
     usb_bus_new(&s->bus, &musb_bus_ops, parent_device);
@@ -1545,7 +1546,7 @@ static void musb_writew(void *opaque, target_phys_addr_t addr, uint32_t value)
         musb_write_fifo(s->ep + ep, (value >> 8 ) & 0xff);
         musb_write_fifo(s->ep + ep, (value >> 16) & 0xff);
         musb_write_fifo(s->ep + ep, (value >> 24) & 0xff);
-        break;
+            break;
     default:
         TRACE("unknown register 0x%02x", (int) addr);
         break;

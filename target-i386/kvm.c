@@ -68,7 +68,7 @@ static struct kvm_cpuid2 *try_get_cpuid(KVMState *s, int max)
     int r, size;
 
     size = sizeof(*cpuid) + max * sizeof(*cpuid->entries);
-    cpuid = (struct kvm_cpuid2 *)qemu_mallocz(size);
+    cpuid = (struct kvm_cpuid2 *)g_malloc0(size);
     cpuid->nent = max;
     r = kvm_ioctl(s, KVM_GET_SUPPORTED_CPUID, cpuid);
     if (r == 0 && cpuid->nent >= max) {
@@ -76,7 +76,7 @@ static struct kvm_cpuid2 *try_get_cpuid(KVMState *s, int max)
     }
     if (r < 0) {
         if (r == -E2BIG) {
-            qemu_free(cpuid);
+            g_free(cpuid);
             return NULL;
         } else {
             fprintf(stderr, "KVM_GET_SUPPORTED_CPUID failed: %s\n",
@@ -162,7 +162,7 @@ uint32_t kvm_arch_get_supported_cpuid(KVMState *s, uint32_t function,
         }
     }
 
-    qemu_free(cpuid);
+    g_free(cpuid);
 
     /* fallback for older kernels */
     if (!has_kvm_features && (function == KVM_CPUID_FEATURES)) {
@@ -187,7 +187,7 @@ static void kvm_unpoison_all(void *param)
     QLIST_FOREACH_SAFE(page, &hwpoison_page_list, list, next_page) {
         QLIST_REMOVE(page, list);
         qemu_ram_remap(page->ram_addr, TARGET_PAGE_SIZE);
-        qemu_free(page);
+        g_free(page);
     }
 }
 
@@ -200,7 +200,7 @@ static void kvm_hwpoison_page_add(ram_addr_t ram_addr)
             return;
         }
     }
-    page = qemu_malloc(sizeof(HWPoisonPage));
+    page = g_malloc(sizeof(HWPoisonPage));
     page->ram_addr = ram_addr;
     QLIST_INSERT_HEAD(&hwpoison_page_list, page, list);
 }
@@ -354,6 +354,7 @@ int kvm_arch_init_vcpu(CPUState *env)
     uint32_t unused;
     struct kvm_cpuid_entry2 *c;
     uint32_t signature[3];
+    int r;
 
     env->cpuid_features &= kvm_arch_get_supported_cpuid(s, 1, 0, R_EDX);
 
@@ -499,7 +500,20 @@ int kvm_arch_init_vcpu(CPUState *env)
 
     qemu_add_vm_change_state_handler(cpu_update_state, env);
 
-    return kvm_vcpu_ioctl(env, KVM_SET_CPUID2, &cpuid_data);
+    r = kvm_vcpu_ioctl(env, KVM_SET_CPUID2, &cpuid_data);
+    if (r)
+	    return r;
+
+    r = kvm_check_extension(env->kvm_state, KVM_CAP_TSC_CONTROL);
+    if (r && env->tsc_khz) {
+        r = kvm_vcpu_ioctl(env, KVM_SET_TSC_KHZ, env->tsc_khz);
+        if (r < 0) {
+            fprintf(stderr, "KVM_SET_TSC_KHZ failed\n");
+            return r;
+        }
+    }
+
+    return 0;
 }
 
 void kvm_arch_reset_vcpu(CPUState *env)
@@ -535,7 +549,7 @@ static int kvm_get_supported_msrs(KVMState *s)
         }
         /* Old kernel modules had a bug and could write beyond the provided
            memory. Allocate at least a safe amount of 1K. */
-        kvm_msr_list = qemu_mallocz(MAX(1024, sizeof(msr_list) +
+        kvm_msr_list = g_malloc0(MAX(1024, sizeof(msr_list) +
                                               msr_list.nmsrs *
                                               sizeof(msr_list.indices[0])));
 
@@ -556,7 +570,7 @@ static int kvm_get_supported_msrs(KVMState *s)
             }
         }
 
-        qemu_free(kvm_msr_list);
+        g_free(kvm_msr_list);
     }
 
     return ret;
@@ -774,7 +788,7 @@ static int kvm_put_xsave(CPUState *env)
     memcpy(&xsave->region[XSAVE_YMMH_SPACE], env->ymmh_regs,
             sizeof env->ymmh_regs);
     r = kvm_vcpu_ioctl(env, KVM_SET_XSAVE, xsave);
-    qemu_free(xsave);
+    g_free(xsave);
     return r;
 }
 
@@ -955,7 +969,7 @@ static int kvm_get_xsave(CPUState *env)
     xsave = qemu_memalign(4096, sizeof(struct kvm_xsave));
     ret = kvm_vcpu_ioctl(env, KVM_GET_XSAVE, xsave);
     if (ret < 0) {
-        qemu_free(xsave);
+        g_free(xsave);
         return ret;
     }
 
@@ -979,7 +993,7 @@ static int kvm_get_xsave(CPUState *env)
     env->xstate_bv = *(uint64_t *)&xsave->region[XSAVE_XSTATE_BV];
     memcpy(env->ymmh_regs, &xsave->region[XSAVE_YMMH_SPACE],
             sizeof env->ymmh_regs);
-    qemu_free(xsave);
+    g_free(xsave);
     return 0;
 }
 

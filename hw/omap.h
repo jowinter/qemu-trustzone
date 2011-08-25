@@ -18,6 +18,7 @@
  * with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 #ifndef hw_omap_h
+#include "memory.h"
 # define hw_omap_h		"omap.h"
 
 #include "sysemu.h"
@@ -105,8 +106,8 @@ struct omap_gpmc_s *omap_gpmc_init(struct omap_mpu_state_s *mpu,
                                    target_phys_addr_t base,
                                    qemu_irq irq, qemu_irq drq);
 void omap_gpmc_reset(struct omap_gpmc_s *s);
-void omap_gpmc_attach(struct omap_gpmc_s *s, int cs, DeviceState *dev,
-                      int mmio_index, int devicetype);
+void omap_gpmc_attach(struct omap_gpmc_s *s, int cs, MemoryRegion *iomem);
+void omap_gpmc_attach_nand(struct omap_gpmc_s *s, int cs, DeviceState *nand);
 /* devicetype values for omap_gpmc_attach */
 #define OMAP_GPMC_NOR 0
 #define OMAP_GPMC_NAND 2
@@ -1314,7 +1315,7 @@ inline static int debug_register_io_memory(CPUReadMemoryFunc * const *mem_read,
                                            CPUWriteMemoryFunc * const *mem_write,
                                            void *opaque)
 {
-    struct io_fn *s = qemu_malloc(sizeof(struct io_fn));
+    struct io_fn *s = g_malloc(sizeof(struct io_fn));
 
     s->mem_read = mem_read;
     s->mem_write = mem_write;

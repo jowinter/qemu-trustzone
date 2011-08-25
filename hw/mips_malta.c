@@ -92,8 +92,8 @@ static void malta_fpga_update_display(void *opaque)
     }
     leds_text[8] = '\0';
 
-    qemu_chr_printf(s->display, "\e[H\n\n|\e[32m%-8.8s\e[00m|\r\n", leds_text);
-    qemu_chr_printf(s->display, "\n\n\n\n|\e[31m%-8.8s\e[00m|", s->display_text);
+    qemu_chr_fe_printf(s->display, "\e[H\n\n|\e[32m%-8.8s\e[00m|\r\n", leds_text);
+    qemu_chr_fe_printf(s->display, "\n\n\n\n|\e[31m%-8.8s\e[00m|", s->display_text);
 }
 
 /*
@@ -417,15 +417,15 @@ static void malta_fpga_reset(void *opaque)
 
 static void malta_fpga_led_init(CharDriverState *chr)
 {
-    qemu_chr_printf(chr, "\e[HMalta LEDBAR\r\n");
-    qemu_chr_printf(chr, "+--------+\r\n");
-    qemu_chr_printf(chr, "+        +\r\n");
-    qemu_chr_printf(chr, "+--------+\r\n");
-    qemu_chr_printf(chr, "\n");
-    qemu_chr_printf(chr, "Malta ASCII\r\n");
-    qemu_chr_printf(chr, "+--------+\r\n");
-    qemu_chr_printf(chr, "+        +\r\n");
-    qemu_chr_printf(chr, "+--------+\r\n");
+    qemu_chr_fe_printf(chr, "\e[HMalta LEDBAR\r\n");
+    qemu_chr_fe_printf(chr, "+--------+\r\n");
+    qemu_chr_fe_printf(chr, "+        +\r\n");
+    qemu_chr_fe_printf(chr, "+--------+\r\n");
+    qemu_chr_fe_printf(chr, "\n");
+    qemu_chr_fe_printf(chr, "Malta ASCII\r\n");
+    qemu_chr_fe_printf(chr, "+--------+\r\n");
+    qemu_chr_fe_printf(chr, "+        +\r\n");
+    qemu_chr_fe_printf(chr, "+--------+\r\n");
 }
 
 static MaltaFPGAState *malta_fpga_init(target_phys_addr_t base, qemu_irq uart_irq, CharDriverState *uart_chr)
@@ -433,7 +433,7 @@ static MaltaFPGAState *malta_fpga_init(target_phys_addr_t base, qemu_irq uart_ir
     MaltaFPGAState *s;
     int malta;
 
-    s = (MaltaFPGAState *)qemu_mallocz(sizeof(MaltaFPGAState));
+    s = (MaltaFPGAState *)g_malloc0(sizeof(MaltaFPGAState));
 
     malta = cpu_register_io_memory(malta_fpga_read,
                                    malta_fpga_write, s,
@@ -443,7 +443,7 @@ static MaltaFPGAState *malta_fpga_init(target_phys_addr_t base, qemu_irq uart_ir
     /* 0xa00 is less than a page, so will still get the right offsets.  */
     cpu_register_physical_memory(base + 0xa00, 0x100000 - 0xa00, malta);
 
-    s->display = qemu_chr_open("fpga", "vc:320x200", malta_fpga_led_init);
+    s->display = qemu_chr_new("fpga", "vc:320x200", malta_fpga_led_init);
 
 #ifdef TARGET_WORDS_BIGENDIAN
     s->uart = serial_mm_init(base + 0x900, 3, uart_irq, 230400, uart_chr, 1, 1);
@@ -709,7 +709,7 @@ static int64_t load_kernel (void)
 
     /* Setup prom parameters. */
     prom_size = ENVP_NB_ENTRIES * (sizeof(int32_t) + ENVP_ENTRY_SIZE);
-    prom_buf = qemu_malloc(prom_size);
+    prom_buf = g_malloc(prom_size);
 
     prom_set(prom_buf, prom_index++, "%s", loaderparams.kernel_filename);
     if (initrd_size > 0) {
@@ -784,7 +784,7 @@ void mips_malta_init (ram_addr_t ram_size,
         if (!serial_hds[i]) {
             char label[32];
             snprintf(label, sizeof(label), "serial%d", i);
-            serial_hds[i] = qemu_chr_open(label, "null", NULL);
+            serial_hds[i] = qemu_chr_new(label, "null", NULL);
         }
     }
 
@@ -863,7 +863,7 @@ void mips_malta_init (ram_addr_t ram_size,
             if (filename) {
                 bios_size = load_image_targphys(filename, 0x1fc00000LL,
                                                 BIOS_SIZE);
-                qemu_free(filename);
+                g_free(filename);
             } else {
                 bios_size = -1;
             }

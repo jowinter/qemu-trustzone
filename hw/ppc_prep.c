@@ -550,7 +550,7 @@ static void ppc_prep_init (ram_addr_t ram_size,
     DriveInfo *hd[MAX_IDE_BUS * MAX_IDE_DEVS];
     DriveInfo *fd[MAX_FD];
 
-    sysctrl = qemu_mallocz(sizeof(sysctrl_t));
+    sysctrl = g_malloc0(sizeof(sysctrl_t));
 
     linux_boot = (kernel_filename != NULL);
 
@@ -599,7 +599,7 @@ static void ppc_prep_init (ram_addr_t ram_size,
         hw_error("qemu: could not load PPC PREP bios '%s'\n", bios_name);
     }
     if (filename) {
-        qemu_free(filename);
+        g_free(filename);
     }
 
     if (linux_boot) {
@@ -649,7 +649,7 @@ static void ppc_prep_init (ram_addr_t ram_size,
         hw_error("Only 6xx bus is supported on PREP machine\n");
     }
     i8259 = i8259_init(first_cpu->irq_inputs[PPC6xx_INPUT_INT]);
-    pci_bus = pci_prep_init(i8259, get_system_memory());
+    pci_bus = pci_prep_init(i8259, get_system_memory(), get_system_io());
     /* Hmm, prep has no pci-isa bridge ??? */
     isa_bus_new(NULL);
     isa_bus_irqs(i8259);
@@ -673,7 +673,7 @@ static void ppc_prep_init (ram_addr_t ram_size,
         nb_nics1 = NE2000_NB_MAX;
     for(i = 0; i < nb_nics1; i++) {
         if (nd_table[i].model == NULL) {
-	    nd_table[i].model = qemu_strdup("ne2k_isa");
+	    nd_table[i].model = g_strdup("ne2k_isa");
         }
         if (strcmp(nd_table[i].model, "ne2k_isa") == 0) {
             isa_ne2000_init(ne2000_io[i], ne2000_irq[i], &nd_table[i]);

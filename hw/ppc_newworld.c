@@ -144,10 +144,9 @@ static void ppc_core99_init (ram_addr_t ram_size,
     long kernel_size, initrd_size;
     PCIBus *pci_bus;
     MacIONVRAMState *nvr;
-    int nvram_mem_index;
     int bios_size;
-    int pic_mem_index, dbdma_mem_index, cuda_mem_index, escc_mem_index;
-    int ide_mem_index[3];
+    MemoryRegion *pic_mem, *dbdma_mem, *cuda_mem, *escc_mem;
+    MemoryRegion *ide_mem[3];
     int ppc_boot_device;
     DriveInfo *hd[MAX_IDE_BUS * MAX_IDE_DEVS];
     void *fw_cfg;
@@ -190,7 +189,7 @@ static void ppc_core99_init (ram_addr_t ram_size,
         bios_size = load_elf(filename, NULL, NULL, NULL,
                              NULL, NULL, 1, ELF_MACHINE, 0);
 
-        qemu_free(filename);
+        g_free(filename);
     } else {
         bios_size = -1;
     }
@@ -272,9 +271,9 @@ static void ppc_core99_init (ram_addr_t ram_size,
                                          DEVICE_NATIVE_ENDIAN);
     cpu_register_physical_memory(0xf8000000, 0x00001000, unin_memory);
 
-    openpic_irqs = qemu_mallocz(smp_cpus * sizeof(qemu_irq *));
+    openpic_irqs = g_malloc0(smp_cpus * sizeof(qemu_irq *));
     openpic_irqs[0] =
-        qemu_mallocz(smp_cpus * sizeof(qemu_irq) * OPENPIC_OUTPUT_NB);
+        g_malloc0(smp_cpus * sizeof(qemu_irq) * OPENPIC_OUTPUT_NB);
     for (i = 0; i < smp_cpus; i++) {
         /* Mac99 IRQ connection between OpenPIC outputs pins
          * and PowerPC input pins
@@ -315,44 +314,43 @@ static void ppc_core99_init (ram_addr_t ram_size,
             exit(1);
         }
     }
-    pic = openpic_init(NULL, &pic_mem_index, smp_cpus, openpic_irqs, NULL);
+    pic = openpic_init(NULL, &pic_mem, smp_cpus, openpic_irqs, NULL);
     if (PPC_INPUT(env) == PPC_FLAGS_INPUT_970) {
         /* 970 gets a U3 bus */
-        pci_bus = pci_pmac_u3_init(pic, get_system_memory());
+        pci_bus = pci_pmac_u3_init(pic, get_system_memory(), get_system_io());
         machine_arch = ARCH_MAC99_U3;
     } else {
-        pci_bus = pci_pmac_init(pic, get_system_memory());
+        pci_bus = pci_pmac_init(pic, get_system_memory(), get_system_io());
         machine_arch = ARCH_MAC99;
     }
     /* init basic PC hardware */
     pci_vga_init(pci_bus);
 
-    escc_mem_index = escc_init(0x80013000, pic[0x25], pic[0x24],
-                               serial_hds[0], serial_hds[1], ESCC_CLOCK, 4);
+    escc_mem = escc_init(0x80013000, pic[0x25], pic[0x24],
+                         serial_hds[0], serial_hds[1], ESCC_CLOCK, 4);
 
     for(i = 0; i < nb_nics; i++)
         pci_nic_init_nofail(&nd_table[i], "ne2k_pci", NULL);
 
     ide_drive_get(hd, MAX_IDE_BUS);
-    dbdma = DBDMA_init(&dbdma_mem_index);
+    dbdma = DBDMA_init(&dbdma_mem);
 
     /* We only emulate 2 out of 3 IDE controllers for now */
-    ide_mem_index[0] = -1;
-    ide_mem_index[1] = pmac_ide_init(hd, pic[0x0d], dbdma, 0x16, pic[0x02]);
-    ide_mem_index[2] = pmac_ide_init(&hd[MAX_IDE_DEVS], pic[0x0e], dbdma, 0x1a, pic[0x02]);
+    ide_mem[0] = NULL;
+    ide_mem[1] = pmac_ide_init(hd, pic[0x0d], dbdma, 0x16, pic[0x02]);
+    ide_mem[2] = pmac_ide_init(&hd[MAX_IDE_DEVS], pic[0x0e], dbdma, 0x1a, pic[0x02]);
 
     /* cuda also initialize ADB */
     if (machine_arch == ARCH_MAC99_U3) {
         usb_enabled = 1;
     }
-    cuda_init(&cuda_mem_index, pic[0x19]);
+    cuda_init(&cuda_mem, pic[0x19]);
 
     adb_kbd_init(&adb_bus);
     adb_mouse_init(&adb_bus);
 
-    macio_init(pci_bus, PCI_DEVICE_ID_APPLE_UNI_N_KEYL, 0, pic_mem_index,
-               dbdma_mem_index, cuda_mem_index, NULL, 3, ide_mem_index,
-               escc_mem_index);
+    macio_init(pci_bus, PCI_DEVICE_ID_APPLE_UNI_N_KEYL, 0, pic_mem,
+               dbdma_mem, cuda_mem, NULL, 3, ide_mem, escc_mem);
 
     if (usb_enabled) {
         usb_ohci_init_pci(pci_bus, -1);
@@ -369,9 +367,9 @@ static void ppc_core99_init (ram_addr_t ram_size,
         graphic_depth = 15;
 
     /* The NewWorld NVRAM is not located in the MacIO device */
-    nvr = macio_nvram_init(&nvram_mem_index, 0x2000, 1);
+    nvr = macio_nvram_init(0x2000, 1);
     pmac_format_nvram_partition(nvr, 0x2000);
-    macio_nvram_map(nvr, 0xFFF04000);
+    macio_nvram_setup_bar(nvr, get_system_memory(), 0xFFF04000);
     /* No PCI init: the BIOS will do it */
 
     fw_cfg = fw_cfg_init(0, 0, CFG_ADDR, CFG_ADDR + 2);
@@ -400,7 +398,7 @@ static void ppc_core99_init (ram_addr_t ram_size,
         uint8_t *hypercall;
 
         fw_cfg_add_i32(fw_cfg, FW_CFG_PPC_TBFREQ, kvmppc_get_tbfreq());
-        hypercall = qemu_malloc(16);
+        hypercall = g_malloc(16);
         kvmppc_get_hypercall(env, hypercall, 16);
         fw_cfg_add_bytes(fw_cfg, FW_CFG_PPC_KVM_HC, hypercall, 16);
         fw_cfg_add_i32(fw_cfg, FW_CFG_PPC_KVM_PID, getpid());

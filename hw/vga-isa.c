@@ -46,13 +46,14 @@ static int vga_initfn(ISADevice *dev)
 {
     ISAVGAState *d = DO_UPCAST(ISAVGAState, dev, dev);
     VGACommonState *s = &d->state;
-    int vga_io_memory;
+    MemoryRegion *vga_io_memory;
 
     vga_common_init(s, VGA_RAM_SIZE);
     vga_io_memory = vga_init_io(s);
-    cpu_register_physical_memory(isa_mem_base + 0x000a0000, 0x20000,
-                                 vga_io_memory);
-    qemu_register_coalesced_mmio(isa_mem_base + 0x000a0000, 0x20000);
+    memory_region_add_subregion_overlap(isa_address_space(dev),
+                                        isa_mem_base + 0x000a0000,
+                                        vga_io_memory, 1);
+    memory_region_set_coalescing(vga_io_memory);
     isa_init_ioport(dev, 0x3c0);
     isa_init_ioport(dev, 0x3b4);
     isa_init_ioport(dev, 0x3ba);
@@ -66,7 +67,7 @@ static int vga_initfn(ISADevice *dev)
     s->ds = graphic_console_init(s->update, s->invalidate,
                                  s->screen_dump, s->text_update, s);
 
-    vga_init_vbe(s);
+    vga_init_vbe(s, isa_address_space(dev));
     /* ROM BIOS */
     rom_add_vga(VGABIOS_FILENAME);
     return 0;

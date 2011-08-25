@@ -23,6 +23,7 @@ struct SysBusDevice {
         target_phys_addr_t addr;
         target_phys_addr_t size;
         mmio_mapfunc cb;
+        mmio_mapfunc unmap;
         ram_addr_t iofunc;
         MemoryRegion *memory;
     } mmio[QDEV_MAX_MMIO];
@@ -46,9 +47,10 @@ void sysbus_register_withprop(SysBusDeviceInfo *info);
 void *sysbus_new(void);
 void sysbus_init_mmio(SysBusDevice *dev, target_phys_addr_t size,
                       ram_addr_t iofunc);
-void sysbus_init_mmio_cb(SysBusDevice *dev, target_phys_addr_t size,
-                            mmio_mapfunc cb);
+void sysbus_init_mmio_cb2(SysBusDevice *dev,
+                          mmio_mapfunc cb, mmio_mapfunc unmap);
 void sysbus_init_mmio_region(SysBusDevice *dev, MemoryRegion *memory);
+MemoryRegion* sysbus_mmio_get_region(SysBusDevice *dev, int n);
 void sysbus_init_irq(SysBusDevice *dev, qemu_irq *p);
 void sysbus_pass_irq(SysBusDevice *dev, SysBusDevice *target);
 void sysbus_init_ioports(SysBusDevice *dev, pio_addr_t ioport, pio_addr_t size);
@@ -56,8 +58,6 @@ void sysbus_init_ioports(SysBusDevice *dev, pio_addr_t ioport, pio_addr_t size);
 
 void sysbus_connect_irq(SysBusDevice *dev, int n, qemu_irq irq);
 void sysbus_mmio_map(SysBusDevice *dev, int n, target_phys_addr_t addr);
-void sysbus_mmio_unmap(SysBusDevice *dev, int n);
-void sysbus_mmio_resize(SysBusDevice *dev, int n, target_phys_addr_t newsize);
 
 /* Legacy helper function for creating devices.  */
 DeviceState *sysbus_create_varargs(const char *name,

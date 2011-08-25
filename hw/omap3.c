@@ -206,7 +206,7 @@ static void omap3_l3ia_write(void *opaque, target_phys_addr_t addr,
 
 static void *omap3_l3ia_init(target_phys_addr_t base)
 {
-    struct omap3_l3_initiator_agent_s *s = qemu_mallocz(sizeof(*s));
+    struct omap3_l3_initiator_agent_s *s = g_malloc0(sizeof(*s));
     s->base = base;
     s->component = ('Q' << 24) | ('E' << 16) | ('M' << 8) | ('U' << 0);
     s->control = 0x3e000000;
@@ -313,7 +313,7 @@ static void omap3_l3ta_write(void *opaque, target_phys_addr_t addr,
 
 static void *omap3_l3ta_init(target_phys_addr_t base)
 {
-    struct omap_target_agent_s *s = qemu_mallocz(sizeof(*s));
+    struct omap_target_agent_s *s = g_malloc0(sizeof(*s));
     s->base = base;
     s->component = ('Q' << 24) | ('E' << 16) | ('M' << 8) | ('U' << 0);
     s->control = 0x03000000;
@@ -521,7 +521,7 @@ static void omap3_l3pm_write32(void *opaque, target_phys_addr_t addr,
 
 static void *omap3_l3pm_init(target_phys_addr_t base)
 {
-    struct omap3_l3pm_s *s = qemu_mallocz(sizeof(*s));
+    struct omap3_l3pm_s *s = g_malloc0(sizeof(*s));
     int i;
 
     s->base = base;
@@ -713,7 +713,7 @@ static CPUWriteMemoryFunc *omap3_l3_writefn[] = {
 static struct omap3_l3_s *omap3_l3_init(target_phys_addr_t base)
 {
     const int n = sizeof(omap3_l3_region) / sizeof(struct omap3_l3_region_s);
-    struct omap3_l3_s *bus = qemu_mallocz(sizeof(*bus) + n * sizeof(void *));
+    struct omap3_l3_s *bus = g_malloc0(sizeof(*bus) + n * sizeof(void *));
     bus->region_count = n;
     bus->base = base;
  
@@ -1958,7 +1958,7 @@ static struct omap3_prm_s *omap3_prm_init(struct omap_target_agent_s *ta,
                                           struct omap_mpu_state_s *mpu)
 {
     int iomemtype;
-    struct omap3_prm_s *s = (struct omap3_prm_s *) qemu_mallocz(sizeof(*s));
+    struct omap3_prm_s *s = (struct omap3_prm_s *) g_malloc0(sizeof(*s));
 
     s->mpu_irq = mpu_int;
     s->iva_irq = iva_int;
@@ -3064,7 +3064,7 @@ static struct omap3_cm_s *omap3_cm_init(struct omap_target_agent_s *ta,
                                         struct omap_mpu_state_s *mpu)
 {
     int iomemtype;
-    struct omap3_cm_s *s = (struct omap3_cm_s *) qemu_mallocz(sizeof(*s));
+    struct omap3_cm_s *s = (struct omap3_cm_s *) g_malloc0(sizeof(*s));
 
     s->irq[0] = mpu_int;
     s->irq[1] = dsp_int;
@@ -3362,7 +3362,7 @@ static struct omap3_wdt_s *omap3_mpu_wdt_init(struct omap_target_agent_s *ta,
                                               struct omap_mpu_state_s *mpu)
 {
     int iomemtype;
-    struct omap3_wdt_s *s = (struct omap3_wdt_s *) qemu_mallocz(sizeof(*s));
+    struct omap3_wdt_s *s = (struct omap3_wdt_s *) g_malloc0(sizeof(*s));
 
     s->irq = irq;
     s->clk = fclk;
@@ -3689,7 +3689,7 @@ static struct omap3_scm_s *omap3_scm_init(struct omap_target_agent_s *ta,
                                           struct omap_mpu_state_s *mpu)
 {
     int iomemtype;
-    struct omap3_scm_s *s = (struct omap3_scm_s *) qemu_mallocz(sizeof(*s));
+    struct omap3_scm_s *s = (struct omap3_scm_s *) g_malloc0(sizeof(*s));
 
     s->mpu = mpu;
 
@@ -4017,7 +4017,7 @@ static void omap3_sms_reset(struct omap3_sms_s *s)
 static struct omap3_sms_s *omap3_sms_init(struct omap_mpu_state_s *mpu)
 {
     int iomemtype;
-    struct omap3_sms_s *s = qemu_mallocz(sizeof(*s));
+    struct omap3_sms_s *s = g_malloc0(sizeof(*s));
 
     s->mpu = mpu;
 
@@ -4074,7 +4074,7 @@ struct omap_mpu_state_s *omap3_mpu_init(int model, int emulate_bootrom,
                                         CharDriverState *chr_uart3,
                                         CharDriverState *chr_uart4)
 {
-    struct omap_mpu_state_s *s = qemu_mallocz(sizeof(*s));
+    struct omap_mpu_state_s *s = g_malloc0(sizeof(*s));
     ram_addr_t sram_base, q2_base;
     qemu_irq *cpu_irq;
     qemu_irq drqs[4];
@@ -4388,7 +4388,6 @@ struct omap_mpu_state_s *omap3_mpu_init(int model, int emulate_bootrom,
     qdev_prop_set_taddr(s->omap3_usb_ohci, "dma-offset", 0);
     qdev_init_nofail(s->omap3_usb_ohci);
     busdev = sysbus_from_qdev(s->omap3_usb_ohci);
-    sysbus_mmio_resize(busdev, 0, 0x400);
     sysbus_mmio_map(busdev, 0, omap_l4_region_base(usbhost_ta, 1));
     sysbus_connect_irq(busdev, 0, s->irq[0][OMAP_INT_3XXX_OHCI_IRQ]);
 

@@ -18,6 +18,7 @@
 #include "virtio-9p.h"
 #include "fsdev/qemu-fsdev.h"
 #include "virtio-9p-xattr.h"
+#include "virtio-9p-coth.h"
 
 static uint32_t virtio_9p_get_features(VirtIODevice *vdev, uint32_t features)
 {
@@ -35,12 +36,12 @@ static void virtio_9p_get_config(VirtIODevice *vdev, uint8_t *config)
     struct virtio_9p_config *cfg;
     V9fsState *s = to_virtio_9p(vdev);
 
-    cfg = qemu_mallocz(sizeof(struct virtio_9p_config) +
+    cfg = g_malloc0(sizeof(struct virtio_9p_config) +
                         s->tag_len);
     stw_raw(&cfg->tag_len, s->tag_len);
     memcpy(cfg->tag, s->tag, s->tag_len);
     memcpy(config, cfg, s->config_size);
-    qemu_free(cfg);
+    g_free(cfg);
 }
 
 VirtIODevice *virtio_9p_init(DeviceState *dev, V9fsConf *conf)
@@ -50,13 +51,11 @@ VirtIODevice *virtio_9p_init(DeviceState *dev, V9fsConf *conf)
     struct stat stat;
     FsTypeEntry *fse;
 
-
     s = (V9fsState *)virtio_common_init("virtio-9p",
                                     VIRTIO_ID_9P,
                                     sizeof(struct virtio_9p_config)+
                                     MAX_TAG_LEN,
                                     sizeof(V9fsState));
-
     /* initialize pdu allocator */
     QLIST_INIT(&s->free_list);
     for (i = 0; i < (MAX_REQ - 1); i++) {
@@ -115,13 +114,13 @@ VirtIODevice *virtio_9p_init(DeviceState *dev, V9fsConf *conf)
         exit(1);
     }
 
-    s->ctx.fs_root = qemu_strdup(fse->path);
+    s->ctx.fs_root = g_strdup(fse->path);
     len = strlen(conf->tag);
     if (len > MAX_TAG_LEN) {
         len = MAX_TAG_LEN;
     }
     /* s->tag is non-NULL terminated string */
-    s->tag = qemu_malloc(len);
+    s->tag = g_malloc(len);
     memcpy(s->tag, conf->tag, len);
     s->tag_len = len;
     s->ctx.uid = -1;
@@ -132,6 +131,10 @@ VirtIODevice *virtio_9p_init(DeviceState *dev, V9fsConf *conf)
                         s->tag_len;
     s->vdev.get_config = virtio_9p_get_config;
 
+    if (v9fs_init_worker_threads() < 0) {
+        fprintf(stderr, "worker thread initialization failed\n");
+        exit(1);
+    }
     return &s->vdev;
 }
 

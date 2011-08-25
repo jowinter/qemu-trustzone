@@ -375,7 +375,7 @@ static void omap_rfbi_transfer_start(struct omap_dss_s *s)
     }
     if (!data) {
         if (len > bounce_len) {
-            bounce_buffer = qemu_realloc(bounce_buffer, len);
+            bounce_buffer = g_realloc(bounce_buffer, len);
         }
         data = bounce_buffer;
         cpu_physical_memory_read(data_addr, data, len);
@@ -599,12 +599,11 @@ static void omap_dss_panel_go(struct omap_dss_s *s,
         }
         if (new_size != p->shadow.gfx_palette_size) {
             if (p->shadow.gfx_palette) {
-                qemu_free(p->shadow.gfx_palette);
+                g_free(p->shadow.gfx_palette);
                 p->shadow.gfx_palette = NULL;
             }
             if (new_size) {
-                p->shadow.gfx_palette = qemu_malloc(new_size *
-                                                    sizeof(uint32_t));
+                p->shadow.gfx_palette = g_malloc(new_size * sizeof(uint32_t));
             }
             p->shadow.gfx_palette_size = new_size;
         }
@@ -620,7 +619,7 @@ static void omap_dss_panel_reset(void *opaque)
         memset(&s->shadow.vid1, 0, sizeof(s->shadow.vid1));
         memset(&s->shadow.vid2, 0, sizeof(s->shadow.vid2));
         if (s->shadow.gfx_palette) {
-            qemu_free(s->shadow.gfx_palette);
+            g_free(s->shadow.gfx_palette);
             s->shadow.gfx_palette = NULL;
             s->shadow.gfx_palette_size = 0;
         }

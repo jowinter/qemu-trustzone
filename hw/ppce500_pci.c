@@ -274,6 +274,16 @@ static void e500_pci_map(SysBusDevice *dev, target_phys_addr_t base)
                                  s->reg);
 }
 
+static void e500_pci_unmap(SysBusDevice *dev, target_phys_addr_t base)
+{
+    cpu_register_physical_memory(base + PCIE500_CFGADDR, 4,
+                                 IO_MEM_UNASSIGNED);
+    cpu_register_physical_memory(base + PCIE500_CFGDATA, 4,
+                                 IO_MEM_UNASSIGNED);
+    cpu_register_physical_memory(base + PCIE500_REG_BASE, PCIE500_REG_SIZE,
+                                 IO_MEM_UNASSIGNED);
+}
+
 #include "exec-memory.h"
 
 static int e500_pcihost_initfn(SysBusDevice *dev)
@@ -282,7 +292,8 @@ static int e500_pcihost_initfn(SysBusDevice *dev)
     PPCE500PCIState *s;
     PCIBus *b;
     int i;
-    MemoryRegion *address_space = get_system_memory();
+    MemoryRegion *address_space_mem = get_system_memory();
+    MemoryRegion *address_space_io = get_system_io();
 
     h = FROM_SYSBUS(PCIHostState, sysbus_from_qdev(dev));
     s = DO_UPCAST(PPCE500PCIState, pci_state, h);
@@ -292,8 +303,8 @@ static int e500_pcihost_initfn(SysBusDevice *dev)
     }
 
     b = pci_register_bus(&s->pci_state.busdev.qdev, NULL, mpc85xx_pci_set_irq,
-                         mpc85xx_pci_map_irq, s->irq, address_space,
-                         PCI_DEVFN(0x11, 0), 4);
+                         mpc85xx_pci_map_irq, s->irq, address_space_mem,
+                         address_space_io, PCI_DEVFN(0x11, 0), 4);
     s->pci_state.bus = b;
 
     pci_create_simple(b, 0, "e500-host-bridge");
@@ -303,7 +314,7 @@ static int e500_pcihost_initfn(SysBusDevice *dev)
                                              DEVICE_LITTLE_ENDIAN);
     s->reg = cpu_register_io_memory(e500_pci_reg_read, e500_pci_reg_write, s,
                                     DEVICE_BIG_ENDIAN);
-    sysbus_init_mmio_cb(dev, PCIE500_ALL_SIZE, e500_pci_map);
+    sysbus_init_mmio_cb2(dev, e500_pci_map, e500_pci_unmap);
 
     return 0;
 }

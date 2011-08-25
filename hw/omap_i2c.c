@@ -733,7 +733,7 @@ static int omap_i2c_init(SysBusDevice *dev)
             rev = OMAP3630_INTR_REV;
         }
     }
-    s->bus = qemu_mallocz(s->buscount * sizeof(*s->bus));
+    s->bus = g_new0(OMAPI2CBusState, s->buscount);
     for (i = 0; i < s->buscount; i++) {
         s->bus[i].revision = rev;
         if (rev < OMAP3_INTR_REV) {

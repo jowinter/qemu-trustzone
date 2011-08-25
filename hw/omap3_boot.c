@@ -253,7 +253,7 @@ static struct omap3_boot_s *omap3_boot_init(struct omap_mpu_state_s *mpu,
                                             const uint8_t *data,
                                             uint32_t data_len)
 {
-    struct omap3_boot_s *s = qemu_mallocz(sizeof(struct omap3_boot_s));
+    struct omap3_boot_s *s = g_malloc0(sizeof(struct omap3_boot_s));
     s->mpu = mpu;
     s->devicetype = dtype;
     s->state = chdone;
@@ -601,7 +601,7 @@ static int omap3_mmc_fat_boot(BlockDriverState *bs,
         j = omap3_get_le16(sector + 0x28);
         if (j & 0x80)
             drv.fat += (j & 0x0f) * fatsize * 0x200;
-        cluster = qemu_mallocz(drv.spc * 0x200);
+        cluster = g_malloc0(drv.spc * 0x200);
         for (p = 0; !p && (i = omap3_read_fat_cluster(cluster, &drv, i)); ) {
             for (j = drv.spc, q=cluster; j-- && !p; q += 0x200)
                 p = omap3_scan_fat_dir_sector(q);
@@ -625,7 +625,7 @@ static int omap3_mmc_fat_boot(BlockDriverState *bs,
         i <<= 16;
         i |= omap3_get_le16(p + 0x1a);
         j = drv.spc * 0x200;
-        uint8 *data = qemu_mallocz(j);
+        uint8 *data = g_malloc0(j);
         if ((i = omap3_read_fat_cluster(data, &drv, i))) {
             boot = omap3_boot_init(mpu, mmc1, data, j);
             while (omap3_boot_block(data, j, boot))
@@ -679,7 +679,7 @@ static int omap3_mmc_boot(struct omap_mpu_state_s *s)
      and boot loader file (MLO) in its root directory, or
      2. CH sector located on first sector, followed by boot loader image */
     if (di) {
-        sector = qemu_mallocz(0x200);
+        sector = g_malloc0(0x200);
         if (bdrv_pread(di->bdrv, 0, sector, 0x200) == 0x200) {
             for (i = 0, p = sector + 0x1be; i < 4; i++, p += 0x10) 
                 if (p[0] == 0x80) break;
@@ -762,7 +762,7 @@ static int omap3_nand_boot(struct omap_mpu_state_s *mpu, int bus16)
     uint8_t id[4];
     
     /* TODO: support bad block marks */
-    nd = qemu_mallocz(sizeof(struct omap3_nand_boot_desc_s));
+    nd = g_malloc0(sizeof(struct omap3_nand_boot_desc_s));
     nd->bus16 = bus16;
     omap3_nand_sendcmd(nd, 0xff); /* reset */
     omap3_nand_sendcmd(nd, 0x90); /* read id */
@@ -785,7 +785,7 @@ static int omap3_nand_boot(struct omap_mpu_state_s *mpu, int bus16)
      * issue READ ID2 command to the device and get device parameters
      * from there */
     if (nd->pagesize) {
-        data = qemu_mallocz(nd->pagesize);
+        data = g_malloc0(nd->pagesize);
         /* TODO: scan through 4 first blocks for image */
         omap3_nand_readpage(nd, 0, data);
         boot = omap3_boot_init(mpu, nand, data, nd->pagesize);
@@ -855,7 +855,7 @@ static int omap3_onenand_boot(struct omap_mpu_state_s *s)
         return 0;
     }
     /* search for boot loader */
-    page = qemu_mallocz(pagesize);
+    page = g_malloc0(pagesize);
     for (i = 0; i < 4; i++) { /* search 4 blocks */
         if (omap3_onenand_readpage(pagesize, i, 0, page)) {
             boot = omap3_boot_init(s, onenand, page, pagesize);
