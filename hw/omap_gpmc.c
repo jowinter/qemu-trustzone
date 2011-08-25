@@ -405,8 +405,8 @@ static void omap_gpmc_cs_map(struct omap_gpmc_s *s, int cs)
                  __func__, mask);
     }
 
+    base <<= 24;
     size = (0x0fffffff & ~(mask << 24)) + 1;
-
     /* TODO: rather than setting the size of the mapping (which should be
      * constant), the mask should cause wrapping of the address space, so
      * that the same memory becomes accessible at every <i>size</i> bytes
@@ -414,7 +414,7 @@ static void omap_gpmc_cs_map(struct omap_gpmc_s *s, int cs)
     memory_region_init(&f->container, "omap-gpmc-file", size);
     memory_region_add_subregion(&f->container, 0,
                                 omap_gpmc_cs_memregion(s, cs));
-    memory_region_add_subregion(get_system_memory(), base << 24,
+    memory_region_add_subregion(get_system_memory(), base,
                                 &f->container);
 }
 
@@ -429,8 +429,7 @@ static void omap_gpmc_cs_unmap(struct omap_gpmc_s *s, int cs)
         return;
     }
     memory_region_del_subregion(get_system_memory(), &f->container);
-    memory_region_del_subregion(&f->container,
-                                omap_gpmc_cs_memregion(s, cs));
+    memory_region_del_subregion(&f->container, omap_gpmc_cs_memregion(s, cs));
     memory_region_destroy(&f->container);
 }
 
@@ -459,16 +458,15 @@ void omap_gpmc_reset(struct omap_gpmc_s *s)
         s->cs_file[i].config[6] = 0xf00 | (i ? 0 : 1 << 6);
 
         s->cs_file[i].config[6] = 0xf00;
-        /* FIXME: attached devices should be probed for some of the CFG1 bits
-         * for now we just keep those bits intact over resets as they are set
-         * initially with omap_gpmc_attach function */
+        /* In theory we could probe attached devices for some CFG1
+         * bits here, but we just retain them across resets as they
+         * were set initially by omap_gpmc_attach().
+         */
         if (i == 0) {
             s->cs_file[i].config[0] &= 0x00433e00;
             s->cs_file[i].config[6] |= 1 << 6; /* CSVALID */
             omap_gpmc_cs_map(s, i);
         } else {
-            /* FIXME: again, this should force device size to 16bit but
-             * here instead we keep what omap_gpmc_attach has done */
             s->cs_file[i].config[0] &= 0x00403c00;
         }
     }
@@ -496,7 +494,6 @@ static int gpmc_wordaccess_only(target_phys_addr_t addr)
     }
     return 1;
 }
-
 
 static uint64_t omap_gpmc_read(void *opaque, target_phys_addr_t addr,
                                unsigned size)
@@ -860,7 +857,7 @@ void omap_gpmc_attach_nand(struct omap_gpmc_s *s, int cs, DeviceState *nand)
     assert(nand);
 
     if (cs < 0 || cs >= 8) {
-        fprintf(stderr, "%s: bad chip-select %i\n", __FUNCTION__, cs);
+        fprintf(stderr, "%s: bad chip-select %i\n", __func__, cs);
         exit(-1);
     }
     f = &s->cs_file[cs];

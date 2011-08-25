@@ -131,7 +131,7 @@ void sysbus_init_mmio_region(SysBusDevice *dev, MemoryRegion *memory)
     dev->mmio[n].memory = memory;
 }
 
-MemoryRegion* sysbus_mmio_get_region(SysBusDevice *dev, int n)
+MemoryRegion *sysbus_mmio_get_region(SysBusDevice *dev, int n)
 {
     return dev->mmio[n].memory;
 }
