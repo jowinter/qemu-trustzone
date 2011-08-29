@@ -2020,25 +2020,35 @@ void HELPER(set_cp15)(CPUState *env, uint32_t insn, uint32_t val)
         break;
 #if defined(TARGET_HAS_TRUSTZONE)
     case 12: /* Security extensions registers  */
-        if (!op1 && !crm) {
-            switch (op2) {
-            case 0:
-                if (!arm_feature(env, ARM_FEATURE_TRUSTZONE)) {
-                    goto bad_reg;
-                }
-                arm_cp15_banked(env, c12_vbar, is_secure) = val & ~0x1f;
-                break;
-            case 1:
-                if (!arm_feature(env, ARM_FEATURE_TRUSTZONE) ||
-                    !arm_is_secure(env, 1)) {
-                    goto bad_reg;
-                }
+        if (!op1) {
+            switch (crm) {
+                case 0:
+                    switch (op2) {
+                        case 0:
+                            if (!arm_feature(env, ARM_FEATURE_TRUSTZONE)) {
+                                goto bad_reg;
+                            }
+                            arm_cp15_banked(env, c12_vbar, is_secure) = val & ~0x1f;
+                            break;
+                        case 1:
+                            if (!arm_feature(env, ARM_FEATURE_TRUSTZONE) ||
+                                    !arm_is_secure(env, 1)) {
+                                goto bad_reg;
+                            }
 
-                env->cp15.c12_mvbar = val & ~0x1f;
-                break;
-		
-            default:
-                goto bad_reg;
+                            env->cp15.c12_mvbar = val & ~0x1f;
+                            break;
+
+                        default:
+                            goto bad_reg;
+                    }
+                    break;
+                case 1:
+                    /* Virtualization Interrupt Register */
+                    /* ignore */
+                    break;
+                default:
+                    goto bad_reg;
             }
             break;
         }
@@ -2467,12 +2477,23 @@ static inline uint32_t do_get_cp15(CPUState *env, uint32_t insn)
         if (!arm_feature(env, ARM_FEATURE_TRUSTZONE))
             goto bad_reg;
         switch (crm) {
-            case 0: /* Vector base address register */
-                return arm_cp15_banked(env, c12_vbar, is_secure);
-            case 1: /* Monitor vector base address register */
-                return env->cp15.c12_mvbar;
-            default:
-                goto bad_reg;
+            case 0:
+                switch (op2) {
+                    case 0: /* Vector base address register */
+                        return arm_cp15_banked(env, c12_vbar, is_secure);
+                    case 1: /* Monitor vector base address register */
+                        return env->cp15.c12_mvbar;
+                    default:
+                        goto bad_reg;
+                }
+                break;
+            case 1:
+                switch (op2) {
+                    case 0: /* Interrupt Status Register */
+                    case 1: /* Virtualization Interrupt Register */
+                    default:
+                        return 0;
+                }
         }
 #endif
 
