@@ -398,6 +398,7 @@ void cpu_reset(CPUARMState *env)
     /* Reset the secure-world VBAR only ... (see ARM ARMv7) */
     arm_cp15_secure(env, c12_vbar) = 0;
     env->cp15.c12_mvbar = 0;
+    env->cp15.c12_vir = 0;
 #endif
 
 #endif
@@ -2043,10 +2044,24 @@ void HELPER(set_cp15)(CPUState *env, uint32_t insn, uint32_t val)
                             goto bad_reg;
                     }
                     break;
+
                 case 1:
                     /* Virtualization Interrupt Register */
-                    /* ignore */
+                    if (val & CPSR_I) {
+                      env->interrupt_request |= CPSR_I;
+                    } else {
+                      env->interrupt_request &= ~CPSR_I;
+                    }
+
+                    if (val & CPSR_F) {
+                      env->interrupt_request |= CPSR_F;
+                    } else {
+                      env->interrupt_request |= ~CPSR_F;
+                    }
+
+                    env->cp15.c12_vir = val & (CPSR_I | CPSR_A | CPSR_F);
                     break;
+
                 default:
                     goto bad_reg;
             }
@@ -2122,6 +2137,35 @@ bad_reg:
     cpu_abort(env, "Unimplemented cp15 register write (c%d, c%d, {%d, %d})\n",
               (insn >> 16) & 0xf, crm, op1, op2);
 }
+
+#if defined(TARGET_HAS_TRUSTZONE)
+static inline uint32_t arm_interrupt_status(CPUState *env)
+{
+  uint32_t status = 0;
+  int interrupt_request = env->interrupt_request;
+  uint32_t fiq_mask;
+  uint32_t irq_mask;
+
+  /* todo: proper interaction of virtual IRQ/FIQ flags*/
+  if (arm_is_secure(env, 0)) {
+    fiq_mask = CPU_INTERRUPT_FIQ;
+    irq_mask = CPU_INTERRUPT_HARD;
+  } else {
+    fiq_mask = CPU_INTERRUPT_FIQ | CPU_INTERRUPT_VFIQ;
+    irq_mask = CPU_INTERRUPT_HARD | CPU_INTERRUPT_VIRQ;
+  }
+
+  if (interrupt_request & fiq_mask) {
+    status |= CPSR_F;
+  }
+
+  if (interrupt_request & irq_mask) {
+    status |= CPSR_I;
+  }
+
+  return status;
+}
+#endif
 
 static inline uint32_t do_get_cp15(CPUState *env, uint32_t insn)
 {
@@ -2490,9 +2534,13 @@ static inline uint32_t do_get_cp15(CPUState *env, uint32_t insn)
             case 1:
                 switch (op2) {
                     case 0: /* Interrupt Status Register */
+                        return arm_interrupt_status(env);
+
                     case 1: /* Virtualization Interrupt Register */
+                        return env->cp15.c12_vir;
+
                     default:
-                        return 0;
+                        goto bad_reg;
                 }
         }
 #endif

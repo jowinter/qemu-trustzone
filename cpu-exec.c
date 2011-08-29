@@ -389,12 +389,26 @@ int cpu_exec(CPUState *env)
                         }
 		    }
 #elif defined(TARGET_ARM)
-                    if (interrupt_request & CPU_INTERRUPT_FIQ
+                    if ((interrupt_request & CPU_INTERRUPT_FIQ)
                         && !(env->uncached_cpsr & CPSR_F)) {
                         env->exception_index = EXCP_FIQ;
                         do_interrupt(env);
                         next_tb = 0;
                     }
+#if defined(TARGET_HAS_TRUSTZONE)
+                    else if (arm_has_vfiq(interrupt_request, env)) {
+                        /* Virtual FIQ */
+                        env->exception_index = EXCP_FIQ;
+                        do_interrupt(env);
+                        next_tb = 0;
+                    } else  if (arm_has_virq(interrupt_request, env)) {
+                        /* Virtual IRQ */
+                        env->exception_index = EXCP_IRQ;
+                        do_interrupt(env);
+                        next_tb = 0;
+                    }
+#endif
+
                     /* ARMv7-M interrupt return works by loading a magic value
                        into the PC.  On real hardware the load causes the
                        return to occur.  The qemu implementation performs the

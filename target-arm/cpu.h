@@ -59,6 +59,10 @@
 /* ARM-specific interrupt pending bits.  */
 #define CPU_INTERRUPT_FIQ   CPU_INTERRUPT_TGT_EXT_1
 
+#if defined(TARGET_HAS_TRUSTZONE)
+#define CPU_INTERRUPT_VIRQ  CPU_INTERRUPT_TGT_EXT_2
+#define CPU_INTERRUPT_VFIQ  CPU_INTERRUPT_TGT_EXT_3
+#endif
 
 typedef void ARMWriteCPFunc(void *opaque, int cp_info,
                             int srcreg, int operand, uint32_t value,
@@ -177,6 +181,7 @@ typedef struct CPUARMState {
 #if defined(TARGET_HAS_TRUSTZONE)        
         banked_uint32_t c12_vbar; /* secure/nonsecure vector base address register. */
         uint32_t c12_mvbar; /* monitor vector base address register. */
+        uint32_t c12_vir;   /* cortex-a9 virtualization interrupt register */
 #endif
         banked_uint32_t c13_fcse; /* FCSE PID.  */
         banked_uint32_t c13_context; /* Context ID.  */
@@ -673,6 +678,30 @@ static inline bool cpu_has_work(CPUState *env)
     return env->interrupt_request &
         (CPU_INTERRUPT_FIQ | CPU_INTERRUPT_HARD | CPU_INTERRUPT_EXITTB);
 }
+
+#if defined(TARGET_HAS_TRUSTZONE)
+/**
+ * arm_has_vfiq(): Tests if the CPU core has a pending virtual FIQ which
+ *   should be delviered immediately.
+ */
+static inline bool arm_has_vfiq(int interrupt_request, CPUState *env)
+{
+  return (interrupt_request & CPU_INTERRUPT_VFIQ)
+    && !((env->uncached_cpsr | env->cp15.c1_vctrl) & CPSR_F)
+    && !arm_is_secure(env, 0);
+}
+
+/**
+ * arm_has_vfiq(): Tests if the CPU core has a pending virtual IRQ which
+ *   should by delivered immediately.
+ */
+static inline bool arm_has_virq(int interrupt_request, CPUState *env)
+{
+  return (interrupt_request & CPU_INTERRUPT_VIRQ)
+    && !((env->uncached_cpsr | env->cp15.c1_vctrl) & CPSR_I)
+    && !arm_is_secure(env, 0);
+}
+#endif
 
 #include "exec-all.h"
 

@@ -140,6 +140,7 @@ void cpu_save(QEMUFile *f, void *opaque)
         qemu_put_be32(f, arm_cp15_nonsecure(env, c12_vbar));
         qemu_put_be32(f, arm_cp15_secure(env, c12_vbar));
         qemu_put_be32(f, env->cp15.c12_mvbar);
+        qemu_put_be32(f, env->cp15.c12_vir);
         qemu_put_be32(f, arm_cp15_nonsecure(env, c13_fcse));
         qemu_put_be32(f, arm_cp15_nonsecure(env, c13_context));
         qemu_put_be32(f, arm_cp15_nonsecure(env, c13_tls1));
@@ -295,6 +296,7 @@ int cpu_load(QEMUFile *f, void *opaque, int version_id)
         arm_cp15_nonsecure(env, c12_vbar) = qemu_get_be32(f);
         arm_cp15_secure(env, c12_vbar) = qemu_get_be32(f);
         env->cp15.c12_mvbar = qemu_get_be32(f);
+        env->cp15.c12_vir = qemu_get_be32(f);
         arm_cp15_nonsecure(env, c13_fcse) = qemu_get_be32(f);
         arm_cp15_nonsecure(env, c13_context) = qemu_get_be32(f);
         arm_cp15_nonsecure(env, c13_tls1) = qemu_get_be32(f);
