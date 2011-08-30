@@ -174,11 +174,19 @@ static void n8x0_nand_setup(struct n800_s *s)
     char *otp_region;
     DriveInfo *dinfo;
 
-    dinfo = drive_get(IF_MTD, 0, 0);
+    s->nand = qdev_create(NULL, "onenand");
+    qdev_prop_set_uint16(s->nand, "manufacturer_id", NAND_MFR_SAMSUNG);
     /* Either 0x40 or 0x48 are OK for the device ID */
-    s->nand = onenand_init(dinfo ? dinfo->bdrv : 0,
-                    NAND_MFR_SAMSUNG, 0x48, 0, 1,
-                    qdev_get_gpio_in(s->cpu->gpio, N8X0_ONENAND_GPIO));
+    qdev_prop_set_uint16(s->nand, "device_id", 0x48);
+    qdev_prop_set_uint16(s->nand, "version_id", 0);
+    qdev_prop_set_int32(s->nand, "shift", 1);
+    dinfo = drive_get(IF_MTD, 0, 0);
+    if (dinfo && dinfo->bdrv) {
+        qdev_prop_set_drive_nofail(s->nand, "drive", dinfo->bdrv);
+    }
+    qdev_init_nofail(s->nand);
+    sysbus_connect_irq(sysbus_from_qdev(s->nand), 0,
+                       qdev_get_gpio_in(s->cpu->gpio, N8X0_ONENAND_GPIO));
     omap_gpmc_attach(s->cpu->gpmc, N8X0_ONENAND_CS,
                      sysbus_mmio_get_region(sysbus_from_qdev(s->nand), 0));
     otp_region = onenand_raw_otp(s->nand);
@@ -2507,9 +2515,18 @@ static void n900_init(ram_addr_t ram_size,
     qdev_prop_set_uint8(s->mipid, "n900", 1);
     qdev_init_nofail(s->mipid);
 
-    s->nand = onenand_init(dmtd ? dmtd->bdrv : NULL,
-                           NAND_MFR_SAMSUNG, 0x40, 0x121, 1,
-                           qdev_get_gpio_in(s->cpu->gpio, N900_ONENAND_GPIO));
+
+    s->nand = qdev_create(NULL, "onenand");
+    qdev_prop_set_uint16(s->nand, "manufacturer_id", NAND_MFR_SAMSUNG);
+    qdev_prop_set_uint16(s->nand, "device_id", 0x40);
+    qdev_prop_set_uint16(s->nand, "version_id", 0x121);
+    qdev_prop_set_int32(s->nand, "shift", 1);
+    if (dmtd && dmtd->bdrv) {
+        qdev_prop_set_drive_nofail(s->nand, "drive", dmtd->bdrv);
+    }
+    qdev_init_nofail(s->nand);
+    sysbus_connect_irq(sysbus_from_qdev(s->nand), 0,
+                       qdev_get_gpio_in(s->cpu->gpio, N900_ONENAND_GPIO));
     omap_gpmc_attach(s->cpu->gpmc, 0,
                      sysbus_mmio_get_region(sysbus_from_qdev(s->nand), 0));
 

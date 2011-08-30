@@ -823,23 +823,6 @@ static void onenand_register_device(void)
     sysbus_register_withprop(&onenand_info);
 }
 
-DeviceState *onenand_init(BlockDriverState *bdrv,
-                          uint16_t man_id, uint16_t dev_id, uint16_t ver_id,
-                          int regshift, qemu_irq irq)
-{
-    DeviceState *dev = qdev_create(NULL, "onenand");
-    qdev_prop_set_uint16(dev, "manufacturer_id", man_id);
-    qdev_prop_set_uint16(dev, "device_id", dev_id);
-    qdev_prop_set_uint16(dev, "version_id", ver_id);
-    qdev_prop_set_int32(dev, "shift", regshift);
-    if (bdrv) {
-        qdev_prop_set_drive_nofail(dev, "drive", bdrv);
-    }
-    qdev_init_nofail(dev);
-    sysbus_connect_irq(sysbus_from_qdev(dev), 0, irq);
-    return dev;
-}
-
 void *onenand_raw_otp(DeviceState *onenand_device)
 {
     return FROM_SYSBUS(OneNANDState, sysbus_from_qdev(onenand_device))->otp;
