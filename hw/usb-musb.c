@@ -315,7 +315,7 @@ struct MUSBEndPoint {
 };
 
 struct MUSBState {
-    qemu_irq *irqs;
+    qemu_irq irqs[musb_irq_max];
     USBBus bus;
     USBPort port;
 
@@ -331,9 +331,7 @@ struct MUSBState {
     uint16_t rx_intr;
     uint16_t rx_mask;
 
-#ifdef SETUPLEN_HACK
     int setup_len;
-#endif
     int session;
 
     uint8_t buf[0x8000];
@@ -359,9 +357,7 @@ void musb_reset(MUSBState *s)
     s->mask = 0x06;
     s->idx = 0;
 
-#ifdef SETUPLEN_HACK
     s->setup_len = 0;
-#endif
     s->session = 0;
     memset(s->buf, 0, sizeof(s->buf));
 
@@ -381,9 +377,9 @@ void musb_reset(MUSBState *s)
 struct MUSBState *musb_init(DeviceState *parent_device, int gpio_base)
 {
     MUSBState *s = g_malloc0(sizeof(*s));
-    s->irqs = g_new0(qemu_irq, __musb_irq_max);
     int i;
-    for (i = 0; i < __musb_irq_max; i++) {
+
+    for (i = 0; i < musb_irq_max; i++) {
         s->irqs[i] = qdev_get_gpio_in(parent_device, gpio_base + i);
     }
 

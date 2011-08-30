@@ -227,7 +227,7 @@ static int omap3_hsusb_otg_init(SysBusDevice *dev)
                      cpu_register_io_memory(omap3_hsusb_otg_readfn,
                                             omap3_hsusb_otg_writefn, s,
                                             DEVICE_NATIVE_ENDIAN));
-    qdev_init_gpio_in(&dev->qdev, omap3_hsusb_musb_core_intr, __musb_irq_max);
+    qdev_init_gpio_in(&dev->qdev, omap3_hsusb_musb_core_intr, musb_irq_max);
     s->musb = musb_init(&dev->qdev, 0);
     vmstate_register(&dev->qdev, -1, &vmstate_omap3_hsusb_otg, s);
     return 0;

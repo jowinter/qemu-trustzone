@@ -337,7 +337,8 @@ enum musb_irq_source_e {
     musb_irq_tx,
     musb_set_vbus,
     musb_set_session,
-    __musb_irq_max,
+    /* Add new interrupts here */
+    musb_irq_max, /* total number of interrupts defined */
 };
 
 typedef struct MUSBState MUSBState;
