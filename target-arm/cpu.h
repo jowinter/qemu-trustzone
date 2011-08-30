@@ -62,6 +62,7 @@
 #if defined(TARGET_HAS_TRUSTZONE)
 #define CPU_INTERRUPT_VIRQ  CPU_INTERRUPT_TGT_EXT_2
 #define CPU_INTERRUPT_VFIQ  CPU_INTERRUPT_TGT_EXT_3
+#define CPU_INTERRUPT_VABT  CPU_INTERRUPT_TGT_EXT_4
 #endif
 
 typedef void ARMWriteCPFunc(void *opaque, int cp_info,
@@ -699,6 +700,17 @@ static inline bool arm_has_virq(uint32_t interrupt_request, CPUState *env)
 {
   return (interrupt_request & CPU_INTERRUPT_VIRQ)
     && !((env->uncached_cpsr | env->cp15.c1_vctrl) & CPSR_I)
+    && !arm_is_secure(env, 0);
+}
+
+/**
+ * arm_has_vabt(): Tests if the CPU core has a pending virtual ABORT which
+ *   should by delivered immediately.
+ */
+static inline bool arm_has_vabt(uint32_t interrupt_request, CPUState *env)
+{
+  return (interrupt_request & CPU_INTERRUPT_VABT)
+    && !((env->uncached_cpsr | env->cp15.c1_vctrl) & CPSR_A)
     && !arm_is_secure(env, 0);
 }
 #endif

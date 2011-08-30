@@ -2061,6 +2061,12 @@ void HELPER(set_cp15)(CPUState *env, uint32_t insn, uint32_t val)
                       new_request &= ~CPU_INTERRUPT_VFIQ;
 		    }
 
+		    if (val & CPSR_A) {
+		      new_request |= CPU_INTERRUPT_VABT;
+		    } else {
+		      new_request &= ~CPU_INTERRUPT_VABT;
+		    }
+
 		    /* Write-back to CPU interrupt request */
 		    if (env->interrupt_request != new_request) {
 		      env->interrupt_request = new_request;
