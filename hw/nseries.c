@@ -905,6 +905,7 @@ static void n8x0_usb_setup(struct n800_s *s)
     SysBusDevice *dev;
     s->usb = qdev_create(NULL, "tusb6010");
     dev = sysbus_from_qdev(s->usb);
+    qdev_init_nofail(s->usb);
     sysbus_connect_irq(dev, 0,
                        qdev_get_gpio_in(s->cpu->gpio, N8X0_TUSB_INT_GPIO));
     /* Using the NOR interface */
