@@ -682,9 +682,9 @@ static inline bool cpu_has_work(CPUState *env)
 #if defined(TARGET_HAS_TRUSTZONE)
 /**
  * arm_has_vfiq(): Tests if the CPU core has a pending virtual FIQ which
- *   should be delviered immediately.
+ *   should be delivered immediately.
  */
-static inline bool arm_has_vfiq(int interrupt_request, CPUState *env)
+static inline bool arm_has_vfiq(uint32_t interrupt_request, CPUState *env)
 {
   return (interrupt_request & CPU_INTERRUPT_VFIQ)
     && !((env->uncached_cpsr | env->cp15.c1_vctrl) & CPSR_F)
@@ -695,7 +695,7 @@ static inline bool arm_has_vfiq(int interrupt_request, CPUState *env)
  * arm_has_vfiq(): Tests if the CPU core has a pending virtual IRQ which
  *   should by delivered immediately.
  */
-static inline bool arm_has_virq(int interrupt_request, CPUState *env)
+static inline bool arm_has_virq(uint32_t interrupt_request, CPUState *env)
 {
   return (interrupt_request & CPU_INTERRUPT_VIRQ)
     && !((env->uncached_cpsr | env->cp15.c1_vctrl) & CPSR_I)

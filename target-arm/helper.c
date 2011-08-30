@@ -2045,22 +2045,31 @@ void HELPER(set_cp15)(CPUState *env, uint32_t insn, uint32_t val)
                     }
                     break;
 
-                case 1:
+  	       case 1: {
                     /* Virtualization Interrupt Register */
-                    if (val & CPSR_I) {
-                      env->interrupt_request |= CPSR_I;
+		    uint32_t new_request = env->interrupt_request;
+
+		    if (val & CPSR_I) {
+                      new_request |= CPU_INTERRUPT_VIRQ;
                     } else {
-                      env->interrupt_request &= ~CPSR_I;
-                    }
+                      new_request &= ~CPU_INTERRUPT_VIRQ;
+                    }		  
 
                     if (val & CPSR_F) {
-                      env->interrupt_request |= CPSR_F;
+		      new_request |= CPU_INTERRUPT_VFIQ;
                     } else {
-                      env->interrupt_request |= ~CPSR_F;
-                    }
+                      new_request &= ~CPU_INTERRUPT_VFIQ;
+		    }
 
+		    /* Write-back to CPU interrupt request */
+		    if (env->interrupt_request != new_request) {
+		      env->interrupt_request = new_request;
+		    }
+
+		    /* Write back to VIR shadow copy */
                     env->cp15.c12_vir = val & (CPSR_I | CPSR_A | CPSR_F);
-                    break;
+	        } 
+		break;
 
                 default:
                     goto bad_reg;
