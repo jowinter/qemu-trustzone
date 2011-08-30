@@ -204,7 +204,9 @@ static void n8x0_i2c_setup(struct n800_s *s)
 
     /* Attach a menelaus PM chip */
     dev = i2c_create_slave(i2c, "twl92230", N8X0_MENELAUS_ADDR);
-    qdev_connect_gpio_out(dev, 3, s->cpu->irq[0][OMAP_INT_24XX_SYS_NIRQ]);
+    qdev_connect_gpio_out(dev, 3,
+                          qdev_get_gpio_in(s->cpu->ih[0],
+                                           OMAP_INT_24XX_SYS_NIRQ));
 
     /* Attach a TMP105 PM chip (A0 wired to ground) */
     dev = i2c_create_slave(i2c, "tmp105", N8X0_TMP105_ADDR);
@@ -2546,7 +2548,8 @@ static void n900_init(ram_addr_t ram_size,
                                                         DEVICE_NATIVE_ENDIAN));
 
     s->twl4030 = twl4030_init(omap_i2c_bus(s->cpu->i2c, 0),
-                              s->cpu->irq[0][OMAP_INT_3XXX_SYS_NIRQ],
+                              qdev_get_gpio_in(s->cpu->ih[0],
+                                               OMAP_INT_3XXX_SYS_NIRQ),
                               NULL, n900_twl4030_keymap);
     twl4030_madc_attach(s->twl4030, n900_twl4030_madc_callback);
     i2c_bus *i2c2 = omap_i2c_bus(s->cpu->i2c, 1);

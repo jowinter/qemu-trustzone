@@ -75,25 +75,6 @@ void omap_clk_setrate(omap_clk clk, int divide, int multiply);
 int64_t omap_clk_getrate(omap_clk clk);
 void omap_clk_reparent(omap_clk clk, omap_clk parent);
 
-/* omap_intc.c */
-struct omap_intr_handler_s;
-struct omap_intr_handler_s *omap_inth_init(target_phys_addr_t base,
-                                           unsigned long size,
-                                           unsigned char nbanks,
-                                           qemu_irq **pins,
-                                           qemu_irq parent_irq,
-                                           qemu_irq parent_fiq,
-                                           omap_clk clk);
-struct omap_intr_handler_s *omap2_inth_init(struct omap_mpu_state_s *mpu,
-                                            target_phys_addr_t base,
-                                            int size, int nbanks,
-                                            qemu_irq **pins,
-                                            qemu_irq parent_irq,
-                                            qemu_irq parent_fiq,
-                                            omap_clk fclk, omap_clk iclk);
-void omap_inth_reset(struct omap_intr_handler_s *s);
-qemu_irq omap_inth_get_pin(struct omap_intr_handler_s *s, int n);
-
 /* omap_sdrc.c */
 struct omap_sdrc_s;
 struct omap_sdrc_s *omap_sdrc_init(target_phys_addr_t base);
@@ -932,8 +913,6 @@ struct I2SCodec {
     } in, out;
 };
 struct omap_mcbsp_s;
-struct omap_mcbsp_s *omap_mcbsp_init(target_phys_addr_t base,
-                                     qemu_irq *irq, qemu_irq *dma, omap_clk clk);
 void omap_mcbsp_i2s_attach(struct omap_mcbsp_s *s, I2SCodec *slave);
 
 /* omap_synctimer.c */
@@ -1029,7 +1008,7 @@ struct omap_mpu_state_s {
 
     CPUState *env;
 
-    qemu_irq *irq[2];
+//    qemu_irq *irq[2];
     qemu_irq *drq;
 
     qemu_irq wakeup;
@@ -1067,7 +1046,7 @@ struct omap_mpu_state_s {
     struct omap_lpg_s *led[2];
 
     /* MPU private TIPB peripherals */
-    struct omap_intr_handler_s *ih[2];
+    struct DeviceState *ih[2];
 
     struct soc_dma_s *dma;
 

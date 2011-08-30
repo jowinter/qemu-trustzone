@@ -507,7 +507,7 @@ static uint32_t omap_ulpd_pm_read(void *opaque, target_phys_addr_t addr)
     case 0x14:	/* IT_STATUS */
         ret = s->ulpd_pm_regs[addr >> 2];
         s->ulpd_pm_regs[addr >> 2] = 0;
-        qemu_irq_lower(s->irq[1][OMAP_INT_GAUGE_32K]);
+        qemu_irq_lower(qdev_get_gpio_in(s->ih[1], OMAP_INT_GAUGE_32K));
         return ret;
 
     case 0x18:	/* Reserved */
@@ -604,7 +604,7 @@ static void omap_ulpd_pm_write(void *opaque, target_phys_addr_t addr,
                     s->ulpd_pm_regs[0x14 >> 2] |= 1 << 1;
 
                 s->ulpd_pm_regs[0x14 >> 2] |= 1 << 0;	/* IT_GAUGING */
-                qemu_irq_raise(s->irq[1][OMAP_INT_GAUGE_32K]);
+                qemu_irq_raise(qdev_get_gpio_in(s->ih[1], OMAP_INT_GAUGE_32K));
             }
         }
         s->ulpd_pm_regs[addr >> 2] = value;
@@ -2237,15 +2237,16 @@ static void omap_uwire_reset(struct omap_uwire_s *s)
 }
 
 static struct omap_uwire_s *omap_uwire_init(target_phys_addr_t base,
-                                            qemu_irq *irq, qemu_irq dma,
+                                            qemu_irq txirq, qemu_irq rxirq,
+                                            qemu_irq dma,
                                             omap_clk clk)
 {
     int iomemtype;
     struct omap_uwire_s *s = (struct omap_uwire_s *)
             g_malloc0(sizeof(struct omap_uwire_s));
 
-    s->txirq = irq[0];
-    s->rxirq = irq[1];
+    s->txirq = txirq;
+    s->rxirq = rxirq;
     s->txdrq = dma;
     omap_uwire_reset(s);
 
@@ -2862,14 +2863,15 @@ static void omap_rtc_reset(struct omap_rtc_s *s)
 }
 
 static struct omap_rtc_s *omap_rtc_init(target_phys_addr_t base,
-                                        qemu_irq *irq, omap_clk clk)
+                                        qemu_irq timerirq, qemu_irq alarmirq,
+                                        omap_clk clk)
 {
     int iomemtype;
     struct omap_rtc_s *s = (struct omap_rtc_s *)
             g_malloc0(sizeof(struct omap_rtc_s));
 
-    s->irq = irq[0];
-    s->alarm = irq[1];
+    s->irq = timerirq;
+    s->alarm = alarmirq;
     s->clk = qemu_new_timer_ms(rt_clock, omap_rtc_tick, s);
 
     omap_rtc_reset(s);
@@ -3381,15 +3383,16 @@ static void omap_mcbsp_reset(struct omap_mcbsp_s *s)
     qemu_del_timer(s->sink_timer);
 }
 
-struct omap_mcbsp_s *omap_mcbsp_init(target_phys_addr_t base,
-                qemu_irq *irq, qemu_irq *dma, omap_clk clk)
+static struct omap_mcbsp_s *omap_mcbsp_init(target_phys_addr_t base,
+                                            qemu_irq txirq, qemu_irq rxirq,
+                                            qemu_irq *dma, omap_clk clk)
 {
     int iomemtype;
     struct omap_mcbsp_s *s = (struct omap_mcbsp_s *)
             g_malloc0(sizeof(struct omap_mcbsp_s));
 
-    s->txirq = irq[0];
-    s->rxirq = irq[1];
+    s->txirq = txirq;
+    s->rxirq = rxirq;
     s->txdrq = dma[0];
     s->rxdrq = dma[1];
     s->sink_timer = qemu_new_timer_ns(vm_clock, omap_mcbsp_sink_tick, s);
@@ -3611,8 +3614,6 @@ static void omap1_mpu_reset(void *opaque)
 {
     struct omap_mpu_state_s *mpu = (struct omap_mpu_state_s *) opaque;
 
-    omap_inth_reset(mpu->ih[0]);
-    omap_inth_reset(mpu->ih[1]);
     omap_dma_reset(mpu->dma);
     omap_mpu_timer_reset(mpu->timer[0]);
     omap_mpu_timer_reset(mpu->timer[1]);
@@ -3759,6 +3760,7 @@ struct omap_mpu_state_s *omap310_mpu_init(unsigned long sdram_size,
     qemu_irq *cpu_irq;
     qemu_irq dma_irqs[6];
     DriveInfo *dinfo;
+    SysBusDevice *busdev;
 
     if (!core)
         core = "ti925t";
@@ -3789,6 +3791,24 @@ struct omap_mpu_state_s *omap310_mpu_init(unsigned long sdram_size,
     omap_clkm_init(0xfffece00, 0xe1008000, s);
 
     cpu_irq = arm_pic_init_cpu(s->env);
+    s->ih[0] = qdev_create(NULL, "omap-intc");
+    qdev_prop_set_uint32(s->ih[0], "size", 0x100);
+    qdev_prop_set_ptr(s->ih[0], "clk", omap_findclk(s, "arminth_ck"));
+    qdev_init_nofail(s->ih[0]);
+    busdev = sysbus_from_qdev(s->ih[0]);
+    sysbus_connect_irq(busdev, 0, cpu_irq[ARM_PIC_CPU_IRQ]);
+    sysbus_connect_irq(busdev, 1, cpu_irq[ARM_PIC_CPU_FIQ]);
+    sysbus_mmio_map(busdev, 0, 0xfffecb00);
+    s->ih[1] = qdev_create(NULL, "omap-intc");
+    qdev_prop_set_uint32(s->ih[1], "size", 0x800);
+    qdev_prop_set_ptr(s->ih[1], "clk", omap_findclk(s, "arminth_ck"));
+    qdev_init_nofail(s->ih[1]);
+    busdev = sysbus_from_qdev(s->ih[1]);
+    sysbus_connect_irq(busdev, 0,
+                       qdev_get_gpio_in(s->ih[0], OMAP_INT_15XX_IH2_IRQ));
+    /* The second interrupt controller's FIQ output is not wired up */
+    sysbus_mmio_map(busdev, 0, 0xfffe0000);
+#if 0
     s->ih[0] = omap_inth_init(0xfffecb00, 0x100, 1, &s->irq[0],
                               cpu_irq[ARM_PIC_CPU_IRQ],
                               cpu_irq[ARM_PIC_CPU_FIQ],
@@ -3798,11 +3818,14 @@ struct omap_mpu_state_s *omap310_mpu_init(unsigned long sdram_size,
                                                 OMAP_INT_15XX_IH2_IRQ),
                               NULL,
                               omap_findclk(s, "arminth_ck"));
+#endif
 
-    for (i = 0; i < 6; i ++)
-        dma_irqs[i] =
-                s->irq[omap1_dma_irq_map[i].ih][omap1_dma_irq_map[i].intr];
-    s->dma = omap_dma_init(0xfffed800, dma_irqs, s->irq[0][OMAP_INT_DMA_LCD],
+    for (i = 0; i < 6; i++) {
+        dma_irqs[i] = qdev_get_gpio_in(s->ih[omap1_dma_irq_map[i].ih],
+                                       omap1_dma_irq_map[i].intr);
+    }
+    s->dma = omap_dma_init(0xfffed800, dma_irqs,
+                           qdev_get_gpio_in(s->ih[0], OMAP_INT_DMA_LCD),
                            s, omap_findclk(s, "dma_ck"), omap_dma_3_1);
 
     s->port[emiff    ].addr_valid = omap_validate_emiff_addr;
@@ -3819,24 +3842,25 @@ struct omap_mpu_state_s *omap310_mpu_init(unsigned long sdram_size,
                     imif_base, OMAP_IMIF_BASE, s->sram_size);
 
     s->timer[0] = omap_mpu_timer_init(0xfffec500,
-                    s->irq[0][OMAP_INT_TIMER1],
+                    qdev_get_gpio_in(s->ih[0], OMAP_INT_TIMER1),
                     omap_findclk(s, "mputim_ck"));
     s->timer[1] = omap_mpu_timer_init(0xfffec600,
-                    s->irq[0][OMAP_INT_TIMER2],
+                    qdev_get_gpio_in(s->ih[0], OMAP_INT_TIMER2),
                     omap_findclk(s, "mputim_ck"));
     s->timer[2] = omap_mpu_timer_init(0xfffec700,
-                    s->irq[0][OMAP_INT_TIMER3],
+                    qdev_get_gpio_in(s->ih[0], OMAP_INT_TIMER3),
                     omap_findclk(s, "mputim_ck"));
 
     s->wdt = omap_wd_timer_init(0xfffec800,
-                    s->irq[0][OMAP_INT_WD_TIMER],
+                    qdev_get_gpio_in(s->ih[0], OMAP_INT_WD_TIMER),
                     omap_findclk(s, "armwdt_ck"));
 
     s->os_timer = omap_os_timer_init(0xfffb9000,
-                    s->irq[1][OMAP_INT_OS_TIMER],
+                    qdev_get_gpio_in(s->ih[1], OMAP_INT_OS_TIMER),
                     omap_findclk(s, "clk32-kHz"));
 
-    s->lcd = omap_lcdc_init(0xfffec000, s->irq[0][OMAP_INT_LCD_CTRL],
+    s->lcd = omap_lcdc_init(0xfffec000,
+                            qdev_get_gpio_in(s->ih[0], OMAP_INT_LCD_CTRL),
                     omap_dma_get_lcdch(s->dma), imif_base, emiff_base,
                     omap_findclk(s, "lcd_ck"));
 
@@ -3847,10 +3871,10 @@ struct omap_mpu_state_s *omap310_mpu_init(unsigned long sdram_size,
     omap_mpui_init(0xfffec900, s);
 
     s->private_tipb = omap_tipb_bridge_init(0xfffeca00,
-                    s->irq[0][OMAP_INT_BRIDGE_PRIV],
+                    qdev_get_gpio_in(s->ih[0], OMAP_INT_BRIDGE_PRIV),
                     omap_findclk(s, "tipb_ck"));
     s->public_tipb = omap_tipb_bridge_init(0xfffed300,
-                    s->irq[0][OMAP_INT_BRIDGE_PUB],
+                    qdev_get_gpio_in(s->ih[0], OMAP_INT_BRIDGE_PUB),
                     omap_findclk(s, "tipb_ck"));
 
     omap_tcmi_init(0xfffecc00, s);
@@ -3862,8 +3886,8 @@ struct omap_mpu_state_s *omap310_mpu_init(unsigned long sdram_size,
                          omap_clk_getrate(omap_findclk(s, "uart1_ck")) / 16);
     qdev_prop_set_chr(s->uart[0], "chardev", serial_hds[0]);
     qdev_init_nofail(s->uart[0]);
-    SysBusDevice *busdev = sysbus_from_qdev(s->uart[0]);
-    sysbus_connect_irq(busdev, 0, s->irq[1][OMAP_INT_UART1]);
+    busdev = sysbus_from_qdev(s->uart[0]);
+    sysbus_connect_irq(busdev, 0, qdev_get_gpio_in(s->ih[1], OMAP_INT_UART1));
     sysbus_connect_irq(busdev, 1, s->drq[OMAP_DMA_UART1_TX]);
     sysbus_connect_irq(busdev, 2, s->drq[OMAP_DMA_UART1_RX]);
     sysbus_mmio_map(busdev, 0, 0xfffb0000);
@@ -3877,7 +3901,7 @@ struct omap_mpu_state_s *omap310_mpu_init(unsigned long sdram_size,
                       serial_hds[0] ? serial_hds[1] : NULL);
     qdev_init_nofail(s->uart[1]);
     busdev = sysbus_from_qdev(s->uart[1]);
-    sysbus_connect_irq(busdev, 0, s->irq[1][OMAP_INT_UART2]);
+    sysbus_connect_irq(busdev, 0, qdev_get_gpio_in(s->ih[1], OMAP_INT_UART2));
     sysbus_connect_irq(busdev, 1, s->drq[OMAP_DMA_UART2_TX]);
     sysbus_connect_irq(busdev, 2, s->drq[OMAP_DMA_UART2_RX]);
     sysbus_mmio_map(busdev, 0, 0xfffb0800);
@@ -3891,7 +3915,7 @@ struct omap_mpu_state_s *omap310_mpu_init(unsigned long sdram_size,
                       serial_hds[0] && serial_hds[1] ? serial_hds[2] : NULL);
     qdev_init_nofail(s->uart[2]);
     busdev = sysbus_from_qdev(s->uart[2]);
-    sysbus_connect_irq(busdev, 0, s->irq[1][OMAP_INT_UART3]);
+    sysbus_connect_irq(busdev, 0, qdev_get_gpio_in(s->ih[1], OMAP_INT_UART3));
     sysbus_connect_irq(busdev, 1, s->drq[OMAP_DMA_UART3_TX]);
     sysbus_connect_irq(busdev, 2, s->drq[OMAP_DMA_UART3_RX]);
     sysbus_mmio_map(busdev, 0, 0xfffb9800);
@@ -3906,21 +3930,25 @@ struct omap_mpu_state_s *omap310_mpu_init(unsigned long sdram_size,
         exit(1);
     }
     s->mmc = omap_mmc_init(0xfffb7800, dinfo->bdrv,
-                    s->irq[1][OMAP_INT_OQN], &s->drq[OMAP_DMA_MMC_TX],
+                           qdev_get_gpio_in(s->ih[1], OMAP_INT_OQN),
+                           &s->drq[OMAP_DMA_MMC_TX],
                     omap_findclk(s, "mmc_ck"));
 
     s->mpuio = omap_mpuio_init(0xfffb5000,
-                    s->irq[1][OMAP_INT_KEYBOARD], s->irq[1][OMAP_INT_MPUIO],
+                               qdev_get_gpio_in(s->ih[1], OMAP_INT_KEYBOARD),
+                               qdev_get_gpio_in(s->ih[1], OMAP_INT_MPUIO),
                     s->wakeup, omap_findclk(s, "clk32-kHz"));
 
     s->gpio = qdev_create(NULL, "omap-gpio");
     qdev_prop_set_int32(s->gpio, "mpu_model", s->mpu_model);
     qdev_init_nofail(s->gpio);
     sysbus_connect_irq(sysbus_from_qdev(s->gpio), 0,
-                    s->irq[0][OMAP_INT_GPIO_BANK1]);
+                       qdev_get_gpio_in(s->ih[0], OMAP_INT_GPIO_BANK1));
     sysbus_mmio_map(sysbus_from_qdev(s->gpio), 0, 0xfffce000);
 
-    s->microwire = omap_uwire_init(0xfffb3000, &s->irq[1][OMAP_INT_uWireTX],
+    s->microwire = omap_uwire_init(0xfffb3000,
+                                   qdev_get_gpio_in(s->ih[1], OMAP_INT_uWireTX),
+                                   qdev_get_gpio_in(s->ih[1], OMAP_INT_uWireRX),
                     s->drq[OMAP_DMA_UWIRE_TX], omap_findclk(s, "mpuper_ck"));
 
     s->pwl = omap_pwl_init(0xfffb5800, omap_findclk(s, "armxor_ck"));
@@ -3930,19 +3958,29 @@ struct omap_mpu_state_s *omap310_mpu_init(unsigned long sdram_size,
     qdev_prop_set_int32(s->i2c, "mpu_model", s->mpu_model);
     qdev_init_nofail(s->i2c);
     busdev = sysbus_from_qdev(s->i2c);
-    sysbus_connect_irq(busdev, 0, s->irq[1][OMAP_INT_I2C]);
+    sysbus_connect_irq(busdev, 0, qdev_get_gpio_in(s->ih[1], OMAP_INT_I2C));
     sysbus_connect_irq(busdev, 1, s->drq[OMAP_DMA_I2C_TX]);
     sysbus_connect_irq(busdev, 2, s->drq[OMAP_DMA_I2C_RX]);
     sysbus_mmio_map(busdev, 0, 0xfffb3800);
 
-    s->rtc = omap_rtc_init(0xfffb4800, &s->irq[1][OMAP_INT_RTC_TIMER],
+    s->rtc = omap_rtc_init(0xfffb4800,
+                           qdev_get_gpio_in(s->ih[1], OMAP_INT_RTC_TIMER),
+                           qdev_get_gpio_in(s->ih[1], OMAP_INT_RTC_ALARM),
                     omap_findclk(s, "clk32-kHz"));
 
-    s->mcbsp1 = omap_mcbsp_init(0xfffb1800, &s->irq[1][OMAP_INT_McBSP1TX],
+    s->mcbsp1 = omap_mcbsp_init(0xfffb1800,
+                                qdev_get_gpio_in(s->ih[1], OMAP_INT_McBSP1TX),
+                                qdev_get_gpio_in(s->ih[1], OMAP_INT_McBSP1RX),
                     &s->drq[OMAP_DMA_MCBSP1_TX], omap_findclk(s, "dspxor_ck"));
-    s->mcbsp2 = omap_mcbsp_init(0xfffb1000, &s->irq[0][OMAP_INT_310_McBSP2_TX],
+    s->mcbsp2 = omap_mcbsp_init(0xfffb1000,
+                                qdev_get_gpio_in(s->ih[0],
+                                                 OMAP_INT_310_McBSP2_TX),
+                                qdev_get_gpio_in(s->ih[0],
+                                                 OMAP_INT_310_McBSP2_RX),
                     &s->drq[OMAP_DMA_MCBSP2_TX], omap_findclk(s, "mpuper_ck"));
-    s->mcbsp3 = omap_mcbsp_init(0xfffb7000, &s->irq[1][OMAP_INT_McBSP3TX],
+    s->mcbsp3 = omap_mcbsp_init(0xfffb7000,
+                                qdev_get_gpio_in(s->ih[1], OMAP_INT_McBSP3TX),
+                                qdev_get_gpio_in(s->ih[1], OMAP_INT_McBSP3RX),
                     &s->drq[OMAP_DMA_MCBSP3_TX], omap_findclk(s, "dspxor_ck"));
 
     s->led[0] = omap_lpg_init(0xfffbd000, omap_findclk(s, "clk32-kHz"));

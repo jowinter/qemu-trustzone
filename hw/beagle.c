@@ -80,7 +80,8 @@ static void beagle_common_init(ram_addr_t ram_size,
     }
 
     s->twl4030 = twl4030_init(omap_i2c_bus(s->cpu->i2c, 0),
-                              s->cpu->irq[0][OMAP_INT_3XXX_SYS_NIRQ],
+                              qdev_get_gpio_in(s->cpu->ih[0],
+                                               OMAP_INT_3XXX_SYS_NIRQ),
                               NULL, NULL);
     int i;
     for (i = 0; i < nb_nics; i++) {

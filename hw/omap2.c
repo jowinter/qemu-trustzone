@@ -2182,7 +2182,6 @@ static void omap2_mpu_reset(void *opaque)
 {
     struct omap_mpu_state_s *mpu = (struct omap_mpu_state_s *) opaque;
 
-    omap_inth_reset(mpu->ih[0]);
     omap_dma_reset(mpu->dma);
     omap_prcm_reset(mpu->prcm);
     omap_sysctl_reset(mpu->sysc);
@@ -2258,21 +2257,35 @@ struct omap_mpu_state_s *omap2420_mpu_init(unsigned long sdram_size,
 
     /* Actually mapped at any 2K boundary in the ARM11 private-peripheral if */
     cpu_irq = arm_pic_init_cpu(s->env);
+    s->ih[0] = qdev_create(NULL, "omap2-intc");
+    qdev_prop_set_uint8(s->ih[0], "revision", 0x21);
+    qdev_prop_set_ptr(s->ih[0], "fclk", omap_findclk(s, "mpu_intc_fclk"));
+    qdev_prop_set_ptr(s->ih[0], "iclk", omap_findclk(s, "mpu_intc_iclk"));
+    qdev_init_nofail(s->ih[0]);
+    busdev = sysbus_from_qdev(s->ih[0]);
+    sysbus_connect_irq(busdev, 0, cpu_irq[ARM_PIC_CPU_IRQ]);
+    sysbus_connect_irq(busdev, 1, cpu_irq[ARM_PIC_CPU_FIQ]);
+    sysbus_mmio_map(busdev, 0, 0x480fe000);
+    // TODO  gpio magic to connect s->irq[0] up right
+#if 0
     s->ih[0] = omap2_inth_init(s,
                     0x480fe000, 0x1000, 3, &s->irq[0],
                     cpu_irq[ARM_PIC_CPU_IRQ], cpu_irq[ARM_PIC_CPU_FIQ],
                     omap_findclk(s, "mpu_intc_fclk"),
                     omap_findclk(s, "mpu_intc_iclk"));
-
+#endif
     s->prcm = omap_prcm_init(omap_l4tao(s->l4, 3),
-                    s->irq[0][OMAP_INT_24XX_PRCM_MPU_IRQ], NULL, NULL, s);
+                             qdev_get_gpio_in(s->ih[0],
+                                              OMAP_INT_24XX_PRCM_MPU_IRQ),
+                             NULL, NULL, s);
 
     s->sysc = omap_sysctl_init(omap_l4tao(s->l4, 1),
                     omap_findclk(s, "omapctrl_iclk"), s);
 
-    for (i = 0; i < 4; i ++)
-        dma_irqs[i] =
-                s->irq[omap2_dma_irq_map[i].ih][omap2_dma_irq_map[i].intr];
+    for (i = 0; i < 4; i ++) {
+        dma_irqs[i] = qdev_get_gpio_in(s->ih[omap2_dma_irq_map[i].ih],
+                                       omap2_dma_irq_map[i].intr);
+    }
     s->dma = omap_dma4_init(0x48056000, dma_irqs, s, 256, 32,
                     omap_findclk(s, "sdma_iclk"),
                     omap_findclk(s, "sdma_fclk"));
@@ -2290,7 +2303,8 @@ struct omap_mpu_state_s *omap2420_mpu_init(unsigned long sdram_size,
     qdev_prop_set_chr(s->uart[0], "chardev", serial_hds[0]);
     qdev_init_nofail(s->uart[0]);
     busdev = sysbus_from_qdev(s->uart[0]);
-    sysbus_connect_irq(busdev, 0, s->irq[0][OMAP_INT_24XX_UART1_IRQ]);
+    sysbus_connect_irq(busdev, 0,
+                       qdev_get_gpio_in(s->ih[0], OMAP_INT_24XX_UART1_IRQ));
     sysbus_connect_irq(busdev, 1, s->drq[OMAP24XX_DMA_UART1_TX]);
     sysbus_connect_irq(busdev, 2, s->drq[OMAP24XX_DMA_UART1_RX]);
     sysbus_mmio_map(busdev, 0, omap_l4_region_base(omap_l4ta(s->l4, 19), 0));
@@ -2304,7 +2318,8 @@ struct omap_mpu_state_s *omap2420_mpu_init(unsigned long sdram_size,
                       serial_hds[0] ? serial_hds[1] : NULL);
     qdev_init_nofail(s->uart[1]);
     busdev = sysbus_from_qdev(s->uart[1]);
-    sysbus_connect_irq(busdev, 0, s->irq[0][OMAP_INT_24XX_UART2_IRQ]);
+    sysbus_connect_irq(busdev, 0,
+                       qdev_get_gpio_in(s->ih[0], OMAP_INT_24XX_UART2_IRQ));
     sysbus_connect_irq(busdev, 1, s->drq[OMAP24XX_DMA_UART2_TX]);
     sysbus_connect_irq(busdev, 2, s->drq[OMAP24XX_DMA_UART2_RX]);
     sysbus_mmio_map(busdev, 0, omap_l4_region_base(omap_l4ta(s->l4, 20), 0));
@@ -2318,57 +2333,58 @@ struct omap_mpu_state_s *omap2420_mpu_init(unsigned long sdram_size,
                       serial_hds[0] && serial_hds[1] ? serial_hds[2] : NULL);
     qdev_init_nofail(s->uart[2]);
     busdev = sysbus_from_qdev(s->uart[2]);
-    sysbus_connect_irq(busdev, 0, s->irq[0][OMAP_INT_24XX_UART3_IRQ]);
+    sysbus_connect_irq(busdev, 0,
+                       qdev_get_gpio_in(s->ih[0], OMAP_INT_24XX_UART3_IRQ));
     sysbus_connect_irq(busdev, 1, s->drq[OMAP24XX_DMA_UART3_TX]);
     sysbus_connect_irq(busdev, 2, s->drq[OMAP24XX_DMA_UART3_RX]);
     sysbus_mmio_map(busdev, 0, omap_l4_region_base(omap_l4ta(s->l4, 21), 0));
 
     s->gptimer[0] = omap_gp_timer_init(omap_l4ta(s->l4, 7),
-                    s->irq[0][OMAP_INT_24XX_GPTIMER1],
+                    qdev_get_gpio_in(s->ih[0], OMAP_INT_24XX_GPTIMER1),
                     omap_findclk(s, "wu_gpt1_clk"),
                     omap_findclk(s, "wu_l4_iclk"));
     s->gptimer[1] = omap_gp_timer_init(omap_l4ta(s->l4, 8),
-                    s->irq[0][OMAP_INT_24XX_GPTIMER2],
+                    qdev_get_gpio_in(s->ih[0], OMAP_INT_24XX_GPTIMER2),
                     omap_findclk(s, "core_gpt2_clk"),
                     omap_findclk(s, "core_l4_iclk"));
     s->gptimer[2] = omap_gp_timer_init(omap_l4ta(s->l4, 22),
-                    s->irq[0][OMAP_INT_24XX_GPTIMER3],
+                    qdev_get_gpio_in(s->ih[0], OMAP_INT_24XX_GPTIMER3),
                     omap_findclk(s, "core_gpt3_clk"),
                     omap_findclk(s, "core_l4_iclk"));
     s->gptimer[3] = omap_gp_timer_init(omap_l4ta(s->l4, 23),
-                    s->irq[0][OMAP_INT_24XX_GPTIMER4],
+                    qdev_get_gpio_in(s->ih[0], OMAP_INT_24XX_GPTIMER4),
                     omap_findclk(s, "core_gpt4_clk"),
                     omap_findclk(s, "core_l4_iclk"));
     s->gptimer[4] = omap_gp_timer_init(omap_l4ta(s->l4, 24),
-                    s->irq[0][OMAP_INT_24XX_GPTIMER5],
+                    qdev_get_gpio_in(s->ih[0], OMAP_INT_24XX_GPTIMER5),
                     omap_findclk(s, "core_gpt5_clk"),
                     omap_findclk(s, "core_l4_iclk"));
     s->gptimer[5] = omap_gp_timer_init(omap_l4ta(s->l4, 25),
-                    s->irq[0][OMAP_INT_24XX_GPTIMER6],
+                    qdev_get_gpio_in(s->ih[0], OMAP_INT_24XX_GPTIMER6),
                     omap_findclk(s, "core_gpt6_clk"),
                     omap_findclk(s, "core_l4_iclk"));
     s->gptimer[6] = omap_gp_timer_init(omap_l4ta(s->l4, 26),
-                    s->irq[0][OMAP_INT_24XX_GPTIMER7],
+                    qdev_get_gpio_in(s->ih[0], OMAP_INT_24XX_GPTIMER7),
                     omap_findclk(s, "core_gpt7_clk"),
                     omap_findclk(s, "core_l4_iclk"));
     s->gptimer[7] = omap_gp_timer_init(omap_l4ta(s->l4, 27),
-                    s->irq[0][OMAP_INT_24XX_GPTIMER8],
+                    qdev_get_gpio_in(s->ih[0], OMAP_INT_24XX_GPTIMER8),
                     omap_findclk(s, "core_gpt8_clk"),
                     omap_findclk(s, "core_l4_iclk"));
     s->gptimer[8] = omap_gp_timer_init(omap_l4ta(s->l4, 28),
-                    s->irq[0][OMAP_INT_24XX_GPTIMER9],
+                    qdev_get_gpio_in(s->ih[0], OMAP_INT_24XX_GPTIMER9),
                     omap_findclk(s, "core_gpt9_clk"),
                     omap_findclk(s, "core_l4_iclk"));
     s->gptimer[9] = omap_gp_timer_init(omap_l4ta(s->l4, 29),
-                    s->irq[0][OMAP_INT_24XX_GPTIMER10],
+                    qdev_get_gpio_in(s->ih[0], OMAP_INT_24XX_GPTIMER10),
                     omap_findclk(s, "core_gpt10_clk"),
                     omap_findclk(s, "core_l4_iclk"));
     s->gptimer[10] = omap_gp_timer_init(omap_l4ta(s->l4, 30),
-                    s->irq[0][OMAP_INT_24XX_GPTIMER11],
+                    qdev_get_gpio_in(s->ih[0], OMAP_INT_24XX_GPTIMER11),
                     omap_findclk(s, "core_gpt11_clk"),
                     omap_findclk(s, "core_l4_iclk"));
     s->gptimer[11] = omap_gp_timer_init(omap_l4ta(s->l4, 31),
-                    s->irq[0][OMAP_INT_24XX_GPTIMER12],
+                    qdev_get_gpio_in(s->ih[0], OMAP_INT_24XX_GPTIMER12),
                     omap_findclk(s, "core_gpt12_clk"),
                     omap_findclk(s, "core_l4_iclk"));
 
@@ -2382,10 +2398,12 @@ struct omap_mpu_state_s *omap2420_mpu_init(unsigned long sdram_size,
     qdev_prop_set_int32(s->i2c, "mpu_model", s->mpu_model);
     qdev_init_nofail(s->i2c);
     busdev = sysbus_from_qdev(s->i2c);
-    sysbus_connect_irq(busdev, 0, s->irq[0][OMAP_INT_24XX_I2C1_IRQ]);
+    sysbus_connect_irq(busdev, 0,
+                       qdev_get_gpio_in(s->ih[0], OMAP_INT_24XX_I2C1_IRQ));
     sysbus_connect_irq(busdev, 1, s->drq[OMAP24XX_DMA_I2C1_TX]);
     sysbus_connect_irq(busdev, 2, s->drq[OMAP24XX_DMA_I2C1_RX]);
-    sysbus_connect_irq(busdev, 3, s->irq[0][OMAP_INT_24XX_I2C2_IRQ]);
+    sysbus_connect_irq(busdev, 3,
+                       qdev_get_gpio_in(s->ih[0], OMAP_INT_24XX_I2C2_IRQ));
     sysbus_connect_irq(busdev, 4, s->drq[OMAP24XX_DMA_I2C2_TX]);
     sysbus_connect_irq(busdev, 5, s->drq[OMAP24XX_DMA_I2C2_RX]);
     sysbus_mmio_map(busdev, 0, omap_l4_region_base(omap_l4tao(s->l4, 5), 0));
@@ -2403,10 +2421,14 @@ struct omap_mpu_state_s *omap2420_mpu_init(unsigned long sdram_size,
     }
     qdev_init_nofail(s->gpio);
     busdev = sysbus_from_qdev(s->gpio);
-    sysbus_connect_irq(busdev, 0, s->irq[0][OMAP_INT_24XX_GPIO_BANK1]);
-    sysbus_connect_irq(busdev, 3, s->irq[0][OMAP_INT_24XX_GPIO_BANK2]);
-    sysbus_connect_irq(busdev, 6, s->irq[0][OMAP_INT_24XX_GPIO_BANK3]);
-    sysbus_connect_irq(busdev, 9, s->irq[0][OMAP_INT_24XX_GPIO_BANK4]);
+    sysbus_connect_irq(busdev, 0,
+                       qdev_get_gpio_in(s->ih[0], OMAP_INT_24XX_GPIO_BANK1));
+    sysbus_connect_irq(busdev, 3,
+                       qdev_get_gpio_in(s->ih[0], OMAP_INT_24XX_GPIO_BANK2));
+    sysbus_connect_irq(busdev, 6,
+                       qdev_get_gpio_in(s->ih[0], OMAP_INT_24XX_GPIO_BANK3));
+    sysbus_connect_irq(busdev, 9,
+                       qdev_get_gpio_in(s->ih[0], OMAP_INT_24XX_GPIO_BANK4));
     ta = omap_l4ta(s->l4, 3);
     sysbus_mmio_map(busdev, 0, omap_l4_region_base(ta, 1));
     sysbus_mmio_map(busdev, 1, omap_l4_region_base(ta, 0));
@@ -2415,7 +2437,8 @@ struct omap_mpu_state_s *omap2420_mpu_init(unsigned long sdram_size,
     sysbus_mmio_map(busdev, 4, omap_l4_region_base(ta, 5));
 
     s->sdrc = omap_sdrc_init(0x68009000);
-    s->gpmc = omap_gpmc_init(s, 0x6800a000, s->irq[0][OMAP_INT_24XX_GPMC_IRQ],
+    s->gpmc = omap_gpmc_init(s, 0x6800a000,
+                             qdev_get_gpio_in(s->ih[0], OMAP_INT_24XX_GPMC_IRQ),
                              s->drq[OMAP24XX_DMA_GPMC]);
 
     dinfo = drive_get(IF_SD, 0, 0);
@@ -2424,7 +2447,7 @@ struct omap_mpu_state_s *omap2420_mpu_init(unsigned long sdram_size,
         exit(1);
     }
     s->mmc = omap2_mmc_init(omap_l4tao(s->l4, 9), dinfo->bdrv,
-                    s->irq[0][OMAP_INT_24XX_MMC_IRQ],
+                    qdev_get_gpio_in(s->ih[0], OMAP_INT_24XX_MMC_IRQ),
                     &s->drq[OMAP24XX_DMA_MMC1_TX],
                     omap_findclk(s, "mmc_fclk"), omap_findclk(s, "mmc_iclk"));
 
@@ -2432,7 +2455,8 @@ struct omap_mpu_state_s *omap2420_mpu_init(unsigned long sdram_size,
     qdev_prop_set_int32(s->mcspi, "mpu_model", s->mpu_model);
     qdev_init_nofail(s->mcspi);
     busdev = sysbus_from_qdev(s->mcspi);
-    sysbus_connect_irq(busdev, 0, s->irq[0][OMAP_INT_24XX_MCSPI1_IRQ]);
+    sysbus_connect_irq(busdev, 0,
+                       qdev_get_gpio_in(s->ih[0], OMAP_INT_24XX_MCSPI1_IRQ));
     sysbus_connect_irq(busdev, 1, s->drq[OMAP24XX_DMA_SPI1_TX0]);
     sysbus_connect_irq(busdev, 2, s->drq[OMAP24XX_DMA_SPI1_RX0]);
     sysbus_connect_irq(busdev, 3, s->drq[OMAP24XX_DMA_SPI1_TX1]);
@@ -2441,7 +2465,8 @@ struct omap_mpu_state_s *omap2420_mpu_init(unsigned long sdram_size,
     sysbus_connect_irq(busdev, 6, s->drq[OMAP24XX_DMA_SPI1_RX2]);
     sysbus_connect_irq(busdev, 7, s->drq[OMAP24XX_DMA_SPI1_TX3]);
     sysbus_connect_irq(busdev, 8, s->drq[OMAP24XX_DMA_SPI1_RX3]);
-    sysbus_connect_irq(busdev, 9, s->irq[0][OMAP_INT_24XX_MCSPI2_IRQ]);
+    sysbus_connect_irq(busdev, 9,
+                       qdev_get_gpio_in(s->ih[0], OMAP_INT_24XX_MCSPI2_IRQ));
     sysbus_connect_irq(busdev, 10, s->drq[OMAP24XX_DMA_SPI2_TX0]);
     sysbus_connect_irq(busdev, 11, s->drq[OMAP24XX_DMA_SPI2_RX0]);
     sysbus_connect_irq(busdev, 12, s->drq[OMAP24XX_DMA_SPI2_TX1]);
@@ -2453,7 +2478,8 @@ struct omap_mpu_state_s *omap2420_mpu_init(unsigned long sdram_size,
     qdev_prop_set_int32(s->dss, "mpu_model", s->mpu_model);
     qdev_init_nofail(s->dss);
     busdev = sysbus_from_qdev(s->dss);
-    sysbus_connect_irq(busdev, 0, s->irq[0][OMAP_INT_24XX_DSS_IRQ]);
+    sysbus_connect_irq(busdev, 0,
+                       qdev_get_gpio_in(s->ih[0], OMAP_INT_24XX_DSS_IRQ));
     sysbus_connect_irq(busdev, 1, s->drq[OMAP24XX_DMA_DSS]);
     ta = omap_l4ta(s->l4, 10);
     sysbus_mmio_map(busdev, 0, omap_l4_region_base(ta, 0));
@@ -2463,12 +2489,13 @@ struct omap_mpu_state_s *omap2420_mpu_init(unsigned long sdram_size,
     sysbus_mmio_map(busdev, 4, 0x68000800);
 
     omap_sti_init(omap_l4ta(s->l4, 18), 0x54000000,
-                    s->irq[0][OMAP_INT_24XX_STI], omap_findclk(s, "emul_ck"),
+                  qdev_get_gpio_in(s->ih[0], OMAP_INT_24XX_STI),
+                  omap_findclk(s, "emul_ck"),
                     serial_hds[0] && serial_hds[1] && serial_hds[2] ?
                     serial_hds[3] : NULL);
 
     s->eac = omap_eac_init(omap_l4ta(s->l4, 32),
-                    s->irq[0][OMAP_INT_24XX_EAC_IRQ],
+                    qdev_get_gpio_in(s->ih[0], OMAP_INT_24XX_EAC_IRQ),
                     /* Ten consecutive lines */
                     &s->drq[OMAP24XX_DMA_EAC_AC_RD],
                     omap_findclk(s, "func_96m_clk"),
