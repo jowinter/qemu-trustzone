@@ -2069,6 +2069,10 @@ void HELPER(set_cp15)(CPUState *env, uint32_t insn, uint32_t val)
 
 		    /* Write-back to CPU interrupt request */
 		    if (env->interrupt_request != new_request) {
+		      trace_arm_update_virq(arm_trace_cpu(env, 0), 
+					    !!(new_request & CPU_INTERRUPT_VIRQ),
+					    !!(new_request & CPU_INTERRUPT_VFIQ),
+					    !!(new_request & CPU_INTERRUPT_VABT));
 		      env->interrupt_request = new_request;
 		    }
 
