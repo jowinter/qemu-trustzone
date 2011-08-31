@@ -2266,14 +2266,6 @@ struct omap_mpu_state_s *omap2420_mpu_init(unsigned long sdram_size,
     sysbus_connect_irq(busdev, 0, cpu_irq[ARM_PIC_CPU_IRQ]);
     sysbus_connect_irq(busdev, 1, cpu_irq[ARM_PIC_CPU_FIQ]);
     sysbus_mmio_map(busdev, 0, 0x480fe000);
-    // TODO  gpio magic to connect s->irq[0] up right
-#if 0
-    s->ih[0] = omap2_inth_init(s,
-                    0x480fe000, 0x1000, 3, &s->irq[0],
-                    cpu_irq[ARM_PIC_CPU_IRQ], cpu_irq[ARM_PIC_CPU_FIQ],
-                    omap_findclk(s, "mpu_intc_fclk"),
-                    omap_findclk(s, "mpu_intc_iclk"));
-#endif
     s->prcm = omap_prcm_init(omap_l4tao(s->l4, 3),
                              qdev_get_gpio_in(s->ih[0],
                                               OMAP_INT_24XX_PRCM_MPU_IRQ),
@@ -2495,7 +2487,7 @@ struct omap_mpu_state_s *omap2420_mpu_init(unsigned long sdram_size,
                     serial_hds[3] : NULL);
 
     s->eac = omap_eac_init(omap_l4ta(s->l4, 32),
-                    qdev_get_gpio_in(s->ih[0], OMAP_INT_24XX_EAC_IRQ),
+                           qdev_get_gpio_in(s->ih[0], OMAP_INT_24XX_EAC_IRQ),
                     /* Ten consecutive lines */
                     &s->drq[OMAP24XX_DMA_EAC_AC_RD],
                     omap_findclk(s, "func_96m_clk"),

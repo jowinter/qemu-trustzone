@@ -1008,7 +1008,6 @@ struct omap_mpu_state_s {
 
     CPUState *env;
 
-//    qemu_irq *irq[2];
     qemu_irq *drq;
 
     qemu_irq wakeup;
@@ -1046,7 +1045,7 @@ struct omap_mpu_state_s {
     struct omap_lpg_s *led[2];
 
     /* MPU private TIPB peripherals */
-    struct DeviceState *ih[2];
+    DeviceState *ih[2];
 
     struct soc_dma_s *dma;
 

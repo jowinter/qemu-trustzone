@@ -4114,14 +4114,6 @@ struct omap_mpu_state_s *omap3_mpu_init(int model, int emulate_bootrom,
     sysbus_connect_irq(busdev, 0, cpu_irq[ARM_PIC_CPU_IRQ]);
     sysbus_connect_irq(busdev, 1, cpu_irq[ARM_PIC_CPU_FIQ]);
     sysbus_mmio_map(busdev, 0, 0x48200000);
-    // TODO  gpio magic to connect s->irq[0] up right
-#if 0
-    s->ih[0] = omap2_inth_init(s, 0x48200000, 0x1000, 3, &s->irq[0],
-                               cpu_irq[ARM_PIC_CPU_IRQ],
-                               cpu_irq[ARM_PIC_CPU_FIQ], 
-                               omap_findclk(s, "omap3_mpu_intc_fclk"),
-                               omap_findclk(s, "omap3_mpu_intc_iclk"));
-#endif
     for (i = 0; i < 4; i++) {
         drqs[i] = qdev_get_gpio_in(s->ih[omap3_dma_irq_map[i].ih],
                                    omap3_dma_irq_map[i].intr);
@@ -4233,8 +4225,8 @@ struct omap_mpu_state_s *omap3_mpu_init(int model, int emulate_bootrom,
     qdev_prop_set_chr(s->uart[0], "chardev", chr_uart1);
     qdev_init_nofail(s->uart[0]);
     busdev = sysbus_from_qdev(s->uart[0]);
-    sysbus_connect_irq(busdev, 0, qdev_get_gpio_in(s->ih[0],
-                                                   OMAP_INT_3XXX_UART1_IRQ));
+    sysbus_connect_irq(busdev, 0,
+                       qdev_get_gpio_in(s->ih[0], OMAP_INT_3XXX_UART1_IRQ));
     sysbus_connect_irq(busdev, 1, s->drq[OMAP3XXX_DMA_UART1_TX]);
     sysbus_connect_irq(busdev, 2, s->drq[OMAP3XXX_DMA_UART1_RX]);
     sysbus_mmio_map(busdev, 0,
@@ -4249,8 +4241,8 @@ struct omap_mpu_state_s *omap3_mpu_init(int model, int emulate_bootrom,
     qdev_prop_set_chr(s->uart[1], "chardev", chr_uart2);
     qdev_init_nofail(s->uart[1]);
     busdev = sysbus_from_qdev(s->uart[1]);
-    sysbus_connect_irq(busdev, 0, qdev_get_gpio_in(s->ih[0],
-                                                   OMAP_INT_3XXX_UART2_IRQ));
+    sysbus_connect_irq(busdev, 0,
+                       qdev_get_gpio_in(s->ih[0], OMAP_INT_3XXX_UART2_IRQ));
     sysbus_connect_irq(busdev, 1, s->drq[OMAP3XXX_DMA_UART2_TX]);
     sysbus_connect_irq(busdev, 2, s->drq[OMAP3XXX_DMA_UART2_RX]);
     sysbus_mmio_map(busdev, 0,
@@ -4265,8 +4257,8 @@ struct omap_mpu_state_s *omap3_mpu_init(int model, int emulate_bootrom,
     qdev_prop_set_chr(s->uart[2], "chardev", chr_uart3);
     qdev_init_nofail(s->uart[2]);
     busdev = sysbus_from_qdev(s->uart[2]);
-    sysbus_connect_irq(busdev, 0, qdev_get_gpio_in(s->ih[0],
-                                                   OMAP_INT_3XXX_UART3_IRQ));
+    sysbus_connect_irq(busdev, 0,
+                       qdev_get_gpio_in(s->ih[0], OMAP_INT_3XXX_UART3_IRQ));
     sysbus_connect_irq(busdev, 1, s->drq[OMAP3XXX_DMA_UART3_TX]);
     sysbus_connect_irq(busdev, 2, s->drq[OMAP3XXX_DMA_UART3_RX]);
     sysbus_mmio_map(busdev, 0,

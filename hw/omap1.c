@@ -3808,17 +3808,6 @@ struct omap_mpu_state_s *omap310_mpu_init(unsigned long sdram_size,
                        qdev_get_gpio_in(s->ih[0], OMAP_INT_15XX_IH2_IRQ));
     /* The second interrupt controller's FIQ output is not wired up */
     sysbus_mmio_map(busdev, 0, 0xfffe0000);
-#if 0
-    s->ih[0] = omap_inth_init(0xfffecb00, 0x100, 1, &s->irq[0],
-                              cpu_irq[ARM_PIC_CPU_IRQ],
-                              cpu_irq[ARM_PIC_CPU_FIQ],
-                              omap_findclk(s, "arminth_ck"));
-    s->ih[1] = omap_inth_init(0xfffe0000, 0x800, 1, &s->irq[1],
-                              omap_inth_get_pin(s->ih[0],
-                                                OMAP_INT_15XX_IH2_IRQ),
-                              NULL,
-                              omap_findclk(s, "arminth_ck"));
-#endif
 
     for (i = 0; i < 6; i++) {
         dma_irqs[i] = qdev_get_gpio_in(s->ih[omap1_dma_irq_map[i].ih],
