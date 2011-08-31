@@ -20,7 +20,6 @@
 #include "hw.h"
 #include "omap.h"
 #include "sysbus.h"
-#include "exec-memory.h"
 
 /* Interrupt Handlers */
 struct omap_intr_handler_bank_s {
