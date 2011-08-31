@@ -3904,7 +3904,7 @@ struct omap_mpu_state_s *omap310_mpu_init(unsigned long sdram_size,
                       serial_hds[0] && serial_hds[1] ? serial_hds[2] : NULL);
     qdev_init_nofail(s->uart[2]);
     busdev = sysbus_from_qdev(s->uart[2]);
-    sysbus_connect_irq(busdev, 0, qdev_get_gpio_in(s->ih[1], OMAP_INT_UART3));
+    sysbus_connect_irq(busdev, 0, qdev_get_gpio_in(s->ih[0], OMAP_INT_UART3));
     sysbus_connect_irq(busdev, 1, s->drq[OMAP_DMA_UART3_TX]);
     sysbus_connect_irq(busdev, 2, s->drq[OMAP_DMA_UART3_RX]);
     sysbus_mmio_map(busdev, 0, 0xfffb9800);
