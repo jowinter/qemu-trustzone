@@ -357,37 +357,12 @@ static void omap_inth_reset(DeviceState *dev)
     qemu_set_irq(s->parent_intr[1], 0);
 }
 
-#if 0
-struct omap_intr_handler_s *omap_inth_init(target_phys_addr_t base,
-                unsigned long size, unsigned char nbanks, qemu_irq **pins,
-                qemu_irq parent_irq, qemu_irq parent_fiq, omap_clk clk)
-{
-    struct omap_intr_handler_s *s = (struct omap_intr_handler_s *)
-            g_malloc0(sizeof(struct omap_intr_handler_s) +
-                            sizeof(struct omap_intr_handler_bank_s) * nbanks);
-
-    s->parent_intr[0] = parent_irq;
-    s->parent_intr[1] = parent_fiq;
-    s->nbanks = nbanks;
-    s->pins = qemu_allocate_irqs(omap_set_intr, s, nbanks * 32);
-    if (pins)
-        *pins = s->pins;
-
-    memory_region_init_io(&s->mmio, &omap_inth_mem_ops, s, "omap-intc", size);
-    memory_region_add_subregion(get_system_memory(), base, &s->mmio);
-
-    omap_inth_reset(&s->busdev.qdev);
-
-    return s;
-}
-#endif
-
-static int omap_inth_init(SysBusDevice *dev)
+static int omap_intc_init(SysBusDevice *dev)
 {
     struct omap_intr_handler_s *s;
     s = FROM_SYSBUS(struct omap_intr_handler_s, dev);
     if (!s->iclk) {
-        hw_error("omap2-inth: iclk not connected\n");
+        hw_error("omap-intc: clk not connected\n");
     }
     s->nbanks = 1;
     sysbus_init_irq(dev, &s->parent_intr[0]);
@@ -399,8 +374,8 @@ static int omap_inth_init(SysBusDevice *dev)
     return 0;
 }
 
-static SysBusDeviceInfo omap_inth_info = {
-    .init = omap_inth_init,
+static SysBusDeviceInfo omap_intc_info = {
+    .init = omap_intc_init,
     .qdev.name = "omap-intc",
     .qdev.size = sizeof(struct omap_intr_handler_s),
     .qdev.reset = omap_inth_reset,
@@ -410,7 +385,6 @@ static SysBusDeviceInfo omap_inth_info = {
         DEFINE_PROP_END_OF_LIST()
     }
 };
-
 
 static uint64_t omap2_inth_read(void *opaque, target_phys_addr_t addr,
                                 unsigned size)
@@ -610,46 +584,15 @@ static const MemoryRegionOps omap2_inth_mem_ops = {
     },
 };
 
-#if 0
-struct omap_intr_handler_s *omap2_inth_init(struct omap_mpu_state_s *mpu,
-                                            target_phys_addr_t base,
-                                            int size, int nbanks,
-                                            qemu_irq **pins,
-                                            qemu_irq parent_irq,
-                                            qemu_irq parent_fiq,
-                                            omap_clk fclk, omap_clk iclk)
-{
-    struct omap_intr_handler_s *s = (struct omap_intr_handler_s *)
-            g_malloc0(sizeof(struct omap_intr_handler_s) +
-                            sizeof(struct omap_intr_handler_bank_s) * nbanks);
-
-    s->revision = cpu_class_omap3(mpu) ? 0x40 : 0x21;
-    s->parent_intr[0] = parent_irq;
-    s->parent_intr[1] = parent_fiq;
-    s->nbanks = nbanks;
-    s->level_only = 1;
-    s->pins = qemu_allocate_irqs(omap_set_intr_noedge, s, nbanks * 32);
-    if (pins)
-        *pins = s->pins;
-
-    memory_region_init_io(&s->mmio, &omap2_inth_mem_ops, s, "omap2-intc", size);
-    memory_region_add_subregion(get_system_memory(), base, &s->mmio);
-
-    omap_inth_reset(&s->busdev.qdev);
-
-    return s;
-}
-#endif
-
-static int omap2_inth_init(SysBusDevice *dev)
+static int omap2_intc_init(SysBusDevice *dev)
 {
     struct omap_intr_handler_s *s;
     s = FROM_SYSBUS(struct omap_intr_handler_s, dev);
     if (!s->iclk) {
-        hw_error("omap2-inth: iclk not connected\n");
+        hw_error("omap2-intc: iclk not connected\n");
     }
     if (!s->fclk) {
-        hw_error("omap2-inth: fclk not connected\n");
+        hw_error("omap2-intc: fclk not connected\n");
     }
     s->level_only = 1;
     s->nbanks = 3;
@@ -662,8 +605,8 @@ static int omap2_inth_init(SysBusDevice *dev)
     return 0;
 }
 
-static SysBusDeviceInfo omap2_inth_info = {
-    .init = omap2_inth_init,
+static SysBusDeviceInfo omap2_intc_info = {
+    .init = omap2_intc_init,
     .qdev.name = "omap2-intc",
     .qdev.size = sizeof(struct omap_intr_handler_s),
     .qdev.reset = omap_inth_reset,
@@ -676,10 +619,10 @@ static SysBusDeviceInfo omap2_inth_info = {
     }
 };
 
-static void omap_inth_register_device(void)
+static void omap_intc_register_device(void)
 {
-    sysbus_register_withprop(&omap_inth_info);
-    sysbus_register_withprop(&omap2_inth_info);
+    sysbus_register_withprop(&omap_intc_info);
+    sysbus_register_withprop(&omap2_intc_info);
 }
 
-device_init(omap_inth_register_device)
+device_init(omap_intc_register_device)

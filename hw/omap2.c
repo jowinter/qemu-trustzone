@@ -2274,7 +2274,7 @@ struct omap_mpu_state_s *omap2420_mpu_init(unsigned long sdram_size,
     s->sysc = omap_sysctl_init(omap_l4tao(s->l4, 1),
                     omap_findclk(s, "omapctrl_iclk"), s);
 
-    for (i = 0; i < 4; i ++) {
+    for (i = 0; i < 4; i++) {
         dma_irqs[i] = qdev_get_gpio_in(s->ih[omap2_dma_irq_map[i].ih],
                                        omap2_dma_irq_map[i].intr);
     }
