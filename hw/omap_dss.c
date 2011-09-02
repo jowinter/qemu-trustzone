@@ -555,7 +555,7 @@ static void omap_lcd_panel_update_display(void *opaque)
     omap_dss_framedone(s);
 }
 
-void omap_lcd_panel_invalidate_display(void *opaque)
+static void omap_lcd_panel_invalidate_display(void *opaque)
 {
     struct omap_dss_s *s = opaque;
     s->lcd.invalidate = 1;
