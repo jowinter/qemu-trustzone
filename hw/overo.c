@@ -61,7 +61,7 @@ static void overo_init(ram_addr_t ram_size,
     if (!dmtd && !dsd) {
         hw_error("%s: SD or NAND image required", __FUNCTION__);
     }
-    s->cpu = omap3_mpu_init(omap3430, 1, ram_size,
+    s->cpu = omap3_mpu_init(omap3430, ram_size,
                             NULL, NULL, serial_hds[0], NULL);
 
     s->nand = nand_init(dmtd ? dmtd->bdrv : NULL, NAND_MFR_MICRON, 0xba);

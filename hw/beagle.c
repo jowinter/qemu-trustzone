@@ -68,7 +68,7 @@ static void beagle_common_init(ram_addr_t ram_size,
 #if MAX_SERIAL_PORTS < 1
 #error MAX_SERIAL_PORTS must be at least 1!
 #endif
-    s->cpu = omap3_mpu_init(cpu_model, 1, ram_size,
+    s->cpu = omap3_mpu_init(cpu_model, ram_size,
                             NULL, NULL, serial_hds[0], NULL);
 
     s->nand = nand_init(dmtd ? dmtd->bdrv : NULL, NAND_MFR_MICRON, 0xba);

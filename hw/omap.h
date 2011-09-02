@@ -1118,7 +1118,7 @@ struct omap_mpu_state_s *omap2420_mpu_init(unsigned long sdram_size,
                 const char *core);
 
 /* omap3.c */
-struct omap_mpu_state_s *omap3_mpu_init(int model, int emulate_bootrom,
+struct omap_mpu_state_s *omap3_mpu_init(int model,
                                         unsigned long sdram_size,
                                         CharDriverState *chr_uart1,
                                         CharDriverState *chr_uart2,
