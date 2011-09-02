@@ -181,7 +181,7 @@ static uint32_t omap_uart_read(void *opaque, target_phys_addr_t addr)
 }
 
 static void omap_uart_write(void *opaque, target_phys_addr_t addr,
-                            uint32_t value)
+                uint32_t value)
 {
     struct omap_uart_s *s = (struct omap_uart_s *) opaque;
 
