@@ -48,18 +48,18 @@
 # define OMAP3_Q3_BASE      0xc0000000
 # define OMAP_MPUI_BASE		0xe1000000
 
-# define OMAP730_SRAM_SIZE      0x00032000
-# define OMAP15XX_SRAM_SIZE     0x00030000
-# define OMAP16XX_SRAM_SIZE     0x00004000
-# define OMAP1611_SRAM_SIZE     0x0003e800
-# define OMAP242X_SRAM_SIZE     0x000a0000
-# define OMAP243X_SRAM_SIZE     0x00010000
+# define OMAP730_SRAM_SIZE	0x00032000
+# define OMAP15XX_SRAM_SIZE	0x00030000
+# define OMAP16XX_SRAM_SIZE	0x00004000
+# define OMAP1611_SRAM_SIZE	0x0003e800
+# define OMAP242X_SRAM_SIZE	0x000a0000
+# define OMAP243X_SRAM_SIZE	0x00010000
 # define OMAP3XXX_SRAM_SIZE     0x00010000
 # define OMAP3XXX_BOOTROM_SIZE  0x00008000
-# define OMAP_CS0_SIZE          0x04000000
-# define OMAP_CS1_SIZE          0x04000000
-# define OMAP_CS2_SIZE          0x04000000
-# define OMAP_CS3_SIZE          0x04000000
+# define OMAP_CS0_SIZE		0x04000000
+# define OMAP_CS1_SIZE		0x04000000
+# define OMAP_CS2_SIZE		0x04000000
+# define OMAP_CS3_SIZE		0x04000000
 
 /* omap_clk.c */
 struct omap_mpu_state_s;
@@ -890,21 +890,21 @@ void omap_uwire_attach(struct omap_uwire_s *s,
 
 struct I2SCodec {
     void *opaque;
-    
+
     /* The CPU can call this if it is generating the clock signal on the
      * i2s port.  The CODEC can ignore it if it is set up as a clock
      * master and generates its own clock.  */
     void (*set_rate)(void *opaque, int in, int out);
-    
+
     void (*tx_swallow)(void *opaque);
     qemu_irq rx_swallow;
     qemu_irq tx_start;
-    
+
     int tx_rate;
     int cts;
     int rx_rate;
     int rts;
-    
+
     struct i2s_fifo_s {
         uint8_t *fifo;
         int len;
@@ -1033,14 +1033,20 @@ struct omap_mpu_state_s {
 
     /* MPU public TIPB peripherals */
     struct omap_32khz_timer_s *os_timer;
+
     struct omap_mmc_s *mmc;
+
     struct omap_mpuio_s *mpuio;
+
     struct omap_uwire_s *microwire;
+
     struct omap_pwl_s *pwl;
     struct omap_pwt_s *pwt;
     DeviceState *i2c;
     struct omap_rtc_s *rtc;
+
     struct omap_mcbsp_s *mcbsp2;
+
     struct omap_lpg_s *led[2];
 
     /* MPU private TIPB peripherals */
@@ -1073,7 +1079,7 @@ struct omap_mpu_state_s {
     uint32_t tcmi_regs[17];
 
     struct dpll_ctl_s *dpll[3];
-    
+
     omap_clk clks;
     struct omap_clkm_s *clkm;
 
@@ -1303,5 +1309,8 @@ inline static int debug_register_io_memory(CPUReadMemoryFunc * const *mem_read,
 }
 #  define cpu_register_io_memory	debug_register_io_memory
 # endif
+
+/* Define when we want to reduce the number of IO regions registered.  */
+/*# define L4_MUX_HACK*/
 
 #endif /* hw_omap_h */
