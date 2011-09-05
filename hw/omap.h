@@ -89,9 +89,6 @@ struct omap_gpmc_s *omap_gpmc_init(struct omap_mpu_state_s *mpu,
 void omap_gpmc_reset(struct omap_gpmc_s *s);
 void omap_gpmc_attach(struct omap_gpmc_s *s, int cs, MemoryRegion *iomem);
 void omap_gpmc_attach_nand(struct omap_gpmc_s *s, int cs, DeviceState *nand);
-/* devicetype values for omap_gpmc_attach */
-#define OMAP_GPMC_NOR 0
-#define OMAP_GPMC_NAND 2
 
 /* omap_l4.c */
 struct omap_l4_s;
