@@ -1071,7 +1071,7 @@ fi
 gcc_flags="-Wold-style-declaration -Wold-style-definition -Wtype-limits"
 gcc_flags="-Wformat-security -Wformat-y2k -Winit-self -Wignored-qualifiers $gcc_flags"
 gcc_flags="-Wmissing-include-dirs -Wempty-body -Wnested-externs $gcc_flags"
-gcc_flags="-Wendif-labels $gcc_flags"
+gcc_flags="-fstack-protector-all -Wendif-labels $gcc_flags"
 cat > $TMPC << EOF
 int main(void) { return 0; }
 EOF
