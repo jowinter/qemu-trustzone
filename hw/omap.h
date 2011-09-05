@@ -134,7 +134,6 @@ int l4_register_io_memory(CPUReadMemoryFunc * const *mem_read,
 struct omap_sdrc_s;
 struct omap_sdrc_s *omap_sdrc_init(target_phys_addr_t base);
 void omap_sdrc_reset(struct omap_sdrc_s *s);
-void omap_sdrc_write_mcfg(struct omap_sdrc_s *s, uint32_t value, uint32_t cs);
 
 /* OMAP2 general purpose memory controller */
 struct omap_gpmc_s;
