@@ -17,6 +17,7 @@
  * You should have received a copy of the GNU General Public License along
  * with this program; if not, see <http://www.gnu.org/licenses/>.
  */
+
 #include "blockdev.h"
 #include "hw.h"
 #include "arm-misc.h"
@@ -586,8 +587,7 @@ static CPUWriteMemoryFunc * const omap_eac_writefn[] = {
 };
 
 static struct omap_eac_s *omap_eac_init(struct omap_target_agent_s *ta,
-                                        qemu_irq irq, qemu_irq *drq,
-                                        omap_clk fclk, omap_clk iclk)
+                qemu_irq irq, qemu_irq *drq, omap_clk fclk, omap_clk iclk)
 {
     int iomemtype;
     struct omap_eac_s *s = (struct omap_eac_s *)
@@ -799,7 +799,7 @@ static struct omap_sti_s *omap_sti_init(struct omap_target_agent_s *ta,
 #define L4TA(n)		(n)
 #define L4TAO(n)	((n) + 39)
 
-static const struct omap_l4_region_s omap2_l4_region[125] = {
+static const struct omap_l4_region_s omap_l4_region[125] = {
     [  1] = { 0x40800,  0x800, 32          }, /* Initiator agent */
     [  2] = { 0x41000, 0x1000, 32          }, /* Link agent */
     [  0] = { 0x40000,  0x800, 32          }, /* Address and protection */
@@ -984,10 +984,10 @@ static const struct omap2_l4_agent_info_s omap2_l4_agent_info[54] = {
     { L4TA(39),  123, 2, 1 }, /* HDQ/1-Wire */
 };
 
-#define omap_l4ta(bus, cs) \
-    omap2_l4ta_init(bus, omap2_l4_region, omap2_l4_agent_info, L4TA(cs))
-#define omap_l4tao(bus, cs) \
-    omap2_l4ta_init(bus, omap2_l4_region, omap2_l4_agent_info, L4TAO(cs))
+#define omap_l4ta(bus, cs)	\
+    omap2_l4ta_init(bus, omap_l4_region, omap2_l4_agent_info, L4TA(cs))
+#define omap_l4tao(bus, cs)	\
+    omap2_l4ta_init(bus, omap_l4_region, omap2_l4_agent_info, L4TAO(cs))
 
 /* Power, Reset, and Clock Management */
 struct omap_prcm_s {
@@ -1785,9 +1785,8 @@ static void omap_prcm_coldreset(struct omap_prcm_s *s)
 }
 
 static struct omap_prcm_s *omap_prcm_init(struct omap_target_agent_s *ta,
-                                          qemu_irq mpu_int, qemu_irq dsp_int,
-                                          qemu_irq iva_int,
-                                          struct omap_mpu_state_s *mpu)
+                qemu_irq mpu_int, qemu_irq dsp_int, qemu_irq iva_int,
+                struct omap_mpu_state_s *mpu)
 {
     int iomemtype;
     struct omap_prcm_s *s = (struct omap_prcm_s *)
@@ -2160,8 +2159,7 @@ static void omap_sysctl_reset(struct omap_sysctl_s *s)
 }
 
 static struct omap_sysctl_s *omap_sysctl_init(struct omap_target_agent_s *ta,
-                                              omap_clk iclk,
-                                              struct omap_mpu_state_s *mpu)
+                omap_clk iclk, struct omap_mpu_state_s *mpu)
 {
     int iomemtype;
     struct omap_sysctl_s *s = (struct omap_sysctl_s *)
@@ -2383,8 +2381,8 @@ struct omap_mpu_state_s *omap2420_mpu_init(unsigned long sdram_size,
     omap_tap_init(omap_l4ta(s->l4, 2), s);
 
     s->synctimer = omap_synctimer_init(omap_l4tao(s->l4, 2), s,
-                                       omap_findclk(s, "clk32-kHz"),
-                                       omap_findclk(s, "core_l4_iclk"));
+                    omap_findclk(s, "clk32-kHz"),
+                    omap_findclk(s, "core_l4_iclk"));
 
     s->i2c = qdev_create(NULL, "omap_i2c");
     qdev_prop_set_int32(s->i2c, "mpu_model", s->mpu_model);
