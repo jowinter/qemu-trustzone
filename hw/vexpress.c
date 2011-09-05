@@ -25,6 +25,8 @@
 #include "net.h"
 #include "sysemu.h"
 #include "boards.h"
+#include "flash.h"
+#include "blockdev.h"
 #if defined(TARGET_HAS_TRUSTZONE)
 #include "arm_trustzone.h"
 #endif
@@ -46,6 +48,41 @@ static struct arm_boot_info vexpress_binfo = {
 #define bp147_attach(_dev, _reg, _bit) do {     \
   } while(0)
 #endif
+
+static void vexpress_register_flash(target_phys_addr_t addr, const char *name,
+				    unsigned long flash_size,
+				    DriveInfo *dinfo)
+{
+  ram_addr_t phys_flash;
+  unsigned long bdev_size;
+
+  /* Skip the flashes if no image has been given */
+  if (dinfo) {
+    /*
+     * TODO: Properly handle flash interleaving of the two Am29LV256M devices we
+     * currently register a single 32M (or 64M) device ... 
+     */  
+    bdev_size = bdrv_getlength(dinfo->bdrv);
+    
+    if (bdev_size != 8*1024*1024 && bdev_size != 16*1024*1024 &&
+	bdev_size != 32*1024*1024 && bdev_size != 64*1024*1024) {
+      fprintf(stderr, "Invalid flash image size for '%s'\n", name);
+      exit(1);
+    }
+    
+    /* Adjust to block device size */
+    flash_size = bdev_size;
+  }
+  
+  phys_flash = qemu_ram_alloc(NULL, name, flash_size);
+  pflash_cfi02_register(addr, phys_flash, dinfo? dinfo->bdrv : NULL,
+			0x10000, (flash_size + 0xFFFF) >> 16, 1, 2, 
+			0x0090, 0x227E, 0x2212, 0x2201,
+			0x555, 0x2AA, 0);
+
+  fprintf(stderr, "vexpress: registeres flash '%s' at 0x%08lx..0x%08lx\n",
+	  name, (unsigned long) (addr), (unsigned long) (addr + flash_size - 1));
+}
 
 static void vexpress_a9_init(ram_addr_t ram_size,
                      const char *boot_device,
@@ -196,7 +233,11 @@ static void vexpress_a9_init(ram_addr_t ram_size,
     /* 0x1e00a000 PL310 L2 Cache Controller */
 
     /* CS0: NOR0 flash          : 0x40000000 .. 0x44000000 */
+    vexpress_register_flash(0x40000000, "vexpress.nor0", 0x04000000, drive_get(IF_PFLASH, 0, 0));   
+			        
     /* CS4: NOR1 flash          : 0x44000000 .. 0x48000000 */
+    vexpress_register_flash(0x44000000, "vexpress.nor1", 0x04000000, drive_get(IF_PFLASH, 0, 1));   
+
     /* CS2: SRAM                : 0x48000000 .. 0x4a000000 */
     sram_size = 0x2000000;
     sram_offset = qemu_ram_alloc(NULL, "vexpress.sram", sram_size);
