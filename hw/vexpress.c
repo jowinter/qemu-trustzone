@@ -27,6 +27,7 @@
 #include "boards.h"
 #include "flash.h"
 #include "blockdev.h"
+#include "ide.h"
 #if defined(TARGET_HAS_TRUSTZONE)
 #include "arm_trustzone.h"
 #endif
@@ -202,7 +203,10 @@ static void vexpress_a9_init(ram_addr_t ram_size,
     sysbus_create_simple("pl031", 0x10017000, pic[4]); /* RTC */
 
     /* 0x1001a000 Compact Flash */
-
+    mmio_ide_init(0x1001a000, 0x1001a100, NULL, 2, 
+		  drive_get(IF_IDE, 0, 0),
+		  drive_get(IF_IDE, 0, 1));
+    
     /* 0x1001f000 PL111 CLCD (motherboard) */
 
     /* Daughterboard peripherals : 0x10020000 .. 0x20000000 */

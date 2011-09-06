@@ -368,6 +368,7 @@ obj-arm-y += syborg_virtio.o
 obj-arm-y += vexpress.o
 obj-arm-y += strongarm.o
 obj-arm-y += collie.o
+obj-arm-y += ide/mmio.o
 obj-arm-$(TARGET_HAS_TRUSTZONE) += arm_trustzone.o
 obj-arm-$(TARGET_HAS_TRUSTZONE) += bp147.o 
 obj-arm-$(TARGET_HAS_TRUSTZONE) += tzc380.o
