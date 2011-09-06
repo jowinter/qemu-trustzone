@@ -76,7 +76,7 @@ static void vexpress_register_flash(target_phys_addr_t addr, const char *name,
   
   phys_flash = qemu_ram_alloc(NULL, name, flash_size);
   pflash_cfi02_register(addr, phys_flash, dinfo? dinfo->bdrv : NULL,
-			0x10000, (flash_size + 0xFFFF) >> 16, 1, 2, 
+			0x10000, (flash_size + 0xFFFF) >> 16, 1, 4, 
 			0x0090, 0x227E, 0x2212, 0x2201,
 			0x555, 0x2AA, 0);
 
