@@ -90,7 +90,7 @@ static void vexpress_a9_init(ram_addr_t ram_size,
                      const char *initrd_filename, const char *cpu_model)
 {
     CPUState *env = NULL;
-    ram_addr_t ram_offset, vram_offset, sram_offset, axiram_offset;
+    ram_addr_t ram_offset, vram_offset, sram_offset;
     DeviceState *dev, *sysctl;
     SysBusDevice *busdev;
 #if defined(TARGET_HAS_TRUSTZONE)
