@@ -12,6 +12,14 @@ here. For full change detail consult the git history:
 Bug numbers refer to Launchpad qemu-linaro bugs, eg:
 https://bugs.launchpad.net/qemu-linaro/+bug/703094
 
+version 2011.09:
+ - linux-user mode now supports the 64 bit cmpxchg kernel helpers
+   (only needed for applications compiled for ARMv6 or lower)
+ - correct a bug which would cause a crash trying to use USB
+   on the n800 and n810 models
+ - PL111 display controller now supported; this fixes a problem
+   where BGR was interpreted as RGB on recent versatilepb kernels
+
 version 2011.08:
  - Fixes #816791: ARMv6 cp15 barrier instructions now work
    in linux-user mode as well as system mode
