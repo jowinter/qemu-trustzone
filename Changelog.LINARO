@@ -19,6 +19,7 @@ version 2011.09:
    on the n800 and n810 models
  - PL111 display controller now supported; this fixes a problem
    where BGR was interpreted as RGB on recent versatilepb kernels
+ - Compilation failures on SPARC, ARM, ia64 fixed
 
 version 2011.08:
  - Fixes #816791: ARMv6 cp15 barrier instructions now work
