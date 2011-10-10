@@ -238,7 +238,7 @@ static void cpu_reset_model_id(CPUARMState *env, uint32_t id)
         set_feature(env, ARM_FEATURE_VFP_FP16);
         set_feature(env, ARM_FEATURE_NEON);
         set_feature(env, ARM_FEATURE_THUMB2EE);
-        set_feature(env, ARM_FEATURE_THUMB_DIV);
+        set_feature(env, ARM_FEATURE_ARM_DIV);
         set_feature(env, ARM_FEATURE_V7MP);
         break;
     case ARM_CPUID_TI915T:
@@ -291,6 +291,9 @@ static void cpu_reset_model_id(CPUARMState *env, uint32_t id)
     /* Some features automatically imply others: */
     if (arm_feature(env, ARM_FEATURE_V7)) {
         set_feature(env, ARM_FEATURE_VAPA);
+    }
+    if (arm_feature(env, ARM_FEATURE_ARM_DIV)) {
+        set_feature(env, ARM_FEATURE_THUMB_DIV);
     }
 }
 

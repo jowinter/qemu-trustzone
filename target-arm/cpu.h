@@ -385,6 +385,7 @@ enum arm_features {
     ARM_FEATURE_STRONGARM,
     ARM_FEATURE_VAPA, /* cp15 VA to PA lookups */
     ARM_FEATURE_TRUSTZONE, /* TrustZone Security Extensions. */
+    ARM_FEATURE_ARM_DIV, /* divide supported in ARM encoding */
 };
 
 static inline int arm_feature(CPUARMState *env, int feature)
