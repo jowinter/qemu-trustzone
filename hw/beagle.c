@@ -83,27 +83,10 @@ static void beagle_common_init(ram_addr_t ram_size,
                               qdev_get_gpio_in(s->cpu->ih[0],
                                                OMAP_INT_3XXX_SYS_NIRQ),
                               NULL, NULL);
-    int i;
-    for (i = 0; i < nb_nics; i++) {
-        if (!nd_table[i].model || !strcmp(nd_table[i].model, "smc91c111")) {
-            break;
-        }
-    }
     if (cpu_model == omap3430) {
         qemu_set_irq(qdev_get_gpio_in(s->cpu->gpio, BEAGLE_GPIO_ID1),1);
         qemu_set_irq(qdev_get_gpio_in(s->cpu->gpio, BEAGLE_GPIO_ID3),1);
     }
-    if (i < nb_nics) {
-        s->smc = qdev_create(NULL, "smc91c111");
-        qdev_set_nic_properties(s->smc, &nd_table[i]);
-        qdev_init_nofail(s->smc);
-        sysbus_connect_irq(sysbus_from_qdev(s->smc), 0,
-                           qdev_get_gpio_in(s->cpu->gpio, 54));
-    } else {
-        hw_error("%s: no NIC for smc91c111\n", __FUNCTION__);
-    }
-    omap_gpmc_attach(s->cpu->gpmc, BEAGLE_SMC_CS,
-                     sysbus_mmio_get_region(sysbus_from_qdev(s->smc), 0));
 
     /* Wire up an I2C slave which returns EDID monitor information;
      * newer Linux kernels won't turn on the display unless they
