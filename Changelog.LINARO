@@ -12,6 +12,17 @@ here. For full change detail consult the git history:
 Bug numbers refer to Launchpad qemu-linaro bugs, eg:
 https://bugs.launchpad.net/qemu-linaro/+bug/703094
 
+version 2011.10:
+ - Beagle models now support USB networking (run the model with
+   "-usb -device usb-net,netdev=mynet -netdev user,id=mynet")
+ - Instructions introduced with the Cortex-A15 (ARM mode
+   SDIV and UDIV, and the VFPv4 fused multiply-accumulate
+   instructions VFMA, VFMS, VFNMA, VFNMS) are now supported
+   in linux-user mode
+ - Fixes a bug which would cause returning of the wrong NaN values
+   in some cases (when more than one input is a NaN or when the
+   "default NaN" should be returned)
+
 version 2011.09:
  - linux-user mode now supports the 64 bit cmpxchg kernel helpers
    (only needed for applications compiled for ARMv6 or lower)
