@@ -22,6 +22,7 @@
 #include "omap.h"
 /* We use pc-style serial ports.  */
 #include "pc.h"
+#include "exec-memory.h"
 #include "sysbus.h"
 
 /* The OMAP UART functionality is similar to the TI16C752; it is
@@ -39,11 +40,10 @@
 
 struct omap_uart_s {
     SysBusDevice busdev;
+    MemoryRegion iomem;
     CharDriverState *chr;
     SerialState *serial; /* TODO */
-    qemu_irq *serial_irq;
-    CPUReadMemoryFunc *const *serial_read;
-    CPUWriteMemoryFunc *const *serial_write;
+    const MemoryRegionOps *serial_ops;
     uint32_t mmio_size;
     uint32_t baudrate;
     qemu_irq tx_drq;
@@ -102,7 +102,8 @@ static void omap_uart_reset(DeviceState *qdev)
     s->xoff[0] = s->xoff[1] = 0;
 }
 
-static uint32_t omap_uart_read(void *opaque, target_phys_addr_t addr)
+static uint64_t omap_uart_read(void *opaque, target_phys_addr_t addr,
+                               unsigned size)
 {
     struct omap_uart_s *s = (struct omap_uart_s *) opaque;
 
@@ -111,12 +112,12 @@ static uint32_t omap_uart_read(void *opaque, target_phys_addr_t addr)
     case 0x00:
     case 0x04:
     case 0x0c:
-        return s->serial_read[0](s->serial, addr);
+        return s->serial_ops->read(s->serial, addr, size);
     case 0x08:
         if (s->access_mode == regs_config_b) {
             return s->efr;
         }
-        return s->serial_read[0](s->serial, addr);
+        return s->serial_ops->read(s->serial, addr, size);
     case 0x10:
     case 0x14:
         if (s->access_mode == regs_config_b) {
@@ -125,9 +126,9 @@ static uint32_t omap_uart_read(void *opaque, target_phys_addr_t addr)
             /* MCR. Bits 5 and 6 are handled by us, the rest by
              * the underlying serial implementation.
              */
-            return s->serial_read[0](s->serial, addr) | s->mcr_cache;
+            return s->serial_ops->read(s->serial, addr, size) | s->mcr_cache;
         }
-        return s->serial_read[0](s->serial, addr);
+        return s->serial_ops->read(s->serial, addr, size);
     case 0x18:
     case 0x1c:
         if (tcr_tlr_mode(s)) {
@@ -136,7 +137,7 @@ static uint32_t omap_uart_read(void *opaque, target_phys_addr_t addr)
         if (s->access_mode == regs_config_b) {
             return s->xoff[(addr & 7) >> 2];
         }
-        return s->serial_read[0](s->serial, addr);
+        return s->serial_ops->read(s->serial, addr, size);
     case 0x20:	/* MDR1 */
         return s->mdr[0];
     case 0x24:	/* MDR2 */
@@ -181,7 +182,7 @@ static uint32_t omap_uart_read(void *opaque, target_phys_addr_t addr)
 }
 
 static void omap_uart_write(void *opaque, target_phys_addr_t addr,
-                uint32_t value)
+                            uint64_t value, unsigned size)
 {
     struct omap_uart_s *s = (struct omap_uart_s *) opaque;
 
@@ -189,13 +190,13 @@ static void omap_uart_write(void *opaque, target_phys_addr_t addr,
     switch (addr) {
     case 0x00:
     case 0x04:
-        s->serial_write[0](s->serial, addr, value);
+        s->serial_ops->write(s->serial, addr, value, size);
         break;
     case 0x08:
         if (s->access_mode == regs_config_b) {
             s->efr = value;
         } else {
-            s->serial_write[0](s->serial, addr, value);
+            s->serial_ops->write(s->serial, addr, value, size);
         }
         break;
     case 0x0c:
@@ -206,7 +207,7 @@ static void omap_uart_write(void *opaque, target_phys_addr_t addr,
         } else {
             s->access_mode = regs_operational;
         }
-        s->serial_write[0](s->serial, addr, value);
+        s->serial_ops->write(s->serial, addr, value, size);
         break;
     case 0x10:
     case 0x14:
@@ -221,7 +222,7 @@ static void omap_uart_write(void *opaque, target_phys_addr_t addr,
                     s->mcr_cache = value & 0x60;
                 }
             }
-            s->serial_write[0](s->serial, addr, value);
+            s->serial_ops->write(s->serial, addr, value, size);
         }
         break;
     case 0x18:
@@ -235,7 +236,7 @@ static void omap_uart_write(void *opaque, target_phys_addr_t addr,
         } else if (s->access_mode == regs_config_b) {
             s->xoff[(addr & 7) >> 2] = value;
         } else {
-            s->serial_write[0](s->serial, addr, value);
+            s->serial_ops->write(s->serial, addr, value, size);
         }
         break;
     case 0x20:	/* MDR1 */
@@ -296,20 +297,10 @@ static void omap_uart_write(void *opaque, target_phys_addr_t addr,
     }
 }
 
-/* NOTE: some OMAP models do not work properly with 16-bit or 32-bit access
- * to the UART registers but we ignore that since modelling the faulty
- * behavior would be mostly useless. */
-
-static CPUReadMemoryFunc * const omap_uart_readfn[] = {
-    omap_uart_read,
-    omap_uart_read,
-    omap_uart_read,
-};
-
-static CPUWriteMemoryFunc * const omap_uart_writefn[] = {
-    omap_uart_write,
-    omap_uart_write,
-    omap_uart_write,
+static const MemoryRegionOps omap_uart_ops = {
+    .read = omap_uart_read,
+    .write = omap_uart_write,
+    .endianness = DEVICE_NATIVE_ENDIAN,
 };
 
 static int omap_uart_init(SysBusDevice *busdev)
@@ -321,15 +312,18 @@ static int omap_uart_init(SysBusDevice *busdev)
     /* TODO: DMA support. Current 16550A emulation does not emulate DMA mode
      * transfers via TXRDY/RXRDY pins. We create DMA irq lines here for
      * future use nevertheless. */
-    s->serial = serial_mm_init_nomap(2, s->baudrate, s->chr, 0, &s->serial_irq,
-                                     &s->serial_read, &s->serial_write);
-    sysbus_init_irq(busdev, s->serial_irq);
+    /* Nasty hackery because trying to extend an existing device is
+     * not really supported, and the serial driver isn't even qdev.
+     */
+    s->serial = serial_mm_init(NULL, 0, 2, NULL, s->baudrate, s->chr,
+                               DEVICE_NATIVE_ENDIAN);
+    s->serial_ops = serial_get_memops(DEVICE_NATIVE_ENDIAN);
+    sysbus_init_irq(busdev, serial_get_irq(s->serial));
     sysbus_init_irq(busdev, &s->tx_drq);
     sysbus_init_irq(busdev, &s->rx_drq);
-    sysbus_init_mmio(busdev, s->mmio_size,
-                     cpu_register_io_memory(omap_uart_readfn,
-                                            omap_uart_writefn, s,
-                                            DEVICE_NATIVE_ENDIAN));
+    memory_region_init_io(&s->iomem, &omap_uart_ops, s, "omap_uart",
+                          s->mmio_size);
+    sysbus_init_mmio_region(busdev, &s->iomem);
     return 0;
 }
 
@@ -356,15 +350,8 @@ void omap_uart_attach(DeviceState *qdev, CharDriverState *chr,
 {
     struct omap_uart_s *s = FROM_SYSBUS(struct omap_uart_s,
                                         sysbus_from_qdev(qdev));
-    /* FIXME: Should reuse or destroy current s->serial */
-    fprintf(stderr, "%s: WARNING - this function is broken, avoid using it\n",
-            __FUNCTION__);
     s->chr = chr ?: qemu_chr_new(label, "null", NULL);
-    qemu_irq *serial_irq = NULL;
-    s->serial = serial_mm_init_nomap(2, s->baudrate, s->chr, 0, &serial_irq,
-                                     &s->serial_read, &s->serial_write);
-    *serial_irq = *(s->serial_irq);
-    s->serial_irq = serial_irq;
+    serial_change_char_driver(s->serial, s->chr);
 }
 
 device_init(omap_uart_register_device)

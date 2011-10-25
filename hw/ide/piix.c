@@ -27,7 +27,6 @@
 #include <hw/pci.h>
 #include <hw/isa.h>
 #include "block.h"
-#include "block_int.h"
 #include "sysemu.h"
 #include "dma.h"
 
@@ -123,8 +122,7 @@ static void piix3_reset(void *opaque)
 }
 
 static void pci_piix_init_ports(PCIIDEState *d) {
-    int i;
-    struct {
+    static const struct {
         int iobase;
         int iobase2;
         int isairq;
@@ -132,10 +130,12 @@ static void pci_piix_init_ports(PCIIDEState *d) {
         {0x1f0, 0x3f6, 14},
         {0x170, 0x376, 15},
     };
+    int i;
 
     for (i = 0; i < 2; i++) {
         ide_bus_new(&d->bus[i], &d->dev.qdev, i);
-        ide_init_ioport(&d->bus[i], port_info[i].iobase, port_info[i].iobase2);
+        ide_init_ioport(&d->bus[i], NULL, port_info[i].iobase,
+                        port_info[i].iobase2);
         ide_init2(&d->bus[i], isa_get_irq(port_info[i].isairq));
 
         bmdma_init(&d->bus[i], &d->bmdma[i], d);
@@ -176,10 +176,10 @@ static int pci_piix3_xen_ide_unplug(DeviceState *dev)
 
     for (; i < 3; i++) {
         di = drive_get_by_index(IF_IDE, i);
-        if (di != NULL && di->bdrv != NULL && !di->bdrv->removable) {
-            DeviceState *ds = bdrv_get_attached(di->bdrv);
+        if (di != NULL && !di->media_cd) {
+            DeviceState *ds = bdrv_get_attached_dev(di->bdrv);
             if (ds) {
-                bdrv_detach(di->bdrv, ds);
+                bdrv_detach_dev(di->bdrv, ds);
             }
             bdrv_close(di->bdrv);
             pci_ide->bus[di->bus].ifs[di->unit].bs = NULL;

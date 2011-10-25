@@ -10,9 +10,9 @@
 - OpenBIOS (http://www.openbios.org/) is a free (GPL v2) portable
   firmware implementation. The goal is to implement a 100% IEEE
   1275-1994 (referred to as Open Firmware) compliant firmware.
-  The included image for PowerPC (for 32 and 64 bit PPC CPUs)
-  is built from OpenBIOS SVN revision 1044 and Sparc32 and Sparc64
-  images are built from OpenBIOS SVN revision 1045.
+  The included images for PowerPC (for 32 and 64 bit PPC CPUs),
+  Sparc32 and Sparc64 are built from OpenBIOS SVN revision
+  1047.
 
 - SLOF (Slimline Open Firmware) is a free IEEE 1275 Open Firmware
   implementation for certain IBM POWER hardware.  The sources are at
@@ -32,3 +32,6 @@
 - The S390 zipl loader is an addition to the official IBM s390-tools
   package. That fork is maintained in its own git repository at:
   git://repo.or.cz/s390-tools.git
+
+- The sources for the Alpha palcode image is available from:
+  git://repo.or.cz/qemu-palcode.git

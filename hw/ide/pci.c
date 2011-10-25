@@ -27,7 +27,6 @@
 #include <hw/pci.h>
 #include <hw/isa.h>
 #include "block.h"
-#include "block_int.h"
 #include "dma.h"
 
 #include <hw/ide/pci.h>
@@ -223,7 +222,7 @@ static void bmdma_restart_bh(void *opaque)
     }
 }
 
-static void bmdma_restart_cb(void *opaque, int running, int reason)
+static void bmdma_restart_cb(void *opaque, int running, RunState state)
 {
     IDEDMA *dma = opaque;
     BMDMAState *bm = DO_UPCAST(BMDMAState, dma, dma);

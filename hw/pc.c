@@ -78,27 +78,26 @@ struct e820_entry {
     uint64_t address;
     uint64_t length;
     uint32_t type;
-} __attribute((__packed__, __aligned__(4)));
+} QEMU_PACKED __attribute((__aligned__(4)));
 
 struct e820_table {
     uint32_t count;
     struct e820_entry entry[E820_NR_ENTRIES];
-} __attribute((__packed__, __aligned__(4)));
+} QEMU_PACKED __attribute((__aligned__(4)));
 
 static struct e820_table e820_table;
 struct hpet_fw_config hpet_cfg = {.count = UINT8_MAX};
 
-void isa_irq_handler(void *opaque, int n, int level)
+void gsi_handler(void *opaque, int n, int level)
 {
-    IsaIrqState *isa = (IsaIrqState *)opaque;
+    GSIState *s = opaque;
 
-    DPRINTF("isa_irqs: %s irq %d\n", level? "raise" : "lower", n);
-    if (n < 16) {
-        qemu_set_irq(isa->i8259[n], level);
+    DPRINTF("pc: %s GSI %d\n", level ? "raising" : "lowering", n);
+    if (n < ISA_NUM_IRQS) {
+        qemu_set_irq(s->i8259_irq[n], level);
     }
-    if (isa->ioapic)
-        qemu_set_irq(isa->ioapic[n], level);
-};
+    qemu_set_irq(s->ioapic_irq[n], level);
+}
 
 static void ioport80_write(void *opaque, uint32_t addr, uint32_t data)
 {
@@ -156,9 +155,6 @@ int cpu_get_pic_interrupt(CPUState *env)
 
     intno = apic_get_interrupt(env->apic_state);
     if (intno >= 0) {
-        /* set irq request if a PIC irq is still pending */
-        /* XXX: improve that */
-        pic_update_irq(isa_pic);
         return intno;
     }
     /* read the irq from the PIC */
@@ -428,6 +424,7 @@ void pc_cmos_init(ram_addr_t ram_size, ram_addr_t above_4g_mem_size,
 /* port 92 stuff: could be split off */
 typedef struct Port92State {
     ISADevice dev;
+    MemoryRegion io;
     uint8_t outport;
     qemu_irq *a20_out;
 } Port92State;
@@ -479,13 +476,22 @@ static void port92_reset(DeviceState *d)
     s->outport &= ~1;
 }
 
+static const MemoryRegionPortio port92_portio[] = {
+    { 0, 1, 1, .read = port92_read, .write = port92_write },
+    PORTIO_END_OF_LIST(),
+};
+
+static const MemoryRegionOps port92_ops = {
+    .old_portio = port92_portio
+};
+
 static int port92_initfn(ISADevice *dev)
 {
     Port92State *s = DO_UPCAST(Port92State, dev, dev);
 
-    register_ioport_read(0x92, 1, 1, port92_read, s);
-    register_ioport_write(0x92, 1, 1, port92_write, s);
-    isa_init_ioport(dev, 0x92);
+    memory_region_init_io(&s->io, &port92_ops, s, "port92", 1);
+    isa_register_ioport(dev, &s->io, 0x92);
+
     s->outport = 0;
     return 0;
 }
@@ -965,7 +971,7 @@ void pc_memory_init(MemoryRegion *system_memory,
                     const char *initrd_filename,
                     ram_addr_t below_4g_mem_size,
                     ram_addr_t above_4g_mem_size,
-                    MemoryRegion *pci_memory,
+                    MemoryRegion *rom_memory,
                     MemoryRegion **ram_memory)
 {
     char *filename;
@@ -1029,7 +1035,7 @@ void pc_memory_init(MemoryRegion *system_memory,
     isa_bios = g_malloc(sizeof(*isa_bios));
     memory_region_init_alias(isa_bios, "isa-bios", bios,
                              bios_size - isa_bios_size, isa_bios_size);
-    memory_region_add_subregion_overlap(pci_memory,
+    memory_region_add_subregion_overlap(rom_memory,
                                         0x100000 - isa_bios_size,
                                         isa_bios,
                                         1);
@@ -1037,13 +1043,13 @@ void pc_memory_init(MemoryRegion *system_memory,
 
     option_rom_mr = g_malloc(sizeof(*option_rom_mr));
     memory_region_init_ram(option_rom_mr, NULL, "pc.rom", PC_ROM_SIZE);
-    memory_region_add_subregion_overlap(pci_memory,
+    memory_region_add_subregion_overlap(rom_memory,
                                         PC_ROM_MIN_VGA,
                                         option_rom_mr,
                                         1);
 
     /* map all the bios at the top of memory */
-    memory_region_add_subregion(pci_memory,
+    memory_region_add_subregion(rom_memory,
                                 (uint32_t)(-bios_size),
                                 bios);
 
@@ -1116,7 +1122,7 @@ static void cpu_request_exit(void *opaque, int irq, int level)
     }
 }
 
-void pc_basic_device_init(qemu_irq *isa_irq,
+void pc_basic_device_init(qemu_irq *gsi,
                           ISADevice **rtc_state,
                           bool no_vmport)
 {
@@ -1135,8 +1141,8 @@ void pc_basic_device_init(qemu_irq *isa_irq,
         DeviceState *hpet = sysbus_try_create_simple("hpet", HPET_BASE, NULL);
 
         if (hpet) {
-            for (i = 0; i < 24; i++) {
-                sysbus_connect_irq(sysbus_from_qdev(hpet), i, isa_irq[i]);
+            for (i = 0; i < GSI_NUM_PINS; i++) {
+                sysbus_connect_irq(sysbus_from_qdev(hpet), i, gsi[i]);
             }
             rtc_irq = qdev_get_gpio_in(hpet, 0);
         }

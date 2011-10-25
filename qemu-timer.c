@@ -101,22 +101,6 @@ static int64_t cpu_get_clock(void)
     }
 }
 
-#ifndef CONFIG_IOTHREAD
-static int64_t qemu_icount_delta(void)
-{
-    if (!use_icount) {
-        return 5000 * (int64_t) 1000000;
-    } else if (use_icount == 1) {
-        /* When not using an adaptive execution frequency
-           we tend to get badly out of sync with real time,
-           so just delay for a reasonable amount of time.  */
-        return 0;
-    } else {
-        return cpu_get_icount() - cpu_get_clock();
-    }
-}
-#endif
-
 /* enable cpu_get_ticks() */
 void cpu_enable_ticks(void)
 {
@@ -246,7 +230,7 @@ static void icount_adjust(void)
     int64_t delta;
     static int64_t last_delta;
     /* If the VM is not running, then do nothing.  */
-    if (!vm_running)
+    if (!runstate_is_running())
         return;
 
     cur_time = cpu_get_clock();
@@ -404,7 +388,7 @@ static void icount_warp_rt(void *opaque)
         return;
     }
 
-    if (vm_running) {
+    if (runstate_is_running()) {
         int64_t clock = qemu_get_clock_ns(rt_clock);
         int64_t warp_delta = clock - vm_clock_warp_start;
         if (use_icount == 1) {
@@ -688,9 +672,7 @@ void configure_icount(const char *option)
     if (!option)
         return;
 
-#ifdef CONFIG_IOTHREAD
     vm_clock->warp_timer = qemu_new_timer_ns(rt_clock, icount_warp_rt, NULL);
-#endif
 
     if (strcmp(option, "auto") != 0) {
         icount_time_shift = strtol(option, NULL, 0);
@@ -728,7 +710,7 @@ void qemu_run_all_timers(void)
     }
 
     /* vm time timers */
-    if (vm_running) {
+    if (runstate_is_running()) {
         qemu_run_timers(vm_clock);
     }
 
@@ -1134,7 +1116,8 @@ static void win32_rearm_timer(struct qemu_alarm_timer *t)
 
 #endif /* _WIN32 */
 
-static void alarm_timer_on_change_state_rearm(void *opaque, int running, int reason)
+static void alarm_timer_on_change_state_rearm(void *opaque, int running,
+                                              RunState state)
 {
     if (running)
         qemu_rearm_alarm_timer((struct qemu_alarm_timer *) opaque);
@@ -1178,41 +1161,6 @@ void quit_timers(void)
 
 int qemu_calculate_timeout(void)
 {
-#ifndef CONFIG_IOTHREAD
-    int timeout;
-
-    if (!vm_running)
-        timeout = 5000;
-    else {
-     /* XXX: use timeout computed from timers */
-        int64_t add;
-        int64_t delta;
-        /* Advance virtual time to the next event.  */
-	delta = qemu_icount_delta();
-        if (delta > 0) {
-            /* If virtual time is ahead of real time then just
-               wait for IO.  */
-            timeout = (delta + 999999) / 1000000;
-        } else {
-            /* Wait for either IO to occur or the next
-               timer event.  */
-            add = qemu_next_icount_deadline();
-            /* We advance the timer before checking for IO.
-               Limit the amount we advance so that early IO
-               activity won't get the guest too far ahead.  */
-            if (add > 10000000)
-                add = 10000000;
-            delta += add;
-            qemu_icount += qemu_icount_round (add);
-            timeout = delta / 1000000;
-            if (timeout < 0)
-                timeout = 0;
-        }
-    }
-
-    return timeout;
-#else /* CONFIG_IOTHREAD */
     return 1000;
-#endif
 }
 

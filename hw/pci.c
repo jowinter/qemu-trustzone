@@ -312,11 +312,6 @@ void pci_bus_hotplug(PCIBus *bus, pci_hotplug_fn hotplug, DeviceState *qdev)
     bus->hotplug_qdev = qdev;
 }
 
-void pci_bus_set_mem_base(PCIBus *bus, target_phys_addr_t base)
-{
-    bus->mem_base = base;
-}
-
 PCIBus *pci_register_bus(DeviceState *parent, const char *name,
                          pci_set_irq_fn set_irq, pci_map_irq_fn map_irq,
                          void *irq_opaque,
@@ -833,12 +828,6 @@ PCIDevice *pci_register_device(PCIBus *bus, const char *name,
     return pci_dev;
 }
 
-static target_phys_addr_t pci_to_cpu_addr(PCIBus *bus,
-                                          target_phys_addr_t addr)
-{
-    return addr + bus->mem_base;
-}
-
 static void pci_unregister_io_regions(PCIDevice *pci_dev)
 {
     PCIIORegion *r;
@@ -889,7 +878,6 @@ void pci_register_bar(PCIDevice *pci_dev, int region_num,
     r = &pci_dev->io_regions[region_num];
     r->addr = PCI_BAR_UNMAPPED;
     r->size = size;
-    r->filtered_size = size;
     r->type = type;
     r->memory = NULL;
 
@@ -918,41 +906,6 @@ void pci_register_bar(PCIDevice *pci_dev, int region_num,
 pcibus_t pci_get_bar_addr(PCIDevice *pci_dev, int region_num)
 {
     return pci_dev->io_regions[region_num].addr;
-}
-
-static void pci_bridge_filter(PCIDevice *d, pcibus_t *addr, pcibus_t *size,
-                              uint8_t type)
-{
-    pcibus_t base = *addr;
-    pcibus_t limit = *addr + *size - 1;
-    PCIDevice *br;
-
-    for (br = d->bus->parent_dev; br; br = br->bus->parent_dev) {
-        uint16_t cmd = pci_get_word(d->config + PCI_COMMAND);
-
-        if (type & PCI_BASE_ADDRESS_SPACE_IO) {
-            if (!(cmd & PCI_COMMAND_IO)) {
-                goto no_map;
-            }
-        } else {
-            if (!(cmd & PCI_COMMAND_MEMORY)) {
-                goto no_map;
-            }
-        }
-
-        base = MAX(base, pci_bridge_get_base(br, type));
-        limit = MIN(limit, pci_bridge_get_limit(br, type));
-    }
-
-    if (base > limit) {
-        goto no_map;
-    }
-    *addr = base;
-    *size = limit - base + 1;
-    return;
-no_map:
-    *addr = PCI_BAR_UNMAPPED;
-    *size = 0;
 }
 
 static pcibus_t pci_bar_address(PCIDevice *d,
@@ -1024,7 +977,7 @@ static void pci_update_mappings(PCIDevice *d)
 {
     PCIIORegion *r;
     int i;
-    pcibus_t new_addr, filtered_size;
+    pcibus_t new_addr;
 
     for(i = 0; i < PCI_NUM_REGIONS; i++) {
         r = &d->io_regions[i];
@@ -1035,14 +988,8 @@ static void pci_update_mappings(PCIDevice *d)
 
         new_addr = pci_bar_address(d, i, r->type, r->size);
 
-        /* bridge filtering */
-        filtered_size = r->size;
-        if (new_addr != PCI_BAR_UNMAPPED) {
-            pci_bridge_filter(d, &new_addr, &filtered_size, r->type);
-        }
-
         /* This bar isn't changed */
-        if (new_addr == r->addr && filtered_size == r->filtered_size)
+        if (new_addr == r->addr)
             continue;
 
         /* now do the real mapping */
@@ -1050,27 +997,9 @@ static void pci_update_mappings(PCIDevice *d)
             memory_region_del_subregion(r->address_space, r->memory);
         }
         r->addr = new_addr;
-        r->filtered_size = filtered_size;
         if (r->addr != PCI_BAR_UNMAPPED) {
-            /*
-             * TODO: currently almost all the map funcions assumes
-             * filtered_size == size and addr & ~(size - 1) == addr.
-             * However with bridge filtering, they aren't always true.
-             * Teach them such cases, such that filtered_size < size and
-             * addr & (size - 1) != 0.
-             */
-            if (r->type & PCI_BASE_ADDRESS_SPACE_IO) {
-                memory_region_add_subregion_overlap(r->address_space,
-                                                    r->addr,
-                                                    r->memory,
-                                                    1);
-            } else {
-                memory_region_add_subregion_overlap(r->address_space,
-                                                    pci_to_cpu_addr(d->bus,
-                                                                    r->addr),
-                                                    r->memory,
-                                                    1);
-            }
+            memory_region_add_subregion_overlap(r->address_space,
+                                                r->addr, r->memory, 1);
         }
     }
 }
@@ -1576,22 +1505,6 @@ PCIDevice *pci_nic_init_nofail(NICInfo *nd, const char *default_model,
     return res;
 }
 
-static void pci_bridge_update_mappings_fn(PCIBus *b, PCIDevice *d)
-{
-    pci_update_mappings(d);
-}
-
-void pci_bridge_update_mappings(PCIBus *b)
-{
-    PCIBus *child;
-
-    pci_for_each_device_under_bus(b, pci_bridge_update_mappings_fn);
-
-    QLIST_FOREACH(child, &b->child, sibling) {
-        pci_bridge_update_mappings(child);
-    }
-}
-
 /* Whether a given bus number is in range of the secondary
  * bus of the given bridge device. */
 static bool pci_secondary_bus_in_range(PCIDevice *dev, int bus_num)
@@ -2028,12 +1941,6 @@ void pci_del_capability(PCIDevice *pdev, uint8_t cap_id, uint8_t size)
         pdev->config[PCI_STATUS] &= ~PCI_STATUS_CAP_LIST;
 }
 
-/* Reserve space for capability at a known offset (to call after load). */
-void pci_reserve_capability(PCIDevice *pdev, uint8_t offset, uint8_t size)
-{
-    memset(pdev->used + offset, 0xff, size);
-}
-
 uint8_t pci_find_capability(PCIDevice *pdev, uint8_t cap_id)
 {
     return pci_find_capability_list(pdev, cap_id, NULL);
@@ -2207,4 +2114,9 @@ int pci_qdev_find_device(const char *id, PCIDevice **pdev)
 MemoryRegion *pci_address_space(PCIDevice *dev)
 {
     return dev->bus->address_space_mem;
+}
+
+MemoryRegion *pci_address_space_io(PCIDevice *dev)
+{
+    return dev->bus->address_space_io;
 }

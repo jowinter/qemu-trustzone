@@ -4122,9 +4122,10 @@ struct omap_mpu_state_s *omap3_mpu_init(int model,
                              omap_findclk(s, "omap3_sdma_fclk"),
                              omap_findclk(s, "omap3_sdma_iclk"));
     s->port->addr_valid = omap3_validate_addr;
-    soc_dma_port_add_mem_ram(s->dma, q2_base, OMAP2_Q2_BASE, s->sdram_size);
-    soc_dma_port_add_mem_ram(s->dma, sram_base, OMAP2_SRAM_BASE, s->sram_size);
-
+    soc_dma_port_add_mem(s->dma, qemu_get_ram_ptr(q2_base),
+                         OMAP2_Q2_BASE, s->sdram_size);
+    soc_dma_port_add_mem(s->dma, qemu_get_ram_ptr(sram_base),
+                         OMAP2_SRAM_BASE, s->sram_size);
 
     s->omap3_cm = omap3_cm_init(omap3_l4ta_init(s->l4, L4A_CM),
                                 NULL, NULL, NULL, s);

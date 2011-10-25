@@ -165,7 +165,6 @@ darwin_user="no"
 bsd_user="no"
 guest_base=""
 uname_release=""
-io_thread="no"
 mixemu="no"
 aix="no"
 blobs="yes"
@@ -292,6 +291,12 @@ elif check_define __s390__ ; then
   else
     cpu="s390"
   fi
+elif check_define __ARMEB__ ; then
+  cpu="armv4b"
+elif check_define __ARMEL__ ; then
+  cpu="armv4l"
+elif check_define __hppa__ ; then
+  cpu="hppa"
 else
   cpu=`uname -m`
 fi
@@ -312,7 +317,7 @@ case "$cpu" in
   armv*l)
     cpu="armv4l"
   ;;
-  parisc|parisc64)
+  hppa|parisc|parisc64)
     cpu="hppa"
   ;;
   mips*)
@@ -420,6 +425,7 @@ SunOS)
   make="${MAKE-gmake}"
   install="${INSTALL-ginstall}"
   ld="gld"
+  smbd="${SMBD-/usr/sfw/sbin/smbd}"
   needs_libsunmath="no"
   solarisrev=`uname -r | cut -f2 -d.`
   # have to select again, because `uname -m` returns i86pc
@@ -488,6 +494,7 @@ fi
 : ${make=${MAKE-make}}
 : ${install=${INSTALL-install}}
 : ${python=${PYTHON-python}}
+: ${smbd=${SMBD-/usr/sbin/smbd}}
 
 if test "$mingw32" = "yes" ; then
   EXESUF=".exe"
@@ -531,6 +538,8 @@ for opt do
   --install=*) install="$optarg"
   ;;
   --python=*) python="$optarg"
+  ;;
+  --smbd=*) smbd="$optarg"
   ;;
   --extra-cflags=*)
   ;;
@@ -730,8 +739,6 @@ for opt do
   ;;
   --enable-attr) attr="yes"
   ;;
-  --enable-io-thread) io_thread="yes"
-  ;;
   --disable-blobs) blobs="no"
   ;;
   --with-pkgversion=*) pkgversion=" ($optarg)"
@@ -861,6 +868,7 @@ if [ "$softmmu" = "yes" ] ; then
     default_target_list="\
 i386-softmmu \
 x86_64-softmmu \
+alpha-softmmu \
 arm-softmmu \
 cris-softmmu \
 lm32-softmmu \
@@ -879,6 +887,8 @@ sh4eb-softmmu \
 sparc-softmmu \
 sparc64-softmmu \
 s390x-softmmu \
+xtensa-softmmu \
+xtensaeb-softmmu \
 "
 fi
 # the following are Linux specific
@@ -948,6 +958,7 @@ echo "  --extra-ldflags=LDFLAGS  append extra linker flags LDFLAGS"
 echo "  --make=MAKE              use specified make [$make]"
 echo "  --install=INSTALL        use specified install [$install]"
 echo "  --python=PYTHON          use specified python [$python]"
+echo "  --smbd=SMBD              use specified smbd [$smbd]"
 echo "  --static                 enable static build [$static]"
 echo "  --mandir=PATH            install man pages in PATH"
 echo "  --datadir=PATH           install firmware in PATH"
@@ -1030,7 +1041,6 @@ echo "  --disable-linux-aio      disable Linux AIO support"
 echo "  --enable-linux-aio       enable Linux AIO support"
 echo "  --disable-attr           disables attr and xattr support"
 echo "  --enable-attr            enable attr and xattr support"
-echo "  --enable-io-thread       enable IO thread"
 echo "  --disable-blobs          disable installing provided firmware blobs"
 echo "  --enable-docs            enable documentation build"
 echo "  --disable-docs           disable documentation build"
@@ -1076,7 +1086,7 @@ cat > $TMPC << EOF
 int main(void) { return 0; }
 EOF
 for flag in $gcc_flags; do
-    if compile_prog "-Werror $QEMU_CFLAGS" "-Werror $flag" ; then
+    if compile_prog "$flag -Werror" "" ; then
 	QEMU_CFLAGS="$QEMU_CFLAGS $flag"
     fi
 done
@@ -1343,8 +1353,8 @@ fi
 # pkg-config probe
 
 if ! has $pkg_config; then
-  echo warning: proceeding without "$pkg_config" >&2
-  pkg_config=/bin/false
+  echo "Error: pkg-config binary '$pkg_config' not found"
+  exit 1
 fi
 
 ##########################################
@@ -2165,12 +2175,6 @@ EOF
 
 if compile_prog "" "" ; then
   signalfd=yes
-elif test "$kvm" = "yes" -a "$io_thread" != "yes"; then
-  echo
-  echo "ERROR: Host kernel lacks signalfd() support,"
-  echo "but KVM depends on it when the IO thread is disabled."
-  echo
-  exit 1
 fi
 
 # check if eventfd is supported
@@ -2368,23 +2372,6 @@ if compile_prog "" "" ; then
     need_offsetof=no
 fi
 
-##########################################
-# check if the compiler understands attribute warn_unused_result
-#
-# This could be smarter, but gcc -Werror does not error out even when warning
-# about attribute warn_unused_result
-
-gcc_attribute_warn_unused_result=no
-cat > $TMPC << EOF
-#if defined(__GNUC__) && (__GNUC__ < 4) && defined(__GNUC_MINOR__) && (__GNUC__ < 4)
-#error gcc 3.3 or older
-#endif
-int main(void) { return 0;}
-EOF
-if compile_prog "" ""; then
-    gcc_attribute_warn_unused_result=yes
-fi
-
 # spice probe
 if test "$spice" != "no" ; then
   cat > $TMPC << EOF
@@ -2577,6 +2564,31 @@ EOF
 fi
 
 ##########################################
+# check if we have open_by_handle_at
+
+open_by_hande_at=no
+cat > $TMPC << EOF
+#include <fcntl.h>
+int main(void) { struct file_handle *fh; open_by_handle_at(0, fh, 0); }
+EOF
+if compile_prog "" "" ; then
+    open_by_handle_at=yes
+fi
+
+########################################
+# check if we have linux/magic.h
+
+linux_magic_h=no
+cat > $TMPC << EOF
+#include <linux/magic.h>
+int main(void) {
+}
+EOF
+if compile_prog "" "" ; then
+    linux_magic_h=yes
+fi
+
+##########################################
 # End of CC checks
 # After here, no more $cc or $ld runs
 
@@ -2673,6 +2685,9 @@ echo "LDFLAGS           $LDFLAGS"
 echo "make              $make"
 echo "install           $install"
 echo "python            $python"
+if test "$slirp" = "yes" ; then
+    echo "smbd              $smbd"
+fi
 echo "host CPU          $cpu"
 echo "host big endian   $bigendian"
 echo "target list       $target_list"
@@ -2717,7 +2732,6 @@ echo "NPTL support      $nptl"
 echo "GUEST_BASE        $guest_base"
 echo "PIE user targets  $user_pie"
 echo "vde support       $vde"
-echo "IO thread         $io_thread"
 echo "Linux AIO support $linux_aio"
 echo "ATTR/XATTR support $attr"
 echo "Install blobs     $blobs"
@@ -2832,6 +2846,7 @@ if test "$profiler" = "yes" ; then
 fi
 if test "$slirp" = "yes" ; then
   echo "CONFIG_SLIRP=y" >> $config_host_mak
+  echo "CONFIG_SMBD_COMMAND=\"$smbd\"" >> $config_host_mak
   QEMU_INCLUDES="-I\$(SRC_PATH)/slirp $QEMU_INCLUDES"
 fi
 if test "$vde" = "yes" ; then
@@ -2975,9 +2990,6 @@ if test "$xen" = "yes" ; then
   echo "CONFIG_XEN_BACKEND=y" >> $config_host_mak
   echo "CONFIG_XEN_CTRL_INTERFACE_VERSION=$xen_ctrl_version" >> $config_host_mak
 fi
-if test "$io_thread" = "yes" ; then
-  echo "CONFIG_IOTHREAD=y" >> $config_host_mak
-fi
 if test "$linux_aio" = "yes" ; then
   echo "CONFIG_LINUX_AIO=y" >> $config_host_mak
 fi
@@ -3006,9 +3018,6 @@ if test "$signalfd" = "yes" ; then
 fi
 if test "$need_offsetof" = "yes" ; then
   echo "CONFIG_NEED_OFFSETOF=y" >> $config_host_mak
-fi
-if test "$gcc_attribute_warn_unused_result" = "yes" ; then
-  echo "CONFIG_GCC_ATTRIBUTE_WARN_UNUSED_RESULT=y" >> $config_host_mak
 fi
 if test "$fdatasync" = "yes" ; then
   echo "CONFIG_FDATASYNC=y" >> $config_host_mak
@@ -3058,6 +3067,14 @@ if test "$ucontext_coroutine" = "yes" ; then
   echo "CONFIG_UCONTEXT_COROUTINE=y" >> $config_host_mak
 fi
 
+if test "$open_by_handle_at" = "yes" ; then
+  echo "CONFIG_OPEN_BY_HANDLE=y" >> $config_host_mak
+fi
+
+if test "$linux_magic_h" = "yes" ; then
+  echo "CONFIG_LINUX_MAGIC_H=y" >> $config_host_mak
+fi
+
 # USB host support
 case "$usb" in
 linux)
@@ -3071,26 +3088,43 @@ bsd)
 ;;
 esac
 
+# use default implementation for tracing backend-specific routines
+trace_default=yes
 echo "TRACE_BACKEND=$trace_backend" >> $config_host_mak
-if test "$trace_backend" = "simple"; then
-  echo "CONFIG_SIMPLE_TRACE=y" >> $config_host_mak
+if test "$trace_backend" = "nop"; then
+  echo "CONFIG_TRACE_NOP=y" >> $config_host_mak
 fi
-# Set the appropriate trace file.
 if test "$trace_backend" = "simple"; then
+  echo "CONFIG_TRACE_SIMPLE=y" >> $config_host_mak
+  trace_default=no
+  # Set the appropriate trace file.
   trace_file="\"$trace_file-\" FMT_pid"
 fi
-if test "$trace_backend" = "dtrace" -a "$trace_backend_stap" = "yes" ; then
-  echo "CONFIG_SYSTEMTAP_TRACE=y" >> $config_host_mak
+if test "$trace_backend" = "stderr"; then
+  echo "CONFIG_TRACE_STDERR=y" >> $config_host_mak
+  trace_default=no
+fi
+if test "$trace_backend" = "ust"; then
+  echo "CONFIG_TRACE_UST=y" >> $config_host_mak
+fi
+if test "$trace_backend" = "dtrace"; then
+  echo "CONFIG_TRACE_DTRACE=y" >> $config_host_mak
+  if test "$trace_backend_stap" = "yes" ; then
+    echo "CONFIG_TRACE_SYSTEMTAP=y" >> $config_host_mak
+  fi
 fi
 echo "CONFIG_TRACE_FILE=$trace_file" >> $config_host_mak
+if test "$trace_default" = "yes"; then
+  echo "CONFIG_TRACE_DEFAULT=y" >> $config_host_mak
+fi
 
 echo "TOOLS=$tools" >> $config_host_mak
 echo "ROMS=$roms" >> $config_host_mak
 echo "MAKE=$make" >> $config_host_mak
 echo "INSTALL=$install" >> $config_host_mak
-echo "INSTALL_DIR=$install -d -m0755 -p" >> $config_host_mak
-echo "INSTALL_DATA=$install -m0644 -p" >> $config_host_mak
-echo "INSTALL_PROG=$install -m0755 -p" >> $config_host_mak
+echo "INSTALL_DIR=$install -d -m 0755" >> $config_host_mak
+echo "INSTALL_DATA=$install -c -m 0644" >> $config_host_mak
+echo "INSTALL_PROG=$install -c -m 0755" >> $config_host_mak
 echo "PYTHON=$python" >> $config_host_mak
 echo "CC=$cc" >> $config_host_mak
 echo "CC_I386=$cc_i386" >> $config_host_mak
@@ -3145,7 +3179,7 @@ target_arch2=`echo $target | cut -d '-' -f 1`
 target_bigendian="no"
 
 case "$target_arch2" in
-  armeb|lm32|m68k|microblaze|mips|mipsn32|mips64|ppc|ppcemb|ppc64|ppc64abi32|s390x|sh4eb|sparc|sparc64|sparc32plus)
+  armeb|lm32|m68k|microblaze|mips|mipsn32|mips64|ppc|ppcemb|ppc64|ppc64abi32|s390x|sh4eb|sparc|sparc64|sparc32plus|xtensaeb)
   target_bigendian=yes
   ;;
 esac
@@ -3340,6 +3374,10 @@ case "$target_arch2" in
   unicore32)
     target_phys_bits=32
   ;;
+  xtensa|xtensaeb)
+    TARGET_ARCH=xtensa
+    target_phys_bits=32
+  ;;
   *)
     echo "Unsupported target CPU"
     exit 1
@@ -3391,6 +3429,9 @@ case "$target_arch2" in
       fi
     fi
 esac
+if test "$target_arch2" = "ppc64" -a "$fdt" = "yes"; then
+  echo "CONFIG_PSERIES=y" >> $config_target_mak
+fi
 if test "$target_bigendian" = "yes" ; then
   echo "TARGET_WORDS_BIGENDIAN=y" >> $config_target_mak
 fi
@@ -3514,6 +3555,10 @@ for i in $ARCH $TARGET_BASE_ARCH ; do
     echo "CONFIG_SPARC_DIS=y"  >> $config_target_mak
     echo "CONFIG_SPARC_DIS=y"  >> $libdis_config_mak
   ;;
+  xtensa*)
+    echo "CONFIG_XTENSA_DIS=y"  >> $config_target_mak
+    echo "CONFIG_XTENSA_DIS=y"  >> $libdis_config_mak
+  ;;
   esac
 done
 
@@ -3606,14 +3651,20 @@ DIRS="tests tests/cris slirp audio block net pc-bios/optionrom"
 DIRS="$DIRS pc-bios/spapr-rtas"
 DIRS="$DIRS roms/seabios roms/vgabios"
 DIRS="$DIRS fsdev ui"
-DIRS="$DIRS qapi"
-DIRS="$DIRS qga"
-FILES="Makefile tests/Makefile"
+DIRS="$DIRS qapi qapi-generated"
+DIRS="$DIRS qga trace"
+FILES="Makefile tests/Makefile qdict-test-data.txt"
 FILES="$FILES tests/cris/Makefile tests/cris/.gdbinit"
 FILES="$FILES pc-bios/optionrom/Makefile pc-bios/keymaps"
 FILES="$FILES pc-bios/spapr-rtas/Makefile"
 FILES="$FILES roms/seabios/Makefile roms/vgabios/Makefile"
-for bios_file in $source_path/pc-bios/*.bin $source_path/pc-bios/*.rom $source_path/pc-bios/*.dtb $source_path/pc-bios/openbios-*; do
+for bios_file in \
+    $source_path/pc-bios/*.bin \
+    $source_path/pc-bios/*.rom \
+    $source_path/pc-bios/*.dtb \
+    $source_path/pc-bios/openbios-* \
+    $source_path/pc-bios/palcode-*
+do
     [ -e "$bios_file" ] || continue
     FILES="$FILES pc-bios/`basename $bios_file`"
 done
@@ -3655,6 +3706,7 @@ fi
 
 d=libuser
 mkdir -p $d
+mkdir -p $d/trace
 symlink $source_path/Makefile.user $d/Makefile
 if test "$static" = "no" -a "$user_pie" = "yes" ; then
   echo "QEMU_CFLAGS+=-fpie" > $d/config.mak

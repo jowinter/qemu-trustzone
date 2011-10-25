@@ -114,6 +114,7 @@ struct MemoryRegion {
     IORange iorange;
     bool terminates;
     bool readable;
+    bool readonly; /* For RAM regions */
     MemoryRegion *alias;
     target_phys_addr_t alias_offset;
     unsigned priority;
@@ -499,6 +500,8 @@ void memory_region_transaction_begin(void);
 /* Commit a transaction and make changes visible to the guest.
  */
 void memory_region_transaction_commit(void);
+
+void mtree_info(fprintf_function mon_printf, void *f);
 
 #endif
 

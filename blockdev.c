@@ -14,7 +14,6 @@
 #include "qemu-option.h"
 #include "qemu-config.h"
 #include "sysemu.h"
-#include "hw/qdev.h"
 #include "block_int.h"
 
 static QTAILQ_HEAD(drivelist, DriveInfo) drives = QTAILQ_HEAD_INITIALIZER(drives);
@@ -474,17 +473,12 @@ DriveInfo *drive_init(QemuOpts *opts, int default_to_scsi)
             }
 	    break;
 	case MEDIA_CDROM:
-            bdrv_set_removable(dinfo->bdrv, 1);
             dinfo->media_cd = 1;
 	    break;
 	}
         break;
     case IF_SD:
-        /* FIXME: This isn't really a floppy, but it's a reasonable
-           approximation.  */
     case IF_FLOPPY:
-        bdrv_set_removable(dinfo->bdrv, 1);
-        break;
     case IF_PFLASH:
     case IF_MTD:
         break;
@@ -637,11 +631,12 @@ out:
 
 static int eject_device(Monitor *mon, BlockDriverState *bs, int force)
 {
-    if (!bdrv_is_removable(bs)) {
+    if (!bdrv_dev_has_removable_media(bs)) {
         qerror_report(QERR_DEVICE_NOT_REMOVABLE, bdrv_get_device_name(bs));
         return -1;
     }
-    if (!force && bdrv_is_locked(bs)) {
+    if (!force && !bdrv_dev_is_tray_open(bs)
+        && bdrv_dev_is_medium_locked(bs)) {
         qerror_report(QERR_DEVICE_LOCKED, bdrv_get_device_name(bs));
         return -1;
     }
@@ -738,12 +733,12 @@ int do_drive_del(Monitor *mon, const QDict *qdict, QObject **ret_data)
     bdrv_flush(bs);
     bdrv_close(bs);
 
-    /* if we have a device associated with this BlockDriverState (bs->peer)
+    /* if we have a device attached to this BlockDriverState
      * then we need to make the drive anonymous until the device
      * can be removed.  If this is a drive with no device backing
      * then we can just get rid of the block driver state right here.
      */
-    if (bs->peer) {
+    if (bdrv_get_attached_dev(bs)) {
         bdrv_make_anon(bs);
     } else {
         drive_uninit(drive_get_by_blockdev(bs));

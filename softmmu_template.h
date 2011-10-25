@@ -1,6 +1,11 @@
 /*
  *  Software MMU support
  *
+ * Generate helpers used by TCG for qemu_ld/st ops and code load
+ * functions.
+ *
+ * Included from target op helpers and exec.c.
+ *
  *  Copyright (c) 2003 Fabrice Bellard
  *
  * This library is free software; you can redistribute it and/or
@@ -131,7 +136,7 @@ DATA_TYPE REGPARM glue(glue(__ld, SUFFIX), MMUSUFFIX)(target_ulong addr,
         if ((addr & (DATA_SIZE - 1)) != 0)
             do_unaligned_access(addr, READ_ACCESS_TYPE, mmu_idx, retaddr);
 #endif
-        tlb_fill(addr, READ_ACCESS_TYPE, mmu_idx, retaddr);
+        tlb_fill(env, addr, READ_ACCESS_TYPE, mmu_idx, retaddr);
         goto redo;
     }
     return res;
@@ -181,7 +186,7 @@ static DATA_TYPE glue(glue(slow_ld, SUFFIX), MMUSUFFIX)(target_ulong addr,
         }
     } else {
         /* the page is not in the TLB : fill it */
-        tlb_fill(addr, READ_ACCESS_TYPE, mmu_idx, retaddr);
+        tlb_fill(env, addr, READ_ACCESS_TYPE, mmu_idx, retaddr);
         goto redo;
     }
     return res;
@@ -269,7 +274,7 @@ void REGPARM glue(glue(__st, SUFFIX), MMUSUFFIX)(target_ulong addr,
         if ((addr & (DATA_SIZE - 1)) != 0)
             do_unaligned_access(addr, 1, mmu_idx, retaddr);
 #endif
-        tlb_fill(addr, 1, mmu_idx, retaddr);
+        tlb_fill(env, addr, 1, mmu_idx, retaddr);
         goto redo;
     }
 }
@@ -316,7 +321,7 @@ static void glue(glue(slow_st, SUFFIX), MMUSUFFIX)(target_ulong addr,
         }
     } else {
         /* the page is not in the TLB : fill it */
-        tlb_fill(addr, 1, mmu_idx, retaddr);
+        tlb_fill(env, addr, 1, mmu_idx, retaddr);
         goto redo;
     }
 }

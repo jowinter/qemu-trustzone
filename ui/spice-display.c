@@ -15,8 +15,6 @@
  * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
-#include <pthread.h>
-
 #include "qemu-common.h"
 #include "qemu-spice.h"
 #include "qemu-timer.h"
@@ -255,16 +253,18 @@ void qemu_spice_destroy_host_primary(SimpleSpiceDisplay *ssd)
     qemu_spice_destroy_primary_surface(ssd, 0, QXL_SYNC);
 }
 
-void qemu_spice_vm_change_state_handler(void *opaque, int running, int reason)
+void qemu_spice_vm_change_state_handler(void *opaque, int running,
+                                        RunState state)
 {
     SimpleSpiceDisplay *ssd = opaque;
 
     if (running) {
+        ssd->running = true;
         qemu_spice_start(ssd);
     } else {
         qemu_spice_stop(ssd);
+        ssd->running = false;
     }
-    ssd->running = running;
 }
 
 void qemu_spice_display_init_common(SimpleSpiceDisplay *ssd, DisplayState *ds)

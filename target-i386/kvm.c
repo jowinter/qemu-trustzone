@@ -59,6 +59,7 @@ const KVMCapabilityInfo kvm_arch_required_capabilities[] = {
 
 static bool has_msr_star;
 static bool has_msr_hsave_pa;
+static bool has_msr_tsc_deadline;
 static bool has_msr_async_pf_en;
 static int lm_capable_kernel;
 
@@ -334,7 +335,7 @@ static int kvm_inject_mce_oldstyle(CPUState *env)
     return 0;
 }
 
-static void cpu_update_state(void *opaque, int running, int reason)
+static void cpu_update_state(void *opaque, int running, RunState state)
 {
     CPUState *env = opaque;
 
@@ -348,7 +349,7 @@ int kvm_arch_init_vcpu(CPUState *env)
     struct {
         struct kvm_cpuid2 cpuid;
         struct kvm_cpuid_entry2 entries[100];
-    } __attribute__((packed)) cpuid_data;
+    } QEMU_PACKED cpuid_data;
     KVMState *s = env->kvm_state;
     uint32_t limit, i, j, cpuid_i;
     uint32_t unused;
@@ -568,6 +569,10 @@ static int kvm_get_supported_msrs(KVMState *s)
                     has_msr_hsave_pa = true;
                     continue;
                 }
+                if (kvm_msr_list->indices[i] == MSR_IA32_TSCDEADLINE) {
+                    has_msr_tsc_deadline = true;
+                    continue;
+                }
             }
         }
 
@@ -769,7 +774,7 @@ static int kvm_put_xsave(CPUState *env)
 
     xsave = qemu_memalign(4096, sizeof(struct kvm_xsave));
     memset(xsave, 0, sizeof(struct kvm_xsave));
-    cwd = swd = twd = 0;
+    twd = 0;
     swd = env->fpus & ~(7 << 11);
     swd |= (env->fpstt & 7) << 11;
     cwd = env->fpuc;
@@ -880,6 +885,9 @@ static int kvm_put_msrs(CPUState *env, int level)
     }
     if (has_msr_hsave_pa) {
         kvm_msr_entry_set(&msrs[n++], MSR_VM_HSAVE_PA, env->vm_hsave);
+    }
+    if (has_msr_tsc_deadline) {
+        kvm_msr_entry_set(&msrs[n++], MSR_IA32_TSCDEADLINE, env->tsc_deadline);
     }
 #ifdef TARGET_X86_64
     if (lm_capable_kernel) {
@@ -1127,10 +1135,13 @@ static int kvm_get_msrs(CPUState *env)
     if (has_msr_hsave_pa) {
         msrs[n++].index = MSR_VM_HSAVE_PA;
     }
+    if (has_msr_tsc_deadline) {
+        msrs[n++].index = MSR_IA32_TSCDEADLINE;
+    }
 
     if (!env->tsc_valid) {
         msrs[n++].index = MSR_IA32_TSC;
-        env->tsc_valid = !vm_running;
+        env->tsc_valid = !runstate_is_running();
     }
 
 #ifdef TARGET_X86_64
@@ -1194,6 +1205,9 @@ static int kvm_get_msrs(CPUState *env)
 #endif
         case MSR_IA32_TSC:
             env->tsc = msrs[i].data;
+            break;
+        case MSR_IA32_TSCDEADLINE:
+            env->tsc_deadline = msrs[i].data;
             break;
         case MSR_VM_HSAVE_PA:
             env->vm_hsave = msrs[i].data;

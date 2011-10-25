@@ -1406,70 +1406,84 @@ static void gen_shift_rm_T1(DisasContext *s, int ot, int op1,
 {
     target_ulong mask;
     int shift_label;
-    TCGv t0, t1;
+    TCGv t0, t1, t2;
 
-    if (ot == OT_QUAD)
+    if (ot == OT_QUAD) {
         mask = 0x3f;
-    else
+    } else {
         mask = 0x1f;
+    }
 
     /* load */
-    if (op1 == OR_TMP0)
+    if (op1 == OR_TMP0) {
         gen_op_ld_T0_A0(ot + s->mem_index);
-    else
+    } else {
         gen_op_mov_TN_reg(ot, 0, op1);
+    }
 
-    tcg_gen_andi_tl(cpu_T[1], cpu_T[1], mask);
+    t0 = tcg_temp_local_new();
+    t1 = tcg_temp_local_new();
+    t2 = tcg_temp_local_new();
 
-    tcg_gen_addi_tl(cpu_tmp5, cpu_T[1], -1);
+    tcg_gen_andi_tl(t2, cpu_T[1], mask);
 
     if (is_right) {
         if (is_arith) {
             gen_exts(ot, cpu_T[0]);
-            tcg_gen_sar_tl(cpu_T3, cpu_T[0], cpu_tmp5);
-            tcg_gen_sar_tl(cpu_T[0], cpu_T[0], cpu_T[1]);
+            tcg_gen_mov_tl(t0, cpu_T[0]);
+            tcg_gen_sar_tl(cpu_T[0], cpu_T[0], t2);
         } else {
             gen_extu(ot, cpu_T[0]);
-            tcg_gen_shr_tl(cpu_T3, cpu_T[0], cpu_tmp5);
-            tcg_gen_shr_tl(cpu_T[0], cpu_T[0], cpu_T[1]);
+            tcg_gen_mov_tl(t0, cpu_T[0]);
+            tcg_gen_shr_tl(cpu_T[0], cpu_T[0], t2);
         }
     } else {
-        tcg_gen_shl_tl(cpu_T3, cpu_T[0], cpu_tmp5);
-        tcg_gen_shl_tl(cpu_T[0], cpu_T[0], cpu_T[1]);
+        tcg_gen_mov_tl(t0, cpu_T[0]);
+        tcg_gen_shl_tl(cpu_T[0], cpu_T[0], t2);
     }
 
     /* store */
-    if (op1 == OR_TMP0)
+    if (op1 == OR_TMP0) {
         gen_op_st_T0_A0(ot + s->mem_index);
-    else
+    } else {
         gen_op_mov_reg_T0(ot, op1);
-        
+    }
+
     /* update eflags if non zero shift */
-    if (s->cc_op != CC_OP_DYNAMIC)
+    if (s->cc_op != CC_OP_DYNAMIC) {
         gen_op_set_cc_op(s->cc_op);
+    }
 
-    /* XXX: inefficient */
-    t0 = tcg_temp_local_new();
-    t1 = tcg_temp_local_new();
-
-    tcg_gen_mov_tl(t0, cpu_T[0]);
-    tcg_gen_mov_tl(t1, cpu_T3);
+    tcg_gen_mov_tl(t1, cpu_T[0]);
 
     shift_label = gen_new_label();
-    tcg_gen_brcondi_tl(TCG_COND_EQ, cpu_T[1], 0, shift_label);
+    tcg_gen_brcondi_tl(TCG_COND_EQ, t2, 0, shift_label);
 
-    tcg_gen_mov_tl(cpu_cc_src, t1);
-    tcg_gen_mov_tl(cpu_cc_dst, t0);
-    if (is_right)
+    tcg_gen_addi_tl(t2, t2, -1);
+    tcg_gen_mov_tl(cpu_cc_dst, t1);
+
+    if (is_right) {
+        if (is_arith) {
+            tcg_gen_sar_tl(cpu_cc_src, t0, t2);
+        } else {
+            tcg_gen_shr_tl(cpu_cc_src, t0, t2);
+        }
+    } else {
+        tcg_gen_shl_tl(cpu_cc_src, t0, t2);
+    }
+
+    if (is_right) {
         tcg_gen_movi_i32(cpu_cc_op, CC_OP_SARB + ot);
-    else
+    } else {
         tcg_gen_movi_i32(cpu_cc_op, CC_OP_SHLB + ot);
-        
+    }
+
     gen_set_label(shift_label);
     s->cc_op = CC_OP_DYNAMIC; /* cannot predict flags after */
 
     tcg_temp_free(t0);
     tcg_temp_free(t1);
+    tcg_temp_free(t2);
 }
 
 static void gen_shift_rm_im(DisasContext *s, int ot, int op1, int op2,
@@ -6102,7 +6116,6 @@ static target_ulong disas_insn(DisasContext *s, target_ulong pc_start)
         if (use_icount)
             gen_io_start();
         tcg_gen_trunc_tl_i32(cpu_tmp2_i32, cpu_T[0]);
-        tcg_gen_andi_i32(cpu_tmp2_i32, cpu_tmp2_i32, 0xffff);
         tcg_gen_trunc_tl_i32(cpu_tmp3_i32, cpu_T[1]);
         gen_helper_out_func(ot, cpu_tmp2_i32, cpu_tmp3_i32);
         if (use_icount) {
@@ -6145,7 +6158,6 @@ static target_ulong disas_insn(DisasContext *s, target_ulong pc_start)
         if (use_icount)
             gen_io_start();
         tcg_gen_trunc_tl_i32(cpu_tmp2_i32, cpu_T[0]);
-        tcg_gen_andi_i32(cpu_tmp2_i32, cpu_tmp2_i32, 0xffff);
         tcg_gen_trunc_tl_i32(cpu_tmp3_i32, cpu_T[1]);
         gen_helper_out_func(ot, cpu_tmp2_i32, cpu_tmp3_i32);
         if (use_icount) {
@@ -7627,11 +7639,6 @@ static target_ulong disas_insn(DisasContext *s, target_ulong pc_start)
 
 void optimize_flags_init(void)
 {
-#if TCG_TARGET_REG_BITS == 32
-    assert(sizeof(CCTable) == (1 << 3));
-#else
-    assert(sizeof(CCTable) == (1 << 4));
-#endif
     cpu_env = tcg_global_reg_new_ptr(TCG_AREG0, "env");
     cpu_cc_op = tcg_global_mem_new_i32(TCG_AREG0,
                                        offsetof(CPUState, cc_op), "cc_op");

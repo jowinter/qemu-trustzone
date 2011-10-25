@@ -348,7 +348,6 @@ void musb_reset(MUSBState *s)
     s->faddr = 0x00;
     s->devctl = 0;
     s->power = MGC_M_POWER_HSENAB;
-
     s->tx_intr = 0x0000;
     s->rx_intr = 0x0000;
     s->tx_mask = 0xffff;

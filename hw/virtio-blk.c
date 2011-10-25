@@ -11,7 +11,7 @@
  *
  */
 
-#include <qemu-common.h>
+#include "qemu-common.h"
 #include "qemu-error.h"
 #include "trace.h"
 #include "blockdev.h"
@@ -77,7 +77,8 @@ static int virtio_blk_handle_rw_error(VirtIOBlockReq *req, int error,
         req->next = s->rq;
         s->rq = req;
         bdrv_mon_event(s->bs, BDRV_ACTION_STOP, is_read);
-        vm_stop(VMSTOP_DISKFULL);
+        vm_stop(RUN_STATE_IO_ERROR);
+        bdrv_iostatus_set_err(s->bs, error);
     } else {
         virtio_blk_req_complete(req, VIRTIO_BLK_S_IOERR);
         bdrv_acct_done(s->bs, &req->acct);
@@ -439,7 +440,8 @@ static void virtio_blk_dma_restart_bh(void *opaque)
     virtio_submit_multiwrite(s->bs, &mrb);
 }
 
-static void virtio_blk_dma_restart_cb(void *opaque, int running, int reason)
+static void virtio_blk_dma_restart_cb(void *opaque, int running,
+                                      RunState state)
 {
     VirtIOBlock *s = opaque;
 
@@ -543,14 +545,16 @@ static int virtio_blk_load(QEMUFile *f, void *opaque, int version_id)
     return 0;
 }
 
-static void virtio_blk_change_cb(void *opaque, int reason)
+static void virtio_blk_resize(void *opaque)
 {
     VirtIOBlock *s = opaque;
 
-    if (reason & CHANGE_SIZE) {
-        virtio_notify_config(&s->vdev);
-    }
+    virtio_notify_config(&s->vdev);
 }
+
+static const BlockDevOps virtio_block_ops = {
+    .resize_cb = virtio_blk_resize,
+};
 
 VirtIODevice *virtio_blk_init(DeviceState *dev, BlockConf *conf,
                               char **serial)
@@ -597,10 +601,10 @@ VirtIODevice *virtio_blk_init(DeviceState *dev, BlockConf *conf,
     s->qdev = dev;
     register_savevm(dev, "virtio-blk", virtio_blk_id++, 2,
                     virtio_blk_save, virtio_blk_load, s);
-    bdrv_set_removable(s->bs, 0);
-    bdrv_set_change_cb(s->bs, virtio_blk_change_cb, s);
-    s->bs->buffer_alignment = conf->logical_block_size;
+    bdrv_set_dev_ops(s->bs, &virtio_block_ops, s);
+    bdrv_set_buffer_alignment(s->bs, conf->logical_block_size);
 
+    bdrv_iostatus_enable(s->bs);
     add_boot_device_path(conf->bootindex, dev, "/disk@0,0");
 
     return &s->vdev;

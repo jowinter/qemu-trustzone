@@ -115,16 +115,16 @@ void cpu_synchronize_all_post_init(void)
 
 int cpu_is_stopped(CPUState *env)
 {
-    return !vm_running || env->stopped;
+    return !runstate_is_running() || env->stopped;
 }
 
-static void do_vm_stop(int reason)
+static void do_vm_stop(RunState state)
 {
-    if (vm_running) {
+    if (runstate_is_running()) {
         cpu_disable_ticks();
-        vm_running = 0;
         pause_all_vcpus();
-        vm_state_notify(0, reason);
+        runstate_set(state);
+        vm_state_notify(0, state);
         qemu_aio_flush();
         bdrv_flush_all();
         monitor_protocol_event(QEVENT_STOP, NULL);
@@ -136,7 +136,7 @@ static int cpu_can_run(CPUState *env)
     if (env->stop) {
         return 0;
     }
-    if (env->stopped || !vm_running) {
+    if (env->stopped || !runstate_is_running()) {
         return 0;
     }
     return 1;
@@ -147,7 +147,7 @@ static bool cpu_thread_is_idle(CPUState *env)
     if (env->stop || env->queued_work_first) {
         return false;
     }
-    if (env->stopped || !vm_running) {
+    if (env->stopped || !runstate_is_running()) {
         return true;
     }
     if (!env->halted || qemu_cpu_has_work(env) ||
@@ -173,12 +173,9 @@ static void cpu_handle_guest_debug(CPUState *env)
 {
     gdb_set_stop_cpu(env);
     qemu_system_debug_request();
-#ifdef CONFIG_IOTHREAD
     env->stopped = 1;
-#endif
 }
 
-#ifdef CONFIG_IOTHREAD
 static void cpu_signal(int sig)
 {
     if (cpu_single_env) {
@@ -186,7 +183,6 @@ static void cpu_signal(int sig)
     }
     exit_request = 1;
 }
-#endif
 
 #ifdef CONFIG_LINUX
 static void sigbus_reraise(void)
@@ -262,12 +258,6 @@ static void qemu_kvm_eat_signals(CPUState *env)
             exit(1);
         }
     } while (sigismember(&chkset, SIG_IPI) || sigismember(&chkset, SIGBUS));
-
-#ifndef CONFIG_IOTHREAD
-    if (sigismember(&chkset, SIGIO) || sigismember(&chkset, SIGALRM)) {
-        qemu_notify_event();
-    }
-#endif
 }
 
 #else /* !CONFIG_LINUX */
@@ -390,12 +380,6 @@ static int qemu_signal_init(void)
     int sigfd;
     sigset_t set;
 
-#ifdef CONFIG_IOTHREAD
-    /* SIGUSR2 used by posix-aio-compat.c */
-    sigemptyset(&set);
-    sigaddset(&set, SIGUSR2);
-    pthread_sigmask(SIG_UNBLOCK, &set, NULL);
-
     /*
      * SIG_IPI must be blocked in the main thread and must not be caught
      * by sigwait() in the signal thread. Otherwise, the cpu thread will
@@ -409,18 +393,6 @@ static int qemu_signal_init(void)
     sigaddset(&set, SIGIO);
     sigaddset(&set, SIGALRM);
     sigaddset(&set, SIGBUS);
-#else
-    sigemptyset(&set);
-    sigaddset(&set, SIGBUS);
-    if (kvm_enabled()) {
-        /*
-         * We need to process timer signals synchronously to avoid a race
-         * between exit_request check and KVM vcpu entry.
-         */
-        sigaddset(&set, SIGIO);
-        sigaddset(&set, SIGALRM);
-    }
-#endif
     pthread_sigmask(SIG_BLOCK, &set, NULL);
 
     sigfd = qemu_signalfd(&set);
@@ -447,7 +419,6 @@ static void qemu_kvm_init_cpu_signals(CPUState *env)
     sigact.sa_handler = dummy_signal;
     sigaction(SIG_IPI, &sigact, NULL);
 
-#ifdef CONFIG_IOTHREAD
     pthread_sigmask(SIG_BLOCK, NULL, &set);
     sigdelset(&set, SIG_IPI);
     sigdelset(&set, SIGBUS);
@@ -456,17 +427,7 @@ static void qemu_kvm_init_cpu_signals(CPUState *env)
         fprintf(stderr, "kvm_set_signal_mask: %s\n", strerror(-r));
         exit(1);
     }
-#else
-    sigemptyset(&set);
-    sigaddset(&set, SIG_IPI);
-    sigaddset(&set, SIGIO);
-    sigaddset(&set, SIGALRM);
-    pthread_sigmask(SIG_BLOCK, &set, NULL);
 
-    pthread_sigmask(SIG_BLOCK, NULL, &set);
-    sigdelset(&set, SIGIO);
-    sigdelset(&set, SIGALRM);
-#endif
     sigdelset(&set, SIG_IPI);
     sigdelset(&set, SIGBUS);
     r = kvm_set_signal_mask(env, &set);
@@ -478,7 +439,6 @@ static void qemu_kvm_init_cpu_signals(CPUState *env)
 
 static void qemu_tcg_init_cpu_signals(void)
 {
-#ifdef CONFIG_IOTHREAD
     sigset_t set;
     struct sigaction sigact;
 
@@ -489,7 +449,6 @@ static void qemu_tcg_init_cpu_signals(void)
     sigemptyset(&set);
     sigaddset(&set, SIG_IPI);
     pthread_sigmask(SIG_UNBLOCK, &set, NULL);
-#endif
 }
 
 #else /* _WIN32 */
@@ -534,106 +493,6 @@ static void qemu_tcg_init_cpu_signals(void)
 {
 }
 #endif /* _WIN32 */
-
-#ifndef CONFIG_IOTHREAD
-int qemu_init_main_loop(void)
-{
-    int ret;
-
-    ret = qemu_signal_init();
-    if (ret) {
-        return ret;
-    }
-
-    qemu_init_sigbus();
-
-    return qemu_event_init();
-}
-
-void qemu_main_loop_start(void)
-{
-}
-
-void qemu_init_vcpu(void *_env)
-{
-    CPUState *env = _env;
-    int r;
-
-    env->nr_cores = smp_cores;
-    env->nr_threads = smp_threads;
-
-    if (kvm_enabled()) {
-        r = kvm_init_vcpu(env);
-        if (r < 0) {
-            fprintf(stderr, "kvm_init_vcpu failed: %s\n", strerror(-r));
-            exit(1);
-        }
-        qemu_kvm_init_cpu_signals(env);
-    } else {
-        qemu_tcg_init_cpu_signals();
-    }
-}
-
-int qemu_cpu_is_self(void *env)
-{
-    return 1;
-}
-
-void run_on_cpu(CPUState *env, void (*func)(void *data), void *data)
-{
-    func(data);
-}
-
-void resume_all_vcpus(void)
-{
-}
-
-void pause_all_vcpus(void)
-{
-}
-
-void qemu_cpu_kick(void *env)
-{
-}
-
-void qemu_cpu_kick_self(void)
-{
-#ifndef _WIN32
-    assert(cpu_single_env);
-
-    raise(SIG_IPI);
-#else
-    abort();
-#endif
-}
-
-void qemu_notify_event(void)
-{
-    CPUState *env = cpu_single_env;
-
-    qemu_event_increment ();
-    if (env) {
-        cpu_exit(env);
-    }
-    if (next_cpu && env != next_cpu) {
-        cpu_exit(next_cpu);
-    }
-    exit_request = 1;
-}
-
-void qemu_mutex_lock_iothread(void) {}
-void qemu_mutex_unlock_iothread(void) {}
-
-void cpu_stop_current(void)
-{
-}
-
-void vm_stop(int reason)
-{
-    do_vm_stop(reason);
-}
-
-#else /* CONFIG_IOTHREAD */
 
 QemuMutex qemu_global_mutex;
 static QemuCond qemu_io_proceeded_cond;
@@ -1014,10 +873,10 @@ void cpu_stop_current(void)
     }
 }
 
-void vm_stop(int reason)
+void vm_stop(RunState state)
 {
     if (!qemu_thread_is_self(&io_thread)) {
-        qemu_system_vmstop_request(reason);
+        qemu_system_vmstop_request(state);
         /*
          * FIXME: should not return to device code in case
          * vm_stop() has been requested.
@@ -1025,10 +884,19 @@ void vm_stop(int reason)
         cpu_stop_current();
         return;
     }
-    do_vm_stop(reason);
+    do_vm_stop(state);
 }
 
-#endif
+/* does a state transition even if the VM is already stopped,
+   current state is forgotten forever */
+void vm_stop_force_state(RunState state)
+{
+    if (runstate_is_running()) {
+        vm_stop(state);
+    } else {
+        runstate_set(state);
+    }
+}
 
 static int tcg_cpu_exec(CPUState *env)
 {
@@ -1084,11 +952,6 @@ bool cpu_exec_all(void)
         qemu_clock_enable(vm_clock,
                           (env->singlestep_enabled & SSTEP_NOTIMER) == 0);
 
-#ifndef CONFIG_IOTHREAD
-        if (qemu_alarm_pending()) {
-            break;
-        }
-#endif
         if (cpu_can_run(env)) {
             if (kvm_enabled()) {
                 r = kvm_cpu_exec(env);

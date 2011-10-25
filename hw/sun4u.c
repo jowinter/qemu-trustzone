@@ -38,6 +38,7 @@
 #include "loader.h"
 #include "elf.h"
 #include "blockdev.h"
+#include "exec-memory.h"
 
 //#define DEBUG_IRQ
 //#define DEBUG_EBUS
@@ -240,14 +241,6 @@ static unsigned long sun4u_load_kernel(const char *kernel_filename,
         }
     }
     return kernel_size;
-}
-
-void pic_info(Monitor *mon)
-{
-}
-
-void irq_info(Monitor *mon)
-{
 }
 
 void cpu_check_irqs(CPUState *env)
@@ -548,7 +541,7 @@ pci_ebus_init1(PCIDevice *pci_dev)
 {
     EbusState *s = DO_UPCAST(EbusState, pci_dev, pci_dev);
 
-    isa_bus_new(&pci_dev->qdev);
+    isa_bus_new(&pci_dev->qdev, pci_address_space_io(pci_dev));
 
     pci_dev->config[0x04] = 0x06; // command = bus master, pci mem
     pci_dev->config[0x05] = 0x00;
@@ -580,6 +573,11 @@ static void pci_ebus_register(void)
 }
 
 device_init(pci_ebus_register);
+
+typedef struct PROMState {
+    SysBusDevice busdev;
+    MemoryRegion prom;
+} PROMState;
 
 static uint64_t translate_prom_address(void *opaque, uint64_t addr)
 {
@@ -624,17 +622,18 @@ static void prom_init(target_phys_addr_t addr, const char *bios_name)
 
 static int prom_init1(SysBusDevice *dev)
 {
-    ram_addr_t prom_offset;
+    PROMState *s = FROM_SYSBUS(PROMState, dev);
 
-    prom_offset = qemu_ram_alloc(NULL, "sun4u.prom", PROM_SIZE_MAX);
-    sysbus_init_mmio(dev, PROM_SIZE_MAX, prom_offset | IO_MEM_ROM);
+    memory_region_init_ram(&s->prom, NULL, "sun4u.prom", PROM_SIZE_MAX);
+    memory_region_set_readonly(&s->prom, true);
+    sysbus_init_mmio_region(dev, &s->prom);
     return 0;
 }
 
 static SysBusDeviceInfo prom_info = {
     .init = prom_init1,
     .qdev.name  = "openprom",
-    .qdev.size  = sizeof(SysBusDevice),
+    .qdev.size  = sizeof(PROMState),
     .qdev.props = (Property[]) {
         {/* end of property list */}
     }
@@ -651,19 +650,17 @@ device_init(prom_register_devices);
 typedef struct RamDevice
 {
     SysBusDevice busdev;
+    MemoryRegion ram;
     uint64_t size;
 } RamDevice;
 
 /* System RAM */
 static int ram_init1(SysBusDevice *dev)
 {
-    ram_addr_t RAM_size, ram_offset;
     RamDevice *d = FROM_SYSBUS(RamDevice, dev);
 
-    RAM_size = d->size;
-
-    ram_offset = qemu_ram_alloc(NULL, "sun4u.ram", RAM_size);
-    sysbus_init_mmio(dev, RAM_size, ram_offset);
+    memory_region_init_ram(&d->ram, NULL, "sun4u.ram", d->size);
+    sysbus_init_mmio_region(dev, &d->ram);
     return 0;
 }
 
@@ -735,7 +732,8 @@ static CPUState *cpu_devinit(const char *cpu_model, const struct hwdef *hwdef)
     return env;
 }
 
-static void sun4uv_init(ram_addr_t RAM_size,
+static void sun4uv_init(MemoryRegion *address_space_mem,
+                        ram_addr_t RAM_size,
                         const char *boot_devices,
                         const char *kernel_filename, const char *kernel_cmdline,
                         const char *initrd_filename, const char *cpu_model,
@@ -763,7 +761,6 @@ static void sun4uv_init(ram_addr_t RAM_size,
     irq = qemu_allocate_irqs(cpu_set_irq, env, MAX_PILS);
     pci_bus = pci_apb_init(APB_SPECIAL_BASE, APB_MEM_BASE, irq, &pci_bus2,
                            &pci_bus3);
-    isa_mem_base = APB_PCI_IO_BASE;
     pci_vga_init(pci_bus);
 
     // XXX Should be pci_bus3
@@ -771,8 +768,8 @@ static void sun4uv_init(ram_addr_t RAM_size,
 
     i = 0;
     if (hwdef->console_serial_base) {
-        serial_mm_init(hwdef->console_serial_base, 0, NULL, 115200,
-                       serial_hds[i], 1, 1);
+        serial_mm_init(address_space_mem, hwdef->console_serial_base, 0,
+                       NULL, 115200, serial_hds[i], DEVICE_BIG_ENDIAN);
         i++;
     }
     for(; i < MAX_SERIAL_PORTS; i++) {
@@ -876,7 +873,7 @@ static void sun4u_init(ram_addr_t RAM_size,
                        const char *kernel_filename, const char *kernel_cmdline,
                        const char *initrd_filename, const char *cpu_model)
 {
-    sun4uv_init(RAM_size, boot_devices, kernel_filename,
+    sun4uv_init(get_system_memory(), RAM_size, boot_devices, kernel_filename,
                 kernel_cmdline, initrd_filename, cpu_model, &hwdefs[0]);
 }
 
@@ -886,7 +883,7 @@ static void sun4v_init(ram_addr_t RAM_size,
                        const char *kernel_filename, const char *kernel_cmdline,
                        const char *initrd_filename, const char *cpu_model)
 {
-    sun4uv_init(RAM_size, boot_devices, kernel_filename,
+    sun4uv_init(get_system_memory(), RAM_size, boot_devices, kernel_filename,
                 kernel_cmdline, initrd_filename, cpu_model, &hwdefs[1]);
 }
 
@@ -896,7 +893,7 @@ static void niagara_init(ram_addr_t RAM_size,
                          const char *kernel_filename, const char *kernel_cmdline,
                          const char *initrd_filename, const char *cpu_model)
 {
-    sun4uv_init(RAM_size, boot_devices, kernel_filename,
+    sun4uv_init(get_system_memory(), RAM_size, boot_devices, kernel_filename,
                 kernel_cmdline, initrd_filename, cpu_model, &hwdefs[2]);
 }
 

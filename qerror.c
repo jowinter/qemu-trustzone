@@ -194,6 +194,10 @@ static const QErrorStringTable qerror_table[] = {
         .desc      = "QMP input object member '%(member)' is unexpected",
     },
     {
+        .error_fmt = QERR_RESET_REQUIRED,
+        .desc      = "Resetting the Virtual Machine is required",
+    },
+    {
         .error_fmt = QERR_SET_PASSWD_FAILED,
         .desc      = "Could not set password",
     },
@@ -475,6 +479,39 @@ void qerror_report_internal(const char *file, int linenr, const char *func,
     } else {
         qerror_print(qerror);
         QDECREF(qerror);
+    }
+}
+
+/* Evil... */
+struct Error
+{
+    QDict *obj;
+    const char *fmt;
+    char *msg;
+};
+
+void qerror_report_err(Error *err)
+{
+    QError *qerr;
+    int i;
+
+    qerr = qerror_new();
+    loc_save(&qerr->loc);
+    QINCREF(err->obj);
+    qerr->error = err->obj;
+
+    for (i = 0; qerror_table[i].error_fmt; i++) {
+        if (strcmp(qerror_table[i].error_fmt, err->fmt) == 0) {
+            qerr->entry = &qerror_table[i];
+            break;
+        }
+    }
+
+    if (monitor_cur_is_qmp()) {
+        monitor_set_error(cur_mon, qerr);
+    } else {
+        qerror_print(qerr);
+        QDECREF(qerr);
     }
 }
 

@@ -479,7 +479,7 @@ static int kvm_check_many_ioeventfds(void)
      * Older kernels have a 6 device limit on the KVM io bus.  Find out so we
      * can avoid creating too many ioeventfds.
      */
-#if defined(CONFIG_EVENTFD) && defined(CONFIG_IOTHREAD)
+#if defined(CONFIG_EVENTFD)
     int ioeventfds[7];
     int i, ret = 0;
     for (i = 0; i < ARRAY_SIZE(ioeventfds); i++) {
@@ -1014,7 +1014,7 @@ int kvm_cpu_exec(CPUState *env)
 
     if (ret < 0) {
         cpu_dump_state(env, stderr, fprintf, CPU_DUMP_CODE);
-        vm_stop(VMSTOP_PANIC);
+        vm_stop(RUN_STATE_INTERNAL_ERROR);
     }
 
     env->exit_request = 0;

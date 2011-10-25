@@ -22,6 +22,7 @@
 #include "host-utils.h"
 #include "softfloat.h"
 #include "helper.h"
+#include "sysemu.h"
 #include "qemu-timer.h"
 
 #define FP_STATUS (env->fp_status)
@@ -1218,6 +1219,30 @@ void helper_tbis(uint64_t p)
 {
     tlb_flush_page(env, p);
 }
+
+void helper_halt(uint64_t restart)
+{
+    if (restart) {
+        qemu_system_reset_request();
+    } else {
+        qemu_system_shutdown_request();
+    }
+}
+
+uint64_t helper_get_time(void)
+{
+    return qemu_get_clock_ns(rtc_clock);
+}
+
+void helper_set_alarm(uint64_t expire)
+{
+    if (expire) {
+        env->alarm_expire = expire;
+        qemu_mod_timer(env->alarm_timer, expire);
+    } else {
+        qemu_del_timer(env->alarm_timer);
+    }
+}
 #endif
 
 /*****************************************************************************/
@@ -1335,15 +1360,14 @@ void QEMU_NORETURN cpu_unassigned_access(CPUState *env1,
    NULL, it means that the function was called in C code (i.e. not
    from generated code or from helper.c) */
 /* XXX: fix it to restore all registers */
-void tlb_fill (target_ulong addr, int is_write, int mmu_idx, void *retaddr)
+void tlb_fill(CPUState *env1, target_ulong addr, int is_write, int mmu_idx,
+              void *retaddr)
 {
     CPUState *saved_env;
     int ret;
 
-    /* XXX: hack to restore env in all cases, even if not called from
-       generated code */
     saved_env = env;
-    env = cpu_single_env;
+    env = env1;
     ret = cpu_alpha_handle_mmu_fault(env, addr, is_write, mmu_idx);
     if (unlikely(ret != 0)) {
         do_restore_state(retaddr);

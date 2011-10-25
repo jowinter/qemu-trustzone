@@ -36,7 +36,6 @@
 #include "qdev-addr.h"
 #include "blockdev.h"
 #include "sysemu.h"
-#include "block_int.h"
 
 /********************************************************/
 /* debug Floppy devices */
@@ -490,16 +489,6 @@ static void fdctrl_write (void *opaque, uint32_t reg, uint32_t value)
     }
 }
 
-static uint32_t fdctrl_read_port (void *opaque, uint32_t reg)
-{
-    return fdctrl_read(opaque, reg & 7);
-}
-
-static void fdctrl_write_port (void *opaque, uint32_t reg, uint32_t value)
-{
-    fdctrl_write(opaque, reg & 7, value);
-}
-
 static uint32_t fdctrl_read_mem (void *opaque, target_phys_addr_t reg)
 {
     return fdctrl_read(opaque, (uint32_t)reg);
@@ -535,30 +524,11 @@ static CPUWriteMemoryFunc * const fdctrl_mem_write_strict[3] = {
     NULL,
 };
 
-static void fdrive_media_changed_pre_save(void *opaque)
-{
-    FDrive *drive = opaque;
-
-    drive->media_changed = drive->bs->media_changed;
-}
-
-static int fdrive_media_changed_post_load(void *opaque, int version_id)
-{
-    FDrive *drive = opaque;
-
-    if (drive->bs != NULL) {
-        drive->bs->media_changed = drive->media_changed;
-    }
-
-    /* User ejected the floppy when drive->bs == NULL */
-    return 0;
-}
-
 static bool fdrive_media_changed_needed(void *opaque)
 {
     FDrive *drive = opaque;
 
-    return (drive->bs != NULL && drive->bs->media_changed != 1);
+    return (drive->bs != NULL && drive->media_changed != 1);
 }
 
 static const VMStateDescription vmstate_fdrive_media_changed = {
@@ -566,8 +536,6 @@ static const VMStateDescription vmstate_fdrive_media_changed = {
     .version_id = 1,
     .minimum_version_id = 1,
     .minimum_version_id_old = 1,
-    .pre_save = fdrive_media_changed_pre_save,
-    .post_load = fdrive_media_changed_post_load,
     .fields      = (VMStateField[]) {
         VMSTATE_UINT8(media_changed, FDrive),
         VMSTATE_END_OF_LIST()
@@ -919,7 +887,15 @@ static int fdctrl_media_changed(FDrive *drv)
 
     if (!drv->bs)
         return 0;
-    ret = bdrv_media_changed(drv->bs);
+    if (drv->media_changed) {
+        drv->media_changed = 0;
+        ret = 1;
+    } else {
+        ret = bdrv_media_changed(drv->bs);
+        if (ret < 0) {
+            ret = 0;            /* we don't know, assume no */
+        }
+    }
     if (ret) {
         fd_revalidate(drv);
     }
@@ -1791,6 +1767,17 @@ static void fdctrl_result_timer(void *opaque)
     fdctrl_stop_transfer(fdctrl, 0x00, 0x00, 0x00);
 }
 
+static void fdctrl_change_cb(void *opaque, bool load)
+{
+    FDrive *drive = opaque;
+
+    drive->media_changed = 1;
+}
+
+static const BlockDevOps fdctrl_block_ops = {
+    .change_media_cb = fdctrl_change_cb,
+};
+
 /* Init functions */
 static int fdctrl_connect_drives(FDCtrl *fdctrl)
 {
@@ -1814,7 +1801,8 @@ static int fdctrl_connect_drives(FDCtrl *fdctrl)
         fd_init(drive);
         fd_revalidate(drive);
         if (drive->bs) {
-            bdrv_set_removable(drive->bs, 1);
+            drive->media_changed = 1;
+            bdrv_set_dev_ops(drive->bs, &fdctrl_block_ops, drive);
         }
     }
     return 0;
@@ -1891,6 +1879,12 @@ static int fdctrl_init_common(FDCtrl *fdctrl)
     return fdctrl_connect_drives(fdctrl);
 }
 
+static const MemoryRegionPortio fdc_portio_list[] = {
+    { 1, 5, 1, .read = fdctrl_read, .write = fdctrl_write },
+    { 7, 1, 1, .read = fdctrl_read, .write = fdctrl_write },
+    PORTIO_END_OF_LIST(),
+};
+
 static int isabus_fdc_init1(ISADevice *dev)
 {
     FDCtrlISABus *isa = DO_UPCAST(FDCtrlISABus, busdev, dev);
@@ -1900,16 +1894,7 @@ static int isabus_fdc_init1(ISADevice *dev)
     int dma_chann = 2;
     int ret;
 
-    register_ioport_read(iobase + 0x01, 5, 1,
-                         &fdctrl_read_port, fdctrl);
-    register_ioport_read(iobase + 0x07, 1, 1,
-                         &fdctrl_read_port, fdctrl);
-    register_ioport_write(iobase + 0x01, 5, 1,
-                          &fdctrl_write_port, fdctrl);
-    register_ioport_write(iobase + 0x07, 1, 1,
-                          &fdctrl_write_port, fdctrl);
-    isa_init_ioport_range(dev, iobase, 6);
-    isa_init_ioport(dev, iobase + 7);
+    isa_register_portio_list(dev, iobase, fdc_portio_list, fdctrl, "fdc");
 
     isa_init_irq(&isa->busdev, &fdctrl->irq, isairq);
     fdctrl->dma_chann = dma_chann;

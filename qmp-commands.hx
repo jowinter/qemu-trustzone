@@ -63,10 +63,7 @@ EQMP
     {
         .name       = "quit",
         .args_type  = "",
-        .params     = "",
-        .help       = "quit the emulator",
-        .user_print = monitor_user_noop,
-        .mhandler.cmd_new = do_quit,
+        .mhandler.cmd_new = qmp_marshal_input_quit,
     },
 
 SQMP
@@ -181,10 +178,7 @@ EQMP
     {
         .name       = "stop",
         .args_type  = "",
-        .params     = "",
-        .help       = "stop emulation",
-        .user_print = monitor_user_noop,
-        .mhandler.cmd_new = do_stop,
+        .mhandler.cmd_new = qmp_marshal_input_stop,
     },
 
 SQMP
@@ -229,10 +223,7 @@ EQMP
     {
         .name       = "system_reset",
         .args_type  = "",
-        .params     = "",
-        .help       = "reset the system",
-        .user_print = monitor_user_noop,
-        .mhandler.cmd_new = do_system_reset,
+        .mhandler.cmd_new = qmp_marshal_input_system_reset,
     },
 
 SQMP
@@ -719,10 +710,10 @@ Arguments:
 
 Example:
 
--> { "execute": "blockdev-snapshot", "arguments": { "device": "ide-hd0",
-                                                    "snapshot-file":
-                                                    "/some/place/my-image",
-                                                    "format": "qcow2" } }
+-> { "execute": "blockdev-snapshot-sync", "arguments": { "device": "ide-hd0",
+                                                         "snapshot-file":
+                                                        "/some/place/my-image",
+                                                        "format": "qcow2" } }
 <- { "return": {} }
 
 EQMP
@@ -1053,6 +1044,12 @@ Example:
 
 EQMP
 
+    {
+        .name       = "query-version",
+        .args_type  = "",
+        .mhandler.cmd_new = qmp_marshal_input_query_version,
+    },
+
 SQMP
 query-commands
 --------------
@@ -1084,6 +1081,12 @@ Note: This example has been shortened as the real response is too long.
 
 EQMP
 
+    {
+        .name       = "query-commands",
+        .args_type  = "",
+        .mhandler.cmd_new = qmp_marshal_input_query_commands,
+    },
+
 SQMP
 query-chardev
 -------------
@@ -1114,6 +1117,12 @@ Example:
 
 EQMP
 
+    {
+        .name       = "query-chardev",
+        .args_type  = "",
+        .mhandler.cmd_new = qmp_marshal_input_query_chardev,
+    },
+
 SQMP
 query-block
 -----------
@@ -1131,6 +1140,8 @@ Each json-object contain the following:
          - Possible values: "unknown"
 - "removable": true if the device is removable, false otherwise (json-bool)
 - "locked": true if the device is locked, false otherwise (json-bool)
+- "tray-open": only present if removable, true if the device has a tray,
+               and it is open (json-bool)
 - "inserted": only present if the device is inserted, it is a json-object
    containing the following:
          - "file": device file name (json-string)
@@ -1143,6 +1154,10 @@ Each json-object contain the following:
                                 "tftp", "vdi", "vmdk", "vpc", "vvfat"
          - "backing_file": backing file name (json-string, optional)
          - "encrypted": true if encrypted, false otherwise (json-bool)
+- "io-status": I/O operation status, only present if the device supports it
+               and the VM is configured to stop on errors. It's always reset
+               to "ok" when the "cont" command is issued (json_string, optional)
+             - Possible values: "ok", "failed", "nospace"
 
 Example:
 
@@ -1150,6 +1165,7 @@ Example:
 <- {
       "return":[
          {
+            "io-status": "ok",
             "device":"ide0-hd0",
             "locked":false,
             "removable":false,
@@ -1162,6 +1178,7 @@ Example:
             "type":"unknown"
          },
          {
+            "io-status": "ok",
             "device":"ide1-cd0",
             "locked":false,
             "removable":true,
@@ -1562,6 +1579,12 @@ Example:
 
 EQMP
 
+    {
+        .name       = "query-kvm",
+        .args_type  = "",
+        .mhandler.cmd_new = qmp_marshal_input_query_kvm,
+    },
+
 SQMP
 query-status
 ------------
@@ -1571,13 +1594,36 @@ Return a json-object with the following information:
 - "running": true if the VM is running, or false if it is paused (json-bool)
 - "singlestep": true if the VM is in single step mode,
                 false otherwise (json-bool)
+- "status": one of the following values (json-string)
+    "debug" - QEMU is running on a debugger
+    "inmigrate" - guest is paused waiting for an incoming migration
+    "internal-error" - An internal error that prevents further guest
+    execution has occurred
+    "io-error" - the last IOP has failed and the device is configured
+    to pause on I/O errors
+    "paused" - guest has been paused via the 'stop' command
+    "postmigrate" - guest is paused following a successful 'migrate'
+    "prelaunch" - QEMU was started with -S and guest has not started
+    "finish-migrate" - guest is paused to finish the migration process
+    "restore-vm" - guest is paused to restore VM state
+    "running" - guest is actively running
+    "save-vm" - guest is paused to save the VM state
+    "shutdown" - guest is shut down (and -no-shutdown is in use)
+    "watchdog" - the watchdog action is configured to pause and
+     has been triggered
 
 Example:
 
 -> { "execute": "query-status" }
-<- { "return": { "running": true, "singlestep": false } }
+<- { "return": { "running": true, "singlestep": false, "status": "running" } }
 
 EQMP
+    
+    {
+        .name       = "query-status",
+        .args_type  = "",
+        .mhandler.cmd_new = qmp_marshal_input_query_status,
+    },
 
 SQMP
 query-mice
@@ -1761,6 +1807,12 @@ Example:
 
 EQMP
 
+    {
+        .name       = "query-name",
+        .args_type  = "",
+        .mhandler.cmd_new = qmp_marshal_input_query_name,
+    },
+
 SQMP
 query-uuid
 ----------
@@ -1777,6 +1829,12 @@ Example:
 <- { "return": { "UUID": "550e8400-e29b-41d4-a716-446655440000" } }
 
 EQMP
+
+    {
+        .name       = "query-uuid",
+        .args_type  = "",
+        .mhandler.cmd_new = qmp_marshal_input_query_uuid,
+    },
 
 SQMP
 query-migrate

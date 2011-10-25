@@ -26,6 +26,7 @@
 #include "hw.h"
 #include "ppc.h"
 #include "ppc_mac.h"
+#include "adb.h"
 #include "mac_dbdma.h"
 #include "nvram.h"
 #include "pc.h"
@@ -72,11 +73,13 @@ static void ppc_heathrow_init (ram_addr_t ram_size,
                                const char *initrd_filename,
                                const char *cpu_model)
 {
+    MemoryRegion *sysmem = get_system_memory();
     CPUState *env = NULL;
     char *filename;
     qemu_irq *pic, **heathrow_irqs;
     int linux_boot, i;
-    ram_addr_t ram_offset, bios_offset;
+    MemoryRegion *ram = g_new(MemoryRegion, 1);
+    MemoryRegion *bios = g_new(MemoryRegion, 1);
     uint32_t kernel_base, initrd_base, cmdline_base = 0;
     int32_t kernel_size, initrd_size;
     PCIBus *pci_bus;
@@ -113,15 +116,16 @@ static void ppc_heathrow_init (ram_addr_t ram_size,
         exit(1);
     }
 
-    ram_offset = qemu_ram_alloc(NULL, "ppc_heathrow.ram", ram_size);
-    cpu_register_physical_memory(0, ram_size, ram_offset);
+    memory_region_init_ram(ram, NULL, "ppc_heathrow.ram", ram_size);
+    memory_region_add_subregion(sysmem, 0, ram);
 
     /* allocate and load BIOS */
-    bios_offset = qemu_ram_alloc(NULL, "ppc_heathrow.bios", BIOS_SIZE);
+    memory_region_init_ram(bios, NULL, "ppc_heathrow.bios", BIOS_SIZE);
     if (bios_name == NULL)
         bios_name = PROM_FILENAME;
     filename = qemu_find_file(QEMU_FILE_TYPE_BIOS, bios_name);
-    cpu_register_physical_memory(PROM_ADDR, BIOS_SIZE, bios_offset | IO_MEM_ROM);
+    memory_region_set_readonly(bios, true);
+    memory_region_add_subregion(sysmem, PROM_ADDR, bios);
 
     /* Load OpenBIOS (ELF) */
     if (filename) {
@@ -207,8 +211,6 @@ static void ppc_heathrow_init (ram_addr_t ram_size,
         }
     }
 
-    isa_mem_base = 0x80000000;
-
     /* Register 2 MB of ISA IO space */
     isa_mmio_init(0xfe000000, 0x00200000);
 
@@ -239,7 +241,7 @@ static void ppc_heathrow_init (ram_addr_t ram_size,
                                get_system_io());
     pci_vga_init(pci_bus);
 
-    escc_mem = escc_init(0x80013000, pic[0x0f], pic[0x10], serial_hds[0],
+    escc_mem = escc_init(0, pic[0x0f], pic[0x10], serial_hds[0],
                                serial_hds[1], ESCC_CLOCK, 4);
     memory_region_init_alias(escc_bar, "escc-bar",
                              escc_mem, 0, memory_region_size(escc_mem));

@@ -58,6 +58,8 @@ typedef struct G364State {
 #define CTLA_FORCE_BLANK 0x00000400
 #define CTLA_NO_CURSOR   0x00800000
 
+#define G364_PAGE_SIZE 4096
+
 static inline int check_dirty(G364State *s, ram_addr_t page)
 {
     return memory_region_get_dirty(&s->mem_vram, page, DIRTY_MEMORY_VGA);
@@ -68,7 +70,7 @@ static inline void reset_dirty(G364State *s,
 {
     memory_region_reset_dirty(&s->mem_vram,
                               page_min,
-                              page_max + TARGET_PAGE_SIZE - page_min - 1,
+                              page_max + G364_PAGE_SIZE - page_min - 1,
                               DIRTY_MEMORY_VGA);
 }
 
@@ -136,7 +138,7 @@ static void g364fb_draw_graphic8(G364State *s)
             page_max = page;
             if (x < xmin)
                 xmin = x;
-            for (i = 0; i < TARGET_PAGE_SIZE; i++) {
+            for (i = 0; i < G364_PAGE_SIZE; i++) {
                 uint8_t index;
                 unsigned int color;
                 if (unlikely((y >= ycursor && y < ycursor + 64) &&
@@ -200,15 +202,15 @@ static void g364fb_draw_graphic8(G364State *s)
                 ymin = s->height;
                 ymax = 0;
             }
-            x += TARGET_PAGE_SIZE;
+            x += G364_PAGE_SIZE;
             dy = x / s->width;
             x = x % s->width;
             y += dy;
-            vram += TARGET_PAGE_SIZE;
+            vram += G364_PAGE_SIZE;
             data_display += dy * ds_get_linesize(s->ds);
             dd = data_display + x * w;
         }
-        page += TARGET_PAGE_SIZE;
+        page += G364_PAGE_SIZE;
     }
 
 done:
@@ -243,6 +245,8 @@ static void g364fb_update_display(void *opaque)
 {
     G364State *s = opaque;
 
+    qemu_flush_coalesced_mmio_buffer();
+
     if (s->width == 0 || s->height == 0)
         return;
 
@@ -267,7 +271,7 @@ static inline void g364fb_invalidate_display(void *opaque)
     int i;
 
     s->blanked = 0;
-    for (i = 0; i < s->vram_size; i += TARGET_PAGE_SIZE) {
+    for (i = 0; i < s->vram_size; i += G364_PAGE_SIZE) {
         memory_region_set_dirty(&s->mem_vram, i);
     }
 }
@@ -294,6 +298,8 @@ static void g364fb_screen_dump(void *opaque, const char *filename)
     uint8_t index;
     uint8_t *data_buffer;
     FILE *f;
+
+    qemu_flush_coalesced_mmio_buffer();
 
     if (s->depth != 8) {
         error_report("g364: unknown guest depth %d", s->depth);
@@ -387,7 +393,7 @@ static void g364_invalidate_cursor_position(G364State *s)
     start = ymin * ds_get_linesize(s->ds);
     end = (ymax + 1) * ds_get_linesize(s->ds);
 
-    for (i = start; i < end; i += TARGET_PAGE_SIZE) {
+    for (i = start; i < end; i += G364_PAGE_SIZE) {
         memory_region_set_dirty(&s->mem_vram, i);
     }
 }

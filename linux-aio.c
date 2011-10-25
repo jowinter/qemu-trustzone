@@ -31,6 +31,8 @@ struct qemu_laiocb {
     struct iocb iocb;
     ssize_t ret;
     size_t nbytes;
+    QEMUIOVector *qiov;
+    bool is_read;
     QLIST_ENTRY(qemu_laiocb) node;
 };
 
@@ -57,24 +59,22 @@ static void qemu_laio_process_completion(struct qemu_laio_state *s,
 
     ret = laiocb->ret;
     if (ret != -ECANCELED) {
-        if (ret == laiocb->nbytes)
+        if (ret == laiocb->nbytes) {
             ret = 0;
-        else if (ret >= 0)
-            ret = -EINVAL;
+        } else if (ret >= 0) {
+            /* Short reads mean EOF, pad with zeros. */
+            if (laiocb->is_read) {
+                qemu_iovec_memset_skip(laiocb->qiov, 0,
+                    laiocb->qiov->size - ret, ret);
+            } else {
+                ret = -EINVAL;
+            }
+        }
 
         laiocb->common.cb(laiocb->common.opaque, ret);
     }
 
     qemu_aio_release(laiocb);
-}
-
-/*
- * All requests are directly processed when they complete, so there's nothing
- * left to do during qemu_aio_wait().
- */
-static int qemu_laio_process_requests(void *opaque)
-{
-    return 0;
 }
 
 static void qemu_laio_completion_cb(void *opaque)
@@ -171,6 +171,8 @@ BlockDriverAIOCB *laio_submit(BlockDriverState *bs, void *aio_ctx, int fd,
     laiocb->nbytes = nb_sectors * 512;
     laiocb->ctx = s;
     laiocb->ret = -EINPROGRESS;
+    laiocb->is_read = (type == QEMU_AIO_READ);
+    laiocb->qiov = qiov;
 
     iocbs = &laiocb->iocb;
 
@@ -181,6 +183,7 @@ BlockDriverAIOCB *laio_submit(BlockDriverState *bs, void *aio_ctx, int fd,
     case QEMU_AIO_READ:
         io_prep_preadv(iocbs, fd, qiov->iov, qiov->niov, offset);
 	break;
+    /* Currently Linux kernel does not support other operations */
     default:
         fprintf(stderr, "%s: invalid AIO request type 0x%x.\n",
                         __func__, type);
@@ -193,10 +196,10 @@ BlockDriverAIOCB *laio_submit(BlockDriverState *bs, void *aio_ctx, int fd,
         goto out_dec_count;
     return &laiocb->common;
 
-out_free_aiocb:
-    qemu_aio_release(laiocb);
 out_dec_count:
     s->count--;
+out_free_aiocb:
+    qemu_aio_release(laiocb);
     return NULL;
 }
 
@@ -214,7 +217,7 @@ void *laio_init(void)
         goto out_close_efd;
 
     qemu_aio_set_fd_handler(s->efd, qemu_laio_completion_cb, NULL,
-        qemu_laio_flush_cb, qemu_laio_process_requests, s);
+        qemu_laio_flush_cb, NULL, s);
 
     return s;
 

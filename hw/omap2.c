@@ -2282,8 +2282,10 @@ struct omap_mpu_state_s *omap2420_mpu_init(unsigned long sdram_size,
     s->port->addr_valid = omap2_validate_addr;
 
     /* Register SDRAM and SRAM ports for fast DMA transfers.  */
-    soc_dma_port_add_mem_ram(s->dma, q2_base, OMAP2_Q2_BASE, s->sdram_size);
-    soc_dma_port_add_mem_ram(s->dma, sram_base, OMAP2_SRAM_BASE, s->sram_size);
+    soc_dma_port_add_mem(s->dma, qemu_get_ram_ptr(q2_base),
+                         OMAP2_Q2_BASE, s->sdram_size);
+    soc_dma_port_add_mem(s->dma, qemu_get_ram_ptr(sram_base),
+                         OMAP2_SRAM_BASE, s->sram_size);
 
     s->uart[0] = qdev_create(NULL, "omap_uart");
     s->uart[0]->id = "uart1";
@@ -2419,6 +2421,11 @@ struct omap_mpu_state_s *omap2420_mpu_init(unsigned long sdram_size,
                        qdev_get_gpio_in(s->ih[0], OMAP_INT_24XX_GPIO_BANK3));
     sysbus_connect_irq(busdev, 9,
                        qdev_get_gpio_in(s->ih[0], OMAP_INT_24XX_GPIO_BANK4));
+    if (s->mpu_model == omap2430) {
+        sysbus_connect_irq(busdev, 12,
+                           qdev_get_gpio_in(s->ih[0],
+                                            OMAP_INT_243X_GPIO_BANK5));
+    }
     ta = omap_l4ta(s->l4, 3);
     sysbus_mmio_map(busdev, 0, omap_l4_region_base(ta, 1));
     sysbus_mmio_map(busdev, 1, omap_l4_region_base(ta, 0));

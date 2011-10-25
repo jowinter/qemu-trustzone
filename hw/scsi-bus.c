@@ -498,6 +498,7 @@ void scsi_req_build_sense(SCSIRequest *req, SCSISense sense)
     memset(req->sense, 0, 18);
     req->sense[0] = 0xf0;
     req->sense[2] = sense.key;
+    req->sense[7] = 10;
     req->sense[12] = sense.asc;
     req->sense[13] = sense.ascq;
     req->sense_len = 18;
@@ -541,15 +542,15 @@ static int scsi_req_length(SCSICommand *cmd, SCSIDevice *dev, uint8_t *buf)
         break;
     case 1:
     case 2:
-        cmd->xfer = buf[8] | (buf[7] << 8);
+        cmd->xfer = lduw_be_p(&buf[7]);
         cmd->len = 10;
         break;
     case 4:
-        cmd->xfer = buf[13] | (buf[12] << 8) | (buf[11] << 16) | (buf[10] << 24);
+        cmd->xfer = ldl_be_p(&buf[10]);
         cmd->len = 16;
         break;
     case 5:
-        cmd->xfer = buf[9] | (buf[8] << 8) | (buf[7] << 16) | (buf[6] << 24);
+        cmd->xfer = ldl_be_p(&buf[6]);
         cmd->len = 12;
         break;
     default:
@@ -709,23 +710,15 @@ static uint64_t scsi_cmd_lba(SCSICommand *cmd)
 
     switch (buf[0] >> 5) {
     case 0:
-        lba = (uint64_t) buf[3] | ((uint64_t) buf[2] << 8) |
-              (((uint64_t) buf[1] & 0x1f) << 16);
+        lba = ldl_be_p(&buf[0]) & 0x1fffff;
         break;
     case 1:
     case 2:
-        lba = (uint64_t) buf[5] | ((uint64_t) buf[4] << 8) |
-              ((uint64_t) buf[3] << 16) | ((uint64_t) buf[2] << 24);
+    case 5:
+        lba = ldl_be_p(&buf[2]);
         break;
     case 4:
-        lba = (uint64_t) buf[9] | ((uint64_t) buf[8] << 8) |
-              ((uint64_t) buf[7] << 16) | ((uint64_t) buf[6] << 24) |
-              ((uint64_t) buf[5] << 32) | ((uint64_t) buf[4] << 40) |
-              ((uint64_t) buf[3] << 48) | ((uint64_t) buf[2] << 56);
-        break;
-    case 5:
-        lba = (uint64_t) buf[5] | ((uint64_t) buf[4] << 8) |
-              ((uint64_t) buf[3] << 16) | ((uint64_t) buf[2] << 24);
+        lba = ldq_be_p(&buf[2]);
         break;
     default:
         lba = -1;
@@ -771,6 +764,11 @@ const struct SCSISense sense_code_NO_MEDIUM = {
     .key = NOT_READY, .asc = 0x3a, .ascq = 0x00
 };
 
+/* LUN not ready, medium removal prevented */
+const struct SCSISense sense_code_NOT_READY_REMOVAL_PREVENTED = {
+    .key = NOT_READY, .asc = 0x53, .ascq = 0x00
+};
+
 /* Hardware error, internal target failure */
 const struct SCSISense sense_code_TARGET_FAILURE = {
     .key = HARDWARE_ERROR, .asc = 0x44, .ascq = 0x00
@@ -804,6 +802,11 @@ const struct SCSISense sense_code_SAVING_PARAMS_NOT_SUPPORTED = {
 /* Illegal request, Incompatible medium installed */
 const struct SCSISense sense_code_INCOMPATIBLE_MEDIUM = {
     .key = ILLEGAL_REQUEST, .asc = 0x30, .ascq = 0x00
+};
+
+/* Illegal request, medium removal prevented */
+const struct SCSISense sense_code_ILLEGAL_REQ_REMOVAL_PREVENTED = {
+    .key = ILLEGAL_REQUEST, .asc = 0x53, .ascq = 0x00
 };
 
 /* Command aborted, I/O process terminated */
@@ -883,7 +886,7 @@ int scsi_build_sense(uint8_t *in_buf, int in_len,
         /* Return fixed format sense buffer */
         buf[0] = 0xf0;
         buf[2] = sense.key;
-        buf[7] = 7;
+        buf[7] = 10;
         buf[12] = sense.asc;
         buf[13] = sense.ascq;
         return MIN(len, 18);
@@ -976,17 +979,16 @@ static const char *scsi_command_name(uint8_t cmd)
         [ SYNCHRONIZE_CACHE_16     ] = "SYNCHRONIZE_CACHE_16",
         [ LOCATE_16                ] = "LOCATE_16",
         [ WRITE_SAME_16            ] = "WRITE_SAME_16",
-        [ ERASE_16                 ] = "ERASE_16",
-        [ SERVICE_ACTION_IN        ] = "SERVICE_ACTION_IN",
+        /* ERASE_16 and WRITE_SAME_16 use the same operation code */
+        [ SERVICE_ACTION_IN_16     ] = "SERVICE_ACTION_IN_16",
         [ WRITE_LONG_16            ] = "WRITE_LONG_16",
         [ REPORT_LUNS              ] = "REPORT_LUNS",
         [ BLANK                    ] = "BLANK",
-        [ MAINTENANCE_IN           ] = "MAINTENANCE_IN",
-        [ MAINTENANCE_OUT          ] = "MAINTENANCE_OUT",
         [ MOVE_MEDIUM              ] = "MOVE_MEDIUM",
         [ LOAD_UNLOAD              ] = "LOAD_UNLOAD",
         [ READ_12                  ] = "READ_12",
         [ WRITE_12                 ] = "WRITE_12",
+        [ SERVICE_ACTION_IN_12     ] = "SERVICE_ACTION_IN_12",
         [ WRITE_VERIFY_12          ] = "WRITE_VERIFY_12",
         [ VERIFY_12                ] = "VERIFY_12",
         [ SEARCH_HIGH_12           ] = "SEARCH_HIGH_12",

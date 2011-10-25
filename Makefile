@@ -1,9 +1,13 @@
 # Makefile for QEMU.
 
+# Always point to the root of the build tree (needs GNU make).
+BUILD_DIR=$(CURDIR)
+
 GENERATED_HEADERS = config-host.h trace.h qemu-options.def
 ifeq ($(TRACE_BACKEND),dtrace)
 GENERATED_HEADERS += trace-dtrace.h
 endif
+GENERATED_HEADERS += qmp-commands.h qapi-types.h qapi-visit.h
 
 ifneq ($(wildcard config-host.mak),)
 # Put the all: rule here so that config-host.mak can contain dependencies.
@@ -37,7 +41,7 @@ else
 DOCS=
 endif
 
-SUBDIR_MAKEFLAGS=$(if $(V),,--no-print-directory)
+SUBDIR_MAKEFLAGS=$(if $(V),,--no-print-directory) BUILD_DIR=$(BUILD_DIR)
 SUBDIR_DEVICES_MAK=$(patsubst %, %/config-devices.mak, $(TARGET_DIRS))
 SUBDIR_DEVICES_MAK_DEP=$(patsubst %, %/config-devices.mak.d, $(TARGET_DIRS))
 
@@ -116,7 +120,7 @@ ui/vnc.o: QEMU_CFLAGS += $(VNC_TLS_CFLAGS)
 
 bt-host.o: QEMU_CFLAGS += $(BLUEZ_CFLAGS)
 
-version.o: $(SRC_PATH)/version.rc config-host.mak
+version.o: $(SRC_PATH)/version.rc config-host.h
 	$(call quiet-command,$(WINDRES) -I. -o $@ $<,"  RC    $(TARGET_DIR)$@")
 
 version-obj-$(CONFIG_WIN32) += version.o
@@ -142,11 +146,12 @@ endif
 qemu-img.o: qemu-img-cmds.h
 qemu-img.o qemu-tool.o qemu-nbd.o qemu-io.o cmd.o qemu-ga.o: $(GENERATED_HEADERS)
 
-qemu-img$(EXESUF): qemu-img.o qemu-tool.o qemu-error.o $(oslib-obj-y) $(trace-obj-y) $(block-obj-y) $(qobject-obj-y) $(version-obj-y) qemu-timer-common.o
+tools-obj-y = qemu-tool.o qemu-error.o $(oslib-obj-y) $(trace-obj-y) \
+        $(block-obj-y) $(qobject-obj-y) $(version-obj-y) qemu-timer-common.o
 
-qemu-nbd$(EXESUF): qemu-nbd.o qemu-tool.o qemu-error.o $(oslib-obj-y) $(trace-obj-y) $(block-obj-y) $(qobject-obj-y) $(version-obj-y) qemu-timer-common.o
-
-qemu-io$(EXESUF): qemu-io.o cmd.o qemu-tool.o qemu-error.o $(oslib-obj-y) $(trace-obj-y) $(block-obj-y) $(qobject-obj-y) $(version-obj-y) qemu-timer-common.o
+qemu-img$(EXESUF): qemu-img.o $(tools-obj-y)
+qemu-nbd$(EXESUF): qemu-nbd.o $(tools-obj-y)
+qemu-io$(EXESUF): qemu-io.o cmd.o $(tools-obj-y)
 
 qemu-img-cmds.h: $(SRC_PATH)/qemu-img-cmds.hx
 	$(call quiet-command,sh $(SRC_PATH)/scripts/hxtool -h < $< > $@,"  GEN   $@")
@@ -184,8 +189,19 @@ $(qapi-dir)/qga-qapi-types.h: $(SRC_PATH)/qapi-schema-guest.json $(SRC_PATH)/scr
 $(qapi-dir)/qga-qapi-visit.c: $(qapi-dir)/qga-qapi-visit.h
 $(qapi-dir)/qga-qapi-visit.h: $(SRC_PATH)/qapi-schema-guest.json $(SRC_PATH)/scripts/qapi-visit.py
 	$(call quiet-command,$(PYTHON) $(SRC_PATH)/scripts/qapi-visit.py -o "$(qapi-dir)" -p "qga-" < $<, "  GEN   $@")
+$(qapi-dir)/qga-qmp-commands.h: $(qapi-dir)/qga-qmp-marshal.c
 $(qapi-dir)/qga-qmp-marshal.c: $(SRC_PATH)/qapi-schema-guest.json $(SRC_PATH)/scripts/qapi-commands.py
 	$(call quiet-command,$(PYTHON) $(SRC_PATH)/scripts/qapi-commands.py -o "$(qapi-dir)" -p "qga-" < $<, "  GEN   $@")
+
+qapi-types.c: qapi-types.h
+qapi-types.h: $(SRC_PATH)/qapi-schema.json $(SRC_PATH)/scripts/qapi-types.py
+	$(call quiet-command,$(PYTHON) $(SRC_PATH)/scripts/qapi-types.py -o "." < $<, "  GEN   $@")
+qapi-visit.c: qapi-visit.h
+qapi-visit.h: $(SRC_PATH)/qapi-schema.json $(SRC_PATH)/scripts/qapi-visit.py
+	$(call quiet-command,$(PYTHON) $(SRC_PATH)/scripts/qapi-visit.py -o "."  < $<, "  GEN   $@")
+qmp-commands.h: qmp-marshal.c
+qmp-marshal.c: $(SRC_PATH)/qapi-schema.json $(SRC_PATH)/scripts/qapi-commands.py
+	$(call quiet-command,$(PYTHON) $(SRC_PATH)/scripts/qapi-commands.py -m -o "." < $<, "  GEN   $@")
 
 test-visitor.o: $(addprefix $(qapi-dir)/, test-qapi-types.c test-qapi-types.h test-qapi-visit.c test-qapi-visit.h) $(qapi-obj-y)
 test-visitor: test-visitor.o qfloat.o qint.o qdict.o qstring.o qlist.o qbool.o $(qapi-obj-y) error.o osdep.o $(oslib-obj-y) qjson.o json-streamer.o json-lexer.o json-parser.o qerror.o qemu-error.o qemu-tool.o $(qapi-dir)/test-qapi-visit.o $(qapi-dir)/test-qapi-types.o
@@ -209,6 +225,7 @@ clean:
 	rm -Rf .libs
 	rm -f slirp/*.o slirp/*.d audio/*.o audio/*.d block/*.o block/*.d net/*.o net/*.d fsdev/*.o fsdev/*.d ui/*.o ui/*.d qapi/*.o qapi/*.d qga/*.o qga/*.d
 	rm -f qemu-img-cmds.h
+	rm -f trace/*.o trace/*.d
 	rm -f trace.c trace.h trace.c-timestamp trace.h-timestamp
 	rm -f trace-dtrace.dtrace trace-dtrace.dtrace-timestamp
 	rm -f trace-dtrace.h trace-dtrace.h-timestamp
@@ -247,7 +264,8 @@ bamboo.dtb petalogix-s3adsp1800.dtb petalogix-ml605.dtb \
 mpc8544ds.dtb \
 multiboot.bin linuxboot.bin \
 s390-zipl.rom \
-spapr-rtas.bin slof.bin
+spapr-rtas.bin slof.bin \
+palcode-clipper
 else
 BLOBS=
 endif
@@ -364,43 +382,6 @@ tar:
 	cp -r . /tmp/$(FILE)
 	cd /tmp && tar zcvf ~/$(FILE).tar.gz $(FILE) --exclude CVS --exclude .git --exclude .svn
 	rm -rf /tmp/$(FILE)
-
-SYSTEM_TARGETS=$(filter %-softmmu,$(TARGET_DIRS))
-SYSTEM_PROGS=$(patsubst qemu-system-i386,qemu, \
-             $(patsubst %-softmmu,qemu-system-%, \
-             $(SYSTEM_TARGETS)))
-
-USER_TARGETS=$(filter %-user,$(TARGET_DIRS))
-USER_PROGS=$(patsubst %-bsd-user,qemu-%, \
-           $(patsubst %-darwin-user,qemu-%, \
-           $(patsubst %-linux-user,qemu-%, \
-           $(USER_TARGETS))))
-
-# generate a binary distribution
-tarbin:
-	cd / && tar zcvf ~/qemu-$(VERSION)-$(ARCH).tar.gz \
-	$(patsubst %,$(bindir)/%, $(SYSTEM_PROGS)) \
-	$(patsubst %,$(bindir)/%, $(USER_PROGS)) \
-	$(bindir)/qemu-img \
-	$(bindir)/qemu-nbd \
-	$(datadir)/bios.bin \
-	$(datadir)/vgabios.bin \
-	$(datadir)/vgabios-cirrus.bin \
-	$(datadir)/ppc_rom.bin \
-	$(datadir)/openbios-sparc32 \
-	$(datadir)/openbios-sparc64 \
-	$(datadir)/openbios-ppc \
-	$(datadir)/pxe-e1000.rom \
-	$(datadir)/pxe-eepro100.rom \
-	$(datadir)/pxe-ne2k_pci.rom \
-	$(datadir)/pxe-pcnet.rom \
-	$(datadir)/pxe-rtl8139.rom \
-	$(datadir)/pxe-virtio.rom \
-	$(docdir)/qemu-doc.html \
-	$(docdir)/qemu-tech.html \
-	$(mandir)/man1/qemu.1 \
-	$(mandir)/man1/qemu-img.1 \
-	$(mandir)/man8/qemu-nbd.8
 
 # Include automatically generated dependency files
 -include $(wildcard *.d audio/*.d slirp/*.d block/*.d net/*.d ui/*.d qapi/*.d qga/*.d)

@@ -25,7 +25,6 @@
 #include <inttypes.h>
 #include <fcntl.h>
 #include <errno.h>
-#include <pthread.h>
 #include <sys/socket.h>
 #include <sys/ioctl.h>
 #include <sys/types.h>
@@ -433,7 +432,7 @@ struct XenDevOps xen_netdev_ops = {
     .size       = sizeof(struct XenNetDev),
     .flags      = DEVOPS_FLAG_NEED_GNTDEV,
     .init       = net_init,
-    .connect    = net_connect,
+    .initialise    = net_connect,
     .event      = net_event,
     .disconnect = net_disconnect,
     .free       = net_free,

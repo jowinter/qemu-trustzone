@@ -370,6 +370,43 @@ static MemoryRegionOps ahci_mem_ops = {
     .endianness = DEVICE_LITTLE_ENDIAN,
 };
 
+static uint64_t ahci_idp_read(void *opaque, target_phys_addr_t addr,
+                              unsigned size)
+{
+    AHCIState *s = opaque;
+
+    if (addr == s->idp_offset) {
+        /* index register */
+        return s->idp_index;
+    } else if (addr == s->idp_offset + 4) {
+        /* data register - do memory read at location selected by index */
+        return ahci_mem_read(opaque, s->idp_index, size);
+    } else {
+        return 0;
+    }
+}
+
+static void ahci_idp_write(void *opaque, target_phys_addr_t addr,
+                           uint64_t val, unsigned size)
+{
+    AHCIState *s = opaque;
+
+    if (addr == s->idp_offset) {
+        /* index register - mask off reserved bits */
+        s->idp_index = (uint32_t)val & ((AHCI_MEM_BAR_SIZE - 1) & ~3);
+    } else if (addr == s->idp_offset + 4) {
+        /* data register - do memory write at location selected by index */
+        ahci_mem_write(opaque, s->idp_index, val, size);
+    }
+}
+
+static MemoryRegionOps ahci_idp_ops = {
+    .read = ahci_idp_read,
+    .write = ahci_idp_write,
+    .endianness = DEVICE_LITTLE_ENDIAN,
+};
+
+
 static void ahci_reg_init(AHCIState *s)
 {
     int i;
@@ -499,10 +536,7 @@ static void ahci_reset_port(AHCIState *s, int port)
     ide_bus_reset(&d->port);
     ide_state->ncq_queues = AHCI_MAX_CMDS;
 
-    pr->irq_stat = 0;
-    pr->irq_mask = 0;
     pr->scr_stat = 0;
-    pr->scr_ctl = 0;
     pr->scr_err = 0;
     pr->scr_act = 0;
     d->busy_slot = -1;
@@ -754,7 +788,6 @@ static void process_ncq_command(AHCIState *s, int port, uint8_t *cmd_fis,
         case READ_FPDMA_QUEUED:
             DPRINTF(port, "NCQ reading %d sectors from LBA %ld, tag %d\n",
                     ncq_tfs->sector_count-1, ncq_tfs->lba, ncq_tfs->tag);
-            ncq_tfs->is_read = 1;
 
             DPRINTF(port, "tag %d aio read %ld\n", ncq_tfs->tag, ncq_tfs->lba);
 
@@ -768,7 +801,6 @@ static void process_ncq_command(AHCIState *s, int port, uint8_t *cmd_fis,
         case WRITE_FPDMA_QUEUED:
             DPRINTF(port, "NCQ writing %d sectors to LBA %ld, tag %d\n",
                     ncq_tfs->sector_count-1, ncq_tfs->lba, ncq_tfs->tag);
-            ncq_tfs->is_read = 0;
 
             DPRINTF(port, "tag %d aio write %ld\n", ncq_tfs->tag, ncq_tfs->lba);
 
@@ -1105,7 +1137,7 @@ static void ahci_irq_set(void *opaque, int n, int level)
 {
 }
 
-static void ahci_dma_restart_cb(void *opaque, int running, int reason)
+static void ahci_dma_restart_cb(void *opaque, int running, RunState state)
 {
 }
 
@@ -1135,7 +1167,9 @@ void ahci_init(AHCIState *s, DeviceState *qdev, int ports)
     s->dev = g_malloc0(sizeof(AHCIDevice) * ports);
     ahci_reg_init(s);
     /* XXX BAR size should be 1k, but that breaks, so bump it to 4k for now */
-    memory_region_init_io(&s->mem, &ahci_mem_ops, s, "ahci", 0x1000);
+    memory_region_init_io(&s->mem, &ahci_mem_ops, s, "ahci", AHCI_MEM_BAR_SIZE);
+    memory_region_init_io(&s->idp, &ahci_idp_ops, s, "ahci-idp", 32);
+
     irqs = qemu_allocate_irqs(ahci_irq_set, s, s->ports);
 
     for (i = 0; i < s->ports; i++) {
@@ -1155,18 +1189,24 @@ void ahci_init(AHCIState *s, DeviceState *qdev, int ports)
 void ahci_uninit(AHCIState *s)
 {
     memory_region_destroy(&s->mem);
+    memory_region_destroy(&s->idp);
     g_free(s->dev);
 }
 
 void ahci_reset(void *opaque)
 {
     struct AHCIPCIState *d = opaque;
+    AHCIPortRegs *pr;
     int i;
 
     d->ahci.control_regs.irqstatus = 0;
     d->ahci.control_regs.ghc = 0;
 
     for (i = 0; i < d->ahci.ports; i++) {
+        pr = &d->ahci.dev[i].port_regs;
+        pr->irq_stat = 0;
+        pr->irq_mask = 0;
+        pr->scr_ctl = 0;
         ahci_reset_port(&d->ahci, i);
     }
 }

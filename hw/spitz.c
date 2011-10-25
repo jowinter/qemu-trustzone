@@ -24,6 +24,7 @@
 #include "boards.h"
 #include "blockdev.h"
 #include "sysbus.h"
+#include "exec-memory.h"
 
 #undef REG_FMT
 #define REG_FMT			"0x%02lx"
@@ -48,6 +49,7 @@
 
 typedef struct {
     SysBusDevice busdev;
+    MemoryRegion iomem;
     DeviceState *nand;
     uint8_t ctl;
     uint8_t manf_id;
@@ -55,7 +57,7 @@ typedef struct {
     ECCState ecc;
 } SLNANDState;
 
-static uint32_t sl_readb(void *opaque, target_phys_addr_t addr)
+static uint64_t sl_read(void *opaque, target_phys_addr_t addr, unsigned size)
 {
     SLNANDState *s = (SLNANDState *) opaque;
     int ryby;
@@ -85,6 +87,10 @@ static uint32_t sl_readb(void *opaque, target_phys_addr_t addr)
             return s->ctl;
 
     case FLASH_FLASHIO:
+        if (size == 4) {
+            return ecc_digest(&s->ecc, nand_getio(s->nand)) |
+                (ecc_digest(&s->ecc, nand_getio(s->nand)) << 16);
+        }
         return ecc_digest(&s->ecc, nand_getio(s->nand));
 
     default:
@@ -93,19 +99,8 @@ static uint32_t sl_readb(void *opaque, target_phys_addr_t addr)
     return 0;
 }
 
-static uint32_t sl_readl(void *opaque, target_phys_addr_t addr)
-{
-    SLNANDState *s = (SLNANDState *) opaque;
-
-    if (addr == FLASH_FLASHIO)
-        return ecc_digest(&s->ecc, nand_getio(s->nand)) |
-                (ecc_digest(&s->ecc, nand_getio(s->nand)) << 16);
-
-    return sl_readb(opaque, addr);
-}
-
-static void sl_writeb(void *opaque, target_phys_addr_t addr,
-                uint32_t value)
+static void sl_write(void *opaque, target_phys_addr_t addr,
+                     uint64_t value, unsigned size)
 {
     SLNANDState *s = (SLNANDState *) opaque;
 
@@ -139,15 +134,10 @@ enum {
     FLASH_1024M,
 };
 
-static CPUReadMemoryFunc * const sl_readfn[] = {
-    sl_readb,
-    sl_readb,
-    sl_readl,
-};
-static CPUWriteMemoryFunc * const sl_writefn[] = {
-    sl_writeb,
-    sl_writeb,
-    sl_writeb,
+static const MemoryRegionOps sl_ops = {
+    .read = sl_read,
+    .write = sl_write,
+    .endianness = DEVICE_NATIVE_ENDIAN,
 };
 
 static void sl_flash_register(PXA2xxState *cpu, int size)
@@ -167,7 +157,6 @@ static void sl_flash_register(PXA2xxState *cpu, int size)
 }
 
 static int sl_nand_init(SysBusDevice *dev) {
-    int iomemtype;
     SLNANDState *s;
     DriveInfo *nand;
 
@@ -177,10 +166,8 @@ static int sl_nand_init(SysBusDevice *dev) {
     nand = drive_get(IF_MTD, 0, 0);
     s->nand = nand_init(nand ? nand->bdrv : NULL, s->manf_id, s->chip_id);
 
-    iomemtype = cpu_register_io_memory(sl_readfn,
-                    sl_writefn, s, DEVICE_NATIVE_ENDIAN);
-
-    sysbus_init_mmio(dev, 0x40, iomemtype);
+    memory_region_init_io(&s->iomem, &sl_ops, s, "sl", 0x40);
+    sysbus_init_mmio_region(dev, &s->iomem);
 
     return 0;
 }
@@ -708,17 +695,13 @@ static void spitz_ssp_attach(PXA2xxState *cpu)
 static void spitz_microdrive_attach(PXA2xxState *cpu, int slot)
 {
     PCMCIACardState *md;
-    BlockDriverState *bs;
     DriveInfo *dinfo;
 
     dinfo = drive_get(IF_IDE, 0, 0);
-    if (!dinfo)
+    if (!dinfo || dinfo->media_cd)
         return;
-    bs = dinfo->bdrv;
-    if (bdrv_is_inserted(bs) && !bdrv_is_removable(bs)) {
-        md = dscm1xxxx_init(dinfo);
-        pxa2xx_pcmcia_attach(cpu->pcmcia[slot], md);
-    }
+    md = dscm1xxxx_init(dinfo);
+    pxa2xx_pcmcia_attach(cpu->pcmcia[slot], md);
 }
 
 /* Wm8750 and Max7310 on I2C */
@@ -900,17 +883,20 @@ static void spitz_common_init(ram_addr_t ram_size,
 {
     PXA2xxState *cpu;
     DeviceState *scp0, *scp1 = NULL;
+    MemoryRegion *address_space_mem = get_system_memory();
+    MemoryRegion *rom = g_new(MemoryRegion, 1);
 
     if (!cpu_model)
         cpu_model = (model == terrier) ? "pxa270-c5" : "pxa270-c0";
 
     /* Setup CPU & memory */
-    cpu = pxa270_init(spitz_binfo.ram_size, cpu_model);
+    cpu = pxa270_init(address_space_mem, spitz_binfo.ram_size, cpu_model);
 
     sl_flash_register(cpu, (model == spitz) ? FLASH_128M : FLASH_1024M);
 
-    cpu_register_physical_memory(0, SPITZ_ROM,
-                    qemu_ram_alloc(NULL, "spitz.rom", SPITZ_ROM) | IO_MEM_ROM);
+    memory_region_init_ram(rom, NULL, "spitz.rom", SPITZ_ROM);
+    memory_region_set_readonly(rom, true);
+    memory_region_add_subregion(address_space_mem, 0, rom);
 
     /* Setup peripherals */
     spitz_keyboard_register(cpu);

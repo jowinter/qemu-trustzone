@@ -93,6 +93,35 @@ PropertyInfo qdev_prop_uint8 = {
     .print = print_uint8,
 };
 
+/* --- 8bit hex value --- */
+
+static int parse_hex8(DeviceState *dev, Property *prop, const char *str)
+{
+    uint8_t *ptr = qdev_get_prop_ptr(dev, prop);
+    char *end;
+
+    *ptr = strtoul(str, &end, 16);
+    if ((*end != '\0') || (end == str)) {
+        return -EINVAL;
+    }
+
+    return 0;
+}
+
+static int print_hex8(DeviceState *dev, Property *prop, char *dest, size_t len)
+{
+    uint8_t *ptr = qdev_get_prop_ptr(dev, prop);
+    return snprintf(dest, len, "0x%" PRIx8, *ptr);
+}
+
+PropertyInfo qdev_prop_hex8 = {
+    .name  = "hex8",
+    .type  = PROP_TYPE_UINT8,
+    .size  = sizeof(uint8_t),
+    .parse = parse_hex8,
+    .print = print_hex8,
+};
+
 /* --- 16bit integer --- */
 
 static int parse_uint16(DeviceState *dev, Property *prop, const char *str)
@@ -312,7 +341,7 @@ static int parse_drive(DeviceState *dev, Property *prop, const char *str)
     bs = bdrv_find(str);
     if (bs == NULL)
         return -ENOENT;
-    if (bdrv_attach(bs, dev) < 0)
+    if (bdrv_attach_dev(bs, dev) < 0)
         return -EEXIST;
     *ptr = bs;
     return 0;
@@ -323,7 +352,7 @@ static void free_drive(DeviceState *dev, Property *prop)
     BlockDriverState **ptr = qdev_get_prop_ptr(dev, prop);
 
     if (*ptr) {
-        bdrv_detach(*ptr, dev);
+        bdrv_detach_dev(*ptr, dev);
         blockdev_auto_del(*ptr);
     }
 }
@@ -524,6 +553,8 @@ static int parse_pci_devfn(DeviceState *dev, Property *prop, const char *str)
         return -EINVAL;
     if (fn > 7)
         return -EINVAL;
+    if (slot > 31)
+        return -EINVAL;
     *ptr = slot << 3 | fn;
     return 0;
 }
@@ -678,7 +709,7 @@ int qdev_prop_set_drive(DeviceState *dev, const char *name, BlockDriverState *va
 {
     int res;
 
-    res = bdrv_attach(value, dev);
+    res = bdrv_attach_dev(value, dev);
     if (res < 0) {
         error_report("Can't attach drive %s to %s.%s: %s",
                      bdrv_get_device_name(value),

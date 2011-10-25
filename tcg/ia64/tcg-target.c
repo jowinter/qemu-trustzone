@@ -172,9 +172,8 @@ static const int tcg_target_call_iarg_regs[8] = {
     TCG_REG_R63,
 };
 
-static const int tcg_target_call_oarg_regs[2] = {
-    TCG_REG_R8,
-    TCG_REG_R9
+static const int tcg_target_call_oarg_regs[] = {
+    TCG_REG_R8
 };
 
 /* maximum number of register used for input function arguments */
@@ -846,25 +845,6 @@ static inline void tcg_out_movi(TCGContext *s, TCGType type,
                    tcg_opc_m48(TCG_REG_P0, OPC_NOP_M48, 0),
                    tcg_opc_l2 (arg),
                    tcg_opc_x2 (TCG_REG_P0, OPC_MOVL_X2, reg, arg));
-}
-
-static inline void tcg_out_addi(TCGContext *s, TCGArg reg, tcg_target_long val)
-{
-    if (val == ((int32_t)val << 10) >> 10) {
-        tcg_out_bundle(s, MmI,
-                       tcg_opc_a5(TCG_REG_P0, OPC_ADDL_A5,
-                                  TCG_REG_R2, val, TCG_REG_R0),
-                       tcg_opc_m48(TCG_REG_P0, OPC_NOP_M48, 0),
-                       tcg_opc_a1 (TCG_REG_P0, OPC_ADD_A1, reg,
-                                   reg, TCG_REG_R2));
-    } else {
-        tcg_out_movi(s, TCG_TYPE_PTR, TCG_REG_R2, val);
-        tcg_out_bundle(s, mmI,
-                       tcg_opc_m48(TCG_REG_P0, OPC_NOP_M48, 0),
-                       tcg_opc_m48(TCG_REG_P0, OPC_NOP_M48, 0),
-                       tcg_opc_a1 (TCG_REG_P0, OPC_ADD_A1, reg,
-                                   reg, TCG_REG_R2));
-    }
 }
 
 static void tcg_out_br(TCGContext *s, int label_index)

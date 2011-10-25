@@ -5,8 +5,11 @@
 #include <dirent.h>
 #include <sys/time.h>
 #include <utime.h>
+#include <sys/resource.h>
 #include "hw/virtio.h"
 #include "fsdev/file-op-9p.h"
+#include "qemu-thread.h"
+#include "qemu-coroutine.h"
 
 /* The feature bitmap for virtio 9P */
 /* The mount point is specified in a config variable */
@@ -49,6 +52,10 @@ enum {
     P9_RLINK,
     P9_TMKDIR = 72,
     P9_RMKDIR,
+    P9_TRENAMEAT = 74,
+    P9_RRENAMEAT,
+    P9_TUNLINKAT = 76,
+    P9_RUNLINKAT,
     P9_TVERSION = 100,
     P9_RVERSION,
     P9_TAUTH = 102,
@@ -101,6 +108,9 @@ enum p9_proto_version {
 #define P9_NOTAG    (u16)(~0)
 #define P9_NOFID    (u32)(~0)
 #define P9_MAXWELEM 16
+
+#define FID_REFERENCED          0x1
+#define FID_NON_RECLAIMABLE     0x2
 static inline const char *rpath(FsContext *ctx, const char *path, char *buffer)
 {
     snprintf(buffer, PATH_MAX, "%s/%s", ctx->fs_root, path);
@@ -121,6 +131,8 @@ struct V9fsPDU
     uint32_t size;
     uint16_t tag;
     uint8_t id;
+    uint8_t cancelled;
+    CoQueue complete;
     VirtQueueElement elem;
     struct V9fsState *s;
     QLIST_ENTRY(V9fsPDU) next;
@@ -196,14 +208,23 @@ struct V9fsFidState
 {
     int fid_type;
     int32_t fid;
-    V9fsString path;
+    V9fsPath path;
     union {
-	int fd;
-	DIR *dir;
-	V9fsXattr xattr;
+        int fd;
+        DIR *dir;
+        V9fsXattr xattr;
     } fs;
+    union {
+        int fd;
+        DIR *dir;
+    } fs_reclaim;
+    int flags;
+    int open_flags;
     uid_t uid;
+    int ref;
+    int clunked;
     V9fsFidState *next;
+    V9fsFidState *rclm_lst;
 };
 
 typedef struct V9fsState
@@ -212,6 +233,7 @@ typedef struct V9fsState
     VirtQueue *vq;
     V9fsPDU pdus[MAX_REQ];
     QLIST_HEAD(, V9fsPDU) free_list;
+    QLIST_HEAD(, V9fsPDU) active_list;
     V9fsFidState *fid_list;
     FileOperations *ops;
     FsContext ctx;
@@ -220,6 +242,11 @@ typedef struct V9fsState
     size_t config_size;
     enum p9_proto_version proto_version;
     int32_t msize;
+    /*
+     * lock ensuring atomic path update
+     * on rename.
+     */
+    CoRwlock rename_lock;
 } V9fsState;
 
 typedef struct V9fsStatState {
@@ -314,7 +341,7 @@ struct virtio_9p_config
     uint16_t tag_len;
     /* Variable size tag name */
     uint8_t tag[0];
-} __attribute__((packed));
+} QEMU_PACKED;
 
 typedef struct V9fsMkState {
     V9fsPDU *pdu;
@@ -324,6 +351,35 @@ typedef struct V9fsMkState {
     V9fsString name;
     V9fsString fullname;
 } V9fsMkState;
+
+/* 9p2000.L open flags */
+#define P9_DOTL_RDONLY        00000000
+#define P9_DOTL_WRONLY        00000001
+#define P9_DOTL_RDWR          00000002
+#define P9_DOTL_NOACCESS      00000003
+#define P9_DOTL_CREATE        00000100
+#define P9_DOTL_EXCL          00000200
+#define P9_DOTL_NOCTTY        00000400
+#define P9_DOTL_TRUNC         00001000
+#define P9_DOTL_APPEND        00002000
+#define P9_DOTL_NONBLOCK      00004000
+#define P9_DOTL_DSYNC         00010000
+#define P9_DOTL_FASYNC        00020000
+#define P9_DOTL_DIRECT        00040000
+#define P9_DOTL_LARGEFILE     00100000
+#define P9_DOTL_DIRECTORY     00200000
+#define P9_DOTL_NOFOLLOW      00400000
+#define P9_DOTL_NOATIME       01000000
+#define P9_DOTL_CLOEXEC       02000000
+#define P9_DOTL_SYNC          04000000
+
+/* 9p2000.L at flags */
+#define P9_DOTL_AT_REMOVEDIR         0x200
+
+/* 9P2000.L lock type */
+#define P9_LOCK_TYPE_RDLCK 0
+#define P9_LOCK_TYPE_WRLCK 1
+#define P9_LOCK_TYPE_UNLCK 2
 
 #define P9_LOCK_SUCCESS 0
 #define P9_LOCK_BLOCKED 1
@@ -352,6 +408,9 @@ typedef struct V9fsGetlock
     V9fsString client_id;
 } V9fsGetlock;
 
+extern int open_fd_hw;
+extern int total_open_fd;
+
 size_t pdu_packunpack(void *addr, struct iovec *sg, int sg_count,
                       size_t offset, size_t size, int pack);
 
@@ -361,5 +420,43 @@ static inline size_t do_pdu_unpack(void *dst, struct iovec *sg, int sg_count,
     return pdu_packunpack(dst, sg, sg_count, offset, size, 0);
 }
 
+static inline void v9fs_path_write_lock(V9fsState *s)
+{
+    if (s->ctx.export_flags & V9FS_PATHNAME_FSCONTEXT) {
+        qemu_co_rwlock_wrlock(&s->rename_lock);
+    }
+}
+
+static inline void v9fs_path_read_lock(V9fsState *s)
+{
+    if (s->ctx.export_flags & V9FS_PATHNAME_FSCONTEXT) {
+        qemu_co_rwlock_rdlock(&s->rename_lock);
+    }
+}
+
+static inline void v9fs_path_unlock(V9fsState *s)
+{
+    if (s->ctx.export_flags & V9FS_PATHNAME_FSCONTEXT) {
+        qemu_co_rwlock_unlock(&s->rename_lock);
+    }
+}
+
+static inline uint8_t v9fs_request_cancelled(V9fsPDU *pdu)
+{
+    return pdu->cancelled;
+}
+
 extern void handle_9p_output(VirtIODevice *vdev, VirtQueue *vq);
+extern void virtio_9p_set_fd_limit(void);
+extern void v9fs_reclaim_fd(V9fsPDU *pdu);
+extern void v9fs_string_init(V9fsString *str);
+extern void v9fs_string_free(V9fsString *str);
+extern void v9fs_string_null(V9fsString *str);
+extern void v9fs_string_sprintf(V9fsString *str, const char *fmt, ...);
+extern void v9fs_string_copy(V9fsString *lhs, V9fsString *rhs);
+extern void v9fs_path_init(V9fsPath *path);
+extern void v9fs_path_free(V9fsPath *path);
+extern void v9fs_path_copy(V9fsPath *lhs, V9fsPath *rhs);
+extern int v9fs_name_to_path(V9fsState *s, V9fsPath *dirpath,
+                             const char *name, V9fsPath *path);
 #endif

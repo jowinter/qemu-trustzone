@@ -183,7 +183,6 @@ typedef struct PageDesc {
 #define V_L1_SHIFT (L1_MAP_ADDR_SPACE_BITS - TARGET_PAGE_BITS - V_L1_BITS)
 
 unsigned long qemu_real_host_page_size;
-unsigned long qemu_host_page_bits;
 unsigned long qemu_host_page_size;
 unsigned long qemu_host_page_mask;
 
@@ -274,9 +273,6 @@ static void page_init(void)
         qemu_host_page_size = qemu_real_host_page_size;
     if (qemu_host_page_size < TARGET_PAGE_SIZE)
         qemu_host_page_size = TARGET_PAGE_SIZE;
-    qemu_host_page_bits = 0;
-    while ((1 << qemu_host_page_bits) < qemu_host_page_size)
-        qemu_host_page_bits++;
     qemu_host_page_mask = ~(qemu_host_page_size - 1);
 
 #if defined(CONFIG_BSD) && defined(CONFIG_USER_ONLY)
@@ -4767,6 +4763,7 @@ void dump_exec_info(FILE *f, fprintf_function cpu_fprintf)
 }
 
 #define MMUSUFFIX _cmmu
+#undef GETPC
 #define GETPC() NULL
 #define env cpu_single_env
 #define SOFTMMU_CODE_ACCESS

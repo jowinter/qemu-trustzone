@@ -448,8 +448,8 @@ static void ohci_reset(void *opaque)
       {
         port = &ohci->rhport[i];
         port->ctrl = 0;
-        if (port->port.dev) {
-            usb_attach(&port->port, port->port.dev);
+        if (port->port.dev && port->port.dev->attached) {
+            usb_reset(&port->port);
         }
       }
     if (ohci->async_td) {
@@ -1797,8 +1797,7 @@ static int usb_ohci_initfn_pci(struct PCIDevice *dev)
     OHCIPCIState *ohci = DO_UPCAST(OHCIPCIState, pci_dev, dev);
 
     ohci->pci_dev.config[PCI_CLASS_PROG] = 0x10; /* OHCI */
-    /* TODO: RST# value should be 0. */
-    ohci->pci_dev.config[PCI_INTERRUPT_PIN] = 0x01; /* interrupt pin 1 */
+    ohci->pci_dev.config[PCI_INTERRUPT_PIN] = 0x01; /* interrupt pin A */
 
     if (usb_ohci_init(&ohci->state, &dev->qdev, ohci->num_ports, 0,
                       ohci->masterbus, ohci->firstport) != 0) {

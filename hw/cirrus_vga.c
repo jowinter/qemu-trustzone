@@ -2401,7 +2401,7 @@ static void map_linear_vram_bank(CirrusVGAState *s, unsigned bank)
 
 static void map_linear_vram(CirrusVGAState *s)
 {
-    if (!s->linear_vram) {
+    if (s->bustype == CIRRUS_BUSTYPE_PCI && !s->linear_vram) {
         s->linear_vram = true;
         memory_region_add_subregion_overlap(&s->pci_bar, 0, &s->vga.vram, 1);
     }
@@ -2411,7 +2411,7 @@ static void map_linear_vram(CirrusVGAState *s)
 
 static void unmap_linear_vram(CirrusVGAState *s)
 {
-    if (s->linear_vram) {
+    if (s->bustype == CIRRUS_BUSTYPE_PCI && s->linear_vram) {
         s->linear_vram = false;
         memory_region_del_subregion(&s->pci_bar, &s->vga.vram);
     }
@@ -2424,6 +2424,7 @@ static void cirrus_update_memory_access(CirrusVGAState *s)
 {
     unsigned mode;
 
+    memory_region_transaction_begin();
     if ((s->vga.sr[0x17] & 0x44) == 0x44) {
         goto generic_io;
     } else if (s->cirrus_srcptr != s->cirrus_srcptr_end) {
@@ -2443,6 +2444,7 @@ static void cirrus_update_memory_access(CirrusVGAState *s)
             unmap_linear_vram(s);
         }
     }
+    memory_region_transaction_commit();
 }
 
 

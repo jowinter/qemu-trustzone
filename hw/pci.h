@@ -90,7 +90,6 @@ typedef struct PCIIORegion {
     pcibus_t addr; /* current PCI mapping address. -1 means not mapped */
 #define PCI_BAR_UNMAPPED (~(pcibus_t)0)
     pcibus_t size;
-    pcibus_t filtered_size;
     uint8_t type;
     MemoryRegion *memory;
     MemoryRegion *address_space;
@@ -209,8 +208,6 @@ int pci_add_capability(PCIDevice *pdev, uint8_t cap_id,
 
 void pci_del_capability(PCIDevice *pci_dev, uint8_t cap_id, uint8_t cap_size);
 
-void pci_reserve_capability(PCIDevice *pci_dev, uint8_t offset, uint8_t size);
-
 uint8_t pci_find_capability(PCIDevice *pci_dev, uint8_t cap_id);
 
 
@@ -221,6 +218,7 @@ void pci_default_write_config(PCIDevice *d,
 void pci_device_save(PCIDevice *s, QEMUFile *f);
 int pci_device_load(PCIDevice *s, QEMUFile *f);
 MemoryRegion *pci_address_space(PCIDevice *dev);
+MemoryRegion *pci_address_space_io(PCIDevice *dev);
 
 typedef void (*pci_set_irq_fn)(void *opaque, int irq_num, int level);
 typedef int (*pci_map_irq_fn)(PCIDevice *pci_dev, int irq_num);
@@ -255,8 +253,6 @@ PCIBus *pci_register_bus(DeviceState *parent, const char *name,
 void pci_device_reset(PCIDevice *dev);
 void pci_bus_reset(PCIBus *bus);
 
-void pci_bus_set_mem_base(PCIBus *bus, target_phys_addr_t base);
-
 PCIDevice *pci_nic_init(NICInfo *nd, const char *default_model,
                         const char *default_devaddr);
 PCIDevice *pci_nic_init_nofail(NICInfo *nd, const char *default_model,
@@ -277,7 +273,6 @@ int pci_read_devaddr(Monitor *mon, const char *addr, int *domp, int *busp,
 
 void do_pci_info_print(Monitor *mon, const QObject *data);
 void do_pci_info(Monitor *mon, QObject **ret_data);
-void pci_bridge_update_mappings(PCIBus *b);
 
 void pci_device_deassert_intx(PCIDevice *dev);
 

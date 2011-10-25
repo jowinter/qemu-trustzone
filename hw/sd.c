@@ -32,7 +32,6 @@
 
 #include "hw.h"
 #include "block.h"
-#include "block_int.h"
 #include "sd.h"
 
 //#define DEBUG_SD 1
@@ -462,13 +461,9 @@ void sd_reset(SDState *sd)
     sd->pwd_len = 0;
 }
 
-static void sd_cardchange(void *opaque, int reason)
+static void sd_cardchange(void *opaque, bool load)
 {
     SDState *sd = opaque;
-
-    if (!(reason & CHANGE_MEDIA)) {
-        return;
-    }
 
     qemu_set_irq(sd->inserted_cb, bdrv_is_inserted(sd->bdrv));
     if (bdrv_is_inserted(sd->bdrv)) {
@@ -476,6 +471,10 @@ static void sd_cardchange(void *opaque, int reason)
         qemu_set_irq(sd->readonly_cb, sd->wp_switch);
     }
 }
+
+static const BlockDevOps sd_block_ops = {
+    .change_media_cb = sd_cardchange,
+};
 
 /* We do not model the chip select pin, so allow the board to select
    whether card should be in SSI or MMC/SD mode.  It is also up to the
@@ -493,7 +492,8 @@ SDState *sd_init(BlockDriverState *bs, int is_spi, int is_mmc)
     sd->bdrv = bs;
     sd_reset(sd);
     if (sd->bdrv) {
-        bdrv_set_change_cb(sd->bdrv, sd_cardchange, sd);
+        bdrv_attach_dev_nofail(sd->bdrv, sd);
+        bdrv_set_dev_ops(sd->bdrv, &sd_block_ops, sd);
     }
     return sd;
 }

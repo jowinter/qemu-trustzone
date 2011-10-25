@@ -808,7 +808,7 @@ static void qxl_exit_vga_mode(PCIQXLDevice *d)
     qxl_destroy_primary(d, QXL_SYNC);
 }
 
-static void qxl_set_irq(PCIQXLDevice *d)
+static void qxl_update_irq(PCIQXLDevice *d)
 {
     uint32_t pending = le32_to_cpu(d->ram->int_pending);
     uint32_t mask    = le32_to_cpu(d->ram->int_mask);
@@ -959,7 +959,7 @@ static void qxl_add_memslot(PCIQXLDevice *d, uint32_t slot_id, uint64_t delta,
     memslot.generation = d->rom->slot_generation = 0;
     qxl_rom_set_dirty(d);
 
-    dprint(d, 1, "%s: slot %d: host virt 0x%" PRIx64 " - 0x%" PRIx64 "\n",
+    dprint(d, 1, "%s: slot %d: host virt 0x%lx - 0x%lx\n",
            __FUNCTION__, memslot.slot_id,
            memslot.virt_start, memslot.virt_end);
 
@@ -1090,8 +1090,8 @@ static void qxl_set_mode(PCIQXLDevice *d, int modenr, int loadvm)
         .mem        = devmem + d->shadow_rom.draw_area_offset,
     };
 
-    dprint(d, 1, "%s: mode %d  [ %d x %d @ %d bpp devmem 0x%lx ]\n", __FUNCTION__,
-           modenr, mode->x_res, mode->y_res, mode->bits, devmem);
+    dprint(d, 1, "%s: mode %d  [ %d x %d @ %d bpp devmem 0x%" PRIx64 " ]\n",
+           __func__, modenr, mode->x_res, mode->y_res, mode->bits, devmem);
     if (!loadvm) {
         qxl_hard_reset(d, 0);
     }
@@ -1209,7 +1209,7 @@ async_common:
         qemu_spice_wakeup(&d->ssd);
         break;
     case QXL_IO_UPDATE_IRQ:
-        qxl_set_irq(d);
+        qxl_update_irq(d);
         break;
     case QXL_IO_NOTIFY_OOM:
         if (!SPICE_RING_IS_EMPTY(&d->ram->release_ring)) {
@@ -1229,7 +1229,7 @@ async_common:
         break;
     case QXL_IO_LOG:
         if (d->guestdebug) {
-            fprintf(stderr, "qxl/guest-%d: %ld: %s", d->id,
+            fprintf(stderr, "qxl/guest-%d: %" PRId64 ": %s", d->id,
                     qemu_get_clock_ns(vm_clock), d->ram->log_buf);
         }
         break;
@@ -1359,10 +1359,9 @@ static void pipe_read(void *opaque)
     do {
         len = read(d->pipe[0], &dummy, sizeof(dummy));
     } while (len == sizeof(dummy));
-    qxl_set_irq(d);
+    qxl_update_irq(d);
 }
 
-/* called from spice server thread context only */
 static void qxl_send_events(PCIQXLDevice *d, uint32_t events)
 {
     uint32_t old_pending;
@@ -1374,7 +1373,7 @@ static void qxl_send_events(PCIQXLDevice *d, uint32_t events)
         return;
     }
     if (pthread_self() == d->main) {
-        qxl_set_irq(d);
+        qxl_update_irq(d);
     } else {
         if (write(d->pipe[1], d, 1) != 1) {
             dprint(d, 1, "%s: write to pipe failed\n", __FUNCTION__);
@@ -1388,11 +1387,7 @@ static void init_pipe_signaling(PCIQXLDevice *d)
        dprint(d, 1, "%s: pipe creation failed\n", __FUNCTION__);
        return;
    }
-#ifdef CONFIG_IOTHREAD
    fcntl(d->pipe[0], F_SETFL, O_NONBLOCK);
-#else
-   fcntl(d->pipe[0], F_SETFL, O_NONBLOCK /* | O_ASYNC */);
-#endif
    fcntl(d->pipe[1], F_SETFL, O_NONBLOCK);
    fcntl(d->pipe[0], F_SETOWN, getpid());
 
@@ -1458,12 +1453,20 @@ static void qxl_hw_text_update(void *opaque, console_ch_t *chardata)
     }
 }
 
-static void qxl_vm_change_state_handler(void *opaque, int running, int reason)
+static void qxl_vm_change_state_handler(void *opaque, int running,
+                                        RunState state)
 {
     PCIQXLDevice *qxl = opaque;
-    qemu_spice_vm_change_state_handler(&qxl->ssd, running, reason);
+    qemu_spice_vm_change_state_handler(&qxl->ssd, running, state);
 
-    if (!running && qxl->mode == QXL_MODE_NATIVE) {
+    if (running) {
+        /*
+         * if qxl_send_events was called from spice server context before
+         * migration ended, qxl_update_irq for these events might not have been
+         * called
+         */
+         qxl_update_irq(qxl);
+    } else if (qxl->mode == QXL_MODE_NATIVE) {
         /* dirty all vram (which holds surfaces) and devram (primary surface)
          * to make sure they are saved */
         /* FIXME #1: should go out during "live" stage */
@@ -1598,7 +1601,7 @@ static int qxl_init_primary(PCIDevice *dev)
         ram_size = 32 * 1024 * 1024;
     }
     vga_common_init(vga, ram_size);
-    vga_init(vga, pci_address_space(dev));
+    vga_init(vga, pci_address_space(dev), pci_address_space_io(dev), false);
     register_ioport_write(0x3c0, 16, 1, qxl_vga_ioport_write, vga);
     register_ioport_write(0x3b4,  2, 1, qxl_vga_ioport_write, vga);
     register_ioport_write(0x3d4,  2, 1, qxl_vga_ioport_write, vga);

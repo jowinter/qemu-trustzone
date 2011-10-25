@@ -207,20 +207,14 @@ static void usb_hub_complete(USBPort *port, USBPacket *packet)
     /*
      * Just pass it along upstream for now.
      *
-     * If we ever inplement usb 2.0 split transactions this will
+     * If we ever implement usb 2.0 split transactions this will
      * become a little more complicated ...
+     *
+     * Can't use usb_packet_complete() here because packet->owner is
+     * cleared already, go call the ->complete() callback directly
+     * instead.
      */
-    usb_packet_complete(&s->dev, packet);
-}
-
-static void usb_hub_handle_attach(USBDevice *dev)
-{
-    USBHubState *s = DO_UPCAST(USBHubState, dev, dev);
-    int i;
-
-    for (i = 0; i < NUM_PORTS; i++) {
-        usb_port_location(&s->ports[i].port, dev->port, i+1);
-    }
+    s->dev.port->ops->complete(s->dev.port, packet);
 }
 
 static void usb_hub_handle_reset(USBDevice *dev)
@@ -299,7 +293,7 @@ static int usb_hub_handle_control(USBDevice *dev, USBPacket *p,
                 port->wPortStatus |= PORT_STAT_SUSPEND;
                 break;
             case PORT_RESET:
-                if (dev) {
+                if (dev && dev->attached) {
                     usb_send_msg(dev, USB_MSG_RESET);
                     port->wPortChange |= PORT_STAT_C_RESET;
                     /* set enable bit */
@@ -439,7 +433,7 @@ static int usb_hub_broadcast_packet(USBHubState *s, USBPacket *p)
     for(i = 0; i < NUM_PORTS; i++) {
         port = &s->ports[i];
         dev = port->port.dev;
-        if (dev && (port->wPortStatus & PORT_STAT_ENABLE)) {
+        if (dev && dev->attached && (port->wPortStatus & PORT_STAT_ENABLE)) {
             ret = usb_handle_packet(dev, p);
             if (ret != USB_RET_NODEV) {
                 return ret;
@@ -499,6 +493,7 @@ static int usb_hub_initfn(USBDevice *dev)
         usb_register_port(usb_bus_from_device(dev),
                           &port->port, s, i, &usb_hub_port_ops,
                           USB_SPEED_MASK_LOW | USB_SPEED_MASK_FULL);
+        usb_port_location(&port->port, dev->port, i+1);
         port->wPortStatus = PORT_STAT_POWER;
         port->wPortChange = 0;
     }
@@ -537,7 +532,6 @@ static struct USBDeviceInfo hub_info = {
     .usb_desc       = &desc_hub,
     .init           = usb_hub_initfn,
     .handle_packet  = usb_hub_handle_packet,
-    .handle_attach  = usb_hub_handle_attach,
     .handle_reset   = usb_hub_handle_reset,
     .handle_control = usb_hub_handle_control,
     .handle_data    = usb_hub_handle_data,

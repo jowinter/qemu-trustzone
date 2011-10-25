@@ -115,6 +115,7 @@ typedef enum {
 /* ??? This is mis-named.
    It is used for both text and graphical consoles.  */
 struct TextConsole {
+    int index;
     console_type_t console_type;
     DisplayState *ds;
     /* Graphic console state.  */
@@ -177,12 +178,15 @@ void vga_hw_screen_dump(const char *filename)
     TextConsole *previous_active_console;
 
     previous_active_console = active_console;
-    active_console = consoles[0];
+
     /* There is currently no way of specifying which screen we want to dump,
        so always dump the first one.  */
-    if (consoles[0] && consoles[0]->hw_screen_dump)
+    console_select(0);
+    if (consoles[0] && consoles[0]->hw_screen_dump) {
         consoles[0]->hw_screen_dump(consoles[0]->hw, filename);
-    active_console = previous_active_console;
+    }
+
+    console_select(previous_active_console->index);
 }
 
 void vga_hw_text_update(console_ch_t *chardata)
@@ -343,6 +347,7 @@ static const uint32_t dmask4[4] = {
 
 static uint32_t color_table[2][8];
 
+#ifndef CONFIG_CURSES
 enum color_names {
     COLOR_BLACK   = 0,
     COLOR_RED     = 1,
@@ -353,6 +358,7 @@ enum color_names {
     COLOR_CYAN    = 6,
     COLOR_WHITE   = 7
 };
+#endif
 
 static const uint32_t color_table_rgb[2][8] = {
     {   /* dark */
@@ -1245,6 +1251,7 @@ static TextConsole *new_console(DisplayState *ds, console_type_t console_type)
     s->ds = ds;
     s->console_type = console_type;
     if (console_type != GRAPHIC_CONSOLE) {
+        s->index = nb_consoles;
         consoles[nb_consoles++] = s;
     } else {
         /* HACK: Put graphical consoles before text consoles.  */
@@ -1252,7 +1259,9 @@ static TextConsole *new_console(DisplayState *ds, console_type_t console_type)
             if (consoles[i - 1]->console_type == GRAPHIC_CONSOLE)
                 break;
             consoles[i] = consoles[i - 1];
+            consoles[i]->index = i;
         }
+        s->index = i;
         consoles[i] = s;
         nb_consoles++;
     }
@@ -1529,7 +1538,7 @@ int text_console_init(QemuOpts *opts, CharDriverState **_chr)
     }
 
     if (!s) {
-        free(chr);
+        g_free(chr);
         return -EBUSY;
     }
 
