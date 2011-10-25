@@ -2292,8 +2292,6 @@ int main(int argc, char **argv, char **envp)
     int show_vnc_port = 0;
 #endif
     int defconfig = 1;
-    int sd_device_index = 0;
-
     const char *log_mask = NULL;
     const char *log_file = NULL;
     GMemVTable mem_trace = {
@@ -2444,7 +2442,7 @@ int main(int argc, char **argv, char **envp)
                 drive_add(IF_MTD, -1, optarg, MTD_OPTS);
                 break;
             case QEMU_OPTION_sd:
-                drive_add(IF_SD, sd_device_index++, optarg, SD_OPTS);
+                drive_add(IF_SD, 0, optarg, SD_OPTS);
                 break;
             case QEMU_OPTION_pflash:
                 drive_add(IF_PFLASH, -1, optarg, PFLASH_OPTS);
