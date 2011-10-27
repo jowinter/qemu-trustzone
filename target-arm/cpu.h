@@ -384,9 +384,9 @@ enum arm_features {
     ARM_FEATURE_V5,
     ARM_FEATURE_STRONGARM,
     ARM_FEATURE_VAPA, /* cp15 VA to PA lookups */
-    ARM_FEATURE_TRUSTZONE, /* TrustZone Security Extensions. */
     ARM_FEATURE_ARM_DIV, /* divide supported in ARM encoding */
     ARM_FEATURE_VFP4, /* VFPv4 (implies that NEON is v2) */
+    ARM_FEATURE_TRUSTZONE, /* TrustZone Security Extensions. */
 };
 
 static inline int arm_feature(CPUARMState *env, int feature)

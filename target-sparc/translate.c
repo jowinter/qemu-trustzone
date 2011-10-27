@@ -2107,7 +2107,7 @@ static void disas_sparc_insn(DisasContext * dc)
 #ifdef TARGET_SPARC64
                 case 0x2: /* V9 rdccr */
                     gen_helper_compute_psr(cpu_env);
-                    gen_helper_rdccr(cpu_dst);
+                    gen_helper_rdccr(cpu_dst, cpu_env);
                     gen_movl_TN_reg(rd, cpu_dst);
                     break;
                 case 0x3: /* V9 rdasi */
@@ -2184,7 +2184,7 @@ static void disas_sparc_insn(DisasContext * dc)
                     goto priv_insn;
                 gen_helper_compute_psr(cpu_env);
                 dc->cc_op = CC_OP_FLAGS;
-                gen_helper_rdpsr(cpu_dst);
+                gen_helper_rdpsr(cpu_dst, cpu_env);
 #else
                 CHECK_IU_FEATURE(dc, HYPV);
                 if (!hypervisor(dc))
@@ -2297,7 +2297,7 @@ static void disas_sparc_insn(DisasContext * dc)
                     tcg_gen_ext_i32_tl(cpu_tmp0, cpu_tmp32);
                     break;
                 case 9: // cwp
-                    gen_helper_rdcwp(cpu_tmp0);
+                    gen_helper_rdcwp(cpu_tmp0, cpu_env);
                     break;
                 case 10: // cansave
                     tcg_gen_ld_i32(cpu_tmp32, cpu_env,
@@ -2351,7 +2351,7 @@ static void disas_sparc_insn(DisasContext * dc)
             } else if (xop == 0x2b) { /* rdtbr / V9 flushw */
 #ifdef TARGET_SPARC64
                 save_state(dc, cpu_cond);
-                gen_helper_flushw();
+                gen_helper_flushw(cpu_env);
 #else
                 if (!supervisor(dc))
                     goto priv_insn;
@@ -3271,19 +3271,23 @@ static void disas_sparc_insn(DisasContext * dc)
                     case 0xe: /* udiv */
                         CHECK_IU_FEATURE(dc, DIV);
                         if (xop & 0x10) {
-                            gen_helper_udiv_cc(cpu_dst, cpu_src1, cpu_src2);
+                            gen_helper_udiv_cc(cpu_dst, cpu_env, cpu_src1,
+                                               cpu_src2);
                             dc->cc_op = CC_OP_DIV;
                         } else {
-                            gen_helper_udiv(cpu_dst, cpu_src1, cpu_src2);
+                            gen_helper_udiv(cpu_dst, cpu_env, cpu_src1,
+                                            cpu_src2);
                         }
                         break;
                     case 0xf: /* sdiv */
                         CHECK_IU_FEATURE(dc, DIV);
                         if (xop & 0x10) {
-                            gen_helper_sdiv_cc(cpu_dst, cpu_src1, cpu_src2);
+                            gen_helper_sdiv_cc(cpu_dst, cpu_env, cpu_src1,
+                                               cpu_src2);
                             dc->cc_op = CC_OP_DIV;
                         } else {
-                            gen_helper_sdiv(cpu_dst, cpu_src1, cpu_src2);
+                            gen_helper_sdiv(cpu_dst, cpu_env, cpu_src1,
+                                            cpu_src2);
                         }
                         break;
                     default:
@@ -3379,7 +3383,7 @@ static void disas_sparc_insn(DisasContext * dc)
 #else
                             case 0x2: /* V9 wrccr */
                                 tcg_gen_xor_tl(cpu_dst, cpu_src1, cpu_src2);
-                                gen_helper_wrccr(cpu_dst);
+                                gen_helper_wrccr(cpu_env, cpu_dst);
                                 tcg_gen_movi_i32(cpu_cc_op, CC_OP_FLAGS);
                                 dc->cc_op = CC_OP_FLAGS;
                                 break;
@@ -3412,19 +3416,19 @@ static void disas_sparc_insn(DisasContext * dc)
                                 if (!supervisor(dc))
                                     goto illegal_insn;
                                 tcg_gen_xor_tl(cpu_tmp64, cpu_src1, cpu_src2);
-                                gen_helper_set_softint(cpu_tmp64);
+                                gen_helper_set_softint(cpu_env, cpu_tmp64);
                                 break;
                             case 0x15: /* Softint clear */
                                 if (!supervisor(dc))
                                     goto illegal_insn;
                                 tcg_gen_xor_tl(cpu_tmp64, cpu_src1, cpu_src2);
-                                gen_helper_clear_softint(cpu_tmp64);
+                                gen_helper_clear_softint(cpu_env, cpu_tmp64);
                                 break;
                             case 0x16: /* Softint write */
                                 if (!supervisor(dc))
                                     goto illegal_insn;
                                 tcg_gen_xor_tl(cpu_tmp64, cpu_src1, cpu_src2);
-                                gen_helper_write_softint(cpu_tmp64);
+                                gen_helper_write_softint(cpu_env, cpu_tmp64);
                                 break;
                             case 0x17: /* Tick compare */
 #if !defined(CONFIG_USER_ONLY)
@@ -3499,10 +3503,10 @@ static void disas_sparc_insn(DisasContext * dc)
 #ifdef TARGET_SPARC64
                             switch (rd) {
                             case 0:
-                                gen_helper_saved();
+                                gen_helper_saved(cpu_env);
                                 break;
                             case 1:
-                                gen_helper_restored();
+                                gen_helper_restored(cpu_env);
                                 break;
                             case 2: /* UA2005 allclean */
                             case 3: /* UA2005 otherw */
@@ -3514,7 +3518,7 @@ static void disas_sparc_insn(DisasContext * dc)
                             }
 #else
                             tcg_gen_xor_tl(cpu_dst, cpu_src1, cpu_src2);
-                            gen_helper_wrpsr(cpu_dst);
+                            gen_helper_wrpsr(cpu_env, cpu_dst);
                             tcg_gen_movi_i32(cpu_cc_op, CC_OP_FLAGS);
                             dc->cc_op = CC_OP_FLAGS;
                             save_state(dc, cpu_cond);
@@ -3598,7 +3602,7 @@ static void disas_sparc_insn(DisasContext * dc)
 
                                     tcg_gen_mov_tl(r_tmp, cpu_tmp0);
                                     save_state(dc, cpu_cond);
-                                    gen_helper_wrpstate(r_tmp);
+                                    gen_helper_wrpstate(cpu_env, r_tmp);
                                     tcg_temp_free(r_tmp);
                                     dc->npc = DYNAMIC_PC;
                                 }
@@ -3617,10 +3621,10 @@ static void disas_sparc_insn(DisasContext * dc)
                                 }
                                 break;
                             case 8: // pil
-                                gen_helper_wrpil(cpu_tmp0);
+                                gen_helper_wrpil(cpu_env, cpu_tmp0);
                                 break;
                             case 9: // cwp
-                                gen_helper_wrcwp(cpu_tmp0);
+                                gen_helper_wrcwp(cpu_env, cpu_tmp0);
                                 break;
                             case 10: // cansave
                                 tcg_gen_trunc_tl_i32(cpu_tmp32, cpu_tmp0);
@@ -4017,7 +4021,7 @@ static void disas_sparc_insn(DisasContext * dc)
                     break;
                 case 0x051: /* VIS I fpadd16s */
                     CHECK_FPU_FEATURE(dc, VIS1);
-                    gen_helper_fpadd16s(cpu_env, cpu_fpr[rd],
+                    gen_helper_fpadd16s(cpu_fpr[rd], cpu_env,
                                         cpu_fpr[rs1], cpu_fpr[rs2]);
                     gen_update_fprs_dirty(rd);
                     break;
@@ -4031,7 +4035,7 @@ static void disas_sparc_insn(DisasContext * dc)
                     break;
                 case 0x053: /* VIS I fpadd32s */
                     CHECK_FPU_FEATURE(dc, VIS1);
-                    gen_helper_fpadd32s(cpu_env, cpu_fpr[rd],
+                    gen_helper_fpadd32s(cpu_fpr[rd], cpu_env,
                                         cpu_fpr[rs1], cpu_fpr[rs2]);
                     gen_update_fprs_dirty(rd);
                     break;
@@ -4045,7 +4049,7 @@ static void disas_sparc_insn(DisasContext * dc)
                     break;
                 case 0x055: /* VIS I fpsub16s */
                     CHECK_FPU_FEATURE(dc, VIS1);
-                    gen_helper_fpsub16s(cpu_env, cpu_fpr[rd],
+                    gen_helper_fpsub16s(cpu_fpr[rd], cpu_env,
                                         cpu_fpr[rs1], cpu_fpr[rs2]);
                     gen_update_fprs_dirty(rd);
                     break;
@@ -4059,7 +4063,7 @@ static void disas_sparc_insn(DisasContext * dc)
                     break;
                 case 0x057: /* VIS I fpsub32s */
                     CHECK_FPU_FEATURE(dc, VIS1);
-                    gen_helper_fpsub32s(cpu_env, cpu_fpr[rd],
+                    gen_helper_fpsub32s(cpu_fpr[rd], cpu_env,
                                         cpu_fpr[rs1], cpu_fpr[rs2]);
                     gen_update_fprs_dirty(rd);
                     break;
@@ -4307,7 +4311,7 @@ static void disas_sparc_insn(DisasContext * dc)
                     } else
                         tcg_gen_mov_tl(cpu_dst, cpu_src1);
                 }
-                gen_helper_restore();
+                gen_helper_restore(cpu_env);
                 gen_mov_pc_npc(dc, cpu_cond);
                 r_const = tcg_const_i32(3);
                 gen_helper_check_align(cpu_dst, r_const);
@@ -4359,7 +4363,7 @@ static void disas_sparc_insn(DisasContext * dc)
                         tcg_temp_free_i32(r_const);
                         tcg_gen_mov_tl(cpu_npc, cpu_dst);
                         dc->npc = DYNAMIC_PC;
-                        gen_helper_rett();
+                        gen_helper_rett(cpu_env);
                     }
                     goto jmp_insn;
 #endif
@@ -4370,12 +4374,12 @@ static void disas_sparc_insn(DisasContext * dc)
                     break;
                 case 0x3c:      /* save */
                     save_state(dc, cpu_cond);
-                    gen_helper_save();
+                    gen_helper_save(cpu_env);
                     gen_movl_TN_reg(rd, cpu_dst);
                     break;
                 case 0x3d:      /* restore */
                     save_state(dc, cpu_cond);
-                    gen_helper_restore();
+                    gen_helper_restore(cpu_env);
                     gen_movl_TN_reg(rd, cpu_dst);
                     break;
 #if !defined(CONFIG_USER_ONLY) && defined(TARGET_SPARC64)
@@ -4387,14 +4391,14 @@ static void disas_sparc_insn(DisasContext * dc)
                                 goto priv_insn;
                             dc->npc = DYNAMIC_PC;
                             dc->pc = DYNAMIC_PC;
-                            gen_helper_done();
+                            gen_helper_done(cpu_env);
                             goto jmp_insn;
                         case 1:
                             if (!supervisor(dc))
                                 goto priv_insn;
                             dc->npc = DYNAMIC_PC;
                             dc->pc = DYNAMIC_PC;
-                            gen_helper_retry();
+                            gen_helper_retry(cpu_env);
                             goto jmp_insn;
                         default:
                             goto illegal_insn;

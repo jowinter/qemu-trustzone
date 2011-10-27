@@ -507,7 +507,7 @@ static uint32_t cpu_arm_find_by_name(const char *name)
 
 void cpu_arm_close(CPUARMState *env)
 {
-    free(env);
+    g_free(env);
 }
 
 uint32_t cpsr_read(CPUARMState *env)
@@ -3160,8 +3160,7 @@ float32 HELPER(rsqrte_f32)(float32 a, CPUState *env)
 
     val64 = float64_val(f64);
 
-    val = ((val64 >> 63)  & 0x80000000)
-        | ((result_exp & 0xff) << 23)
+    val = ((result_exp & 0xff) << 23)
         | ((val64 >> 29)  & 0x7fffff);
     return make_float32(val);
 }
