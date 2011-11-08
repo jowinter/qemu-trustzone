@@ -143,9 +143,9 @@ int main(int argc, char **argv)
 #include "audio/audio.h"
 #include "migration.h"
 #include "kvm.h"
+#include "qjson.h"
 #include "qemu-option.h"
 #include "qemu-config.h"
-#include "qemu-objects.h"
 #include "qemu-options.h"
 #include "qmp-commands.h"
 #include "main-loop.h"
@@ -460,8 +460,11 @@ int qemu_timedate_diff(struct tm *tm)
     if (rtc_date_offset == -1)
         if (rtc_utc)
             seconds = mktimegm(tm);
-        else
-            seconds = mktime(tm);
+        else {
+            struct tm tmp = *tm;
+            tmp.tm_isdst = -1; /* use timezone to figure it out */
+            seconds = mktime(&tmp);
+	}
     else
         seconds = mktimegm(tm) + rtc_date_offset;
 
@@ -2185,7 +2188,9 @@ int main(int argc, char **argv, char **envp)
     error_set_progname(argv[0]);
 
     g_mem_set_vtable(&mem_trace);
-    g_thread_init(NULL);
+    if (!g_thread_supported()) {
+        g_thread_init(NULL);
+    }
 
     runstate_init();
 
@@ -2707,12 +2712,32 @@ int main(int argc, char **argv, char **envp)
                 qemu_opt_set(fsdev, "security_model",
                              qemu_opt_get(opts, "security_model"));
 
+                qemu_opt_set_bool(fsdev, "readonly",
+                                qemu_opt_get_bool(opts, "readonly", 0));
                 device = qemu_opts_create(qemu_find_opts("device"), NULL, 0);
                 qemu_opt_set(device, "driver", "virtio-9p-pci");
                 qemu_opt_set(device, "fsdev",
                              qemu_opt_get(opts, "mount_tag"));
                 qemu_opt_set(device, "mount_tag",
                              qemu_opt_get(opts, "mount_tag"));
+                break;
+            }
+            case QEMU_OPTION_virtfs_synth: {
+                QemuOpts *fsdev;
+                QemuOpts *device;
+
+                fsdev = qemu_opts_create(qemu_find_opts("fsdev"), "v_synth", 1);
+                if (!fsdev) {
+                    fprintf(stderr, "duplicate option: %s\n", "virtfs_synth");
+                    exit(1);
+                }
+                qemu_opt_set(fsdev, "fsdriver", "synth");
+                qemu_opt_set(fsdev, "path", "/"); /* ignored */
+
+                device = qemu_opts_create(qemu_find_opts("device"), NULL, 0);
+                qemu_opt_set(device, "driver", "virtio-9p-pci");
+                qemu_opt_set(device, "fsdev", "v_synth");
+                qemu_opt_set(device, "mount_tag", "v_synth");
                 break;
             }
             case QEMU_OPTION_serial:

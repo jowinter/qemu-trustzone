@@ -15,6 +15,8 @@
 #include "hw.h"
 #include "pci.h"
 #include "scsi.h"
+#include "block_int.h"
+#include "dma.h"
 
 //#define DEBUG_LSI
 //#define DEBUG_LSI_REG
@@ -390,10 +392,7 @@ static inline uint32_t read_dword(LSIState *s, uint32_t addr)
 {
     uint32_t buf;
 
-    /* XXX: an optimization here used to fast-path the read from scripts
-     * memory.  But that bypasses any iommu.
-     */
-    cpu_physical_memory_read(addr, (uint8_t *)&buf, 4);
+    pci_dma_read(&s->dev, addr, (uint8_t *)&buf, 4);
     return cpu_to_le32(buf);
 }
 
@@ -531,8 +530,8 @@ static void lsi_bad_selection(LSIState *s, uint32_t id)
 /* Initiate a SCSI layer data transfer.  */
 static void lsi_do_dma(LSIState *s, int out)
 {
-    uint32_t count, id;
-    target_phys_addr_t addr;
+    uint32_t count;
+    dma_addr_t addr;
     SCSIDevice *dev;
 
     assert(s->current);
@@ -542,12 +541,8 @@ static void lsi_do_dma(LSIState *s, int out)
         return;
     }
 
-    id = (s->current->tag >> 8) & 0xf;
-    dev = s->bus.devs[id];
-    if (!dev) {
-        lsi_bad_selection(s, id);
-        return;
-    }
+    dev = s->current->req->dev;
+    assert(dev);
 
     count = s->dbc;
     if (count > s->current->dma_len)
@@ -562,7 +557,7 @@ static void lsi_do_dma(LSIState *s, int out)
     else if (s->sbms)
         addr |= ((uint64_t)s->sbms << 32);
 
-    DPRINTF("DMA addr=0x" TARGET_FMT_plx " len=%d\n", addr, count);
+    DPRINTF("DMA addr=0x" DMA_ADDR_FMT " len=%d\n", addr, count);
     s->csbc += count;
     s->dnad += count;
     s->dbc -= count;
@@ -571,9 +566,9 @@ static void lsi_do_dma(LSIState *s, int out)
     }
     /* ??? Set SFBR to first data byte.  */
     if (out) {
-        cpu_physical_memory_read(addr, s->current->dma_buf, count);
+        pci_dma_read(&s->dev, addr, s->current->dma_buf, count);
     } else {
-        cpu_physical_memory_write(addr, s->current->dma_buf, count);
+        pci_dma_write(&s->dev, addr, s->current->dma_buf, count);
     }
     s->current->dma_len -= count;
     if (s->current->dma_len == 0) {
@@ -766,12 +761,12 @@ static void lsi_do_command(LSIState *s)
     DPRINTF("Send command len=%d\n", s->dbc);
     if (s->dbc > 16)
         s->dbc = 16;
-    cpu_physical_memory_read(s->dnad, buf, s->dbc);
+    pci_dma_read(&s->dev, s->dnad, buf, s->dbc);
     s->sfbr = buf[0];
     s->command_complete = 0;
 
     id = (s->select_tag >> 8) & 0xf;
-    dev = s->bus.devs[id];
+    dev = scsi_device_find(&s->bus, 0, id, s->current_lun);
     if (!dev) {
         lsi_bad_selection(s, id);
         return;
@@ -817,7 +812,7 @@ static void lsi_do_status(LSIState *s)
     s->dbc = 1;
     status = s->status;
     s->sfbr = status;
-    cpu_physical_memory_write(s->dnad, &status, 1);
+    pci_dma_write(&s->dev, s->dnad, &status, 1);
     lsi_set_phase(s, PHASE_MI);
     s->msg_action = 1;
     lsi_add_msg_byte(s, 0); /* COMMAND COMPLETE */
@@ -831,7 +826,7 @@ static void lsi_do_msgin(LSIState *s)
     len = s->msg_len;
     if (len > s->dbc)
         len = s->dbc;
-    cpu_physical_memory_write(s->dnad, s->msg, len);
+    pci_dma_write(&s->dev, s->dnad, s->msg, len);
     /* Linux drivers rely on the last byte being in the SIDL.  */
     s->sidl = s->msg[len - 1];
     s->msg_len -= len;
@@ -863,7 +858,7 @@ static void lsi_do_msgin(LSIState *s)
 static uint8_t lsi_get_msgbyte(LSIState *s)
 {
     uint8_t data;
-    cpu_physical_memory_read(s->dnad, &data, 1);
+    pci_dma_read(&s->dev, s->dnad, &data, 1);
     s->dnad++;
     s->dbc--;
     return data;
@@ -1015,8 +1010,8 @@ static void lsi_memcpy(LSIState *s, uint32_t dest, uint32_t src, int count)
     DPRINTF("memcpy dest 0x%08x src 0x%08x count %d\n", dest, src, count);
     while (count) {
         n = (count > LSI_BUF_SIZE) ? LSI_BUF_SIZE : count;
-        cpu_physical_memory_read(src, buf, n);
-        cpu_physical_memory_write(dest, buf, n);
+        pci_dma_read(&s->dev, src, buf, n);
+        pci_dma_write(&s->dev, dest, buf, n);
         src += n;
         dest += n;
         count -= n;
@@ -1084,7 +1079,7 @@ again:
 
             /* 32-bit Table indirect */
             offset = sxt24(addr);
-            cpu_physical_memory_read(s->dsa + offset, (uint8_t *)buf, 8);
+            pci_dma_read(&s->dev, s->dsa + offset, (uint8_t *)buf, 8);
             /* byte count is stored in bits 0:23 only */
             s->dbc = cpu_to_le32(buf[0]) & 0xffffff;
             s->rbc = s->dbc;
@@ -1202,7 +1197,7 @@ again:
                 }
                 s->sstat0 |= LSI_SSTAT0_WOA;
                 s->scntl1 &= ~LSI_SCNTL1_IARB;
-                if (id >= LSI_MAX_DEVS || !s->bus.devs[id]) {
+                if (!scsi_device_find(&s->bus, 0, id, 0)) {
                     lsi_bad_selection(s, id);
                     break;
                 }
@@ -1443,7 +1438,7 @@ again:
             n = (insn & 7);
             reg = (insn >> 16) & 0xff;
             if (insn & (1 << 24)) {
-                cpu_physical_memory_read(addr, data, n);
+                pci_dma_read(&s->dev, addr, data, n);
                 DPRINTF("Load reg 0x%x size %d addr 0x%08x = %08x\n", reg, n,
                         addr, *(int *)data);
                 for (i = 0; i < n; i++) {
@@ -1454,7 +1449,7 @@ again:
                 for (i = 0; i < n; i++) {
                     data[i] = lsi_reg_readb(s, reg + i);
                 }
-                cpu_physical_memory_write(addr, data, n);
+                pci_dma_write(&s->dev, addr, data, n);
             }
         }
     }
@@ -1684,13 +1679,9 @@ static void lsi_reg_writeb(LSIState *s, int offset, uint8_t val)
         if (val & LSI_SCNTL1_RST) {
             if (!(s->sstat0 & LSI_SSTAT0_RST)) {
                 DeviceState *dev;
-                int id;
 
-                for (id = 0; id < s->bus.ndev; id++) {
-                    if (s->bus.devs[id]) {
-                        dev = &s->bus.devs[id]->qdev;
-                        dev->info->reset(dev);
-                    }
+                QTAILQ_FOREACH(dev, &s->bus.qbus.children, sibling) {
+                    dev->info->reset(dev);
                 }
                 s->sstat0 |= LSI_SSTAT0_RST;
                 lsi_script_scsi_interrupt(s, LSI_SIST0_RST, 0);
@@ -2091,7 +2082,11 @@ static int lsi_scsi_uninit(PCIDevice *d)
     return 0;
 }
 
-static const struct SCSIBusOps lsi_scsi_ops = {
+static const struct SCSIBusInfo lsi_scsi_info = {
+    .tcq = true,
+    .max_target = LSI_MAX_DEVS,
+    .max_lun = 0,  /* LUN support is buggy */
+
     .transfer_data = lsi_transfer_data,
     .complete = lsi_command_complete,
     .cancel = lsi_request_cancelled
@@ -2118,7 +2113,7 @@ static int lsi_scsi_init(PCIDevice *dev)
     pci_register_bar(&s->dev, 2, PCI_BASE_ADDRESS_SPACE_MEMORY, &s->ram_io);
     QTAILQ_INIT(&s->queue);
 
-    scsi_bus_new(&s->bus, &dev->qdev, 1, LSI_MAX_DEVS, &lsi_scsi_ops);
+    scsi_bus_new(&s->bus, &dev->qdev, &lsi_scsi_info);
     if (!dev->qdev.hotplugged) {
         return scsi_bus_legacy_handle_cmdline(&s->bus);
     }

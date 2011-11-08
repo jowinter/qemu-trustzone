@@ -4,6 +4,7 @@
 #include "hw.h"
 #include "pci.h"
 #include "vga_int.h"
+#include "qemu-thread.h"
 
 #include "ui/qemu-spice.h"
 #include "ui/spice-display.h"
@@ -47,7 +48,8 @@ typedef struct PCIQXLDevice {
         QXLSurfaceCreate surface;
         uint32_t       commands;
         uint32_t       resized;
-        int32_t        stride;
+        int32_t        qxl_stride;
+        uint32_t       abs_stride;
         uint32_t       bits_pp;
         uint32_t       bytes_pp;
         uint8_t        *data, *flipped;
@@ -63,7 +65,7 @@ typedef struct PCIQXLDevice {
     QemuMutex          track_lock;
 
     /* thread signaling */
-    pthread_t          main;
+    QemuThread         main;
     int                pipe[2];
 
     /* ram pci bar */

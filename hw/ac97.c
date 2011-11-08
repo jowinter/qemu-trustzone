@@ -18,6 +18,7 @@
 #include "audiodev.h"
 #include "audio/audio.h"
 #include "pci.h"
+#include "dma.h"
 
 enum {
     AC97_Reset                     = 0x00,
@@ -149,6 +150,7 @@ typedef struct AC97BusMasterRegs {
 typedef struct AC97LinkState {
     PCIDevice dev;
     QEMUSoundCard card;
+    uint32_t use_broken_id;
     uint32_t glob_cnt;
     uint32_t glob_sta;
     uint32_t cas;
@@ -224,7 +226,7 @@ static void fetch_bd (AC97LinkState *s, AC97BusMasterRegs *r)
 {
     uint8_t b[8];
 
-    cpu_physical_memory_read (r->bdbar + r->civ * 8, b, 8);
+    pci_dma_read (&s->dev, r->bdbar + r->civ * 8, b, 8);
     r->bd_valid = 1;
     r->bd.addr = le32_to_cpu (*(uint32_t *) &b[0]) & ~3;
     r->bd.ctl_len = le32_to_cpu (*(uint32_t *) &b[4]);
@@ -973,7 +975,7 @@ static int write_audio (AC97LinkState *s, AC97BusMasterRegs *r,
     while (temp) {
         int copied;
         to_copy = audio_MIN (temp, sizeof (tmpbuf));
-        cpu_physical_memory_read (addr, tmpbuf, to_copy);
+        pci_dma_read (&s->dev, addr, tmpbuf, to_copy);
         copied = AUD_write (s->voice_po, tmpbuf, to_copy);
         dolog ("write_audio max=%x to_copy=%x copied=%x\n",
                max, to_copy, copied);
@@ -1054,7 +1056,7 @@ static int read_audio (AC97LinkState *s, AC97BusMasterRegs *r,
             *stop = 1;
             break;
         }
-        cpu_physical_memory_write (addr, tmpbuf, acquired);
+        pci_dma_write (&s->dev, addr, tmpbuf, acquired);
         temp -= acquired;
         addr += acquired;
         nread += acquired;
@@ -1304,11 +1306,12 @@ static int ac97_initfn (PCIDevice *dev)
     c[PCI_BASE_ADDRESS_0 + 6] = 0x00;
     c[PCI_BASE_ADDRESS_0 + 7] = 0x00;
 
-    c[PCI_SUBSYSTEM_VENDOR_ID] = 0x86;      /* svid subsystem vendor id rwo */
-    c[PCI_SUBSYSTEM_VENDOR_ID + 1] = 0x80;
-
-    c[PCI_SUBSYSTEM_ID] = 0x00;      /* sid subsystem id rwo */
-    c[PCI_SUBSYSTEM_ID + 1] = 0x00;
+    if (s->use_broken_id) {
+        c[PCI_SUBSYSTEM_VENDOR_ID] = 0x86;
+        c[PCI_SUBSYSTEM_VENDOR_ID + 1] = 0x80;
+        c[PCI_SUBSYSTEM_ID] = 0x00;
+        c[PCI_SUBSYSTEM_ID + 1] = 0x00;
+    }
 
     c[PCI_INTERRUPT_LINE] = 0x00;      /* intr_ln interrupt line rw */
     c[PCI_INTERRUPT_PIN] = 0x01;      /* intr_pn interrupt pin ro */
@@ -1349,6 +1352,10 @@ static PCIDeviceInfo ac97_info = {
     .device_id    = PCI_DEVICE_ID_INTEL_82801AA_5,
     .revision     = 0x01,
     .class_id     = PCI_CLASS_MULTIMEDIA_AUDIO,
+    .qdev.props   = (Property[]) {
+        DEFINE_PROP_UINT32("use_broken_id", AC97LinkState, use_broken_id, 0),
+        DEFINE_PROP_END_OF_LIST(),
+    }
 };
 
 static void ac97_register (void)

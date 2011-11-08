@@ -75,7 +75,7 @@ defconfig:
 
 -include config-all-devices.mak
 
-build-all: $(DOCS) $(TOOLS) recurse-all
+build-all: $(DOCS) $(TOOLS) $(CHECKS) recurse-all
 
 config-host.h: config-host.h-timestamp
 config-host.h-timestamp: config-host.mak
@@ -146,27 +146,25 @@ endif
 qemu-img.o: qemu-img-cmds.h
 qemu-img.o qemu-tool.o qemu-nbd.o qemu-io.o cmd.o qemu-ga.o: $(GENERATED_HEADERS)
 
-tools-obj-y = qemu-tool.o qemu-error.o $(oslib-obj-y) $(trace-obj-y) \
-        $(block-obj-y) $(qobject-obj-y) $(version-obj-y) qemu-timer-common.o
+tools-obj-y = qemu-tool.o $(oslib-obj-y) $(trace-obj-y) \
+	qemu-timer-common.o cutils.o
 
-qemu-img$(EXESUF): qemu-img.o $(tools-obj-y)
-qemu-nbd$(EXESUF): qemu-nbd.o $(tools-obj-y)
-qemu-io$(EXESUF): qemu-io.o cmd.o $(tools-obj-y)
+qemu-img$(EXESUF): qemu-img.o $(tools-obj-y) $(block-obj-y)
+qemu-nbd$(EXESUF): qemu-nbd.o $(tools-obj-y) $(block-obj-y)
+qemu-io$(EXESUF): qemu-io.o cmd.o $(tools-obj-y) $(block-obj-y)
 
 qemu-img-cmds.h: $(SRC_PATH)/qemu-img-cmds.hx
 	$(call quiet-command,sh $(SRC_PATH)/scripts/hxtool -h < $< > $@,"  GEN   $@")
 
 check-qint.o check-qstring.o check-qdict.o check-qlist.o check-qfloat.o check-qjson.o test-coroutine.o: $(GENERATED_HEADERS)
 
-CHECK_PROG_DEPS = $(oslib-obj-y) $(trace-obj-y) qemu-tool.o
-
-check-qint: check-qint.o qint.o $(CHECK_PROG_DEPS)
-check-qstring: check-qstring.o qstring.o $(CHECK_PROG_DEPS)
-check-qdict: check-qdict.o qdict.o qfloat.o qint.o qstring.o qbool.o qlist.o $(CHECK_PROG_DEPS)
-check-qlist: check-qlist.o qlist.o qint.o $(CHECK_PROG_DEPS)
-check-qfloat: check-qfloat.o qfloat.o $(CHECK_PROG_DEPS)
-check-qjson: check-qjson.o qfloat.o qint.o qdict.o qstring.o qlist.o qbool.o qjson.o json-streamer.o json-lexer.o json-parser.o error.o qerror.o qemu-error.o $(CHECK_PROG_DEPS)
-test-coroutine: test-coroutine.o qemu-timer-common.o async.o $(coroutine-obj-y) $(CHECK_PROG_DEPS)
+check-qint: check-qint.o qint.o $(tools-obj-y)
+check-qstring: check-qstring.o qstring.o $(tools-obj-y)
+check-qdict: check-qdict.o qdict.o qfloat.o qint.o qstring.o qbool.o qlist.o $(tools-obj-y)
+check-qlist: check-qlist.o qlist.o qint.o $(tools-obj-y)
+check-qfloat: check-qfloat.o qfloat.o $(tools-obj-y)
+check-qjson: check-qjson.o $(qobject-obj-y) $(tools-obj-y)
+test-coroutine: test-coroutine.o qemu-timer-common.o async.o $(coroutine-obj-y) $(tools-obj-y)
 
 $(qapi-obj-y): $(GENERATED_HEADERS)
 qapi-dir := qapi-generated
@@ -204,16 +202,16 @@ qmp-marshal.c: $(SRC_PATH)/qapi-schema.json $(SRC_PATH)/scripts/qapi-commands.py
 	$(call quiet-command,$(PYTHON) $(SRC_PATH)/scripts/qapi-commands.py -m -o "." < $<, "  GEN   $@")
 
 test-visitor.o: $(addprefix $(qapi-dir)/, test-qapi-types.c test-qapi-types.h test-qapi-visit.c test-qapi-visit.h) $(qapi-obj-y)
-test-visitor: test-visitor.o qfloat.o qint.o qdict.o qstring.o qlist.o qbool.o $(qapi-obj-y) error.o osdep.o $(oslib-obj-y) qjson.o json-streamer.o json-lexer.o json-parser.o qerror.o qemu-error.o qemu-tool.o $(qapi-dir)/test-qapi-visit.o $(qapi-dir)/test-qapi-types.o
+test-visitor: test-visitor.o $(qobject-obj-y) $(qapi-obj-y) $(tools-obj-y) $(qapi-dir)/test-qapi-visit.o $(qapi-dir)/test-qapi-types.o
 
 test-qmp-commands.o: $(addprefix $(qapi-dir)/, test-qapi-types.c test-qapi-types.h test-qapi-visit.c test-qapi-visit.h test-qmp-marshal.c test-qmp-commands.h) $(qapi-obj-y)
-test-qmp-commands: test-qmp-commands.o qfloat.o qint.o qdict.o qstring.o qlist.o qbool.o $(qapi-obj-y) error.o osdep.o $(oslib-obj-y) qjson.o json-streamer.o json-lexer.o json-parser.o qerror.o qemu-error.o qemu-tool.o $(qapi-dir)/test-qapi-visit.o $(qapi-dir)/test-qapi-types.o $(qapi-dir)/test-qmp-marshal.o module.o
+test-qmp-commands: test-qmp-commands.o $(qobject-obj-y) $(qapi-obj-y) $(tools-obj-y) $(qapi-dir)/test-qapi-visit.o $(qapi-dir)/test-qapi-types.o $(qapi-dir)/test-qmp-marshal.o module.o
 
 QGALIB_GEN=$(addprefix $(qapi-dir)/, qga-qapi-types.c qga-qapi-types.h qga-qapi-visit.c qga-qmp-marshal.c)
 $(QGALIB_GEN): $(GENERATED_HEADERS)
 $(qga-obj-y) qemu-ga.o: $(QGALIB_GEN)
 
-qemu-ga$(EXESUF): qemu-ga.o $(qga-obj-y) $(qapi-obj-y) $(trace-obj-y) $(qobject-obj-y) $(version-obj-y) $(addprefix $(qapi-dir)/, qga-qapi-visit.o qga-qapi-types.o qga-qmp-marshal.o)
+qemu-ga$(EXESUF): qemu-ga.o $(qga-obj-y) $(qapi-obj-y) $(tools-obj-y) $(qobject-obj-y) $(version-obj-y) $(addprefix $(qapi-dir)/, qga-qapi-visit.o qga-qapi-types.o qga-qmp-marshal.o)
 
 QEMULIBS=libhw32 libhw64 libuser libdis libdis-user
 
@@ -221,7 +219,7 @@ clean:
 # avoid old build problems by removing potentially incorrect old files
 	rm -f config.mak op-i386.h opc-i386.h gen-op-i386.h op-arm.h opc-arm.h gen-op-arm.h
 	rm -f qemu-options.def
-	rm -f *.o *.d *.a *.lo $(TOOLS) qemu-ga TAGS cscope.* *.pod *~ */*~
+	rm -f *.o *.d *.a *.lo $(TOOLS) $(CHECKS) qemu-ga TAGS cscope.* *.pod *~ */*~
 	rm -Rf .libs
 	rm -f slirp/*.o slirp/*.d audio/*.o audio/*.d block/*.o block/*.d net/*.o net/*.d fsdev/*.o fsdev/*.d ui/*.o ui/*.d qapi/*.o qapi/*.d qga/*.o qga/*.d
 	rm -f qemu-img-cmds.h
@@ -255,7 +253,7 @@ ar      de     en-us  fi  fr-be  hr     it  lv  nl         pl  ru     th \
 common  de-ch  es     fo  fr-ca  hu     ja  mk  nl-be      pt  sl     tr
 
 ifdef INSTALL_BLOBS
-BLOBS=bios.bin vgabios.bin vgabios-cirrus.bin \
+BLOBS=bios.bin sgabios.bin vgabios.bin vgabios-cirrus.bin \
 vgabios-stdvga.bin vgabios-vmware.bin vgabios-qxl.bin \
 ppc_rom.bin openbios-sparc32 openbios-sparc64 openbios-ppc \
 pxe-e1000.rom pxe-eepro100.rom pxe-ne2k_pci.rom \
@@ -307,6 +305,12 @@ endif
 # various test targets
 test speed: all
 	$(MAKE) -C tests $@
+
+.PHONY: check
+check: $(patsubst %,run-check-%,$(CHECKS))
+
+run-check-%: %
+	./$<
 
 .PHONY: TAGS
 TAGS:

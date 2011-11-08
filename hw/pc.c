@@ -941,7 +941,6 @@ static CPUState *pc_new_cpu(const char *cpu_model)
         exit(1);
     }
     if ((env->cpuid_features & CPUID_APIC) || smp_cpus > 1) {
-        env->cpuid_apic_id = env->cpu_index;
         env->apic_state = apic_init(env, env->cpuid_apic_id);
     }
     qemu_register_reset(pc_cpu_reset, env);
@@ -1103,15 +1102,6 @@ void pc_vga_init(PCIBus *pci_bus)
         } else {
             isa_vga_init();
         }
-    }
-
-    /*
-     * sga does not suppress normal vga output. So a machine can have both a
-     * vga card and sga manually enabled. Output will be seen on both.
-     * For nographic case, sga is enabled at all times
-     */
-    if (display_type == DT_NOGRAPHIC) {
-        isa_create_simple("sga");
     }
 }
 

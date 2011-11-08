@@ -64,6 +64,7 @@ struct KVMState
     int vmfd;
     int coalesced_mmio;
     struct kvm_coalesced_mmio_ring *coalesced_mmio_ring;
+    bool coalesced_flush_in_progress;
     int broken_set_mem_region;
     int migration_log;
     int vcpu_events;
@@ -739,6 +740,7 @@ int kvm_init(void)
         fprintf(stderr, "Please add the 'switch_amode' kernel parameter to "
                         "your host kernel command line\n");
 #endif
+        ret = s->vmfd;
         goto err;
     }
 
@@ -797,7 +799,7 @@ int kvm_init(void)
 
 err:
     if (s) {
-        if (s->vmfd != -1) {
+        if (s->vmfd >= 0) {
             close(s->vmfd);
         }
         if (s->fd != -1) {
@@ -876,6 +878,13 @@ static int kvm_handle_internal_error(CPUState *env, struct kvm_run *run)
 void kvm_flush_coalesced_mmio_buffer(void)
 {
     KVMState *s = kvm_state;
+
+    if (s->coalesced_flush_in_progress) {
+        return;
+    }
+
+    s->coalesced_flush_in_progress = true;
+
     if (s->coalesced_mmio_ring) {
         struct kvm_coalesced_mmio_ring *ring = s->coalesced_mmio_ring;
         while (ring->first != ring->last) {
@@ -888,6 +897,8 @@ void kvm_flush_coalesced_mmio_buffer(void)
             ring->first = (ring->first + 1) % KVM_COALESCED_MMIO_MAX;
         }
     }
+
+    s->coalesced_flush_in_progress = false;
 }
 
 static void do_kvm_cpu_synchronize_state(void *_env)
