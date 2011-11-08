@@ -12,6 +12,17 @@ here. For full change detail consult the git history:
 Bug numbers refer to Launchpad qemu-linaro bugs, eg:
 https://bugs.launchpad.net/qemu-linaro/+bug/703094
 
+version 2011.11:
+ - The ARM vexpress-a9, versatilepb, versatileab and realview-*
+   boards now have audio support (thanks to Mathieu Sonet who
+   contributed a PL041 implementation upstream)
+ - Support for multiple instances of the "-sd" option on the
+   command line has been dropped; this was never present in
+   upstream QEMU and has been removed for consistency. Use
+   "-drive,if=sd,index=N,file=file.img" for N=0,1,2... instead
+ - Fixes #886980: 8 and 16 bit reads from the OMAP GPIO module
+   would crash due to an infinite recursion
+
 version 2011.10:
  - Beagle models now support USB networking (run the model with
    "-usb -device usb-net,netdev=mynet -netdev user,id=mynet")
