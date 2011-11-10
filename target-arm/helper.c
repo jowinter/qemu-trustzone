@@ -2046,6 +2046,10 @@ void HELPER(set_cp15)(CPUState *env, uint32_t insn, uint32_t val)
                     break;
 
   	       case 1: {
+                    if (!arm_feature(env, ARM_FEATURE_TRUSTZONE) || op2 != 1) {
+                      goto bad_reg;
+                    }
+
                     /* Virtualization Interrupt Register */
 		    uint32_t new_request = env->interrupt_request;
 
