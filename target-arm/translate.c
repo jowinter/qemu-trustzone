@@ -64,6 +64,7 @@ typedef struct DisasContext {
 #endif
 #if defined(TARGET_HAS_TRUSTZONE)
     int secure;
+    int cp_regbank;
 #endif
     int vfp_enabled;
     int vec_len;
@@ -181,6 +182,29 @@ static inline void store_cpu_offset(TCGv var, int offset)
 
 #define store_cpu_field(var, name) \
     store_cpu_offset(var, offsetof(CPUState, name))
+
+
+#if defined(TARGET_HAS_TRUSTZONE)
+
+/* Get the real offset of a banked CPU field (in TrustZone builds) */
+#define banked_cpu_field_offset(name, cp_regbank) \
+  ((cp_regbank) ? offsetof(CPUState, name.secure) : offsetof(CPUState, name.nonsecure))
+
+/* Generate the code to store a banked CPU field (in TrustZone builds) */
+#define store_banked_cpu_field(var, name, disasctx) \
+  store_cpu_offset(var, banked_cpu_field_offset(name, disasctx->cp_regbank))
+
+/* Generate the code to load a banked CPU field (in TrustZone builds) */
+#define load_banked_cpu_field(name, disasctx) \
+  load_cpu_offset(banked_cpu_field_offset(name, disasctx->cp_regbank))
+
+#else
+
+/* No banking in non-TrustZone builds */
+#define load_banked_cpu_field(name, disasctx) load_cpu_field(name)
+#define store_banked_cpu_field(name, value, disasctx) store_cpu_field(name, value)
+  
+#endif
 
 /* Set a variable to the value of a CPU register.  */
 static void load_reg_var(DisasContext *s, TCGv var, int reg)
@@ -2572,13 +2596,13 @@ static int cp15_tls_load_store(CPUState *env, DisasContext *s, uint32_t insn, ui
     if (insn & ARM_CP_RW_BIT) {
         switch (op) {
         case 2:
-            tmp = load_cpu_field(cp15.c13_tls1);
+	    tmp = load_banked_cpu_field(cp15.c13_tls1, s);
             break;
         case 3:
-            tmp = load_cpu_field(cp15.c13_tls2);
+	    tmp = load_banked_cpu_field(cp15.c13_tls2, s);
             break;
         case 4:
-            tmp = load_cpu_field(cp15.c13_tls3);
+	    tmp = load_banked_cpu_field(cp15.c13_tls3, s);
             break;
         default:
             return 0;
@@ -2589,13 +2613,13 @@ static int cp15_tls_load_store(CPUState *env, DisasContext *s, uint32_t insn, ui
         tmp = load_reg(s, rd);
         switch (op) {
         case 2:
-            store_cpu_field(tmp, cp15.c13_tls1);
+	    store_banked_cpu_field(tmp, cp15.c13_tls1, s);
             break;
         case 3:
-            store_cpu_field(tmp, cp15.c13_tls2);
+  	    store_banked_cpu_field(tmp, cp15.c13_tls2, s);
             break;
         case 4:
-            store_cpu_field(tmp, cp15.c13_tls3);
+	    store_banked_cpu_field(tmp, cp15.c13_tls3, s);
             break;
         default:
             tcg_temp_free_i32(tmp);
@@ -9848,7 +9872,8 @@ static inline void gen_intermediate_code_internal(CPUState *env,
     dc->user = (ARM_TBFLAG_PRIV(tb->flags) == 0);
 #endif
 #if defined(TARGET_HAS_TRUSTZONE)
-    dc->secure = arm_is_secure(env, 1);
+    dc->secure = arm_is_secure(env, 1);      /* Core security status (for memory, instructions ...) */
+    dc->cp_regbank = arm_is_secure(env, 0);  /* Active CP register bank (0=normal, 1=secure) for TLS ... */
 #endif
     dc->vfp_enabled = ARM_TBFLAG_VFPEN(tb->flags);
     dc->vec_len = ARM_TBFLAG_VECLEN(tb->flags);
