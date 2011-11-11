@@ -14,6 +14,9 @@
 #include "hw/arm_trustzone.h"
 #endif
 
+/* Enable to force a TB flush on security state change */
+#define TARGET_TRUSTZONE_FORCE_TB_FLUSH 1
+
 #include "trace.h"
 
 #if !defined(CONFIG_USER_ONLY)
@@ -900,6 +903,22 @@ void switch_mode(CPUState *env, int mode)
     env->regs[13] = env->banked_r13[i];
     env->regs[14] = env->banked_r14[i];
     env->spsr = env->banked_spsr[i];
+
+#if defined(TARGET_HAS_TRUSTZONE) && defined(TARGET_TRUSTZONE_FORCE_TB_FLUSH)
+    if (arm_feature(env, ARM_FEATURE_TRUSTZONE)) {
+      /* Detect a security state change */
+      int old_secure = !(env->cp15.c1_secfg & SCR_NS) || (old_mode == ARM_CPU_MODE_MON);
+      int new_secure = !(env->cp15.c1_secfg & SCR_NS) || (mode == ARM_CPU_MODE_MON);
+
+      if (old_secure != new_secure) {
+	fprintf(stderr, "arm trustzone: tb flush on CPSR.M change %d -> %d\n",
+		old_secure, new_secure);
+
+	/* TODO: Check if this call is (always) safe */
+	tb_flush(env);
+      }
+    }
+#endif
 }
 
 static void v7m_push(CPUARMState *env, uint32_t val)
