@@ -26,6 +26,8 @@
 #include "helper_regs.h"
 #include "qemu-common.h"
 #include "kvm.h"
+#include "kvm_ppc.h"
+#include "cpus.h"
 
 //#define DEBUG_MMU
 //#define DEBUG_BATS
@@ -78,7 +80,7 @@ void (*cpu_ppc_hypercall)(CPUState *);
 
 #if defined(CONFIG_USER_ONLY)
 int cpu_ppc_handle_mmu_fault (CPUState *env, target_ulong address, int rw,
-                              int mmu_idx, int is_softmmu)
+                              int mmu_idx)
 {
     int exception, error_code;
 
@@ -553,7 +555,7 @@ static inline int get_bat(CPUState *env, mmu_ctx_t *ctx, target_ulong virtual,
                 BEPIl = *BATu & 0x0FFE0000;
                 bl = (*BATu & 0x00001FFC) << 15;
                 LOG_BATS("%s: %cBAT%d v " TARGET_FMT_lx " BATu " TARGET_FMT_lx
-                         " BATl " TARGET_FMT_lx " \n\t" TARGET_FMT_lx " "
+                         " BATl " TARGET_FMT_lx "\n\t" TARGET_FMT_lx " "
                          TARGET_FMT_lx " " TARGET_FMT_lx "\n",
                          __func__, type == ACCESS_CODE ? 'I' : 'D', i, virtual,
                          *BATu, *BATl, BEPIu, BEPIl, bl);
@@ -1293,7 +1295,7 @@ target_phys_addr_t booke206_tlb_to_page_size(CPUState *env, ppcmas_tlb_t *tlb)
 {
     uint32_t tlbncfg;
     int tlbn = booke206_tlbm_to_tlbn(env, tlb);
-    target_phys_addr_t tlbm_size;
+    int tlbm_size;
 
     tlbncfg = env->spr[SPR_BOOKE_TLB0CFG + tlbn];
 
@@ -1301,9 +1303,10 @@ target_phys_addr_t booke206_tlb_to_page_size(CPUState *env, ppcmas_tlb_t *tlb)
         tlbm_size = (tlb->mas1 & MAS1_TSIZE_MASK) >> MAS1_TSIZE_SHIFT;
     } else {
         tlbm_size = (tlbncfg & TLBnCFG_MINSIZE) >> TLBnCFG_MINSIZE_SHIFT;
+        tlbm_size <<= 1;
     }
 
-    return (1 << (tlbm_size << 1)) << 10;
+    return 1024ULL << tlbm_size;
 }
 
 /* TLB check function for MAS based SoftTLBs */
@@ -1463,6 +1466,94 @@ found_tlb:
     }
 
     return ret;
+}
+
+static const char *book3e_tsize_to_str[32] = {
+    "1K", "2K", "4K", "8K", "16K", "32K", "64K", "128K", "256K", "512K",
+    "1M", "2M", "4M", "8M", "16M", "32M", "64M", "128M", "256M", "512M",
+    "1G", "2G", "4G", "8G", "16G", "32G", "64G", "128G", "256G", "512G",
+    "1T", "2T"
+};
+
+static void mmubooke206_dump_one_tlb(FILE *f, fprintf_function cpu_fprintf,
+                                     CPUState *env, int tlbn, int offset,
+                                     int tlbsize)
+{
+    ppcmas_tlb_t *entry;
+    int i;
+
+    cpu_fprintf(f, "\nTLB%d:\n", tlbn);
+    cpu_fprintf(f, "Effective          Physical           Size TID   TS SRWX URWX WIMGE U0123\n");
+
+    entry = &env->tlb.tlbm[offset];
+    for (i = 0; i < tlbsize; i++, entry++) {
+        target_phys_addr_t ea, pa, size;
+        int tsize;
+
+        if (!(entry->mas1 & MAS1_VALID)) {
+            continue;
+        }
+
+        tsize = (entry->mas1 & MAS1_TSIZE_MASK) >> MAS1_TSIZE_SHIFT;
+        size = 1024ULL << tsize;
+        ea = entry->mas2 & ~(size - 1);
+        pa = entry->mas7_3 & ~(size - 1);
+
+        cpu_fprintf(f, "0x%016" PRIx64 " 0x%016" PRIx64 " %4s %-5u %1u  S%c%c%c U%c%c%c %c%c%c%c%c U%c%c%c%c\n",
+                    (uint64_t)ea, (uint64_t)pa,
+                    book3e_tsize_to_str[tsize],
+                    (entry->mas1 & MAS1_TID_MASK) >> MAS1_TID_SHIFT,
+                    (entry->mas1 & MAS1_TS) >> MAS1_TS_SHIFT,
+                    entry->mas7_3 & MAS3_SR ? 'R' : '-',
+                    entry->mas7_3 & MAS3_SW ? 'W' : '-',
+                    entry->mas7_3 & MAS3_SX ? 'X' : '-',
+                    entry->mas7_3 & MAS3_UR ? 'R' : '-',
+                    entry->mas7_3 & MAS3_UW ? 'W' : '-',
+                    entry->mas7_3 & MAS3_UX ? 'X' : '-',
+                    entry->mas2 & MAS2_W ? 'W' : '-',
+                    entry->mas2 & MAS2_I ? 'I' : '-',
+                    entry->mas2 & MAS2_M ? 'M' : '-',
+                    entry->mas2 & MAS2_G ? 'G' : '-',
+                    entry->mas2 & MAS2_E ? 'E' : '-',
+                    entry->mas7_3 & MAS3_U0 ? '0' : '-',
+                    entry->mas7_3 & MAS3_U1 ? '1' : '-',
+                    entry->mas7_3 & MAS3_U2 ? '2' : '-',
+                    entry->mas7_3 & MAS3_U3 ? '3' : '-');
+    }
+}
+
+static void mmubooke206_dump_mmu(FILE *f, fprintf_function cpu_fprintf,
+                                 CPUState *env)
+{
+    int offset = 0;
+    int i;
+
+    if (kvm_enabled() && !env->kvm_sw_tlb) {
+        cpu_fprintf(f, "Cannot access KVM TLB\n");
+        return;
+    }
+
+    for (i = 0; i < BOOKE206_MAX_TLBN; i++) {
+        int size = booke206_tlb_size(env, i);
+
+        if (size == 0) {
+            continue;
+        }
+
+        mmubooke206_dump_one_tlb(f, cpu_fprintf, env, i, offset, size);
+        offset += size;
+    }
+}
+
+void dump_mmu(FILE *f, fprintf_function cpu_fprintf, CPUState *env)
+{
+    switch (env->mmu_model) {
+    case POWERPC_MMU_BOOKE206:
+        mmubooke206_dump_mmu(f, cpu_fprintf, env);
+        break;
+    default:
+        cpu_fprintf(f, "%s: unimplemented\n", __func__);
+    }
 }
 
 static inline int check_physical(CPUState *env, mmu_ctx_t *ctx,
@@ -1658,7 +1749,7 @@ static void booke206_update_mas_tlb_miss(CPUState *env, target_ulong address,
 
 /* Perform address translation */
 int cpu_ppc_handle_mmu_fault (CPUState *env, target_ulong address, int rw,
-                              int mmu_idx, int is_softmmu)
+                              int mmu_idx)
 {
     mmu_ctx_t ctx;
     int access_type;
@@ -1837,7 +1928,7 @@ int cpu_ppc_handle_mmu_fault (CPUState *env, target_ulong address, int rw,
                     env->exception_index = POWERPC_EXCP_DTLB;
                     env->error_code = 0;
                     env->spr[SPR_BOOKE_DEAR] = address;
-                    env->spr[SPR_BOOKE_ESR] = rw ? 1 << ESR_ST : 0;
+                    env->spr[SPR_BOOKE_ESR] = rw ? ESR_ST : 0;
                     return -1;
                 case POWERPC_MMU_REAL:
                     cpu_abort(env, "PowerPC in real mode should never raise "
@@ -1861,7 +1952,7 @@ int cpu_ppc_handle_mmu_fault (CPUState *env, target_ulong address, int rw,
                 } else if ((env->mmu_model == POWERPC_MMU_BOOKE) ||
                            (env->mmu_model == POWERPC_MMU_BOOKE206)) {
                     env->spr[SPR_BOOKE_DEAR] = address;
-                    env->spr[SPR_BOOKE_ESR] = rw ? 1 << ESR_ST : 0;
+                    env->spr[SPR_BOOKE_ESR] = rw ? ESR_ST : 0;
                 } else {
                     env->spr[SPR_DAR] = address;
                     if (rw == 1) {
@@ -2484,16 +2575,19 @@ static inline void powerpc_excp(CPUState *env, int excp_model, int excp)
             if (lpes1 == 0)
                 new_msr |= (target_ulong)MSR_HVB;
             msr |= 0x00080000;
+            env->spr[SPR_BOOKE_ESR] = ESR_PIL;
             break;
         case POWERPC_EXCP_PRIV:
             if (lpes1 == 0)
                 new_msr |= (target_ulong)MSR_HVB;
             msr |= 0x00040000;
+            env->spr[SPR_BOOKE_ESR] = ESR_PPR;
             break;
         case POWERPC_EXCP_TRAP:
             if (lpes1 == 0)
                 new_msr |= (target_ulong)MSR_HVB;
             msr |= 0x00020000;
+            env->spr[SPR_BOOKE_ESR] = ESR_PTR;
             break;
         default:
             /* Should never occur */
@@ -2556,16 +2650,19 @@ static inline void powerpc_excp(CPUState *env, int excp_model, int excp)
         cpu_abort(env, "Debug exception is not implemented yet !\n");
         goto store_next;
     case POWERPC_EXCP_SPEU:      /* SPE/embedded floating-point unavailable  */
+        env->spr[SPR_BOOKE_ESR] = ESR_SPV;
         goto store_current;
     case POWERPC_EXCP_EFPDI:     /* Embedded floating-point data interrupt   */
         /* XXX: TODO */
         cpu_abort(env, "Embedded floating point data exception "
                   "is not implemented yet !\n");
+        env->spr[SPR_BOOKE_ESR] = ESR_SPV;
         goto store_next;
     case POWERPC_EXCP_EFPRI:     /* Embedded floating-point round interrupt  */
         /* XXX: TODO */
         cpu_abort(env, "Embedded floating point round exception "
                   "is not implemented yet !\n");
+        env->spr[SPR_BOOKE_ESR] = ESR_SPV;
         goto store_next;
     case POWERPC_EXCP_EPERFM:    /* Embedded performance monitor interrupt   */
         /* XXX: TODO */
@@ -3089,9 +3186,20 @@ CPUPPCState *cpu_ppc_init (const char *cpu_model)
     if (!def)
         return NULL;
 
-    env = qemu_mallocz(sizeof(CPUPPCState));
+    env = g_malloc0(sizeof(CPUPPCState));
     cpu_exec_init(env);
-    ppc_translate_init();
+    if (tcg_enabled()) {
+        ppc_translate_init();
+    }
+    /* Adjust cpu index for SMT */
+#if !defined(CONFIG_USER_ONLY)
+    if (kvm_enabled()) {
+        int smt = kvmppc_smt_threads();
+
+        env->cpu_index = (env->cpu_index / smp_threads)*smt
+            + (env->cpu_index % smp_threads);
+    }
+#endif /* !CONFIG_USER_ONLY */
     env->cpu_model_str = cpu_model;
     cpu_ppc_register_internal(env, def);
 
@@ -3103,5 +3211,5 @@ CPUPPCState *cpu_ppc_init (const char *cpu_model)
 void cpu_ppc_close (CPUPPCState *env)
 {
     /* Should also remove all opcode tables... */
-    qemu_free(env);
+    g_free(env);
 }

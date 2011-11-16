@@ -55,7 +55,8 @@ static QemuOptsList qemu_drive_opts = {
         },{
             .name = "cache",
             .type = QEMU_OPT_STRING,
-            .help = "host cache usage (none, writeback, writethrough, unsafe)",
+            .help = "host cache usage (none, writeback, writethrough, "
+                    "directsync, unsafe)",
         },{
             .name = "aio",
             .type = QEMU_OPT_STRING,
@@ -164,11 +165,11 @@ static QemuOptsList qemu_chardev_opts = {
 
 QemuOptsList qemu_fsdev_opts = {
     .name = "fsdev",
-    .implied_opt_name = "fstype",
+    .implied_opt_name = "fsdriver",
     .head = QTAILQ_HEAD_INITIALIZER(qemu_fsdev_opts.head),
     .desc = {
         {
-            .name = "fstype",
+            .name = "fsdriver",
             .type = QEMU_OPT_STRING,
         }, {
             .name = "path",
@@ -176,18 +177,25 @@ QemuOptsList qemu_fsdev_opts = {
         }, {
             .name = "security_model",
             .type = QEMU_OPT_STRING,
+        }, {
+            .name = "writeout",
+            .type = QEMU_OPT_STRING,
+        }, {
+            .name = "readonly",
+            .type = QEMU_OPT_BOOL,
         },
+
         { /*End of list */ }
     },
 };
 
 QemuOptsList qemu_virtfs_opts = {
     .name = "virtfs",
-    .implied_opt_name = "fstype",
+    .implied_opt_name = "fsdriver",
     .head = QTAILQ_HEAD_INITIALIZER(qemu_virtfs_opts.head),
     .desc = {
         {
-            .name = "fstype",
+            .name = "fsdriver",
             .type = QEMU_OPT_STRING,
         }, {
             .name = "path",
@@ -198,6 +206,12 @@ QemuOptsList qemu_virtfs_opts = {
         }, {
             .name = "security_model",
             .type = QEMU_OPT_STRING,
+        }, {
+            .name = "writeout",
+            .type = QEMU_OPT_STRING,
+        }, {
+            .name = "readonly",
+            .type = QEMU_OPT_BOOL,
         },
 
         { /*End of list */ }
@@ -302,20 +316,21 @@ static QemuOptsList qemu_mon_opts = {
     },
 };
 
-#ifdef CONFIG_SIMPLE_TRACE
 static QemuOptsList qemu_trace_opts = {
     .name = "trace",
     .implied_opt_name = "trace",
     .head = QTAILQ_HEAD_INITIALIZER(qemu_trace_opts.head),
     .desc = {
         {
+            .name = "events",
+            .type = QEMU_OPT_STRING,
+        },{
             .name = "file",
             .type = QEMU_OPT_STRING,
         },
         { /* end of list */ }
     },
 };
-#endif
 
 static QemuOptsList qemu_cpudef_opts = {
     .name = "cpudef",
@@ -516,9 +531,7 @@ static QemuOptsList *vm_config_groups[32] = {
     &qemu_global_opts,
     &qemu_mon_opts,
     &qemu_cpudef_opts,
-#ifdef CONFIG_SIMPLE_TRACE
     &qemu_trace_opts,
-#endif
     &qemu_option_rom_opts,
     &qemu_machine_opts,
     &qemu_boot_opts,

@@ -66,7 +66,7 @@
 #define TARGET_PAGE_BITS 12
 #endif /* defined(TARGET_PPCEMB) */
 
-#define TARGET_PHYS_ADDR_SPACE_BITS 32
+#define TARGET_PHYS_ADDR_SPACE_BITS 36
 #define TARGET_VIRT_ADDR_SPACE_BITS 32
 
 #endif /* defined (TARGET_PPC64) */
@@ -516,7 +516,22 @@ struct ppc_slb_t {
 #endif
 
 /* Exception state register bits definition                                  */
-#define ESR_ST    23    /* Exception was caused by a store type access.      */
+#define ESR_PIL   (1 << (63 - 36)) /* Illegal Instruction                    */
+#define ESR_PPR   (1 << (63 - 37)) /* Privileged Instruction                 */
+#define ESR_PTR   (1 << (63 - 38)) /* Trap                                   */
+#define ESR_FP    (1 << (63 - 39)) /* Floating-Point Operation               */
+#define ESR_ST    (1 << (63 - 40)) /* Store Operation                        */
+#define ESR_AP    (1 << (63 - 44)) /* Auxiliary Processor Operation          */
+#define ESR_PUO   (1 << (63 - 45)) /* Unimplemented Operation                */
+#define ESR_BO    (1 << (63 - 46)) /* Byte Ordering                          */
+#define ESR_PIE   (1 << (63 - 47)) /* Imprecise exception                    */
+#define ESR_DATA  (1 << (63 - 53)) /* Data Access (Embedded page table)      */
+#define ESR_TLBI  (1 << (63 - 54)) /* TLB Ineligible (Embedded page table)   */
+#define ESR_PT    (1 << (63 - 55)) /* Page Table (Embedded page table)       */
+#define ESR_SPV   (1 << (63 - 56)) /* SPE/VMX operation                      */
+#define ESR_EPID  (1 << (63 - 57)) /* External Process ID operation          */
+#define ESR_VLEMI (1 << (63 - 58)) /* VLE operation                          */
+#define ESR_MIF   (1 << (63 - 62)) /* Misaligned instruction (VLE)           */
 
 enum {
     POWERPC_FLAG_NONE     = 0x00000000,
@@ -540,6 +555,8 @@ enum {
     /* Decrementer clock: RTC clock (POWER, 601) or bus clock                */
     POWERPC_FLAG_RTC_CLK  = 0x00010000,
     POWERPC_FLAG_BUS_CLK  = 0x00020000,
+    /* Has CFAR                                                              */
+    POWERPC_FLAG_CFAR     = 0x00040000,
 };
 
 /*****************************************************************************/
@@ -652,8 +669,8 @@ enum {
 #define MAS0_ATSEL_TLB     0
 #define MAS0_ATSEL_LRAT    MAS0_ATSEL
 
-#define MAS1_TSIZE_SHIFT   8
-#define MAS1_TSIZE_MASK    (0xf << MAS1_TSIZE_SHIFT)
+#define MAS1_TSIZE_SHIFT   7
+#define MAS1_TSIZE_MASK    (0x1f << MAS1_TSIZE_SHIFT)
 
 #define MAS1_TS_SHIFT      12
 #define MAS1_TS            (1 << MAS1_TS_SHIFT)
@@ -841,6 +858,22 @@ enum {
 /* The whole PowerPC CPU context */
 #define NB_MMU_MODES 3
 
+struct ppc_def_t {
+    const char *name;
+    uint32_t pvr;
+    uint32_t svr;
+    uint64_t insns_flags;
+    uint64_t insns_flags2;
+    uint64_t msr_mask;
+    powerpc_mmu_t   mmu_model;
+    powerpc_excp_t  excp_model;
+    powerpc_input_t bus_model;
+    uint32_t flags;
+    int bfd_mach;
+    void (*init_proc)(CPUPPCState *env);
+    int  (*check_pow)(CPUPPCState *env);
+};
+
 struct CPUPPCState {
     /* First are the most commonly used resources
      * during translated code execution
@@ -857,6 +890,10 @@ struct CPUPPCState {
     target_ulong ctr;
     /* condition register */
     uint32_t crf[8];
+#if defined(TARGET_PPC64)
+    /* CFAR */
+    target_ulong cfar;
+#endif
     /* XER */
     target_ulong xer;
     /* Reservation address */
@@ -919,6 +956,8 @@ struct CPUPPCState {
     ppc_tlb_t tlb;   /* TLB is optional. Allocate them only if needed        */
     /* 403 dedicated access protection registers */
     target_ulong pb[4];
+    bool tlb_dirty;   /* Set to non-zero when modifying TLB                  */
+    bool kvm_sw_tlb;  /* non-zero if KVM SW TLB API is active                */
 #endif
 
     /* Other registers */
@@ -995,7 +1034,34 @@ struct CPUPPCState {
 #if !defined(CONFIG_USER_ONLY)
     void *load_info;    /* Holds boot loading state.  */
 #endif
+
+    /* booke timers */
+
+    /* Specifies bit locations of the Time Base used to signal a fixed timer
+     * exception on a transition from 0 to 1. (watchdog or fixed-interval timer)
+     *
+     * 0 selects the least significant bit.
+     * 63 selects the most significant bit.
+     */
+    uint8_t fit_period[4];
+    uint8_t wdt_period[4];
 };
+
+#define SET_FIT_PERIOD(a_, b_, c_, d_)          \
+do {                                            \
+    env->fit_period[0] = (a_);                  \
+    env->fit_period[1] = (b_);                  \
+    env->fit_period[2] = (c_);                  \
+    env->fit_period[3] = (d_);                  \
+ } while (0)
+
+#define SET_WDT_PERIOD(a_, b_, c_, d_)          \
+do {                                            \
+    env->wdt_period[0] = (a_);                  \
+    env->wdt_period[1] = (b_);                  \
+    env->wdt_period[2] = (c_);                  \
+    env->wdt_period[3] = (d_);                  \
+ } while (0)
 
 #if !defined(CONFIG_USER_ONLY)
 /* Context used internally during MMU translations */
@@ -1022,7 +1088,7 @@ void cpu_ppc_close (CPUPPCState *s);
 int cpu_ppc_signal_handler (int host_signum, void *pinfo,
                             void *puc);
 int cpu_ppc_handle_mmu_fault (CPUPPCState *env, target_ulong address, int rw,
-                              int mmu_idx, int is_softmmu);
+                              int mmu_idx);
 #define cpu_handle_mmu_fault cpu_ppc_handle_mmu_fault
 #if !defined(CONFIG_USER_ONLY)
 int get_physical_address (CPUPPCState *env, mmu_ctx_t *ctx, target_ulong vaddr,
@@ -1057,6 +1123,7 @@ void ppc_store_msr (CPUPPCState *env, target_ulong value);
 
 void ppc_cpu_list (FILE *f, fprintf_function cpu_fprintf);
 
+const ppc_def_t *ppc_find_by_pvr(uint32_t pvr);
 const ppc_def_t *cpu_ppc_find_by_name (const char *name);
 int cpu_ppc_register_internal (CPUPPCState *env, const ppc_def_t *def);
 
@@ -1187,6 +1254,7 @@ static inline void cpu_clone_regs(CPUState *env, target_ulong newsp)
 #define SPR_601_UDECR         (0x006)
 #define SPR_LR                (0x008)
 #define SPR_CTR               (0x009)
+#define SPR_DSCR              (0x011)
 #define SPR_DSISR             (0x012)
 #define SPR_DAR               (0x013) /* DAE for PowerPC 601 */
 #define SPR_601_RTCU          (0x014)
@@ -1195,6 +1263,7 @@ static inline void cpu_clone_regs(CPUState *env, target_ulong newsp)
 #define SPR_SDR1              (0x019)
 #define SPR_SRR0              (0x01A)
 #define SPR_SRR1              (0x01B)
+#define SPR_CFAR              (0x01C)
 #define SPR_AMR               (0x01D)
 #define SPR_BOOKE_PID         (0x030)
 #define SPR_BOOKE_DECAR       (0x036)
@@ -1787,10 +1856,40 @@ enum {
     /* popcntw and popcntd instructions                                      */
     PPC_POPCNTWD       = 0x8000000000000000ULL,
 
+#define PPC_TCG_INSNS  (PPC_INSNS_BASE | PPC_POWER | PPC_POWER2 \
+                        | PPC_POWER_RTC | PPC_POWER_BR | PPC_64B \
+                        | PPC_64BX | PPC_64H | PPC_WAIT | PPC_MFTB \
+                        | PPC_602_SPEC | PPC_ISEL | PPC_POPCNTB \
+                        | PPC_STRING | PPC_FLOAT | PPC_FLOAT_EXT \
+                        | PPC_FLOAT_FSQRT | PPC_FLOAT_FRES \
+                        | PPC_FLOAT_FRSQRTE | PPC_FLOAT_FRSQRTES \
+                        | PPC_FLOAT_FSEL | PPC_FLOAT_STFIWX \
+                        | PPC_ALTIVEC | PPC_SPE | PPC_SPE_SINGLE \
+                        | PPC_SPE_DOUBLE | PPC_MEM_TLBIA \
+                        | PPC_MEM_TLBIE | PPC_MEM_TLBSYNC \
+                        | PPC_MEM_SYNC | PPC_MEM_EIEIO \
+                        | PPC_CACHE | PPC_CACHE_ICBI \
+                        | PPC_CACHE_DCBZ | PPC_CACHE_DCBZT \
+                        | PPC_CACHE_DCBA | PPC_CACHE_LOCK \
+                        | PPC_EXTERN | PPC_SEGMENT | PPC_6xx_TLB \
+                        | PPC_74xx_TLB | PPC_40x_TLB | PPC_SEGMENT_64B \
+                        | PPC_SLBI | PPC_WRTEE | PPC_40x_EXCP \
+                        | PPC_405_MAC | PPC_440_SPEC | PPC_BOOKE \
+                        | PPC_MFAPIDI | PPC_TLBIVA | PPC_TLBIVAX \
+                        | PPC_4xx_COMMON | PPC_40x_ICBT | PPC_RFMCI \
+                        | PPC_RFDI | PPC_DCR | PPC_DCRX | PPC_DCRUX \
+                        | PPC_POPCNTWD)
+
     /* extended type values */
 
     /* BookE 2.06 PowerPC specification                                      */
     PPC2_BOOKE206      = 0x0000000000000001ULL,
+    /* VSX (extensions to Altivec / VMX)                                     */
+    PPC2_VSX           = 0x0000000000000002ULL,
+    /* Decimal Floating Point (DFP)                                          */
+    PPC2_DFP           = 0x0000000000000004ULL,
+
+#define PPC_TCG_INSNS2 (PPC2_BOOKE206)
 };
 
 /*****************************************************************************/
@@ -2027,5 +2126,7 @@ static inline void cpu_pc_from_tb(CPUState *env, TranslationBlock *tb)
 {
     env->nip = tb->pc;
 }
+
+void dump_mmu(FILE *f, fprintf_function cpu_fprintf, CPUState *env);
 
 #endif /* !defined (__CPU_PPC_H__) */

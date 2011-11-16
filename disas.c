@@ -137,7 +137,7 @@ print_insn_thumb1(bfd_vma pc, disassemble_info *info)
 
 /* Disassemble this for me please... (debugging). 'flags' has the following
    values:
-    i386 - nonzero means 16 bit code
+    i386 - 1 means 16 bit code, 2 means 64 bit code
     arm  - nonzero means thumb code
     ppc  - nonzero means little endian
     other targets - unused
@@ -273,7 +273,9 @@ void disas(FILE *out, void *code, unsigned long size)
 #else
     disasm_info.endian = BFD_ENDIAN_LITTLE;
 #endif
-#if defined(__i386__)
+#if defined(CONFIG_TCG_INTERPRETER)
+    print_insn = print_insn_tci;
+#elif defined(__i386__)
     disasm_info.mach = bfd_mach_i386_i386;
     print_insn = print_insn_i386;
 #elif defined(__x86_64__)

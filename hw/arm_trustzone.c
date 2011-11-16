@@ -169,7 +169,7 @@ ASCPartition *arm_trustzone_get_partition(ASCBus *bus, target_phys_addr_t addr)
     return NULL;
   }
 
-  QLIST_FOREACH(qdev, &bus->qbus.children, sibling) {
+  QTAILQ_FOREACH(qdev, &bus->qbus.children, sibling) {
     ASCPartition* candidate = ASC_PARTITION_FROM_QDEV(qdev);
     if (candidate->phys_start <= addr && addr <= candidate->phys_end) {
       partition = candidate;

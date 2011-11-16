@@ -79,6 +79,7 @@ struct ioreq {
 
     struct XenBlkDev    *blkdev;
     QLIST_ENTRY(ioreq)   list;
+    BlockAcctCookie     acct;
 };
 
 struct XenBlkDev {
@@ -124,7 +125,7 @@ static struct ioreq *ioreq_start(struct XenBlkDev *blkdev)
             goto out;
         }
         /* allocate new struct */
-        ioreq = qemu_mallocz(sizeof(*ioreq));
+        ioreq = g_malloc0(sizeof(*ioreq));
         ioreq->blkdev = blkdev;
         blkdev->requests_total++;
         qemu_iovec_init(&ioreq->v, BLKIF_MAX_SEGMENTS_PER_REQUEST);
@@ -401,6 +402,7 @@ static void qemu_aio_complete(void *opaque, int ret)
     ioreq->status = ioreq->aio_errors ? BLKIF_RSP_ERROR : BLKIF_RSP_OKAY;
     ioreq_unmap(ioreq);
     ioreq_finish(ioreq);
+    bdrv_acct_done(ioreq->blkdev->bs, &ioreq->acct);
     qemu_bh_schedule(ioreq->blkdev->bh);
 }
 
@@ -419,6 +421,7 @@ static int ioreq_runio_qemu_aio(struct ioreq *ioreq)
 
     switch (ioreq->req.operation) {
     case BLKIF_OP_READ:
+        bdrv_acct_start(blkdev->bs, &ioreq->acct, ioreq->v.size, BDRV_ACCT_READ);
         ioreq->aio_inflight++;
         bdrv_aio_readv(blkdev->bs, ioreq->start / BLOCK_SIZE,
                        &ioreq->v, ioreq->v.size / BLOCK_SIZE,
@@ -429,6 +432,8 @@ static int ioreq_runio_qemu_aio(struct ioreq *ioreq)
         if (!ioreq->req.nr_segments) {
             break;
         }
+
+        bdrv_acct_start(blkdev->bs, &ioreq->acct, ioreq->v.size, BDRV_ACCT_WRITE);
         ioreq->aio_inflight++;
         bdrv_aio_writev(blkdev->bs, ioreq->start / BLOCK_SIZE,
                         &ioreq->v, ioreq->v.size / BLOCK_SIZE,
@@ -615,7 +620,7 @@ static void blk_alloc(struct XenDevice *xendev)
 static int blk_init(struct XenDevice *xendev)
 {
     struct XenBlkDev *blkdev = container_of(xendev, struct XenBlkDev, xendev);
-    int index, qflags, have_barriers, info = 0;
+    int index, qflags, info = 0;
 
     /* read xenstore entries */
     if (blkdev->params == NULL) {
@@ -692,6 +697,7 @@ static int blk_init(struct XenDevice *xendev)
         xen_be_printf(&blkdev->xendev, 2, "get configured bdrv (cmdline setup)\n");
         blkdev->bs = blkdev->dinfo->bdrv;
     }
+    bdrv_attach_dev_nofail(blkdev->bs, blkdev);
     blkdev->file_blk  = BLOCK_SIZE;
     blkdev->file_size = bdrv_getlength(blkdev->bs);
     if (blkdev->file_size < 0) {
@@ -700,7 +706,6 @@ static int blk_init(struct XenDevice *xendev)
                       blkdev->bs->drv ? blkdev->bs->drv->format_name : "-");
         blkdev->file_size = 0;
     }
-    have_barriers = blkdev->bs->drv && blkdev->bs->drv->bdrv_flush ? 1 : 0;
 
     xen_be_printf(xendev, 1, "type \"%s\", fileproto \"%s\", filename \"%s\","
                   " size %" PRId64 " (%" PRId64 " MB)\n",
@@ -708,7 +713,7 @@ static int blk_init(struct XenDevice *xendev)
                   blkdev->file_size, blkdev->file_size >> 20);
 
     /* fill info */
-    xenstore_write_be_int(&blkdev->xendev, "feature-barrier", have_barriers);
+    xenstore_write_be_int(&blkdev->xendev, "feature-barrier", 1);
     xenstore_write_be_int(&blkdev->xendev, "info",            info);
     xenstore_write_be_int(&blkdev->xendev, "sector-size",     blkdev->file_blk);
     xenstore_write_be_int(&blkdev->xendev, "sectors",
@@ -716,15 +721,15 @@ static int blk_init(struct XenDevice *xendev)
     return 0;
 
 out_error:
-    qemu_free(blkdev->params);
+    g_free(blkdev->params);
     blkdev->params = NULL;
-    qemu_free(blkdev->mode);
+    g_free(blkdev->mode);
     blkdev->mode = NULL;
-    qemu_free(blkdev->type);
+    g_free(blkdev->type);
     blkdev->type = NULL;
-    qemu_free(blkdev->dev);
+    g_free(blkdev->dev);
     blkdev->dev = NULL;
-    qemu_free(blkdev->devtype);
+    g_free(blkdev->devtype);
     blkdev->devtype = NULL;
     return -1;
 }
@@ -822,14 +827,14 @@ static int blk_free(struct XenDevice *xendev)
         ioreq = QLIST_FIRST(&blkdev->freelist);
         QLIST_REMOVE(ioreq, list);
         qemu_iovec_destroy(&ioreq->v);
-        qemu_free(ioreq);
+        g_free(ioreq);
     }
 
-    qemu_free(blkdev->params);
-    qemu_free(blkdev->mode);
-    qemu_free(blkdev->type);
-    qemu_free(blkdev->dev);
-    qemu_free(blkdev->devtype);
+    g_free(blkdev->params);
+    g_free(blkdev->mode);
+    g_free(blkdev->type);
+    g_free(blkdev->dev);
+    g_free(blkdev->devtype);
     qemu_bh_delete(blkdev->bh);
     return 0;
 }
@@ -846,7 +851,7 @@ struct XenDevOps xen_blkdev_ops = {
     .flags      = DEVOPS_FLAG_NEED_GNTDEV,
     .alloc      = blk_alloc,
     .init       = blk_init,
-    .connect    = blk_connect,
+    .initialise    = blk_connect,
     .disconnect = blk_disconnect,
     .event      = blk_event,
     .free       = blk_free,

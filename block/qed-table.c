@@ -179,15 +179,11 @@ int qed_read_l1_table_sync(BDRVQEDState *s)
 {
     int ret = -EINPROGRESS;
 
-    async_context_push();
-
     qed_read_table(s, s->header.l1_table_offset,
                    s->l1_table, qed_sync_cb, &ret);
     while (ret == -EINPROGRESS) {
         qemu_aio_wait();
     }
-
-    async_context_pop();
 
     return ret;
 }
@@ -205,14 +201,10 @@ int qed_write_l1_table_sync(BDRVQEDState *s, unsigned int index,
 {
     int ret = -EINPROGRESS;
 
-    async_context_push();
-
     qed_write_l1_table(s, index, n, qed_sync_cb, &ret);
     while (ret == -EINPROGRESS) {
         qemu_aio_wait();
     }
-
-    async_context_pop();
 
     return ret;
 }
@@ -230,21 +222,21 @@ static void qed_read_l2_table_cb(void *opaque, int ret)
     QEDRequest *request = read_l2_table_cb->request;
     BDRVQEDState *s = read_l2_table_cb->s;
     CachedL2Table *l2_table = request->l2_table;
+    uint64_t l2_offset = read_l2_table_cb->l2_offset;
 
     if (ret) {
         /* can't trust loaded L2 table anymore */
         qed_unref_l2_cache_entry(l2_table);
         request->l2_table = NULL;
     } else {
-        l2_table->offset = read_l2_table_cb->l2_offset;
+        l2_table->offset = l2_offset;
 
         qed_commit_l2_cache_entry(&s->l2_cache, l2_table);
 
         /* This is guaranteed to succeed because we just committed the entry
          * to the cache.
          */
-        request->l2_table = qed_find_l2_cache_entry(&s->l2_cache,
-                                                    l2_table->offset);
+        request->l2_table = qed_find_l2_cache_entry(&s->l2_cache, l2_offset);
         assert(request->l2_table != NULL);
     }
 
@@ -282,14 +274,11 @@ int qed_read_l2_table_sync(BDRVQEDState *s, QEDRequest *request, uint64_t offset
 {
     int ret = -EINPROGRESS;
 
-    async_context_push();
-
     qed_read_l2_table(s, request, offset, qed_sync_cb, &ret);
     while (ret == -EINPROGRESS) {
         qemu_aio_wait();
     }
 
-    async_context_pop();
     return ret;
 }
 
@@ -307,13 +296,10 @@ int qed_write_l2_table_sync(BDRVQEDState *s, QEDRequest *request,
 {
     int ret = -EINPROGRESS;
 
-    async_context_push();
-
     qed_write_l2_table(s, request, index, n, flush, qed_sync_cb, &ret);
     while (ret == -EINPROGRESS) {
         qemu_aio_wait();
     }
 
-    async_context_pop();
     return ret;
 }

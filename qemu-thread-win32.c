@@ -24,7 +24,7 @@ static void error_exit(int err, const char *msg)
                   NULL, err, 0, (LPTSTR)&pstr, 2, NULL);
     fprintf(stderr, "qemu: %s: %s\n", msg, pstr);
     LocalFree(pstr);
-    exit(1);
+    abort();
 }
 
 void qemu_mutex_init(QemuMutex *mutex)
@@ -249,7 +249,7 @@ void qemu_thread_create(QemuThread *thread,
 
     struct QemuThreadData *data;
     qemu_thread_init();
-    data = qemu_malloc(sizeof *data);
+    data = g_malloc(sizeof *data);
     data->thread = thread;
     data->start_routine = start_routine;
     data->arg = arg;

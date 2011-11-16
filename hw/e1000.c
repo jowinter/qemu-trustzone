@@ -31,6 +31,7 @@
 #include "net/checksum.h"
 #include "loader.h"
 #include "sysemu.h"
+#include "dma.h"
 
 #include "e1000_hw.h"
 
@@ -82,7 +83,8 @@ typedef struct E1000State_st {
     PCIDevice dev;
     NICState *nic;
     NICConf conf;
-    int mmio_index;
+    MemoryRegion mmio;
+    MemoryRegion io;
 
     uint32_t mac_reg[0x8000];
     uint16_t phy_reg[0x20];
@@ -149,14 +151,6 @@ static const char phy_regcap[0x20] = {
     [PHY_AUTONEG_ADV] = PHY_RW,	[M88E1000_RX_ERR_CNTR] = PHY_R,
     [PHY_ID2] = PHY_R,		[M88E1000_PHY_SPEC_STATUS] = PHY_R
 };
-
-static void
-ioport_map(PCIDevice *pci_dev, int region_num, pcibus_t addr,
-           pcibus_t size, int type)
-{
-    DBGOUT(IO, "e1000_ioport_map addr=0x%04"FMT_PCIBUS
-           " size=0x%08"FMT_PCIBUS"\n", addr, size);
-}
 
 static void
 set_interrupt_cause(E1000State *s, int index, uint32_t val)
@@ -472,7 +466,7 @@ process_tx_desc(E1000State *s, struct e1000_tx_desc *dp)
             bytes = split_size;
             if (tp->size + bytes > msh)
                 bytes = msh - tp->size;
-            cpu_physical_memory_read(addr, tp->data + tp->size, bytes);
+            pci_dma_read(&s->dev, addr, tp->data + tp->size, bytes);
             if ((sz = tp->size + bytes) >= hdr && tp->size < hdr)
                 memmove(tp->header, tp->data, hdr);
             tp->size = sz;
@@ -487,7 +481,7 @@ process_tx_desc(E1000State *s, struct e1000_tx_desc *dp)
         // context descriptor TSE is not set, while data descriptor TSE is set
         DBGOUT(TXERR, "TCP segmentaion Error\n");
     } else {
-        cpu_physical_memory_read(addr, tp->data + tp->size, split_size);
+        pci_dma_read(&s->dev, addr, tp->data + tp->size, split_size);
         tp->size += split_size;
     }
 
@@ -503,7 +497,7 @@ process_tx_desc(E1000State *s, struct e1000_tx_desc *dp)
 }
 
 static uint32_t
-txdesc_writeback(target_phys_addr_t base, struct e1000_tx_desc *dp)
+txdesc_writeback(E1000State *s, dma_addr_t base, struct e1000_tx_desc *dp)
 {
     uint32_t txd_upper, txd_lower = le32_to_cpu(dp->lower.data);
 
@@ -512,8 +506,8 @@ txdesc_writeback(target_phys_addr_t base, struct e1000_tx_desc *dp)
     txd_upper = (le32_to_cpu(dp->upper.data) | E1000_TXD_STAT_DD) &
                 ~(E1000_TXD_STAT_EC | E1000_TXD_STAT_LC | E1000_TXD_STAT_TU);
     dp->upper.data = cpu_to_le32(txd_upper);
-    cpu_physical_memory_write(base + ((char *)&dp->upper - (char *)dp),
-                              (void *)&dp->upper, sizeof(dp->upper));
+    pci_dma_write(&s->dev, base + ((char *)&dp->upper - (char *)dp),
+                  (void *)&dp->upper, sizeof(dp->upper));
     return E1000_ICR_TXDW;
 }
 
@@ -528,7 +522,7 @@ static uint64_t tx_desc_base(E1000State *s)
 static void
 start_xmit(E1000State *s)
 {
-    target_phys_addr_t base;
+    dma_addr_t base;
     struct e1000_tx_desc desc;
     uint32_t tdh_start = s->mac_reg[TDH], cause = E1000_ICS_TXQE;
 
@@ -540,14 +534,14 @@ start_xmit(E1000State *s)
     while (s->mac_reg[TDH] != s->mac_reg[TDT]) {
         base = tx_desc_base(s) +
                sizeof(struct e1000_tx_desc) * s->mac_reg[TDH];
-        cpu_physical_memory_read(base, (void *)&desc, sizeof(desc));
+        pci_dma_read(&s->dev, base, (void *)&desc, sizeof(desc));
 
         DBGOUT(TX, "index %d: %p : %x %x\n", s->mac_reg[TDH],
                (void *)(intptr_t)desc.buffer_addr, desc.lower.data,
                desc.upper.data);
 
         process_tx_desc(s, &desc);
-        cause |= txdesc_writeback(base, &desc);
+        cause |= txdesc_writeback(s, base, &desc);
 
         if (++s->mac_reg[TDH] * sizeof(desc) >= s->mac_reg[TDLEN])
             s->mac_reg[TDH] = 0;
@@ -624,10 +618,13 @@ e1000_set_link_status(VLANClientState *nc)
     E1000State *s = DO_UPCAST(NICState, nc, nc)->opaque;
     uint32_t old_status = s->mac_reg[STATUS];
 
-    if (nc->link_down)
+    if (nc->link_down) {
         s->mac_reg[STATUS] &= ~E1000_STATUS_LU;
-    else
+        s->phy_reg[PHY_STATUS] &= ~MII_SR_LINK_STATUS;
+    } else {
         s->mac_reg[STATUS] |= E1000_STATUS_LU;
+        s->phy_reg[PHY_STATUS] |= MII_SR_LINK_STATUS;
+    }
 
     if (s->mac_reg[STATUS] != old_status)
         set_ics(s, 0, E1000_ICR_LSC);
@@ -672,7 +669,7 @@ e1000_receive(VLANClientState *nc, const uint8_t *buf, size_t size)
 {
     E1000State *s = DO_UPCAST(NICState, nc, nc)->opaque;
     struct e1000_rx_desc desc;
-    target_phys_addr_t base;
+    dma_addr_t base;
     unsigned int n, rdt;
     uint32_t rdh_start;
     uint16_t vlan_special = 0;
@@ -717,7 +714,7 @@ e1000_receive(VLANClientState *nc, const uint8_t *buf, size_t size)
             desc_size = s->rxbuf_size;
         }
         base = rx_desc_base(s) + sizeof(desc) * s->mac_reg[RDH];
-        cpu_physical_memory_read(base, (void *)&desc, sizeof(desc));
+        pci_dma_read(&s->dev, base, (void *)&desc, sizeof(desc));
         desc.special = vlan_special;
         desc.status |= (vlan_status | E1000_RXD_STAT_DD);
         if (desc.buffer_addr) {
@@ -726,9 +723,9 @@ e1000_receive(VLANClientState *nc, const uint8_t *buf, size_t size)
                 if (copy_size > s->rxbuf_size) {
                     copy_size = s->rxbuf_size;
                 }
-                cpu_physical_memory_write(le64_to_cpu(desc.buffer_addr),
-                                          (void *)(buf + desc_offset + vlan_offset),
-                                          copy_size);
+                pci_dma_write(&s->dev, le64_to_cpu(desc.buffer_addr),
+                                 (void *)(buf + desc_offset + vlan_offset),
+                                 copy_size);
             }
             desc_offset += desc_size;
             desc.length = cpu_to_le16(desc_size);
@@ -742,7 +739,7 @@ e1000_receive(VLANClientState *nc, const uint8_t *buf, size_t size)
         } else { // as per intel docs; skip descriptors with null buf addr
             DBGOUT(RX, "Null RX descriptor!!\n");
         }
-        cpu_physical_memory_write(base, (void *)&desc, sizeof(desc));
+        pci_dma_write(&s->dev, base, (void *)&desc, sizeof(desc));
 
         if (++s->mac_reg[RDH] * sizeof(desc) >= s->mac_reg[RDLEN])
             s->mac_reg[RDH] = 0;
@@ -905,7 +902,8 @@ static void (*macreg_writeops[])(E1000State *, int, uint32_t) = {
 enum { NWRITEOPS = ARRAY_SIZE(macreg_writeops) };
 
 static void
-e1000_mmio_writel(void *opaque, target_phys_addr_t addr, uint32_t val)
+e1000_mmio_write(void *opaque, target_phys_addr_t addr, uint64_t val,
+                 unsigned size)
 {
     E1000State *s = opaque;
     unsigned int index = (addr & 0x1ffff) >> 2;
@@ -913,31 +911,15 @@ e1000_mmio_writel(void *opaque, target_phys_addr_t addr, uint32_t val)
     if (index < NWRITEOPS && macreg_writeops[index]) {
         macreg_writeops[index](s, index, val);
     } else if (index < NREADOPS && macreg_readops[index]) {
-        DBGOUT(MMIO, "e1000_mmio_writel RO %x: 0x%04x\n", index<<2, val);
+        DBGOUT(MMIO, "e1000_mmio_writel RO %x: 0x%04"PRIx64"\n", index<<2, val);
     } else {
-        DBGOUT(UNKNOWN, "MMIO unknown write addr=0x%08x,val=0x%08x\n",
+        DBGOUT(UNKNOWN, "MMIO unknown write addr=0x%08x,val=0x%08"PRIx64"\n",
                index<<2, val);
     }
 }
 
-static void
-e1000_mmio_writew(void *opaque, target_phys_addr_t addr, uint32_t val)
-{
-    // emulate hw without byte enables: no RMW
-    e1000_mmio_writel(opaque, addr & ~3,
-                      (val & 0xffff) << (8*(addr & 3)));
-}
-
-static void
-e1000_mmio_writeb(void *opaque, target_phys_addr_t addr, uint32_t val)
-{
-    // emulate hw without byte enables: no RMW
-    e1000_mmio_writel(opaque, addr & ~3,
-                      (val & 0xff) << (8*(addr & 3)));
-}
-
-static uint32_t
-e1000_mmio_readl(void *opaque, target_phys_addr_t addr)
+static uint64_t
+e1000_mmio_read(void *opaque, target_phys_addr_t addr, unsigned size)
 {
     E1000State *s = opaque;
     unsigned int index = (addr & 0x1ffff) >> 2;
@@ -950,19 +932,38 @@ e1000_mmio_readl(void *opaque, target_phys_addr_t addr)
     return 0;
 }
 
-static uint32_t
-e1000_mmio_readb(void *opaque, target_phys_addr_t addr)
+static const MemoryRegionOps e1000_mmio_ops = {
+    .read = e1000_mmio_read,
+    .write = e1000_mmio_write,
+    .endianness = DEVICE_LITTLE_ENDIAN,
+    .impl = {
+        .min_access_size = 4,
+        .max_access_size = 4,
+    },
+};
+
+static uint64_t e1000_io_read(void *opaque, target_phys_addr_t addr,
+                              unsigned size)
 {
-    return ((e1000_mmio_readl(opaque, addr & ~3)) >>
-            (8 * (addr & 3))) & 0xff;
+    E1000State *s = opaque;
+
+    (void)s;
+    return 0;
 }
 
-static uint32_t
-e1000_mmio_readw(void *opaque, target_phys_addr_t addr)
+static void e1000_io_write(void *opaque, target_phys_addr_t addr,
+                           uint64_t val, unsigned size)
 {
-    return ((e1000_mmio_readl(opaque, addr & ~3)) >>
-            (8 * (addr & 3))) & 0xffff;
+    E1000State *s = opaque;
+
+    (void)s;
 }
+
+static const MemoryRegionOps e1000_io_ops = {
+    .read = e1000_io_read,
+    .write = e1000_io_write,
+    .endianness = DEVICE_LITTLE_ENDIAN,
+};
 
 static bool is_version_1(void *opaque, int version_id)
 {
@@ -1083,36 +1084,22 @@ static const uint32_t mac_reg_init[] = {
 
 /* PCI interface */
 
-static CPUWriteMemoryFunc * const e1000_mmio_write[] = {
-    e1000_mmio_writeb,	e1000_mmio_writew,	e1000_mmio_writel
-};
-
-static CPUReadMemoryFunc * const e1000_mmio_read[] = {
-    e1000_mmio_readb,	e1000_mmio_readw,	e1000_mmio_readl
-};
-
 static void
-e1000_mmio_map(PCIDevice *pci_dev, int region_num,
-                pcibus_t addr, pcibus_t size, int type)
+e1000_mmio_setup(E1000State *d)
 {
-    E1000State *d = DO_UPCAST(E1000State, dev, pci_dev);
     int i;
     const uint32_t excluded_regs[] = {
         E1000_MDIC, E1000_ICR, E1000_ICS, E1000_IMS,
         E1000_IMC, E1000_TCTL, E1000_TDT, PNPMMIO_SIZE
     };
 
-
-    DBGOUT(MMIO, "e1000_mmio_map addr=0x%08"FMT_PCIBUS" 0x%08"FMT_PCIBUS"\n",
-           addr, size);
-
-    cpu_register_physical_memory(addr, PNPMMIO_SIZE, d->mmio_index);
-    qemu_register_coalesced_mmio(addr, excluded_regs[0]);
-
+    memory_region_init_io(&d->mmio, &e1000_mmio_ops, d, "e1000-mmio",
+                          PNPMMIO_SIZE);
+    memory_region_add_coalescing(&d->mmio, 0, excluded_regs[0]);
     for (i = 0; excluded_regs[i] != PNPMMIO_SIZE; i++)
-        qemu_register_coalesced_mmio(addr + excluded_regs[i] + 4,
-                                     excluded_regs[i + 1] -
-                                     excluded_regs[i] - 4);
+        memory_region_add_coalescing(&d->mmio, excluded_regs[i] + 4,
+                                     excluded_regs[i+1] - excluded_regs[i] - 4);
+    memory_region_init_io(&d->io, &e1000_io_ops, d, "e1000-io", IOPORT_SIZE);
 }
 
 static void
@@ -1128,7 +1115,8 @@ pci_e1000_uninit(PCIDevice *dev)
 {
     E1000State *d = DO_UPCAST(E1000State, dev, dev);
 
-    cpu_unregister_io_memory(d->mmio_index);
+    memory_region_destroy(&d->mmio);
+    memory_region_destroy(&d->io);
     qemu_del_vlan_client(&d->nic->nc);
     return 0;
 }
@@ -1164,22 +1152,16 @@ static int pci_e1000_init(PCIDevice *pci_dev)
 
     pci_conf = d->dev.config;
 
-    /* TODO: we have no capabilities, so why is this bit set? */
-    pci_set_word(pci_conf + PCI_STATUS, PCI_STATUS_CAP_LIST);
     /* TODO: RST# value should be 0, PCI spec 6.2.4 */
     pci_conf[PCI_CACHE_LINE_SIZE] = 0x10;
 
-    /* TODO: RST# value should be 0 if programmable, PCI spec 6.2.4 */
-    pci_conf[PCI_INTERRUPT_PIN] = 1; // interrupt pin 0
+    pci_conf[PCI_INTERRUPT_PIN] = 1; /* interrupt pin A */
 
-    d->mmio_index = cpu_register_io_memory(e1000_mmio_read,
-            e1000_mmio_write, d, DEVICE_LITTLE_ENDIAN);
+    e1000_mmio_setup(d);
 
-    pci_register_bar(&d->dev, 0, PNPMMIO_SIZE,
-                           PCI_BASE_ADDRESS_SPACE_MEMORY, e1000_mmio_map);
+    pci_register_bar(&d->dev, 0, PCI_BASE_ADDRESS_SPACE_MEMORY, &d->mmio);
 
-    pci_register_bar(&d->dev, 1, IOPORT_SIZE,
-                           PCI_BASE_ADDRESS_SPACE_IO, ioport_map);
+    pci_register_bar(&d->dev, 1, PCI_BASE_ADDRESS_SPACE_IO, &d->io);
 
     memmove(d->eeprom_data, e1000_eeprom_template,
         sizeof e1000_eeprom_template);

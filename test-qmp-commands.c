@@ -15,15 +15,15 @@ void qmp_user_def_cmd1(UserDefOne * ud1, Error **errp)
 UserDefTwo * qmp_user_def_cmd2(UserDefOne * ud1a, UserDefOne * ud1b, Error **errp)
 {
     UserDefTwo *ret;
-    UserDefOne *ud1c = qemu_mallocz(sizeof(UserDefOne));
-    UserDefOne *ud1d = qemu_mallocz(sizeof(UserDefOne));
+    UserDefOne *ud1c = g_malloc0(sizeof(UserDefOne));
+    UserDefOne *ud1d = g_malloc0(sizeof(UserDefOne));
 
     ud1c->string = strdup(ud1a->string);
     ud1c->integer = ud1a->integer;
     ud1d->string = strdup(ud1b->string);
     ud1d->integer = ud1b->integer;
 
-    ret = qemu_mallocz(sizeof(UserDefTwo));
+    ret = g_malloc0(sizeof(UserDefTwo));
     ret->string = strdup("blah1");
     ret->dict.string = strdup("blah2");
     ret->dict.dict.userdef = ud1c;
@@ -98,6 +98,34 @@ static void test_dispatch_cmd_io(void)
     QDECREF(req);
 }
 
+/* test generated dealloc functions for generated types */
+static void test_dealloc_types(void)
+{
+    UserDefOne *ud1test, *ud1a, *ud1b;
+    UserDefOneList *ud1list;
+
+    ud1test = g_malloc0(sizeof(UserDefOne));
+    ud1test->integer = 42;
+    ud1test->string = g_strdup("hi there 42");
+
+    qapi_free_UserDefOne(ud1test);
+
+    ud1a = g_malloc0(sizeof(UserDefOne));
+    ud1a->integer = 43;
+    ud1a->string = g_strdup("hi there 43");
+
+    ud1b = g_malloc0(sizeof(UserDefOne));
+    ud1b->integer = 44;
+    ud1b->string = g_strdup("hi there 44");
+
+    ud1list = g_malloc0(sizeof(UserDefOneList));
+    ud1list->value = ud1a;
+    ud1list->next = g_malloc0(sizeof(UserDefOneList));
+    ud1list->next->value = ud1b;
+
+    qapi_free_UserDefOneList(ud1list);
+}
+
 int main(int argc, char **argv)
 {
     g_test_init(&argc, &argv, NULL);
@@ -105,6 +133,7 @@ int main(int argc, char **argv)
     g_test_add_func("/0.15/dispatch_cmd", test_dispatch_cmd);
     g_test_add_func("/0.15/dispatch_cmd_error", test_dispatch_cmd_error);
     g_test_add_func("/0.15/dispatch_cmd_io", test_dispatch_cmd_io);
+    g_test_add_func("/0.15/dealloc_types", test_dealloc_types);
 
     module_call_init(MODULE_INIT_QAPI);
     g_test_run();

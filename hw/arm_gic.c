@@ -37,9 +37,8 @@ static const uint8_t gic_id[] =
 
 typedef struct gic_irq_state
 {
-    /* ??? The documentation seems to imply the enable bits are global, even
-       for per-cpu interrupts.  This seems strange.  */
-    unsigned enabled:1;
+    /* The enable bits are only banked for per-cpu interrupts.  */
+    unsigned enabled:NCPU;
     unsigned pending:NCPU;
     unsigned active:NCPU;
     unsigned level:NCPU;
@@ -54,9 +53,9 @@ typedef struct gic_irq_state
 #define NUM_CPU(s) 1
 #endif
 
-#define GIC_SET_ENABLED(irq) s->irq_state[irq].enabled = 1
-#define GIC_CLEAR_ENABLED(irq) s->irq_state[irq].enabled = 0
-#define GIC_TEST_ENABLED(irq) s->irq_state[irq].enabled
+#define GIC_SET_ENABLED(irq, cm) s->irq_state[irq].enabled |= (cm)
+#define GIC_CLEAR_ENABLED(irq, cm) s->irq_state[irq].enabled &= ~(cm)
+#define GIC_TEST_ENABLED(irq, cm) ((s->irq_state[irq].enabled & (cm)) != 0)
 #define GIC_SET_PENDING(irq, cm) s->irq_state[irq].pending |= (cm)
 #define GIC_CLEAR_PENDING(irq, cm) s->irq_state[irq].pending &= ~(cm)
 #define GIC_TEST_PENDING(irq, cm) ((s->irq_state[irq].pending & (cm)) != 0)
@@ -104,7 +103,7 @@ typedef struct gic_state
     int num_cpu;
 #endif
 
-    int iomemtype;
+    MemoryRegion iomem;
 } gic_state;
 
 /* TODO: Many places that call this routine could be optimized.  */
@@ -128,7 +127,7 @@ static void gic_update(gic_state *s)
         best_prio = 0x100;
         best_irq = 1023;
         for (irq = 0; irq < GIC_NIRQ; irq++) {
-            if (GIC_TEST_ENABLED(irq) && GIC_TEST_PENDING(irq, cm)) {
+            if (GIC_TEST_ENABLED(irq, cm) && GIC_TEST_PENDING(irq, cm)) {
                 if (GIC_GET_PRIORITY(irq, cpu) < best_prio) {
                     best_prio = GIC_GET_PRIORITY(irq, cpu);
                     best_irq = irq;
@@ -171,7 +170,7 @@ static void gic_set_irq(void *opaque, int irq, int level)
 
     if (level) {
         GIC_SET_LEVEL(irq, ALL_CPU_MASK);
-        if (GIC_TEST_TRIGGER(irq) || GIC_TEST_ENABLED(irq)) {
+        if (GIC_TEST_TRIGGER(irq) || GIC_TEST_ENABLED(irq, ALL_CPU_MASK)) {
             DPRINTF("Set %d pending mask %x\n", irq, GIC_TARGET(irq));
             GIC_SET_PENDING(irq, GIC_TARGET(irq));
         }
@@ -221,7 +220,7 @@ static void gic_complete_irq(gic_state * s, int cpu, int irq)
     if (irq != 1023) {
         /* Mark level triggered interrupts as pending if they are still
            raised.  */
-        if (!GIC_TEST_TRIGGER(irq) && GIC_TEST_ENABLED(irq)
+        if (!GIC_TEST_TRIGGER(irq) && GIC_TEST_ENABLED(irq, cm)
                 && GIC_TEST_LEVEL(irq, cm) && (GIC_TARGET(irq) & cm) != 0) {
             DPRINTF("Set %d pending mask %x\n", irq, cm);
             GIC_SET_PENDING(irq, cm);
@@ -280,7 +279,7 @@ static uint32_t gic_dist_readb(void *opaque, target_phys_addr_t offset)
             goto bad_reg;
         res = 0;
         for (i = 0; i < 8; i++) {
-            if (GIC_TEST_ENABLED(irq + i)) {
+            if (GIC_TEST_ENABLED(irq + i, cm)) {
                 res |= (1 << i);
             }
         }
@@ -412,9 +411,12 @@ static void gic_dist_writeb(void *opaque, target_phys_addr_t offset,
         for (i = 0; i < 8; i++) {
             if (value & (1 << i)) {
                 int mask = (irq < 32) ? (1 << cpu) : GIC_TARGET(irq);
-                if (!GIC_TEST_ENABLED(irq + i))
+                int cm = (irq < 32) ? (1 << cpu) : ALL_CPU_MASK;
+
+                if (!GIC_TEST_ENABLED(irq + i, cm)) {
                     DPRINTF("Enabled IRQ %d\n", irq + i);
-                GIC_SET_ENABLED(irq + i);
+                }
+                GIC_SET_ENABLED(irq + i, cm);
                 /* If a raised level triggered IRQ enabled then mark
                    is as pending.  */
                 if (GIC_TEST_LEVEL(irq + i, mask)
@@ -433,9 +435,12 @@ static void gic_dist_writeb(void *opaque, target_phys_addr_t offset,
           value = 0;
         for (i = 0; i < 8; i++) {
             if (value & (1 << i)) {
-                if (GIC_TEST_ENABLED(irq + i))
+                int cm = (irq < 32) ? (1 << cpu) : ALL_CPU_MASK;
+
+                if (GIC_TEST_ENABLED(irq + i, cm)) {
                     DPRINTF("Disabled IRQ %d\n", irq + i);
-                GIC_CLEAR_ENABLED(irq + i);
+                }
+                GIC_CLEAR_ENABLED(irq + i, cm);
             }
         }
     } else if (offset < 0x280) {
@@ -567,16 +572,12 @@ static void gic_dist_writel(void *opaque, target_phys_addr_t offset,
     gic_dist_writew(opaque, offset + 2, value >> 16);
 }
 
-static CPUReadMemoryFunc * const gic_dist_readfn[] = {
-   gic_dist_readb,
-   gic_dist_readw,
-   gic_dist_readl
-};
-
-static CPUWriteMemoryFunc * const gic_dist_writefn[] = {
-   gic_dist_writeb,
-   gic_dist_writew,
-   gic_dist_writel
+static const MemoryRegionOps gic_dist_ops = {
+    .old_mmio = {
+        .read = { gic_dist_readb, gic_dist_readw, gic_dist_readl, },
+        .write = { gic_dist_writeb, gic_dist_writew, gic_dist_writel, },
+    },
+    .endianness = DEVICE_NATIVE_ENDIAN,
 };
 
 #ifndef NVIC
@@ -642,7 +643,7 @@ static void gic_reset(gic_state *s)
 #endif
     }
     for (i = 0; i < 16; i++) {
-        GIC_SET_ENABLED(i);
+        GIC_SET_ENABLED(i, ALL_CPU_MASK);
         GIC_SET_TRIGGER(i);
     }
 #ifdef NVIC
@@ -662,9 +663,6 @@ static void gic_save(QEMUFile *f, void *opaque)
     qemu_put_be32(f, s->enabled);
     for (i = 0; i < NUM_CPU(s); i++) {
         qemu_put_be32(f, s->cpu_enabled[i]);
-#ifndef NVIC
-        qemu_put_be32(f, s->irq_target[i]);
-#endif
         for (j = 0; j < 32; j++)
             qemu_put_be32(f, s->priority1[j][i]);
         for (j = 0; j < GIC_NIRQ; j++)
@@ -678,6 +676,9 @@ static void gic_save(QEMUFile *f, void *opaque)
         qemu_put_be32(f, s->priority2[i]);
     }
     for (i = 0; i < GIC_NIRQ; i++) {
+#ifndef NVIC
+        qemu_put_be32(f, s->irq_target[i]);
+#endif
         qemu_put_byte(f, s->irq_state[i].enabled);
         qemu_put_byte(f, s->irq_state[i].pending);
         qemu_put_byte(f, s->irq_state[i].active);
@@ -693,15 +694,12 @@ static int gic_load(QEMUFile *f, void *opaque, int version_id)
     int i;
     int j;
 
-    if (version_id != 1)
+    if (version_id != 2)
         return -EINVAL;
 
     s->enabled = qemu_get_be32(f);
     for (i = 0; i < NUM_CPU(s); i++) {
         s->cpu_enabled[i] = qemu_get_be32(f);
-#ifndef NVIC
-        s->irq_target[i] = qemu_get_be32(f);
-#endif
         for (j = 0; j < 32; j++)
             s->priority1[j][i] = qemu_get_be32(f);
         for (j = 0; j < GIC_NIRQ; j++)
@@ -715,6 +713,9 @@ static int gic_load(QEMUFile *f, void *opaque, int version_id)
         s->priority2[i] = qemu_get_be32(f);
     }
     for (i = 0; i < GIC_NIRQ; i++) {
+#ifndef NVIC
+        s->irq_target[i] = qemu_get_be32(f);
+#endif
         s->irq_state[i].enabled = qemu_get_byte(f);
         s->irq_state[i].pending = qemu_get_byte(f);
         s->irq_state[i].active = qemu_get_byte(f);
@@ -741,9 +742,7 @@ static void gic_init(gic_state *s)
     for (i = 0; i < NUM_CPU(s); i++) {
         sysbus_init_irq(&s->busdev, &s->parent_irq[i]);
     }
-    s->iomemtype = cpu_register_io_memory(gic_dist_readfn,
-                                          gic_dist_writefn, s,
-                                          DEVICE_NATIVE_ENDIAN);
+    memory_region_init_io(&s->iomem, &gic_dist_ops, s, "gic_dist", 0x1000);
     gic_reset(s);
-    register_savevm(NULL, "arm_gic", -1, 1, gic_save, gic_load, s);
+    register_savevm(NULL, "arm_gic", -1, 2, gic_save, gic_load, s);
 }

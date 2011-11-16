@@ -15,8 +15,6 @@
  * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
-#include <pthread.h>
-
 #include "qemu-common.h"
 #include "qemu-spice.h"
 #include "qemu-timer.h"
@@ -62,6 +60,70 @@ void qemu_spice_rect_union(QXLRect *dest, const QXLRect *r)
     dest->right = MAX(dest->right, r->right);
 }
 
+void qemu_spice_add_memslot(SimpleSpiceDisplay *ssd, QXLDevMemSlot *memslot,
+                            qxl_async_io async)
+{
+    if (async != QXL_SYNC) {
+#if SPICE_INTERFACE_QXL_MINOR >= 1
+        spice_qxl_add_memslot_async(&ssd->qxl, memslot, 0);
+#else
+        abort();
+#endif
+    } else {
+        ssd->worker->add_memslot(ssd->worker, memslot);
+    }
+}
+
+void qemu_spice_del_memslot(SimpleSpiceDisplay *ssd, uint32_t gid, uint32_t sid)
+{
+    ssd->worker->del_memslot(ssd->worker, gid, sid);
+}
+
+void qemu_spice_create_primary_surface(SimpleSpiceDisplay *ssd, uint32_t id,
+                                       QXLDevSurfaceCreate *surface,
+                                       qxl_async_io async)
+{
+    if (async != QXL_SYNC) {
+#if SPICE_INTERFACE_QXL_MINOR >= 1
+        spice_qxl_create_primary_surface_async(&ssd->qxl, id, surface, 0);
+#else
+        abort();
+#endif
+    } else {
+        ssd->worker->create_primary_surface(ssd->worker, id, surface);
+    }
+}
+
+
+void qemu_spice_destroy_primary_surface(SimpleSpiceDisplay *ssd,
+                                        uint32_t id, qxl_async_io async)
+{
+    if (async != QXL_SYNC) {
+#if SPICE_INTERFACE_QXL_MINOR >= 1
+        spice_qxl_destroy_primary_surface_async(&ssd->qxl, id, 0);
+#else
+        abort();
+#endif
+    } else {
+        ssd->worker->destroy_primary_surface(ssd->worker, id);
+    }
+}
+
+void qemu_spice_wakeup(SimpleSpiceDisplay *ssd)
+{
+    ssd->worker->wakeup(ssd->worker);
+}
+
+void qemu_spice_start(SimpleSpiceDisplay *ssd)
+{
+    ssd->worker->start(ssd->worker);
+}
+
+void qemu_spice_stop(SimpleSpiceDisplay *ssd)
+{
+    ssd->worker->stop(ssd->worker);
+}
+
 static SimpleSpiceUpdate *qemu_spice_create_update(SimpleSpiceDisplay *ssd)
 {
     SimpleSpiceUpdate *update;
@@ -80,14 +142,14 @@ static SimpleSpiceUpdate *qemu_spice_create_update(SimpleSpiceDisplay *ssd)
            ssd->dirty.left, ssd->dirty.right,
            ssd->dirty.top, ssd->dirty.bottom);
 
-    update   = qemu_mallocz(sizeof(*update));
+    update   = g_malloc0(sizeof(*update));
     drawable = &update->drawable;
     image    = &update->image;
     cmd      = &update->ext.cmd;
 
     bw       = ssd->dirty.right - ssd->dirty.left;
     bh       = ssd->dirty.bottom - ssd->dirty.top;
-    update->bitmap = qemu_malloc(bw * bh * 4);
+    update->bitmap = g_malloc(bw * bh * 4);
 
     drawable->bbox            = ssd->dirty;
     drawable->clip.type       = SPICE_CLIP_TYPE_NONE;
@@ -144,12 +206,12 @@ static SimpleSpiceUpdate *qemu_spice_create_update(SimpleSpiceDisplay *ssd)
  * Called from spice server thread context (via interface_release_ressource)
  * We do *not* hold the global qemu mutex here, so extra care is needed
  * when calling qemu functions.  Qemu interfaces used:
- *    - qemu_free (underlying glibc free is re-entrant).
+ *    - g_free (underlying glibc free is re-entrant).
  */
 void qemu_spice_destroy_update(SimpleSpiceDisplay *sdpy, SimpleSpiceUpdate *update)
 {
-    qemu_free(update->bitmap);
-    qemu_free(update);
+    g_free(update->bitmap);
+    g_free(update);
 }
 
 void qemu_spice_create_host_memslot(SimpleSpiceDisplay *ssd)
@@ -161,7 +223,7 @@ void qemu_spice_create_host_memslot(SimpleSpiceDisplay *ssd)
     memset(&memslot, 0, sizeof(memslot));
     memslot.slot_group_id = MEMSLOT_GROUP_HOST;
     memslot.virt_end = ~0;
-    ssd->worker->add_memslot(ssd->worker, &memslot);
+    qemu_spice_add_memslot(ssd, &memslot, QXL_SYNC);
 }
 
 void qemu_spice_create_host_primary(SimpleSpiceDisplay *ssd)
@@ -181,26 +243,38 @@ void qemu_spice_create_host_primary(SimpleSpiceDisplay *ssd)
     surface.mem        = (intptr_t)ssd->buf;
     surface.group_id   = MEMSLOT_GROUP_HOST;
 
-    ssd->worker->create_primary_surface(ssd->worker, 0, &surface);
+    qemu_spice_create_primary_surface(ssd, 0, &surface, QXL_SYNC);
 }
 
 void qemu_spice_destroy_host_primary(SimpleSpiceDisplay *ssd)
 {
     dprint(1, "%s:\n", __FUNCTION__);
 
-    ssd->worker->destroy_primary_surface(ssd->worker, 0);
+    qemu_spice_destroy_primary_surface(ssd, 0, QXL_SYNC);
 }
 
-void qemu_spice_vm_change_state_handler(void *opaque, int running, int reason)
+void qemu_spice_vm_change_state_handler(void *opaque, int running,
+                                        RunState state)
 {
     SimpleSpiceDisplay *ssd = opaque;
 
     if (running) {
-        ssd->worker->start(ssd->worker);
+        ssd->running = true;
+        qemu_spice_start(ssd);
     } else {
-        ssd->worker->stop(ssd->worker);
+        qemu_spice_stop(ssd);
+        ssd->running = false;
     }
-    ssd->running = running;
+}
+
+void qemu_spice_display_init_common(SimpleSpiceDisplay *ssd, DisplayState *ds)
+{
+    ssd->ds = ds;
+    qemu_mutex_init(&ssd->lock);
+    ssd->mouse_x = -1;
+    ssd->mouse_y = -1;
+    ssd->bufsize = (16 * 1024 * 1024);
+    ssd->buf = g_malloc(ssd->bufsize);
 }
 
 /* display listener callbacks */
@@ -267,7 +341,7 @@ void qemu_spice_display_refresh(SimpleSpiceDisplay *ssd)
 
     if (ssd->notify) {
         ssd->notify = 0;
-        ssd->worker->wakeup(ssd->worker);
+        qemu_spice_wakeup(ssd);
         dprint(2, "%s: notify\n", __FUNCTION__);
     }
 }
@@ -416,12 +490,7 @@ static DisplayChangeListener display_listener = {
 void qemu_spice_display_init(DisplayState *ds)
 {
     assert(sdpy.ds == NULL);
-    sdpy.ds = ds;
-    qemu_mutex_init(&sdpy.lock);
-    sdpy.mouse_x = -1;
-    sdpy.mouse_y = -1;
-    sdpy.bufsize = (16 * 1024 * 1024);
-    sdpy.buf = qemu_malloc(sdpy.bufsize);
+    qemu_spice_display_init_common(&sdpy, ds);
     register_displaychangelistener(ds, &display_listener);
 
     sdpy.qxl.base.sif = &dpy_interface.base;

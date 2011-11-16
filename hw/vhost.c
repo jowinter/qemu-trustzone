@@ -120,7 +120,6 @@ static void vhost_dev_unassign_memory(struct vhost_dev *dev,
         if (start_addr <= reg->guest_phys_addr && memlast >= reglast) {
             --dev->mem->nregions;
             --to;
-            assert(to >= 0);
             ++overlap_middle;
             continue;
         }
@@ -253,7 +252,7 @@ static inline void vhost_dev_log_resize(struct vhost_dev* dev, uint64_t size)
     uint64_t log_base;
     int r;
     if (size) {
-        log = qemu_mallocz(size * sizeof *log);
+        log = g_malloc0(size * sizeof *log);
     } else {
         log = NULL;
     }
@@ -263,7 +262,7 @@ static inline void vhost_dev_log_resize(struct vhost_dev* dev, uint64_t size)
     vhost_client_sync_dirty_bitmap(&dev->client, 0,
                                    (target_phys_addr_t)~0x0ull);
     if (dev->log) {
-        qemu_free(dev->log);
+        g_free(dev->log);
     }
     dev->log = log;
     dev->log_size = size;
@@ -349,7 +348,7 @@ static void vhost_client_set_memory(CPUPhysMemoryClient *client,
     uint64_t log_size;
     int r;
 
-    dev->mem = qemu_realloc(dev->mem, s);
+    dev->mem = g_realloc(dev->mem, s);
 
     if (log_dirty) {
         flags = IO_MEM_UNASSIGNED;
@@ -486,7 +485,7 @@ static int vhost_client_migration_log(CPUPhysMemoryClient *client,
             return r;
         }
         if (dev->log) {
-            qemu_free(dev->log);
+            g_free(dev->log);
         }
         dev->log = NULL;
         dev->log_size = 0;
@@ -515,11 +514,6 @@ static int vhost_virtqueue_init(struct vhost_dev *dev,
         .index = idx,
     };
     struct VirtQueue *vvq = virtio_get_queue(vdev, idx);
-
-    if (!vdev->binding->set_host_notifier) {
-        fprintf(stderr, "binding does not support host notifiers\n");
-        return -ENOSYS;
-    }
 
     vq->num = state.num = virtio_queue_get_num(vdev, idx);
     r = ioctl(dev->control, VHOST_SET_VRING_NUM, &state);
@@ -568,12 +562,6 @@ static int vhost_virtqueue_init(struct vhost_dev *dev,
         r = -errno;
         goto fail_alloc;
     }
-    r = vdev->binding->set_host_notifier(vdev->binding_opaque, idx, true);
-    if (r < 0) {
-        fprintf(stderr, "Error binding host notifier: %d\n", -r);
-        goto fail_host_notifier;
-    }
-
     file.fd = event_notifier_get_fd(virtio_queue_get_host_notifier(vvq));
     r = ioctl(dev->control, VHOST_SET_VRING_KICK, &file);
     if (r) {
@@ -592,8 +580,6 @@ static int vhost_virtqueue_init(struct vhost_dev *dev,
 
 fail_call:
 fail_kick:
-    vdev->binding->set_host_notifier(vdev->binding_opaque, idx, false);
-fail_host_notifier:
 fail_alloc:
     cpu_physical_memory_unmap(vq->ring, virtio_queue_get_ring_size(vdev, idx),
                               0, 0);
@@ -619,12 +605,6 @@ static void vhost_virtqueue_cleanup(struct vhost_dev *dev,
         .index = idx,
     };
     int r;
-    r = vdev->binding->set_host_notifier(vdev->binding_opaque, idx, false);
-    if (r < 0) {
-        fprintf(stderr, "vhost VQ %d host cleanup failed: %d\n", idx, r);
-        fflush(stderr);
-    }
-    assert (r >= 0);
     r = ioctl(dev->control, VHOST_GET_VRING_BASE, &state);
     if (r < 0) {
         fprintf(stderr, "vhost VQ %d ring restore failed: %d\n", idx, r);
@@ -670,7 +650,7 @@ int vhost_dev_init(struct vhost_dev *hdev, int devfd, bool force)
     hdev->client.migration_log = vhost_client_migration_log;
     hdev->client.log_start = NULL;
     hdev->client.log_stop = NULL;
-    hdev->mem = qemu_mallocz(offsetof(struct vhost_memory, regions));
+    hdev->mem = g_malloc0(offsetof(struct vhost_memory, regions));
     hdev->log = NULL;
     hdev->log_size = 0;
     hdev->log_enabled = false;
@@ -687,7 +667,7 @@ fail:
 void vhost_dev_cleanup(struct vhost_dev *hdev)
 {
     cpu_unregister_phys_memory_client(&hdev->client);
-    qemu_free(hdev->mem);
+    g_free(hdev->mem);
     close(hdev->control);
 }
 
@@ -698,6 +678,60 @@ bool vhost_dev_query(struct vhost_dev *hdev, VirtIODevice *vdev)
         hdev->force;
 }
 
+/* Stop processing guest IO notifications in qemu.
+ * Start processing them in vhost in kernel.
+ */
+int vhost_dev_enable_notifiers(struct vhost_dev *hdev, VirtIODevice *vdev)
+{
+    int i, r;
+    if (!vdev->binding->set_host_notifier) {
+        fprintf(stderr, "binding does not support host notifiers\n");
+        r = -ENOSYS;
+        goto fail;
+    }
+
+    for (i = 0; i < hdev->nvqs; ++i) {
+        r = vdev->binding->set_host_notifier(vdev->binding_opaque, i, true);
+        if (r < 0) {
+            fprintf(stderr, "vhost VQ %d notifier binding failed: %d\n", i, -r);
+            goto fail_vq;
+        }
+    }
+
+    return 0;
+fail_vq:
+    while (--i >= 0) {
+        r = vdev->binding->set_host_notifier(vdev->binding_opaque, i, false);
+        if (r < 0) {
+            fprintf(stderr, "vhost VQ %d notifier cleanup error: %d\n", i, -r);
+            fflush(stderr);
+        }
+        assert (r >= 0);
+    }
+fail:
+    return r;
+}
+
+/* Stop processing guest IO notifications in vhost.
+ * Start processing them in qemu.
+ * This might actually run the qemu handlers right away,
+ * so virtio in qemu must be completely setup when this is called.
+ */
+void vhost_dev_disable_notifiers(struct vhost_dev *hdev, VirtIODevice *vdev)
+{
+    int i, r;
+
+    for (i = 0; i < hdev->nvqs; ++i) {
+        r = vdev->binding->set_host_notifier(vdev->binding_opaque, i, false);
+        if (r < 0) {
+            fprintf(stderr, "vhost VQ %d notifier cleanup failed: %d\n", i, -r);
+            fflush(stderr);
+        }
+        assert (r >= 0);
+    }
+}
+
+/* Host notifiers must be enabled at this point. */
 int vhost_dev_start(struct vhost_dev *hdev, VirtIODevice *vdev)
 {
     int i, r;
@@ -735,7 +769,7 @@ int vhost_dev_start(struct vhost_dev *hdev, VirtIODevice *vdev)
     if (hdev->log_enabled) {
         hdev->log_size = vhost_get_log_size(hdev);
         hdev->log = hdev->log_size ?
-            qemu_mallocz(hdev->log_size * sizeof *hdev->log) : NULL;
+            g_malloc0(hdev->log_size * sizeof *hdev->log) : NULL;
         r = ioctl(hdev->control, VHOST_SET_LOG_BASE,
                   (uint64_t)(unsigned long)hdev->log);
         if (r < 0) {
@@ -763,6 +797,7 @@ fail:
     return r;
 }
 
+/* Host notifiers must be enabled at this point. */
 void vhost_dev_stop(struct vhost_dev *hdev, VirtIODevice *vdev)
 {
     int i, r;
@@ -783,7 +818,7 @@ void vhost_dev_stop(struct vhost_dev *hdev, VirtIODevice *vdev)
     assert (r >= 0);
 
     hdev->started = false;
-    qemu_free(hdev->log);
+    g_free(hdev->log);
     hdev->log = NULL;
     hdev->log_size = 0;
 }

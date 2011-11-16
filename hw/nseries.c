@@ -174,12 +174,21 @@ static void n8x0_nand_setup(struct n800_s *s)
     char *otp_region;
     DriveInfo *dinfo;
 
-    dinfo = drive_get(IF_MTD, 0, 0);
+    s->nand = qdev_create(NULL, "onenand");
+    qdev_prop_set_uint16(s->nand, "manufacturer_id", NAND_MFR_SAMSUNG);
     /* Either 0x40 or 0x48 are OK for the device ID */
-    s->nand = onenand_init(dinfo ? dinfo->bdrv : 0,
-                           NAND_MFR_SAMSUNG, 0x48, 0, 1,
-                           qdev_get_gpio_in(s->cpu->gpio, N8X0_ONENAND_GPIO));
-    omap_gpmc_attach(s->cpu->gpmc, N8X0_ONENAND_CS, s->nand, 0, OMAP_GPMC_NOR);
+    qdev_prop_set_uint16(s->nand, "device_id", 0x48);
+    qdev_prop_set_uint16(s->nand, "version_id", 0);
+    qdev_prop_set_int32(s->nand, "shift", 1);
+    dinfo = drive_get(IF_MTD, 0, 0);
+    if (dinfo && dinfo->bdrv) {
+        qdev_prop_set_drive_nofail(s->nand, "drive", dinfo->bdrv);
+    }
+    qdev_init_nofail(s->nand);
+    sysbus_connect_irq(sysbus_from_qdev(s->nand), 0,
+                       qdev_get_gpio_in(s->cpu->gpio, N8X0_ONENAND_GPIO));
+    omap_gpmc_attach(s->cpu->gpmc, N8X0_ONENAND_CS,
+                     sysbus_mmio_get_region(sysbus_from_qdev(s->nand), 0));
     otp_region = onenand_raw_otp(s->nand);
 
     memcpy(otp_region + 0x000, n8x0_cal_wlan_mac, sizeof(n8x0_cal_wlan_mac));
@@ -195,7 +204,9 @@ static void n8x0_i2c_setup(struct n800_s *s)
 
     /* Attach a menelaus PM chip */
     dev = i2c_create_slave(i2c, "twl92230", N8X0_MENELAUS_ADDR);
-    qdev_connect_gpio_out(dev, 3, s->cpu->irq[0][OMAP_INT_24XX_SYS_NIRQ]);
+    qdev_connect_gpio_out(dev, 3,
+                          qdev_get_gpio_in(s->cpu->ih[0],
+                                           OMAP_INT_24XX_SYS_NIRQ));
 
     /* Attach a TMP105 PM chip (A0 wired to ground) */
     dev = i2c_create_slave(i2c, "tmp105", N8X0_TMP105_ADDR);
@@ -846,10 +857,10 @@ static void n800_dss_init(struct rfbi_chip_s *chip)
     chip->write(chip->opaque, 1, 0x01);		/* Input Data Format */
     chip->write(chip->opaque, 1, 0x01);		/* Data Source Select */
 
-    fb_blank = memset(qemu_malloc(800 * 480 * 2), 0xff, 800 * 480 * 2);
+    fb_blank = memset(g_malloc(800 * 480 * 2), 0xff, 800 * 480 * 2);
     /* Display Memory Data Port */
     chip->block(chip->opaque, 1, fb_blank, 800 * 480 * 2, 800);
-    qemu_free(fb_blank);
+    g_free(fb_blank);
 }
 
 static void n8x0_dss_setup(struct n800_s *s)
@@ -893,14 +904,19 @@ static void n8x0_uart_setup(struct n800_s *s)
 
 static void n8x0_usb_setup(struct n800_s *s)
 {
+    SysBusDevice *dev;
     s->usb = qdev_create(NULL, "tusb6010");
-    sysbus_connect_irq(sysbus_from_qdev(s->usb), 0,
+    dev = sysbus_from_qdev(s->usb);
+    qdev_init_nofail(s->usb);
+    sysbus_connect_irq(dev, 0,
                        qdev_get_gpio_in(s->cpu->gpio, N8X0_TUSB_INT_GPIO));
     /* Using the NOR interface */
-    omap_gpmc_attach(s->cpu->gpmc, N8X0_USB_SYNC_CS, s->usb, 0, OMAP_GPMC_NOR);
-    omap_gpmc_attach(s->cpu->gpmc, N8X0_USB_ASYNC_CS, s->usb, 1, OMAP_GPMC_NOR);
+    omap_gpmc_attach(s->cpu->gpmc, N8X0_USB_ASYNC_CS,
+                     sysbus_mmio_get_region(dev, 0));
+    omap_gpmc_attach(s->cpu->gpmc, N8X0_USB_SYNC_CS,
+                     sysbus_mmio_get_region(dev, 1));
     qdev_connect_gpio_out(s->cpu->gpio, N8X0_TUSB_ENABLE_GPIO,
-                          qdev_get_gpio_in(s->usb, 0)); /* tusb_power */
+                          qdev_get_gpio_in(s->usb, 0)); /* tusb_pwr */
 }
 
 /* Setup done before the main bootloader starts by some early setup code
@@ -1395,7 +1411,7 @@ static void n8x0_init(ram_addr_t ram_size, const char *boot_device,
                 const char *kernel_cmdline, const char *initrd_filename,
                 const char *cpu_model, struct arm_boot_info *binfo, int model)
 {
-    struct n800_s *s = (struct n800_s *) qemu_mallocz(sizeof(*s));
+    struct n800_s *s = (struct n800_s *) g_malloc0(sizeof(*s));
     int sdram_size = binfo->ram_size;
     DisplayState *ds;
 
@@ -2473,7 +2489,7 @@ static void n900_init(ram_addr_t ram_size,
                       const char *initrd_filename,
                       const char *cpu_model)
 {
-    struct n900_s *s = qemu_mallocz(sizeof(*s));
+    struct n900_s *s = g_malloc0(sizeof(*s));
     DriveInfo *dmtd = drive_get(IF_MTD, 0, 0);
     DriveInfo *dsd  = drive_get(IF_SD, 0, 0);
 
@@ -2483,7 +2499,7 @@ static void n900_init(ram_addr_t ram_size,
 #if MAX_SERIAL_PORTS < 3
 #error MAX_SERIAL_PORTS must be at least 3!
 #endif
-    s->cpu = omap3_mpu_init(omap3430, 1, N900_SDRAM_SIZE,
+    s->cpu = omap3_mpu_init(omap3430, N900_SDRAM_SIZE,
                             serial_hds[1], serial_hds[2],
                             serial_hds[0], NULL);
     omap_lcd_panel_attach(s->cpu->dss);
@@ -2502,10 +2518,20 @@ static void n900_init(ram_addr_t ram_size,
     qdev_prop_set_uint8(s->mipid, "n900", 1);
     qdev_init_nofail(s->mipid);
 
-    s->nand = onenand_init(dmtd ? dmtd->bdrv : NULL,
-                           NAND_MFR_SAMSUNG, 0x40, 0x121, 1,
-                           qdev_get_gpio_in(s->cpu->gpio, N900_ONENAND_GPIO));
-    omap_gpmc_attach(s->cpu->gpmc, 0, s->nand, 0, 0);
+
+    s->nand = qdev_create(NULL, "onenand");
+    qdev_prop_set_uint16(s->nand, "manufacturer_id", NAND_MFR_SAMSUNG);
+    qdev_prop_set_uint16(s->nand, "device_id", 0x40);
+    qdev_prop_set_uint16(s->nand, "version_id", 0x121);
+    qdev_prop_set_int32(s->nand, "shift", 1);
+    if (dmtd && dmtd->bdrv) {
+        qdev_prop_set_drive_nofail(s->nand, "drive", dmtd->bdrv);
+    }
+    qdev_init_nofail(s->nand);
+    sysbus_connect_irq(sysbus_from_qdev(s->nand), 0,
+                       qdev_get_gpio_in(s->cpu->gpio, N900_ONENAND_GPIO));
+    omap_gpmc_attach(s->cpu->gpmc, 0,
+                     sysbus_mmio_get_region(sysbus_from_qdev(s->nand), 0));
 
     if (dsd) {
         omap3_mmc_attach(s->cpu->omap3_mmc[1], dsd->bdrv, 0, 1);
@@ -2522,7 +2548,8 @@ static void n900_init(ram_addr_t ram_size,
                                                         DEVICE_NATIVE_ENDIAN));
 
     s->twl4030 = twl4030_init(omap_i2c_bus(s->cpu->i2c, 0),
-                              s->cpu->irq[0][OMAP_INT_3XXX_SYS_NIRQ],
+                              qdev_get_gpio_in(s->cpu->ih[0],
+                                               OMAP_INT_3XXX_SYS_NIRQ),
                               NULL, n900_twl4030_keymap);
     twl4030_madc_attach(s->twl4030, n900_twl4030_madc_callback);
     i2c_bus *i2c2 = omap_i2c_bus(s->cpu->i2c, 1);
@@ -2551,7 +2578,8 @@ static void n900_init(ram_addr_t ram_size,
         qdev_init_nofail(s->smc);
         sysbus_connect_irq(sysbus_from_qdev(s->smc), 0,
                            qdev_get_gpio_in(s->cpu->gpio, 54));
-        omap_gpmc_attach(s->cpu->gpmc, 1, s->smc, 0, 0);
+        omap_gpmc_attach(s->cpu->gpmc, 1,
+                         sysbus_mmio_get_region(sysbus_from_qdev(s->smc), 0));
     } else {
         hw_error("%s: no NIC for smc91c111\n", __FUNCTION__);
     }

@@ -37,6 +37,7 @@
 #include "usb.h"
 #include "flash.h"
 #include "blockdev.h"
+#include "exec-memory.h"
 
 #define FLASH_BASE 0x00000000
 #define FLASH_SIZE 0x02000000
@@ -81,6 +82,7 @@ typedef struct {
 
 /* output pin */
     qemu_irq irl;
+    MemoryRegion iomem;
 } r2d_fpga_t;
 
 enum r2d_fpga_irq {
@@ -167,31 +169,25 @@ r2d_fpga_write(void *opaque, target_phys_addr_t addr, uint32_t value)
     }
 }
 
-static CPUReadMemoryFunc * const r2d_fpga_readfn[] = {
-    r2d_fpga_read,
-    r2d_fpga_read,
-    NULL,
+static const MemoryRegionOps r2d_fpga_ops = {
+    .old_mmio = {
+        .read = { r2d_fpga_read, r2d_fpga_read, NULL, },
+        .write = { r2d_fpga_write, r2d_fpga_write, NULL, },
+    },
+    .endianness = DEVICE_NATIVE_ENDIAN,
 };
 
-static CPUWriteMemoryFunc * const r2d_fpga_writefn[] = {
-    r2d_fpga_write,
-    r2d_fpga_write,
-    NULL,
-};
-
-static qemu_irq *r2d_fpga_init(target_phys_addr_t base, qemu_irq irl)
+static qemu_irq *r2d_fpga_init(MemoryRegion *sysmem,
+                               target_phys_addr_t base, qemu_irq irl)
 {
-    int iomemtype;
     r2d_fpga_t *s;
 
-    s = qemu_mallocz(sizeof(r2d_fpga_t));
+    s = g_malloc0(sizeof(r2d_fpga_t));
 
     s->irl = irl;
 
-    iomemtype = cpu_register_io_memory(r2d_fpga_readfn,
-				       r2d_fpga_writefn, s,
-                                       DEVICE_NATIVE_ENDIAN);
-    cpu_register_physical_memory(base, 0x40, iomemtype);
+    memory_region_init_io(&s->iomem, &r2d_fpga_ops, s, "r2d-fpga", 0x40);
+    memory_region_add_subregion(sysmem, base, &s->iomem);
     return qemu_allocate_irqs(r2d_fpga_irq_set, s, NR_IRQS);
 }
 
@@ -209,7 +205,7 @@ static void main_cpu_reset(void *opaque)
     env->pc = s->vector;
 }
 
-static struct __attribute__((__packed__))
+static struct QEMU_PACKED
 {
     int mount_root_rdonly;
     int ramdisk_flags;
@@ -231,10 +227,11 @@ static void r2d_init(ram_addr_t ram_size,
     CPUState *env;
     ResetData *reset_info;
     struct SH7750State *s;
-    ram_addr_t sdram_addr;
+    MemoryRegion *sdram = g_new(MemoryRegion, 1);
     qemu_irq *irq;
     DriveInfo *dinfo;
     int i;
+    MemoryRegion *address_space_mem = get_system_memory();
 
     if (!cpu_model)
         cpu_model = "SH7751R";
@@ -244,21 +241,22 @@ static void r2d_init(ram_addr_t ram_size,
         fprintf(stderr, "Unable to find CPU definition\n");
         exit(1);
     }
-    reset_info = qemu_mallocz(sizeof(ResetData));
+    reset_info = g_malloc0(sizeof(ResetData));
     reset_info->env = env;
     reset_info->vector = env->pc;
     qemu_register_reset(main_cpu_reset, reset_info);
 
     /* Allocate memory space */
-    sdram_addr = qemu_ram_alloc(NULL, "r2d.sdram", SDRAM_SIZE);
-    cpu_register_physical_memory(SDRAM_BASE, SDRAM_SIZE, sdram_addr);
+    memory_region_init_ram(sdram, NULL, "r2d.sdram", SDRAM_SIZE);
+    memory_region_add_subregion(address_space_mem, SDRAM_BASE, sdram);
     /* Register peripherals */
     s = sh7750_init(env);
-    irq = r2d_fpga_init(0x04000000, sh7750_irl(s));
+    irq = r2d_fpga_init(address_space_mem, 0x04000000, sh7750_irl(s));
     sysbus_create_varargs("sh_pci", 0x1e200000, irq[PCI_INTA], irq[PCI_INTB],
                           irq[PCI_INTC], irq[PCI_INTD], NULL);
 
-    sm501_init(0x10000000, SM501_VRAM_SIZE, irq[SM501], serial_hds[2]);
+    sm501_init(address_space_mem, 0x10000000, SM501_VRAM_SIZE,
+               irq[SM501], serial_hds[2]);
 
     /* onboard CF (True IDE mode, Master only). */
     dinfo = drive_get(IF_IDE, 0, 0);
@@ -267,7 +265,7 @@ static void r2d_init(ram_addr_t ram_size,
 
     /* onboard flash memory */
     dinfo = drive_get(IF_PFLASH, 0, 0);
-    pflash_cfi02_register(0x0, qemu_ram_alloc(NULL, "r2d.flash", FLASH_SIZE),
+    pflash_cfi02_register(0x0, NULL, "r2d.flash", FLASH_SIZE,
                           dinfo ? dinfo->bdrv : NULL, (16 * 1024),
                           FLASH_SIZE >> 16,
                           1, 4, 0x0000, 0x0000, 0x0000, 0x0000,

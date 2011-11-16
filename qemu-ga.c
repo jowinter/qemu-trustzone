@@ -51,7 +51,7 @@ static struct GAState *ga_state;
 
 static void quit_handler(int sig)
 {
-    g_debug("recieved signal num %d, quitting", sig);
+    g_debug("received signal num %d, quitting", sig);
 
     if (g_main_loop_is_running(ga_state->main_loop)) {
         g_main_loop_quit(ga_state->main_loop);
@@ -146,7 +146,7 @@ static void ga_log(const gchar *domain, GLogLevelFlags level,
     }
 
     level &= G_LOG_LEVEL_MASK;
-    if (g_strcmp0(domain, "syslog") == 0) {
+    if (domain && strcmp(domain, "syslog") == 0) {
         syslog(LOG_INFO, "%s: %s", level_str, msg);
     } else if (level & s->log_level) {
         g_get_current_time(&time);
@@ -610,7 +610,7 @@ int main(int argc, char **argv)
         become_daemon(pidfile);
     }
 
-    s = qemu_mallocz(sizeof(GAState));
+    s = g_malloc0(sizeof(GAState));
     s->conn_channel = NULL;
     s->path = path;
     s->method = method;

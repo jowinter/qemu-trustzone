@@ -26,7 +26,7 @@
 #include "host-utils.h"
 
 int cpu_lm32_handle_mmu_fault(CPUState *env, target_ulong address, int rw,
-                               int mmu_idx, int is_softmmu)
+                              int mmu_idx)
 {
     int prot;
 
@@ -208,7 +208,7 @@ CPUState *cpu_lm32_init(const char *cpu_model)
         return NULL;
     }
 
-    env = qemu_mallocz(sizeof(CPUState));
+    env = g_malloc0(sizeof(CPUState));
 
     env->features = def->features;
     env->num_bps = def->num_breakpoints;
@@ -218,6 +218,7 @@ CPUState *cpu_lm32_init(const char *cpu_model)
 
     cpu_exec_init(env);
     cpu_reset(env);
+    qemu_init_vcpu(env);
 
     if (!tcg_initialized) {
         tcg_initialized = 1;

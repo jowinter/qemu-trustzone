@@ -117,6 +117,10 @@ static const QErrorStringTable qerror_table[] = {
         .desc      = "No file descriptor supplied via SCM_RIGHTS",
     },
     {
+        .error_fmt = QERR_FEATURE_DISABLED,
+        .desc      = "The feature '%(name)' is not enabled",
+    },
+    {
         .error_fmt = QERR_INVALID_BLOCK_FORMAT,
         .desc      = "Invalid block format '%(name)'",
     },
@@ -194,6 +198,10 @@ static const QErrorStringTable qerror_table[] = {
         .desc      = "QMP input object member '%(member)' is unexpected",
     },
     {
+        .error_fmt = QERR_RESET_REQUIRED,
+        .desc      = "Resetting the Virtual Machine is required",
+    },
+    {
         .error_fmt = QERR_SET_PASSWD_FAILED,
         .desc      = "Could not set password",
     },
@@ -242,7 +250,7 @@ QError *qerror_new(void)
 {
     QError *qerr;
 
-    qerr = qemu_mallocz(sizeof(*qerr));
+    qerr = g_malloc0(sizeof(*qerr));
     QOBJECT_INIT(qerr, &qerror_type);
 
     return qerr;
@@ -478,6 +486,39 @@ void qerror_report_internal(const char *file, int linenr, const char *func,
     }
 }
 
+/* Evil... */
+struct Error
+{
+    QDict *obj;
+    const char *fmt;
+    char *msg;
+};
+
+void qerror_report_err(Error *err)
+{
+    QError *qerr;
+    int i;
+
+    qerr = qerror_new();
+    loc_save(&qerr->loc);
+    QINCREF(err->obj);
+    qerr->error = err->obj;
+
+    for (i = 0; qerror_table[i].error_fmt; i++) {
+        if (strcmp(qerror_table[i].error_fmt, err->fmt) == 0) {
+            qerr->entry = &qerror_table[i];
+            break;
+        }
+    }
+
+    if (monitor_cur_is_qmp()) {
+        monitor_set_error(cur_mon, qerr);
+    } else {
+        qerror_print(qerr);
+        QDECREF(qerr);
+    }
+}
+
 /**
  * qobject_to_qerror(): Convert a QObject into a QError
  */
@@ -501,5 +542,5 @@ static void qerror_destroy_obj(QObject *obj)
     qerr = qobject_to_qerror(obj);
 
     QDECREF(qerr->error);
-    qemu_free(qerr);
+    g_free(qerr);
 }

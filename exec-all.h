@@ -122,6 +122,8 @@ void tlb_set_page(CPUState *env, target_ulong vaddr,
 
 #if defined(_ARCH_PPC) || defined(__x86_64__) || defined(__arm__) || defined(__i386__)
 #define USE_DIRECT_JUMP
+#elif defined(CONFIG_TCG_INTERPRETER)
+#define USE_DIRECT_JUMP
 #endif
 
 struct TranslationBlock {
@@ -189,7 +191,14 @@ extern TranslationBlock *tb_phys_hash[CODE_GEN_PHYS_HASH_SIZE];
 
 #if defined(USE_DIRECT_JUMP)
 
-#if defined(_ARCH_PPC)
+#if defined(CONFIG_TCG_INTERPRETER)
+static inline void tb_set_jmp_target1(uintptr_t jmp_addr, uintptr_t addr)
+{
+    /* patch the branch destination */
+    *(uint32_t *)jmp_addr = addr - (jmp_addr + 4);
+    /* no need to flush icache explicitly */
+}
+#elif defined(_ARCH_PPC)
 void ppc_tb_set_jmp_target(unsigned long jmp_addr, unsigned long addr);
 #define tb_set_jmp_target1 ppc_tb_set_jmp_target
 #elif defined(__i386__) || defined(__x86_64__)
@@ -223,6 +232,8 @@ static inline void tb_set_jmp_target1(unsigned long jmp_addr, unsigned long addr
     __asm __volatile__ ("swi 0x9f0002" : : "r" (_beg), "r" (_end), "r" (_flg));
 #endif
 }
+#else
+#error tb_set_jmp_target1 is missing
 #endif
 
 static inline void tb_set_jmp_target(TranslationBlock *tb,
@@ -267,6 +278,25 @@ extern spinlock_t tb_lock;
 
 extern int tb_invalidated_flag;
 
+/* The return address may point to the start of the next instruction.
+   Subtracting one gets us the call instruction itself.  */
+#if defined(CONFIG_TCG_INTERPRETER)
+/* Alpha and SH4 user mode emulations and Softmmu call GETPC().
+   For all others, GETPC remains undefined (which makes TCI a little faster. */
+# if defined(CONFIG_SOFTMMU) || defined(TARGET_ALPHA) || defined(TARGET_SH4)
+extern void *tci_tb_ptr;
+#  define GETPC() tci_tb_ptr
+# endif
+#elif defined(__s390__) && !defined(__s390x__)
+# define GETPC() ((void*)(((unsigned long)__builtin_return_address(0) & 0x7fffffffUL) - 1))
+#elif defined(__arm__)
+/* Thumb return addresses have the low bit set, so we need to subtract two.
+   This is still safe in ARM mode because instructions are 4 bytes.  */
+# define GETPC() ((void *)((unsigned long)__builtin_return_address(0) - 2))
+#else
+# define GETPC() ((void *)((unsigned long)__builtin_return_address(0) - 1))
+#endif
+
 #if !defined(CONFIG_USER_ONLY)
 
 extern CPUWriteMemoryFunc *io_mem_write_fn[IO_MEM_NB_ENTRIES][4];
@@ -293,7 +323,7 @@ static inline uint32_t io_mem_read(int ioindex, int shift, target_phys_addr_t ad
 #endif
 
 
-void tlb_fill(target_ulong addr, int is_write, int mmu_idx,
+void tlb_fill(CPUState *env1, target_ulong addr, int is_write, int mmu_idx,
               void *retaddr);
 
 #include "softmmu_defs.h"
@@ -348,8 +378,7 @@ static inline tb_page_addr_t get_page_addr_code(CPUState *env1, target_ulong add
         cpu_abort(env1, "Trying to execute code outside RAM or ROM at 0x" TARGET_FMT_lx "\n", addr);
 #endif
     }
-    p = (void *)(unsigned long)addr
-        + env1->tlb_table[mmu_idx][page_index].addend;
+    p = (void *)((uintptr_t)addr + env1->tlb_table[mmu_idx][page_index].addend);
     return qemu_ram_addr_from_host_nofail(p);
 }
 #endif
@@ -363,5 +392,19 @@ extern int singlestep;
 
 /* cpu-exec.c */
 extern volatile sig_atomic_t exit_request;
+
+/* Deterministic execution requires that IO only be performed on the last
+   instruction of a TB so that interrupts take effect immediately.  */
+static inline int can_do_io(CPUState *env)
+{
+    if (!use_icount) {
+        return 1;
+    }
+    /* If not executing code then assume we are ok.  */
+    if (!env->current_tb) {
+        return 1;
+    }
+    return env->can_do_io != 0;
+}
 
 #endif

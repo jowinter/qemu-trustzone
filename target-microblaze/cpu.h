@@ -65,6 +65,7 @@ struct CPUMBState;
 #define MSR_DCE (1<<7) /* 0x080 */
 #define MSR_EE  (1<<8) /* 0x100 */
 #define MSR_EIP (1<<9) /* 0x200 */
+#define MSR_PVR (1<<10) /* 0x400 */
 #define MSR_CC  (1<<31)
 
 /* Machine State Register (MSR) Fields */
@@ -309,7 +310,7 @@ static inline int cpu_mmu_index (CPUState *env)
 }
 
 int cpu_mb_handle_mmu_fault(CPUState *env, target_ulong address, int rw,
-                            int mmu_idx, int is_softmmu);
+                            int mmu_idx);
 #define cpu_handle_mmu_fault cpu_mb_handle_mmu_fault
 
 #if defined(CONFIG_USER_ONLY)

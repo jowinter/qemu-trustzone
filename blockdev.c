@@ -14,7 +14,6 @@
 #include "qemu-option.h"
 #include "qemu-config.h"
 #include "sysemu.h"
-#include "hw/qdev.h"
 #include "block_int.h"
 
 static QTAILQ_HEAD(drivelist, DriveInfo) drives = QTAILQ_HEAD_INITIALIZER(drives);
@@ -182,9 +181,9 @@ static void drive_uninit(DriveInfo *dinfo)
 {
     qemu_opts_del(dinfo->opts);
     bdrv_delete(dinfo->bdrv);
-    qemu_free(dinfo->id);
+    g_free(dinfo->id);
     QTAILQ_REMOVE(&drives, dinfo, next);
-    qemu_free(dinfo);
+    g_free(dinfo);
 }
 
 void drive_put_ref(DriveInfo *dinfo)
@@ -321,18 +320,9 @@ DriveInfo *drive_init(QemuOpts *opts, int default_to_scsi)
     }
 
     if ((buf = qemu_opt_get(opts, "cache")) != NULL) {
-        if (!strcmp(buf, "off") || !strcmp(buf, "none")) {
-            bdrv_flags |= BDRV_O_NOCACHE | BDRV_O_CACHE_WB;
-        } else if (!strcmp(buf, "writeback")) {
-            bdrv_flags |= BDRV_O_CACHE_WB;
-        } else if (!strcmp(buf, "unsafe")) {
-            bdrv_flags |= BDRV_O_CACHE_WB;
-            bdrv_flags |= BDRV_O_NO_FLUSH;
-        } else if (!strcmp(buf, "writethrough")) {
-            /* this is the default */
-        } else {
-           error_report("invalid cache option");
-           return NULL;
+        if (bdrv_parse_cache_flags(buf, &bdrv_flags) != 0) {
+            error_report("invalid cache option");
+            return NULL;
         }
     }
 
@@ -442,12 +432,12 @@ DriveInfo *drive_init(QemuOpts *opts, int default_to_scsi)
 
     /* init */
 
-    dinfo = qemu_mallocz(sizeof(*dinfo));
+    dinfo = g_malloc0(sizeof(*dinfo));
     if ((buf = qemu_opts_id(opts)) != NULL) {
-        dinfo->id = qemu_strdup(buf);
+        dinfo->id = g_strdup(buf);
     } else {
         /* no id supplied -> create one */
-        dinfo->id = qemu_mallocz(32);
+        dinfo->id = g_malloc0(32);
         if (type == IF_IDE || type == IF_SCSI)
             mediastr = (media == MEDIA_CDROM) ? "-cd" : "-hd";
         if (max_devs)
@@ -483,17 +473,12 @@ DriveInfo *drive_init(QemuOpts *opts, int default_to_scsi)
             }
 	    break;
 	case MEDIA_CDROM:
-            bdrv_set_removable(dinfo->bdrv, 1);
             dinfo->media_cd = 1;
 	    break;
 	}
         break;
     case IF_SD:
-        /* FIXME: This isn't really a floppy, but it's a reasonable
-           approximation.  */
     case IF_FLOPPY:
-        bdrv_set_removable(dinfo->bdrv, 1);
-        break;
     case IF_PFLASH:
     case IF_MTD:
         break;
@@ -542,9 +527,9 @@ DriveInfo *drive_init(QemuOpts *opts, int default_to_scsi)
 
 err:
     bdrv_delete(dinfo->bdrv);
-    qemu_free(dinfo->id);
+    g_free(dinfo->id);
     QTAILQ_REMOVE(&drives, dinfo, next);
-    qemu_free(dinfo);
+    g_free(dinfo);
     return NULL;
 }
 
@@ -646,16 +631,14 @@ out:
 
 static int eject_device(Monitor *mon, BlockDriverState *bs, int force)
 {
-    if (!force) {
-        if (!bdrv_is_removable(bs)) {
-            qerror_report(QERR_DEVICE_NOT_REMOVABLE,
-                           bdrv_get_device_name(bs));
-            return -1;
-        }
-        if (bdrv_is_locked(bs)) {
-            qerror_report(QERR_DEVICE_LOCKED, bdrv_get_device_name(bs));
-            return -1;
-        }
+    if (!bdrv_dev_has_removable_media(bs)) {
+        qerror_report(QERR_DEVICE_NOT_REMOVABLE, bdrv_get_device_name(bs));
+        return -1;
+    }
+    if (!force && !bdrv_dev_is_tray_open(bs)
+        && bdrv_dev_is_medium_locked(bs)) {
+        qerror_report(QERR_DEVICE_LOCKED, bdrv_get_device_name(bs));
+        return -1;
     }
     bdrv_close(bs);
     return 0;
@@ -750,12 +733,12 @@ int do_drive_del(Monitor *mon, const QDict *qdict, QObject **ret_data)
     bdrv_flush(bs);
     bdrv_close(bs);
 
-    /* if we have a device associated with this BlockDriverState (bs->peer)
+    /* if we have a device attached to this BlockDriverState
      * then we need to make the drive anonymous until the device
      * can be removed.  If this is a drive with no device backing
      * then we can just get rid of the block driver state right here.
      */
-    if (bs->peer) {
+    if (bdrv_get_attached_dev(bs)) {
         bdrv_make_anon(bs);
     } else {
         drive_uninit(drive_get_by_blockdev(bs));

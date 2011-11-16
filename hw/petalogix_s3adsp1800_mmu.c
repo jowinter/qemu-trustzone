@@ -35,6 +35,9 @@
 #include "loader.h"
 #include "elf.h"
 #include "blockdev.h"
+#include "exec-memory.h"
+
+#include "microblaze_pic_cpu.h"
 
 #define LMB_BRAM_SIZE  (128 * 1024)
 #define FLASH_SIZE     (16 * 1024 * 1024)
@@ -75,7 +78,7 @@ static int petalogix_load_device_tree(target_phys_addr_t addr,
         path = qemu_find_file(QEMU_FILE_TYPE_BIOS, BINARY_DEVICE_TREE_FILE);
         if (path) {
             fdt = load_device_tree(path, &fdt_size);
-            qemu_free(path);
+            g_free(path);
         }
         if (!fdt)
             return 0;
@@ -93,7 +96,7 @@ static int petalogix_load_device_tree(target_phys_addr_t addr,
         path = qemu_find_file(QEMU_FILE_TYPE_BIOS, BINARY_DEVICE_TREE_FILE);
         if (path) {
             fdt_size = load_image_targphys(path, addr, 0x10000);
-	    qemu_free(path);
+	    g_free(path);
         }
     }
 
@@ -123,10 +126,10 @@ petalogix_s3adsp1800_init(ram_addr_t ram_size,
     DriveInfo *dinfo;
     int i;
     target_phys_addr_t ddr_base = 0x90000000;
-    ram_addr_t phys_lmb_bram;
-    ram_addr_t phys_ram;
-    ram_addr_t phys_flash;
+    MemoryRegion *phys_lmb_bram = g_new(MemoryRegion, 1);
+    MemoryRegion *phys_ram = g_new(MemoryRegion, 1);
     qemu_irq irq[32], *cpu_irq;
+    MemoryRegion *sysmem = get_system_memory();
 
     /* init CPUs */
     if (cpu_model == NULL) {
@@ -138,17 +141,17 @@ petalogix_s3adsp1800_init(ram_addr_t ram_size,
     qemu_register_reset(main_cpu_reset, env);
 
     /* Attach emulated BRAM through the LMB.  */
-    phys_lmb_bram = qemu_ram_alloc(NULL, "petalogix_s3adsp1800.lmb_bram",
-                                   LMB_BRAM_SIZE);
-    cpu_register_physical_memory(0x00000000, LMB_BRAM_SIZE,
-                                 phys_lmb_bram | IO_MEM_RAM);
+    memory_region_init_ram(phys_lmb_bram, NULL,
+                           "petalogix_s3adsp1800.lmb_bram", LMB_BRAM_SIZE);
+    memory_region_add_subregion(sysmem, 0x00000000, phys_lmb_bram);
 
-    phys_ram = qemu_ram_alloc(NULL, "petalogix_s3adsp1800.ram", ram_size);
-    cpu_register_physical_memory(ddr_base, ram_size, phys_ram | IO_MEM_RAM);
+    memory_region_init_ram(phys_ram, NULL, "petalogix_s3adsp1800.ram",
+                           ram_size);
+    memory_region_add_subregion(sysmem, ddr_base, phys_ram);
 
-    phys_flash = qemu_ram_alloc(NULL, "petalogix_s3adsp1800.flash", FLASH_SIZE);
     dinfo = drive_get(IF_PFLASH, 0, 0);
-    pflash_cfi01_register(0xa0000000, phys_flash,
+    pflash_cfi01_register(0xa0000000,
+                          NULL, "petalogix_s3adsp1800.flash", FLASH_SIZE,
                           dinfo ? dinfo->bdrv : NULL, (64 * 1024),
                           FLASH_SIZE >> 16,
                           1, 0x89, 0x18, 0x0000, 0x0, 1);

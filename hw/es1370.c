@@ -30,6 +30,7 @@
 #include "audiodev.h"
 #include "audio/audio.h"
 #include "pci.h"
+#include "dma.h"
 
 /* Missing stuff:
    SCTRL_P[12](END|ST)INC
@@ -268,6 +269,7 @@ struct chan {
 typedef struct ES1370State {
     PCIDevice dev;
     QEMUSoundCard card;
+    MemoryRegion io;
     struct chan chan[NB_CHANNELS];
     SWVoiceOut *dac_voice[2];
     SWVoiceIn *adc_voice;
@@ -775,7 +777,6 @@ IO_READ_PROTO (es1370_readl)
     return val;
 }
 
-
 static void es1370_transfer_audio (ES1370State *s, struct chan *d, int loop_sel,
                                    int max, int *irq)
 {
@@ -802,7 +803,7 @@ static void es1370_transfer_audio (ES1370State *s, struct chan *d, int loop_sel,
             if (!acquired)
                 break;
 
-            cpu_physical_memory_write (addr, tmpbuf, acquired);
+            pci_dma_write (&s->dev, addr, tmpbuf, acquired);
 
             temp -= acquired;
             addr += acquired;
@@ -816,7 +817,7 @@ static void es1370_transfer_audio (ES1370State *s, struct chan *d, int loop_sel,
             int copied, to_copy;
 
             to_copy = audio_MIN ((size_t) temp, sizeof (tmpbuf));
-            cpu_physical_memory_read (addr, tmpbuf, to_copy);
+            pci_dma_read (&s->dev, addr, tmpbuf, to_copy);
             copied = AUD_write (voice, tmpbuf, to_copy);
             if (!copied)
                 break;
@@ -906,23 +907,20 @@ static void es1370_adc_callback (void *opaque, int avail)
     es1370_run_channel (s, ADC_CHANNEL, avail);
 }
 
-static void es1370_map (PCIDevice *pci_dev, int region_num,
-                        pcibus_t addr, pcibus_t size, int type)
-{
-    ES1370State *s = DO_UPCAST (ES1370State, dev, pci_dev);
+static const MemoryRegionPortio es1370_portio[] = {
+    { 0, 0x40 * 4, 1, .write = es1370_writeb, },
+    { 0, 0x40 * 2, 2, .write = es1370_writew, },
+    { 0, 0x40, 4, .write = es1370_writel, },
+    { 0, 0x40 * 4, 1, .read = es1370_readb, },
+    { 0, 0x40 * 2, 2, .read = es1370_readw, },
+    { 0, 0x40, 4, .read = es1370_readl, },
+    PORTIO_END_OF_LIST()
+};
 
-    (void) region_num;
-    (void) size;
-    (void) type;
-
-    register_ioport_write (addr, 0x40 * 4, 1, es1370_writeb, s);
-    register_ioport_write (addr, 0x40 * 2, 2, es1370_writew, s);
-    register_ioport_write (addr, 0x40, 4, es1370_writel, s);
-
-    register_ioport_read (addr, 0x40 * 4, 1, es1370_readb, s);
-    register_ioport_read (addr, 0x40 * 2, 2, es1370_readw, s);
-    register_ioport_read (addr, 0x40, 4, es1370_readl, s);
-}
+static const MemoryRegionOps es1370_io_ops = {
+    .old_portio = es1370_portio,
+    .endianness = DEVICE_LITTLE_ENDIAN,
+};
 
 static const VMStateDescription vmstate_es1370_channel = {
     .name = "es1370_channel",
@@ -1006,16 +1004,24 @@ static int es1370_initfn (PCIDevice *dev)
     c[0xdc] = 0x00;
 #endif
 
-    /* TODO: RST# value should be 0. */
     c[PCI_INTERRUPT_PIN] = 1;
     c[PCI_MIN_GNT] = 0x0c;
     c[PCI_MAX_LAT] = 0x80;
 
-    pci_register_bar (&s->dev, 0, 256, PCI_BASE_ADDRESS_SPACE_IO, es1370_map);
+    memory_region_init_io (&s->io, &es1370_io_ops, s, "es1370", 256);
+    pci_register_bar (&s->dev, 0, PCI_BASE_ADDRESS_SPACE_IO, &s->io);
     qemu_register_reset (es1370_on_reset, s);
 
     AUD_register_card ("es1370", &s->card);
     es1370_reset (s);
+    return 0;
+}
+
+static int es1370_exitfn(PCIDevice *dev)
+{
+    ES1370State *s = DO_UPCAST (ES1370State, dev, dev);
+
+    memory_region_destroy (&s->io);
     return 0;
 }
 
@@ -1031,6 +1037,7 @@ static PCIDeviceInfo es1370_info = {
     .qdev.size    = sizeof (ES1370State),
     .qdev.vmsd    = &vmstate_es1370,
     .init         = es1370_initfn,
+    .exit         = es1370_exitfn,
     .vendor_id    = PCI_VENDOR_ID_ENSONIQ,
     .device_id    = PCI_DEVICE_ID_ENSONIQ_ES1370,
     .class_id     = PCI_CLASS_MULTIMEDIA_AUDIO,

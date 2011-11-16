@@ -4,6 +4,7 @@
 #include "qemu-aio.h"
 #include "qemu-common.h"
 #include "qemu-option.h"
+#include "qemu-coroutine.h"
 #include "qobject.h"
 
 /* block.c */
@@ -26,6 +27,32 @@ typedef struct QEMUSnapshotInfo {
     uint32_t date_nsec;
     uint64_t vm_clock_nsec; /* VM clock relative to boot */
 } QEMUSnapshotInfo;
+
+/* Callbacks for block device models */
+typedef struct BlockDevOps {
+    /*
+     * Runs when virtual media changed (monitor commands eject, change)
+     * Argument load is true on load and false on eject.
+     * Beware: doesn't run when a host device's physical media
+     * changes.  Sure would be useful if it did.
+     * Device models with removable media must implement this callback.
+     */
+    void (*change_media_cb)(void *opaque, bool load);
+    /*
+     * Is the virtual tray open?
+     * Device models implement this only when the device has a tray.
+     */
+    bool (*is_tray_open)(void *opaque);
+    /*
+     * Is the virtual medium locked into the device?
+     * Device models implement this only when device has such a lock.
+     */
+    bool (*is_medium_locked)(void *opaque);
+    /*
+     * Runs when the size changed (e.g. monitor command block_resize)
+     */
+    void (*resize_cb)(void *opaque);
+} BlockDevOps;
 
 #define BDRV_O_RDWR        0x0002
 #define BDRV_O_SNAPSHOT    0x0008 /* open the file read only and save writes in a snapshot */
@@ -50,6 +77,11 @@ typedef enum {
     BDRV_ACTION_REPORT, BDRV_ACTION_IGNORE, BDRV_ACTION_STOP
 } BlockMonEventAction;
 
+void bdrv_iostatus_enable(BlockDriverState *bs);
+void bdrv_iostatus_reset(BlockDriverState *bs);
+void bdrv_iostatus_disable(BlockDriverState *bs);
+bool bdrv_iostatus_is_enabled(const BlockDriverState *bs);
+void bdrv_iostatus_set_err(BlockDriverState *bs, int error);
 void bdrv_mon_event(const BlockDriverState *bdrv,
                     BlockMonEventAction action, int is_read);
 void bdrv_info_print(Monitor *mon, const QObject *data);
@@ -68,13 +100,20 @@ int bdrv_create_file(const char* filename, QEMUOptionParameter *options);
 BlockDriverState *bdrv_new(const char *device_name);
 void bdrv_make_anon(BlockDriverState *bs);
 void bdrv_delete(BlockDriverState *bs);
+int bdrv_parse_cache_flags(const char *mode, int *flags);
 int bdrv_file_open(BlockDriverState **pbs, const char *filename, int flags);
 int bdrv_open(BlockDriverState *bs, const char *filename, int flags,
               BlockDriver *drv);
 void bdrv_close(BlockDriverState *bs);
-int bdrv_attach(BlockDriverState *bs, DeviceState *qdev);
-void bdrv_detach(BlockDriverState *bs, DeviceState *qdev);
-DeviceState *bdrv_get_attached(BlockDriverState *bs);
+int bdrv_attach_dev(BlockDriverState *bs, void *dev);
+void bdrv_attach_dev_nofail(BlockDriverState *bs, void *dev);
+void bdrv_detach_dev(BlockDriverState *bs, void *dev);
+void *bdrv_get_attached_dev(BlockDriverState *bs);
+void bdrv_set_dev_ops(BlockDriverState *bs, const BlockDevOps *ops,
+                      void *opaque);
+bool bdrv_dev_has_removable_media(BlockDriverState *bs);
+bool bdrv_dev_is_tray_open(BlockDriverState *bs);
+bool bdrv_dev_is_medium_locked(BlockDriverState *bs);
 int bdrv_read(BlockDriverState *bs, int64_t sector_num,
               uint8_t *buf, int nb_sectors);
 int bdrv_write(BlockDriverState *bs, int64_t sector_num,
@@ -85,8 +124,10 @@ int bdrv_pwrite(BlockDriverState *bs, int64_t offset,
                 const void *buf, int count);
 int bdrv_pwrite_sync(BlockDriverState *bs, int64_t offset,
     const void *buf, int count);
-int bdrv_write_sync(BlockDriverState *bs, int64_t sector_num,
-    const uint8_t *buf, int nb_sectors);
+int coroutine_fn bdrv_co_readv(BlockDriverState *bs, int64_t sector_num,
+    int nb_sectors, QEMUIOVector *qiov);
+int coroutine_fn bdrv_co_writev(BlockDriverState *bs, int64_t sector_num,
+    int nb_sectors, QEMUIOVector *qiov);
 int bdrv_truncate(BlockDriverState *bs, int64_t offset);
 int64_t bdrv_getlength(BlockDriverState *bs);
 int64_t bdrv_get_allocated_file_size(BlockDriverState *bs);
@@ -120,6 +161,9 @@ BlockDriverAIOCB *bdrv_aio_writev(BlockDriverState *bs, int64_t sector_num,
                                   BlockDriverCompletionFunc *cb, void *opaque);
 BlockDriverAIOCB *bdrv_aio_flush(BlockDriverState *bs,
                                  BlockDriverCompletionFunc *cb, void *opaque);
+BlockDriverAIOCB *bdrv_aio_discard(BlockDriverState *bs,
+                                   int64_t sector_num, int nb_sectors,
+                                   BlockDriverCompletionFunc *cb, void *opaque);
 void bdrv_aio_cancel(BlockDriverAIOCB *acb);
 
 typedef struct BlockRequest {
@@ -145,10 +189,12 @@ BlockDriverAIOCB *bdrv_aio_ioctl(BlockDriverState *bs,
 
 /* Ensure contents are flushed to disk.  */
 int bdrv_flush(BlockDriverState *bs);
+int coroutine_fn bdrv_co_flush(BlockDriverState *bs);
 void bdrv_flush_all(void);
 void bdrv_close_all(void);
 
 int bdrv_discard(BlockDriverState *bs, int64_t sector_num, int nb_sectors);
+int bdrv_co_discard(BlockDriverState *bs, int64_t sector_num, int nb_sectors);
 int bdrv_has_zero_init(BlockDriverState *bs);
 int bdrv_is_allocated(BlockDriverState *bs, int64_t sector_num, int nb_sectors,
                       int *pnum);
@@ -178,19 +224,13 @@ int bdrv_get_translation_hint(BlockDriverState *bs);
 void bdrv_set_on_error(BlockDriverState *bs, BlockErrorAction on_read_error,
                        BlockErrorAction on_write_error);
 BlockErrorAction bdrv_get_on_error(BlockDriverState *bs, int is_read);
-void bdrv_set_removable(BlockDriverState *bs, int removable);
-int bdrv_is_removable(BlockDriverState *bs);
 int bdrv_is_read_only(BlockDriverState *bs);
 int bdrv_is_sg(BlockDriverState *bs);
 int bdrv_enable_write_cache(BlockDriverState *bs);
 int bdrv_is_inserted(BlockDriverState *bs);
 int bdrv_media_changed(BlockDriverState *bs);
-int bdrv_is_locked(BlockDriverState *bs);
-void bdrv_set_locked(BlockDriverState *bs, int locked);
-int bdrv_eject(BlockDriverState *bs, int eject_flag);
-void bdrv_set_change_cb(BlockDriverState *bs,
-                        void (*change_cb)(void *opaque, int reason),
-                        void *opaque);
+void bdrv_lock_medium(BlockDriverState *bs, bool locked);
+void bdrv_eject(BlockDriverState *bs, int eject_flag);
 void bdrv_get_format(BlockDriverState *bs, char *buf, int buf_size);
 BlockDriverState *bdrv_find(const char *name);
 BlockDriverState *bdrv_next(BlockDriverState *bs);
@@ -240,6 +280,9 @@ int bdrv_img_create(const char *filename, const char *fmt,
                     const char *base_filename, const char *base_fmt,
                     char *options, uint64_t img_size, int flags);
 
+void bdrv_set_buffer_alignment(BlockDriverState *bs, int align);
+void *qemu_blockalign(BlockDriverState *bs, size_t size);
+
 #define BDRV_SECTORS_PER_DIRTY_CHUNK 2048
 
 void bdrv_set_dirty_tracking(BlockDriverState *bs, int enable);
@@ -250,6 +293,23 @@ int64_t bdrv_get_dirty_count(BlockDriverState *bs);
 
 void bdrv_set_in_use(BlockDriverState *bs, int in_use);
 int bdrv_in_use(BlockDriverState *bs);
+
+enum BlockAcctType {
+    BDRV_ACCT_READ,
+    BDRV_ACCT_WRITE,
+    BDRV_ACCT_FLUSH,
+    BDRV_MAX_IOTYPE,
+};
+
+typedef struct BlockAcctCookie {
+    int64_t bytes;
+    int64_t start_time_ns;
+    enum BlockAcctType type;
+} BlockAcctCookie;
+
+void bdrv_acct_start(BlockDriverState *bs, BlockAcctCookie *cookie,
+        int64_t bytes, enum BlockAcctType type);
+void bdrv_acct_done(BlockDriverState *bs, BlockAcctCookie *cookie);
 
 typedef enum {
     BLKDBG_L1_UPDATE,
@@ -302,4 +362,43 @@ typedef enum {
 #define BLKDBG_EVENT(bs, evt) bdrv_debug_event(bs, evt)
 void bdrv_debug_event(BlockDriverState *bs, BlkDebugEvent event);
 
+
+/* Convenience for block device models */
+
+typedef struct BlockConf {
+    BlockDriverState *bs;
+    uint16_t physical_block_size;
+    uint16_t logical_block_size;
+    uint16_t min_io_size;
+    uint32_t opt_io_size;
+    int32_t bootindex;
+    uint32_t discard_granularity;
+} BlockConf;
+
+static inline unsigned int get_physical_block_exp(BlockConf *conf)
+{
+    unsigned int exp = 0, size;
+
+    for (size = conf->physical_block_size;
+        size > conf->logical_block_size;
+        size >>= 1) {
+        exp++;
+    }
+
+    return exp;
+}
+
+#define DEFINE_BLOCK_PROPERTIES(_state, _conf)                          \
+    DEFINE_PROP_DRIVE("drive", _state, _conf.bs),                       \
+    DEFINE_PROP_UINT16("logical_block_size", _state,                    \
+                       _conf.logical_block_size, 512),                  \
+    DEFINE_PROP_UINT16("physical_block_size", _state,                   \
+                       _conf.physical_block_size, 512),                 \
+    DEFINE_PROP_UINT16("min_io_size", _state, _conf.min_io_size, 0),  \
+    DEFINE_PROP_UINT32("opt_io_size", _state, _conf.opt_io_size, 0),    \
+    DEFINE_PROP_INT32("bootindex", _state, _conf.bootindex, -1),        \
+    DEFINE_PROP_UINT32("discard_granularity", _state, \
+                       _conf.discard_granularity, 0)
+
 #endif
+

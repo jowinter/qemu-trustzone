@@ -18,6 +18,7 @@
 #include "virtio-9p.h"
 #include "fsdev/qemu-fsdev.h"
 #include "virtio-9p-xattr.h"
+#include "virtio-9p-coth.h"
 
 static uint32_t virtio_9p_get_features(VirtIODevice *vdev, uint32_t features)
 {
@@ -35,30 +36,30 @@ static void virtio_9p_get_config(VirtIODevice *vdev, uint8_t *config)
     struct virtio_9p_config *cfg;
     V9fsState *s = to_virtio_9p(vdev);
 
-    cfg = qemu_mallocz(sizeof(struct virtio_9p_config) +
+    cfg = g_malloc0(sizeof(struct virtio_9p_config) +
                         s->tag_len);
     stw_raw(&cfg->tag_len, s->tag_len);
     memcpy(cfg->tag, s->tag, s->tag_len);
     memcpy(config, cfg, s->config_size);
-    qemu_free(cfg);
+    g_free(cfg);
 }
 
 VirtIODevice *virtio_9p_init(DeviceState *dev, V9fsConf *conf)
- {
+{
     V9fsState *s;
     int i, len;
     struct stat stat;
-    FsTypeEntry *fse;
-
+    FsDriverEntry *fse;
+    V9fsPath path;
 
     s = (V9fsState *)virtio_common_init("virtio-9p",
                                     VIRTIO_ID_9P,
                                     sizeof(struct virtio_9p_config)+
                                     MAX_TAG_LEN,
                                     sizeof(V9fsState));
-
     /* initialize pdu allocator */
     QLIST_INIT(&s->free_list);
+    QLIST_INIT(&s->active_list);
     for (i = 0; i < (MAX_REQ - 1); i++) {
         QLIST_INSERT_HEAD(&s->free_list, &s->pdus[i], next);
     }
@@ -82,55 +83,66 @@ VirtIODevice *virtio_9p_init(DeviceState *dev, V9fsConf *conf)
         exit(1);
     }
 
-    if (!strcmp(fse->security_model, "passthrough")) {
-        /* Files on the Fileserver set to client user credentials */
-        s->ctx.fs_sm = SM_PASSTHROUGH;
+    s->ctx.export_flags = fse->export_flags;
+    s->ctx.fs_root = g_strdup(fse->path);
+    s->ctx.exops.get_st_gen = NULL;
+
+    if (fse->export_flags & V9FS_SM_PASSTHROUGH) {
         s->ctx.xops = passthrough_xattr_ops;
-    } else if (!strcmp(fse->security_model, "mapped")) {
-        /* Files on the fileserver are set to QEMU credentials.
-         * Client user credentials are saved in extended attributes.
-         */
-        s->ctx.fs_sm = SM_MAPPED;
+    } else if (fse->export_flags & V9FS_SM_MAPPED) {
         s->ctx.xops = mapped_xattr_ops;
-    } else if (!strcmp(fse->security_model, "none")) {
-        /*
-         * Files on the fileserver are set to QEMU credentials.
-         */
-        s->ctx.fs_sm = SM_NONE;
-        s->ctx.xops = none_xattr_ops;
-    } else {
-        fprintf(stderr, "Default to security_model=none. You may want"
-                " enable advanced security model using "
-                "security option:\n\t security_model=passthrough\n\t "
-                "security_model=mapped\n");
-        s->ctx.fs_sm = SM_NONE;
+    } else if (fse->export_flags & V9FS_SM_NONE) {
         s->ctx.xops = none_xattr_ops;
     }
 
-    if (lstat(fse->path, &stat)) {
-        fprintf(stderr, "share path %s does not exist\n", fse->path);
-        exit(1);
-    } else if (!S_ISDIR(stat.st_mode)) {
-        fprintf(stderr, "share path %s is not a directory\n", fse->path);
-        exit(1);
-    }
-
-    s->ctx.fs_root = qemu_strdup(fse->path);
     len = strlen(conf->tag);
     if (len > MAX_TAG_LEN) {
-        len = MAX_TAG_LEN;
+        fprintf(stderr, "mount tag '%s' (%d bytes) is longer than "
+                "maximum (%d bytes)", conf->tag, len, MAX_TAG_LEN);
+        exit(1);
     }
     /* s->tag is non-NULL terminated string */
-    s->tag = qemu_malloc(len);
+    s->tag = g_malloc(len);
     memcpy(s->tag, conf->tag, len);
     s->tag_len = len;
     s->ctx.uid = -1;
 
     s->ops = fse->ops;
     s->vdev.get_features = virtio_9p_get_features;
-    s->config_size = sizeof(struct virtio_9p_config) +
-                        s->tag_len;
+    s->config_size = sizeof(struct virtio_9p_config) + s->tag_len;
     s->vdev.get_config = virtio_9p_get_config;
+    s->fid_list = NULL;
+    qemu_co_rwlock_init(&s->rename_lock);
+
+    if (s->ops->init(&s->ctx) < 0) {
+        fprintf(stderr, "Virtio-9p Failed to initialize fs-driver with id:%s"
+                " and export path:%s\n", conf->fsdev_id, s->ctx.fs_root);
+        exit(1);
+    }
+    if (v9fs_init_worker_threads() < 0) {
+        fprintf(stderr, "worker thread initialization failed\n");
+        exit(1);
+    }
+
+    /*
+     * Check details of export path, We need to use fs driver
+     * call back to do that. Since we are in the init path, we don't
+     * use co-routines here.
+     */
+    v9fs_path_init(&path);
+    if (s->ops->name_to_path(&s->ctx, NULL, "/", &path) < 0) {
+        fprintf(stderr,
+                "error in converting name to path %s", strerror(errno));
+        exit(1);
+    }
+    if (s->ops->lstat(&s->ctx, &path, &stat)) {
+        fprintf(stderr, "share path %s does not exist\n", fse->path);
+        exit(1);
+    } else if (!S_ISDIR(stat.st_mode)) {
+        fprintf(stderr, "share path %s is not a directory\n", fse->path);
+        exit(1);
+    }
+    v9fs_path_free(&path);
 
     return &s->vdev;
 }
@@ -157,6 +169,8 @@ static PCIDeviceInfo virtio_9p_info = {
     .revision  = VIRTIO_PCI_ABI_VERSION,
     .class_id  = 0x2,
     .qdev.props = (Property[]) {
+        DEFINE_PROP_BIT("ioeventfd", VirtIOPCIProxy, flags,
+                        VIRTIO_PCI_FLAG_USE_IOEVENTFD_BIT, true),
         DEFINE_PROP_UINT32("vectors", VirtIOPCIProxy, nvectors, 2),
         DEFINE_VIRTIO_COMMON_FEATURES(VirtIOPCIProxy, host_features),
         DEFINE_PROP_STRING("mount_tag", VirtIOPCIProxy, fsconf.tag),
@@ -168,6 +182,7 @@ static PCIDeviceInfo virtio_9p_info = {
 static void virtio_9p_register_devices(void)
 {
     pci_qdev_register(&virtio_9p_info);
+    virtio_9p_set_fd_limit();
 }
 
 device_init(virtio_9p_register_devices)

@@ -1,9 +1,13 @@
 # Makefile for QEMU.
 
+# Always point to the root of the build tree (needs GNU make).
+BUILD_DIR=$(CURDIR)
+
 GENERATED_HEADERS = config-host.h trace.h qemu-options.def
 ifeq ($(TRACE_BACKEND),dtrace)
 GENERATED_HEADERS += trace-dtrace.h
 endif
+GENERATED_HEADERS += qmp-commands.h qapi-types.h qapi-visit.h
 
 ifneq ($(wildcard config-host.mak),)
 # Put the all: rule here so that config-host.mak can contain dependencies.
@@ -37,7 +41,7 @@ else
 DOCS=
 endif
 
-SUBDIR_MAKEFLAGS=$(if $(V),,--no-print-directory)
+SUBDIR_MAKEFLAGS=$(if $(V),,--no-print-directory) BUILD_DIR=$(BUILD_DIR)
 SUBDIR_DEVICES_MAK=$(patsubst %, %/config-devices.mak, $(TARGET_DIRS))
 SUBDIR_DEVICES_MAK_DEP=$(patsubst %, %/config-devices.mak.d, $(TARGET_DIRS))
 
@@ -71,7 +75,7 @@ defconfig:
 
 -include config-all-devices.mak
 
-build-all: $(DOCS) $(TOOLS) recurse-all
+build-all: $(DOCS) $(TOOLS) $(CHECKS) recurse-all
 
 config-host.h: config-host.h-timestamp
 config-host.h-timestamp: config-host.mak
@@ -88,7 +92,7 @@ include $(SRC_PATH)/Makefile.objs
 endif
 
 $(common-obj-y): $(GENERATED_HEADERS)
-subdir-libcacard: $(oslib-obj-y) $(trace-obj-y) qemu-malloc.o qemu-timer-common.o
+subdir-libcacard: $(oslib-obj-y) $(trace-obj-y) qemu-timer-common.o
 
 $(filter %-softmmu,$(SUBDIR_RULES)): $(trace-obj-y) $(common-obj-y) subdir-libdis
 
@@ -116,7 +120,7 @@ ui/vnc.o: QEMU_CFLAGS += $(VNC_TLS_CFLAGS)
 
 bt-host.o: QEMU_CFLAGS += $(BLUEZ_CFLAGS)
 
-version.o: $(SRC_PATH)/version.rc config-host.mak
+version.o: $(SRC_PATH)/version.rc config-host.h
 	$(call quiet-command,$(WINDRES) -I. -o $@ $<,"  RC    $(TARGET_DIR)$@")
 
 version-obj-$(CONFIG_WIN32) += version.o
@@ -131,7 +135,7 @@ libcacard.la:
 install-libcacard:
 	@echo "libtool is missing, please install and rerun configure"; exit 1
 else
-libcacard.la: $(GENERATED_HEADERS) $(oslib-obj-y) qemu-malloc.o qemu-timer-common.o $(addsuffix .lo, $(basename $(trace-obj-y)))
+libcacard.la: $(GENERATED_HEADERS) $(oslib-obj-y) qemu-timer-common.o $(addsuffix .lo, $(basename $(trace-obj-y)))
 	$(call quiet-command,$(MAKE) $(SUBDIR_MAKEFLAGS) -C libcacard V="$(V)" TARGET_DIR="$*/" libcacard.la,)
 
 install-libcacard: libcacard.la
@@ -142,29 +146,30 @@ endif
 qemu-img.o: qemu-img-cmds.h
 qemu-img.o qemu-tool.o qemu-nbd.o qemu-io.o cmd.o qemu-ga.o: $(GENERATED_HEADERS)
 
-qemu-img$(EXESUF): qemu-img.o qemu-tool.o qemu-error.o $(oslib-obj-y) $(trace-obj-y) $(block-obj-y) $(qobject-obj-y) $(version-obj-y) qemu-timer-common.o
+tools-obj-y = qemu-tool.o $(oslib-obj-y) $(trace-obj-y) \
+	qemu-timer-common.o cutils.o
 
-qemu-nbd$(EXESUF): qemu-nbd.o qemu-tool.o qemu-error.o $(oslib-obj-y) $(trace-obj-y) $(block-obj-y) $(qobject-obj-y) $(version-obj-y) qemu-timer-common.o
-
-qemu-io$(EXESUF): qemu-io.o cmd.o qemu-tool.o qemu-error.o $(oslib-obj-y) $(trace-obj-y) $(block-obj-y) $(qobject-obj-y) $(version-obj-y) qemu-timer-common.o
+qemu-img$(EXESUF): qemu-img.o $(tools-obj-y) $(block-obj-y)
+qemu-nbd$(EXESUF): qemu-nbd.o $(tools-obj-y) $(block-obj-y)
+qemu-io$(EXESUF): qemu-io.o cmd.o $(tools-obj-y) $(block-obj-y)
 
 qemu-img-cmds.h: $(SRC_PATH)/qemu-img-cmds.hx
 	$(call quiet-command,sh $(SRC_PATH)/scripts/hxtool -h < $< > $@,"  GEN   $@")
 
-check-qint.o check-qstring.o check-qdict.o check-qlist.o check-qfloat.o check-qjson.o: $(GENERATED_HEADERS)
+check-qint.o check-qstring.o check-qdict.o check-qlist.o check-qfloat.o check-qjson.o test-coroutine.o: $(GENERATED_HEADERS)
 
-CHECK_PROG_DEPS = qemu-malloc.o $(oslib-obj-y) $(trace-obj-y) qemu-tool.o
-
-check-qint: check-qint.o qint.o $(CHECK_PROG_DEPS)
-check-qstring: check-qstring.o qstring.o $(CHECK_PROG_DEPS)
-check-qdict: check-qdict.o qdict.o qfloat.o qint.o qstring.o qbool.o qlist.o $(CHECK_PROG_DEPS)
-check-qlist: check-qlist.o qlist.o qint.o $(CHECK_PROG_DEPS)
-check-qfloat: check-qfloat.o qfloat.o $(CHECK_PROG_DEPS)
-check-qjson: check-qjson.o qfloat.o qint.o qdict.o qstring.o qlist.o qbool.o qjson.o json-streamer.o json-lexer.o json-parser.o error.o qerror.o qemu-error.o $(CHECK_PROG_DEPS)
+check-qint: check-qint.o qint.o $(tools-obj-y)
+check-qstring: check-qstring.o qstring.o $(tools-obj-y)
+check-qdict: check-qdict.o qdict.o qfloat.o qint.o qstring.o qbool.o qlist.o $(tools-obj-y)
+check-qlist: check-qlist.o qlist.o qint.o $(tools-obj-y)
+check-qfloat: check-qfloat.o qfloat.o $(tools-obj-y)
+check-qjson: check-qjson.o $(qobject-obj-y) $(tools-obj-y)
+test-coroutine: test-coroutine.o qemu-timer-common.o async.o $(coroutine-obj-y) $(tools-obj-y)
 
 $(qapi-obj-y): $(GENERATED_HEADERS)
 qapi-dir := qapi-generated
 test-visitor.o test-qmp-commands.o qemu-ga$(EXESUF): QEMU_CFLAGS += -I $(qapi-dir)
+qemu-ga$(EXESUF): LIBS = $(LIBS_QGA)
 
 $(qapi-dir)/test-qapi-types.c: $(qapi-dir)/test-qapi-types.h
 $(qapi-dir)/test-qapi-types.h: $(SRC_PATH)/qapi-schema-test.json $(SRC_PATH)/scripts/qapi-types.py
@@ -182,21 +187,31 @@ $(qapi-dir)/qga-qapi-types.h: $(SRC_PATH)/qapi-schema-guest.json $(SRC_PATH)/scr
 $(qapi-dir)/qga-qapi-visit.c: $(qapi-dir)/qga-qapi-visit.h
 $(qapi-dir)/qga-qapi-visit.h: $(SRC_PATH)/qapi-schema-guest.json $(SRC_PATH)/scripts/qapi-visit.py
 	$(call quiet-command,$(PYTHON) $(SRC_PATH)/scripts/qapi-visit.py -o "$(qapi-dir)" -p "qga-" < $<, "  GEN   $@")
+$(qapi-dir)/qga-qmp-commands.h: $(qapi-dir)/qga-qmp-marshal.c
 $(qapi-dir)/qga-qmp-marshal.c: $(SRC_PATH)/qapi-schema-guest.json $(SRC_PATH)/scripts/qapi-commands.py
 	$(call quiet-command,$(PYTHON) $(SRC_PATH)/scripts/qapi-commands.py -o "$(qapi-dir)" -p "qga-" < $<, "  GEN   $@")
 
+qapi-types.c: qapi-types.h
+qapi-types.h: $(SRC_PATH)/qapi-schema.json $(SRC_PATH)/scripts/qapi-types.py
+	$(call quiet-command,$(PYTHON) $(SRC_PATH)/scripts/qapi-types.py -o "." < $<, "  GEN   $@")
+qapi-visit.c: qapi-visit.h
+qapi-visit.h: $(SRC_PATH)/qapi-schema.json $(SRC_PATH)/scripts/qapi-visit.py
+	$(call quiet-command,$(PYTHON) $(SRC_PATH)/scripts/qapi-visit.py -o "."  < $<, "  GEN   $@")
+qmp-commands.h: qmp-marshal.c
+qmp-marshal.c: $(SRC_PATH)/qapi-schema.json $(SRC_PATH)/scripts/qapi-commands.py
+	$(call quiet-command,$(PYTHON) $(SRC_PATH)/scripts/qapi-commands.py -m -o "." < $<, "  GEN   $@")
+
 test-visitor.o: $(addprefix $(qapi-dir)/, test-qapi-types.c test-qapi-types.h test-qapi-visit.c test-qapi-visit.h) $(qapi-obj-y)
-test-visitor: test-visitor.o qfloat.o qint.o qdict.o qstring.o qlist.o qbool.o $(qapi-obj-y) error.o osdep.o qemu-malloc.o $(oslib-obj-y) qjson.o json-streamer.o json-lexer.o json-parser.o qerror.o qemu-error.o qemu-tool.o $(qapi-dir)/test-qapi-visit.o $(qapi-dir)/test-qapi-types.o
+test-visitor: test-visitor.o $(qobject-obj-y) $(qapi-obj-y) $(tools-obj-y) $(qapi-dir)/test-qapi-visit.o $(qapi-dir)/test-qapi-types.o
 
 test-qmp-commands.o: $(addprefix $(qapi-dir)/, test-qapi-types.c test-qapi-types.h test-qapi-visit.c test-qapi-visit.h test-qmp-marshal.c test-qmp-commands.h) $(qapi-obj-y)
-test-qmp-commands: test-qmp-commands.o qfloat.o qint.o qdict.o qstring.o qlist.o qbool.o $(qapi-obj-y) error.o osdep.o qemu-malloc.o $(oslib-obj-y) qjson.o json-streamer.o json-lexer.o json-parser.o qerror.o qemu-error.o qemu-tool.o $(qapi-dir)/test-qapi-visit.o $(qapi-dir)/test-qapi-types.o $(qapi-dir)/test-qmp-marshal.o module.o
+test-qmp-commands: test-qmp-commands.o $(qobject-obj-y) $(qapi-obj-y) $(tools-obj-y) $(qapi-dir)/test-qapi-visit.o $(qapi-dir)/test-qapi-types.o $(qapi-dir)/test-qmp-marshal.o module.o
 
-QGALIB=qga/guest-agent-command-state.o qga/guest-agent-commands.o
 QGALIB_GEN=$(addprefix $(qapi-dir)/, qga-qapi-types.c qga-qapi-types.h qga-qapi-visit.c qga-qmp-marshal.c)
-
 $(QGALIB_GEN): $(GENERATED_HEADERS)
-$(QGALIB) qemu-ga.o: $(QGALIB_GEN) $(qapi-obj-y)
-qemu-ga$(EXESUF): qemu-ga.o $(QGALIB) qemu-tool.o qemu-error.o error.o $(oslib-obj-y) $(trace-obj-y) $(block-obj-y) $(qobject-obj-y) $(version-obj-y) $(qapi-obj-y) qemu-timer-common.o qemu-sockets.o module.o qapi/qmp-dispatch.o qapi/qmp-registry.o $(qapi-dir)/qga-qapi-visit.o $(qapi-dir)/qga-qapi-types.o $(qapi-dir)/qga-qmp-marshal.o
+$(qga-obj-y) qemu-ga.o: $(QGALIB_GEN)
+
+qemu-ga$(EXESUF): qemu-ga.o $(qga-obj-y) $(qapi-obj-y) $(tools-obj-y) $(qobject-obj-y) $(version-obj-y) $(addprefix $(qapi-dir)/, qga-qapi-visit.o qga-qapi-types.o qga-qmp-marshal.o)
 
 QEMULIBS=libhw32 libhw64 libuser libdis libdis-user
 
@@ -204,10 +219,11 @@ clean:
 # avoid old build problems by removing potentially incorrect old files
 	rm -f config.mak op-i386.h opc-i386.h gen-op-i386.h op-arm.h opc-arm.h gen-op-arm.h
 	rm -f qemu-options.def
-	rm -f *.o *.d *.a *.lo $(TOOLS) qemu-ga TAGS cscope.* *.pod *~ */*~
+	rm -f *.o *.d *.a *.lo $(TOOLS) $(CHECKS) qemu-ga TAGS cscope.* *.pod *~ */*~
 	rm -Rf .libs
 	rm -f slirp/*.o slirp/*.d audio/*.o audio/*.d block/*.o block/*.d net/*.o net/*.d fsdev/*.o fsdev/*.d ui/*.o ui/*.d qapi/*.o qapi/*.d qga/*.o qga/*.d
 	rm -f qemu-img-cmds.h
+	rm -f trace/*.o trace/*.d
 	rm -f trace.c trace.h trace.c-timestamp trace.h-timestamp
 	rm -f trace-dtrace.dtrace trace-dtrace.dtrace-timestamp
 	rm -f trace-dtrace.h trace-dtrace.h-timestamp
@@ -226,6 +242,7 @@ distclean: clean
 	rm -f qemu-doc.fn qemu-doc.fns qemu-doc.info qemu-doc.ky qemu-doc.kys
 	rm -f qemu-doc.log qemu-doc.pdf qemu-doc.pg qemu-doc.toc qemu-doc.tp
 	rm -f qemu-doc.vr
+	rm -f config.log
 	rm -f qemu-tech.info qemu-tech.aux qemu-tech.cp qemu-tech.dvi qemu-tech.fn qemu-tech.info qemu-tech.ky qemu-tech.log qemu-tech.pdf qemu-tech.pg qemu-tech.toc qemu-tech.tp qemu-tech.vr
 	for d in $(TARGET_DIRS) $(QEMULIBS); do \
 	rm -rf $$d || exit 1 ; \
@@ -236,7 +253,7 @@ ar      de     en-us  fi  fr-be  hr     it  lv  nl         pl  ru     th \
 common  de-ch  es     fo  fr-ca  hu     ja  mk  nl-be      pt  sl     tr
 
 ifdef INSTALL_BLOBS
-BLOBS=bios.bin vgabios.bin vgabios-cirrus.bin \
+BLOBS=bios.bin sgabios.bin vgabios.bin vgabios-cirrus.bin \
 vgabios-stdvga.bin vgabios-vmware.bin vgabios-qxl.bin \
 ppc_rom.bin openbios-sparc32 openbios-sparc64 openbios-ppc \
 pxe-e1000.rom pxe-eepro100.rom pxe-ne2k_pci.rom \
@@ -245,7 +262,8 @@ bamboo.dtb petalogix-s3adsp1800.dtb petalogix-ml605.dtb \
 mpc8544ds.dtb \
 multiboot.bin linuxboot.bin \
 s390-zipl.rom \
-spapr-rtas.bin slof.bin
+spapr-rtas.bin slof.bin \
+palcode-clipper
 else
 BLOBS=
 endif
@@ -287,6 +305,12 @@ endif
 # various test targets
 test speed: all
 	$(MAKE) -C tests $@
+
+.PHONY: check
+check: $(patsubst %,run-check-%,$(CHECKS))
+
+run-check-%: %
+	./$<
 
 .PHONY: TAGS
 TAGS:
@@ -362,43 +386,6 @@ tar:
 	cp -r . /tmp/$(FILE)
 	cd /tmp && tar zcvf ~/$(FILE).tar.gz $(FILE) --exclude CVS --exclude .git --exclude .svn
 	rm -rf /tmp/$(FILE)
-
-SYSTEM_TARGETS=$(filter %-softmmu,$(TARGET_DIRS))
-SYSTEM_PROGS=$(patsubst qemu-system-i386,qemu, \
-             $(patsubst %-softmmu,qemu-system-%, \
-             $(SYSTEM_TARGETS)))
-
-USER_TARGETS=$(filter %-user,$(TARGET_DIRS))
-USER_PROGS=$(patsubst %-bsd-user,qemu-%, \
-           $(patsubst %-darwin-user,qemu-%, \
-           $(patsubst %-linux-user,qemu-%, \
-           $(USER_TARGETS))))
-
-# generate a binary distribution
-tarbin:
-	cd / && tar zcvf ~/qemu-$(VERSION)-$(ARCH).tar.gz \
-	$(patsubst %,$(bindir)/%, $(SYSTEM_PROGS)) \
-	$(patsubst %,$(bindir)/%, $(USER_PROGS)) \
-	$(bindir)/qemu-img \
-	$(bindir)/qemu-nbd \
-	$(datadir)/bios.bin \
-	$(datadir)/vgabios.bin \
-	$(datadir)/vgabios-cirrus.bin \
-	$(datadir)/ppc_rom.bin \
-	$(datadir)/openbios-sparc32 \
-	$(datadir)/openbios-sparc64 \
-	$(datadir)/openbios-ppc \
-	$(datadir)/pxe-e1000.rom \
-	$(datadir)/pxe-eepro100.rom \
-	$(datadir)/pxe-ne2k_pci.rom \
-	$(datadir)/pxe-pcnet.rom \
-	$(datadir)/pxe-rtl8139.rom \
-	$(datadir)/pxe-virtio.rom \
-	$(docdir)/qemu-doc.html \
-	$(docdir)/qemu-tech.html \
-	$(mandir)/man1/qemu.1 \
-	$(mandir)/man1/qemu-img.1 \
-	$(mandir)/man8/qemu-nbd.8
 
 # Include automatically generated dependency files
 -include $(wildcard *.d audio/*.d slirp/*.d block/*.d net/*.d ui/*.d qapi/*.d qga/*.d)

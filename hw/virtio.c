@@ -16,19 +16,11 @@
 #include "trace.h"
 #include "qemu-error.h"
 #include "virtio.h"
+#include "qemu-barrier.h"
 
 /* The alignment to use between consumer and producer parts of vring.
  * x86 pagesize again. */
 #define VIRTIO_PCI_VRING_ALIGN         4096
-
-/* QEMU doesn't strictly need write barriers since everything runs in
- * lock-step.  We'll leave the calls to wmb() in though to make it obvious for
- * KVM or if kqemu gets SMP support.
- * In any case, we must prevent the compiler from reordering the code.
- * TODO: we likely need some rmb()/mb() as well.
- */
-
-#define wmb() __asm__ __volatile__("": : :"memory")
 
 typedef struct VRingDesc
 {
@@ -264,7 +256,7 @@ void virtqueue_flush(VirtQueue *vq, unsigned int count)
 {
     uint16_t old, new;
     /* Make sure buffer is written before we update index. */
-    wmb();
+    smp_wmb();
     trace_virtqueue_flush(vq, count);
     old = vring_used_idx(vq);
     new = old + count;
@@ -324,7 +316,7 @@ static unsigned virtqueue_next_desc(target_phys_addr_t desc_pa,
     /* Check they're not leading us off end of descriptors. */
     next = vring_desc_next(desc_pa, i);
     /* Make sure compiler knows to grab that: we don't want it changing! */
-    wmb();
+    smp_wmb();
 
     if (next >= max) {
         error_report("Desc next is %u", next);
@@ -496,6 +488,16 @@ static void virtio_notify_vector(VirtIODevice *vdev, uint16_t vector)
 void virtio_update_irq(VirtIODevice *vdev)
 {
     virtio_notify_vector(vdev, VIRTIO_NO_VECTOR);
+}
+
+void virtio_set_status(VirtIODevice *vdev, uint8_t val)
+{
+    trace_virtio_set_status(vdev, val);
+
+    if (vdev->set_status) {
+        vdev->set_status(vdev, val);
+    }
+    vdev->status = val;
 }
 
 void virtio_reset(void *opaque)
@@ -832,11 +834,12 @@ void virtio_cleanup(VirtIODevice *vdev)
 {
     qemu_del_vm_change_state_handler(vdev->vmstate);
     if (vdev->config)
-        qemu_free(vdev->config);
-    qemu_free(vdev->vq);
+        g_free(vdev->config);
+    g_free(vdev->vq);
+    g_free(vdev);
 }
 
-static void virtio_vmstate_change(void *opaque, int running, int reason)
+static void virtio_vmstate_change(void *opaque, int running, RunState state)
 {
     VirtIODevice *vdev = opaque;
     bool backend_run = running && (vdev->status & VIRTIO_CONFIG_S_DRIVER_OK);
@@ -861,15 +864,15 @@ VirtIODevice *virtio_common_init(const char *name, uint16_t device_id,
     VirtIODevice *vdev;
     int i;
 
-    vdev = qemu_mallocz(struct_size);
+    vdev = g_malloc0(struct_size);
 
     vdev->device_id = device_id;
     vdev->status = 0;
     vdev->isr = 0;
     vdev->queue_sel = 0;
     vdev->config_vector = VIRTIO_NO_VECTOR;
-    vdev->vq = qemu_mallocz(sizeof(VirtQueue) * VIRTIO_PCI_QUEUE_MAX);
-    vdev->vm_running = vm_running;
+    vdev->vq = g_malloc0(sizeof(VirtQueue) * VIRTIO_PCI_QUEUE_MAX);
+    vdev->vm_running = runstate_is_running();
     for(i = 0; i < VIRTIO_PCI_QUEUE_MAX; i++) {
         vdev->vq[i].vector = VIRTIO_NO_VECTOR;
         vdev->vq[i].vdev = vdev;
@@ -878,7 +881,7 @@ VirtIODevice *virtio_common_init(const char *name, uint16_t device_id,
     vdev->name = name;
     vdev->config_len = config_size;
     if (vdev->config_len)
-        vdev->config = qemu_mallocz(config_size);
+        vdev->config = g_malloc0(config_size);
     else
         vdev->config = NULL;
 

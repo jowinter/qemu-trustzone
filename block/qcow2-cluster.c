@@ -53,18 +53,18 @@ int qcow2_grow_l1_table(BlockDriverState *bs, int min_size, bool exact_size)
     }
 
 #ifdef DEBUG_ALLOC2
-    printf("grow l1_table from %d to %d\n", s->l1_size, new_l1_size);
+    fprintf(stderr, "grow l1_table from %d to %d\n", s->l1_size, new_l1_size);
 #endif
 
     new_l1_size2 = sizeof(uint64_t) * new_l1_size;
-    new_l1_table = qemu_mallocz(align_offset(new_l1_size2, 512));
+    new_l1_table = g_malloc0(align_offset(new_l1_size2, 512));
     memcpy(new_l1_table, s->l1_table, s->l1_size * sizeof(uint64_t));
 
     /* write new table (align to cluster) */
     BLKDBG_EVENT(bs->file, BLKDBG_L1_GROW_ALLOC_TABLE);
     new_l1_table_offset = qcow2_alloc_clusters(bs, new_l1_size2);
     if (new_l1_table_offset < 0) {
-        qemu_free(new_l1_table);
+        g_free(new_l1_table);
         return new_l1_table_offset;
     }
 
@@ -90,14 +90,14 @@ int qcow2_grow_l1_table(BlockDriverState *bs, int min_size, bool exact_size)
     if (ret < 0) {
         goto fail;
     }
-    qemu_free(s->l1_table);
+    g_free(s->l1_table);
     qcow2_free_clusters(bs, s->l1_table_offset, s->l1_size * sizeof(uint64_t));
     s->l1_table_offset = new_l1_table_offset;
     s->l1_table = new_l1_table;
     s->l1_size = new_l1_size;
     return 0;
  fail:
-    qemu_free(new_l1_table);
+    g_free(new_l1_table);
     qcow2_free_clusters(bs, new_l1_table_offset, new_l1_size2);
     return ret;
 }
@@ -381,10 +381,10 @@ static int copy_sectors(BlockDriverState *bs, uint64_t start_sect,
  * For a given offset of the disk image, find the cluster offset in
  * qcow2 file. The offset is stored in *cluster_offset.
  *
- * on entry, *num is the number of contiguous clusters we'd like to
+ * on entry, *num is the number of contiguous sectors we'd like to
  * access following offset.
  *
- * on exit, *num is the number of contiguous clusters we can read.
+ * on exit, *num is the number of contiguous sectors we can read.
  *
  * Return 0, if the offset is found
  * Return -errno, otherwise.
@@ -568,8 +568,10 @@ uint64_t qcow2_alloc_compressed_cluster_offset(BlockDriverState *bs,
     }
 
     cluster_offset = be64_to_cpu(l2_table[l2_index]);
-    if (cluster_offset & QCOW_OFLAG_COPIED)
-        return cluster_offset & ~QCOW_OFLAG_COPIED;
+    if (cluster_offset & QCOW_OFLAG_COPIED) {
+        qcow2_cache_put(bs, s->l2_table_cache, (void**) &l2_table);
+        return 0;
+    }
 
     if (cluster_offset)
         qcow2_free_any_clusters(bs, cluster_offset, 1);
@@ -612,7 +614,7 @@ int qcow2_alloc_cluster_link_l2(BlockDriverState *bs, QCowL2Meta *m)
     if (m->nb_clusters == 0)
         return 0;
 
-    old_cluster = qemu_malloc(m->nb_clusters * sizeof(uint64_t));
+    old_cluster = g_malloc(m->nb_clusters * sizeof(uint64_t));
 
     /* copy content of unmodified sectors */
     start_sect = (m->offset & ~(s->cluster_size - 1)) >> 9;
@@ -683,7 +685,7 @@ int qcow2_alloc_cluster_link_l2(BlockDriverState *bs, QCowL2Meta *m)
 
     ret = 0;
 err:
-    qemu_free(old_cluster);
+    g_free(old_cluster);
     return ret;
  }
 
@@ -694,15 +696,15 @@ err:
  * If the offset is not found, allocate a new cluster.
  *
  * If the cluster was already allocated, m->nb_clusters is set to 0,
- * m->depends_on is set to NULL and the other fields in m are meaningless.
+ * other fields in m are meaningless.
  *
  * If the cluster is newly allocated, m->nb_clusters is set to the number of
- * contiguous clusters that have been allocated. This may be 0 if the request
- * conflict with another write request in flight; in this case, m->depends_on
- * is set and the remaining fields of m are meaningless.
+ * contiguous clusters that have been allocated. In this case, the other
+ * fields of m are valid and contain information about the first allocated
+ * cluster.
  *
- * If m->nb_clusters is non-zero, the other fields of m are valid and contain
- * information about the first allocated cluster.
+ * If the request conflicts with another write request in flight, the coroutine
+ * is queued and will be reentered when the dependency has completed.
  *
  * Return 0 on success and -errno in error cases
  */
@@ -721,6 +723,7 @@ int qcow2_alloc_cluster_offset(BlockDriverState *bs, uint64_t offset,
         return ret;
     }
 
+again:
     nb_clusters = size_to_clusters(s, n_end << 9);
 
     nb_clusters = MIN(nb_clusters, s->l2_size - l2_index);
@@ -735,7 +738,6 @@ int qcow2_alloc_cluster_offset(BlockDriverState *bs, uint64_t offset,
 
         cluster_offset &= ~QCOW_OFLAG_COPIED;
         m->nb_clusters = 0;
-        m->depends_on = NULL;
 
         goto out;
     }
@@ -776,28 +778,28 @@ int qcow2_alloc_cluster_offset(BlockDriverState *bs, uint64_t offset,
      */
     QLIST_FOREACH(old_alloc, &s->cluster_allocs, next_in_flight) {
 
-        uint64_t end_offset = offset + nb_clusters * s->cluster_size;
-        uint64_t old_offset = old_alloc->offset;
-        uint64_t old_end_offset = old_alloc->offset +
-            old_alloc->nb_clusters * s->cluster_size;
+        uint64_t start = offset >> s->cluster_bits;
+        uint64_t end = start + nb_clusters;
+        uint64_t old_start = old_alloc->offset >> s->cluster_bits;
+        uint64_t old_end = old_start + old_alloc->nb_clusters;
 
-        if (end_offset < old_offset || offset > old_end_offset) {
+        if (end < old_start || start > old_end) {
             /* No intersection */
         } else {
-            if (offset < old_offset) {
+            if (start < old_start) {
                 /* Stop at the start of a running allocation */
-                nb_clusters = (old_offset - offset) >> s->cluster_bits;
+                nb_clusters = old_start - start;
             } else {
                 nb_clusters = 0;
             }
 
             if (nb_clusters == 0) {
-                /* Set dependency and wait for a callback */
-                m->depends_on = old_alloc;
-                m->nb_clusters = 0;
-                *num = 0;
-
-                goto out_wait_dependency;
+                /* Wait for the dependency to complete. We need to recheck
+                 * the free/allocated clusters when we continue. */
+                qemu_co_mutex_unlock(&s->lock);
+                qemu_co_queue_wait(&old_alloc->dependent_requests);
+                qemu_co_mutex_lock(&s->lock);
+                goto again;
             }
         }
     }
@@ -805,6 +807,11 @@ int qcow2_alloc_cluster_offset(BlockDriverState *bs, uint64_t offset,
     if (!nb_clusters) {
         abort();
     }
+
+    /* save info needed for meta data update */
+    m->offset = offset;
+    m->n_start = n_start;
+    m->nb_clusters = nb_clusters;
 
     QLIST_INSERT_HEAD(&s->cluster_allocs, m, next_in_flight);
 
@@ -815,11 +822,6 @@ int qcow2_alloc_cluster_offset(BlockDriverState *bs, uint64_t offset,
         ret = cluster_offset;
         goto fail;
     }
-
-    /* save info needed for meta data update */
-    m->offset = offset;
-    m->n_start = n_start;
-    m->nb_clusters = nb_clusters;
 
 out:
     ret = qcow2_cache_put(bs, s->l2_table_cache, (void**) &l2_table);
@@ -833,9 +835,6 @@ out:
     *num = m->nb_available - n_start;
 
     return 0;
-
-out_wait_dependency:
-    return qcow2_cache_put(bs, s->l2_table_cache, (void**) &l2_table);
 
 fail:
     qcow2_cache_put(bs, s->l2_table_cache, (void**) &l2_table);

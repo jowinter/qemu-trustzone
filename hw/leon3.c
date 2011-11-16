@@ -29,6 +29,7 @@
 #include "loader.h"
 #include "elf.h"
 #include "trace.h"
+#include "exec-memory.h"
 
 #include "grlib.h"
 
@@ -100,7 +101,9 @@ static void leon3_generic_hw_init(ram_addr_t  ram_size,
                                   const char *cpu_model)
 {
     CPUState   *env;
-    ram_addr_t  ram_offset, prom_offset;
+    MemoryRegion *address_space_mem = get_system_memory();
+    MemoryRegion *ram = g_new(MemoryRegion, 1);
+    MemoryRegion *prom = g_new(MemoryRegion, 1);
     int         ret;
     char       *filename;
     qemu_irq   *cpu_irqs = NULL;
@@ -122,7 +125,7 @@ static void leon3_generic_hw_init(ram_addr_t  ram_size,
     cpu_sparc_set_id(env, 0);
 
     /* Reset data */
-    reset_info        = qemu_mallocz(sizeof(ResetData));
+    reset_info        = g_malloc0(sizeof(ResetData));
     reset_info->env   = env;
     qemu_register_reset(main_cpu_reset, reset_info);
 
@@ -139,14 +142,14 @@ static void leon3_generic_hw_init(ram_addr_t  ram_size,
         exit(1);
     }
 
-    ram_offset = qemu_ram_alloc(NULL, "leon3.ram", ram_size);
-    cpu_register_physical_memory(0x40000000, ram_size, ram_offset | IO_MEM_RAM);
+    memory_region_init_ram(ram, NULL, "leon3.ram", ram_size);
+    memory_region_add_subregion(address_space_mem, 0x40000000, ram);
 
     /* Allocate BIOS */
     prom_size = 8 * 1024 * 1024; /* 8Mb */
-    prom_offset = qemu_ram_alloc(NULL, "Leon3.bios", prom_size);
-    cpu_register_physical_memory(0x00000000, prom_size,
-                                 prom_offset | IO_MEM_ROM);
+    memory_region_init_ram(prom, NULL, "Leon3.bios", prom_size);
+    memory_region_set_readonly(prom, true);
+    memory_region_add_subregion(address_space_mem, 0x00000000, prom);
 
     /* Load boot prom */
     if (bios_name == NULL) {

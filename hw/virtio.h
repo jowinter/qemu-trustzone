@@ -18,7 +18,7 @@
 #include "net.h"
 #include "qdev.h"
 #include "sysemu.h"
-#include "block_int.h"
+#include "block.h"
 #include "event_notifier.h"
 #ifdef CONFIG_LINUX
 #include "9p.h"
@@ -135,14 +135,6 @@ struct VirtIODevice
     VMChangeStateEntry *vmstate;
 };
 
-static inline void virtio_set_status(VirtIODevice *vdev, uint8_t val)
-{
-    if (vdev->set_status) {
-        vdev->set_status(vdev, val);
-    }
-    vdev->status = val;
-}
-
 VirtQueue *virtio_add_queue(VirtIODevice *vdev, int queue_size,
                             void (*handle_output)(VirtIODevice *,
                                                   VirtQueue *));
@@ -190,6 +182,7 @@ int virtio_queue_get_num(VirtIODevice *vdev, int n);
 void virtio_queue_notify(VirtIODevice *vdev, int n);
 uint16_t virtio_queue_vector(VirtIODevice *vdev, int n);
 void virtio_queue_set_vector(VirtIODevice *vdev, int n, uint16_t vector);
+void virtio_set_status(VirtIODevice *vdev, uint8_t val);
 void virtio_reset(void *opaque);
 void virtio_update_irq(VirtIODevice *vdev);
 
@@ -213,6 +206,7 @@ VirtIODevice *virtio_9p_init(DeviceState *dev, V9fsConf *conf);
 void virtio_net_exit(VirtIODevice *vdev);
 void virtio_blk_exit(VirtIODevice *vdev);
 void virtio_serial_exit(VirtIODevice *vdev);
+void virtio_balloon_exit(VirtIODevice *vdev);
 
 #define DEFINE_VIRTIO_COMMON_FEATURES(_state, _field) \
 	DEFINE_PROP_BIT("indirect_desc", _state, _field, \

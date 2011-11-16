@@ -32,6 +32,7 @@
 
 #include "hw/spapr.h"
 #include "hw/spapr_vio.h"
+#include "hw/xics.h"
 
 #ifdef CONFIG_FDT
 #include <libfdt.h>
@@ -51,6 +52,10 @@
 static struct BusInfo spapr_vio_bus_info = {
     .name       = "spapr-vio",
     .size       = sizeof(VIOsPAPRBus),
+    .props = (Property[]) {
+        DEFINE_PROP_UINT32("irq", VIOsPAPRDevice, vio_irq_num, 0), \
+        DEFINE_PROP_END_OF_LIST(),
+    },
 };
 
 VIOsPAPRDevice *spapr_vio_find_by_reg(VIOsPAPRBus *bus, uint32_t reg)
@@ -58,7 +63,7 @@ VIOsPAPRDevice *spapr_vio_find_by_reg(VIOsPAPRBus *bus, uint32_t reg)
     DeviceState *qdev;
     VIOsPAPRDevice *dev = NULL;
 
-    QLIST_FOREACH(qdev, &bus->bus.children, sibling) {
+    QTAILQ_FOREACH(qdev, &bus->bus.children, sibling) {
         dev = (VIOsPAPRDevice *)qdev;
         if (dev->reg == reg) {
             break;
@@ -160,7 +165,13 @@ static void rtce_init(VIOsPAPRDevice *dev)
         * sizeof(VIOsPAPR_RTCE);
 
     if (size) {
-        dev->rtce_table = qemu_mallocz(size);
+        dev->rtce_table = kvmppc_create_spapr_tce(dev->reg,
+                                                  dev->rtce_window_size,
+                                                  &dev->kvmtce_fd);
+
+        if (!dev->rtce_table) {
+            dev->rtce_table = g_malloc0(size);
+        }
     }
 }
 
@@ -583,7 +594,7 @@ static void rtas_quiesce(sPAPREnvironment *spapr, uint32_t token,
         return;
     }
 
-    QLIST_FOREACH(qdev, &bus->bus.children, sibling) {
+    QTAILQ_FOREACH(qdev, &bus->bus.children, sibling) {
         dev = (VIOsPAPRDevice *)qdev;
         spapr_vio_quiesce_one(dev);
     }
@@ -602,6 +613,11 @@ static int spapr_vio_busdev_init(DeviceState *qdev, DeviceInfo *qinfo)
     }
 
     dev->qdev.id = id;
+
+    dev->qirq = spapr_allocate_irq(dev->vio_irq_num, &dev->vio_irq_num);
+    if (!dev->qirq) {
+        return -1;
+    }
 
     rtce_init(dev);
 
@@ -716,7 +732,7 @@ int spapr_populate_vdevice(VIOsPAPRBus *bus, void *fdt)
     DeviceState *qdev;
     int ret = 0;
 
-    QLIST_FOREACH(qdev, &bus->bus.children, sibling) {
+    QTAILQ_FOREACH(qdev, &bus->bus.children, sibling) {
         VIOsPAPRDevice *dev = (VIOsPAPRDevice *)qdev;
 
         ret = vio_make_devnode(dev, fdt);

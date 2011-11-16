@@ -1,7 +1,9 @@
 /*
- * QEMU System Emulator
+ * Generic Balloon handlers and management
  *
  * Copyright (c) 2003-2008 Fabrice Bellard
+ * Copyright (C) 2011 Red Hat, Inc.
+ * Copyright (C) 2011 Amit Shah <amit.shah@redhat.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -23,104 +25,79 @@
  */
 
 #include "monitor.h"
-#include "qjson.h"
-#include "qint.h"
 #include "cpu-common.h"
 #include "kvm.h"
 #include "balloon.h"
 #include "trace.h"
+#include "qmp-commands.h"
 
+static QEMUBalloonEvent *balloon_event_fn;
+static QEMUBalloonStatus *balloon_stat_fn;
+static void *balloon_opaque;
 
-static QEMUBalloonEvent *qemu_balloon_event;
-void *qemu_balloon_event_opaque;
-
-void qemu_add_balloon_handler(QEMUBalloonEvent *func, void *opaque)
+int qemu_add_balloon_handler(QEMUBalloonEvent *event_func,
+                             QEMUBalloonStatus *stat_func, void *opaque)
 {
-    qemu_balloon_event = func;
-    qemu_balloon_event_opaque = opaque;
-}
-
-int qemu_balloon(ram_addr_t target, MonitorCompletion cb, void *opaque)
-{
-    if (qemu_balloon_event) {
-        trace_balloon_event(qemu_balloon_event_opaque, target);
-        qemu_balloon_event(qemu_balloon_event_opaque, target, cb, opaque);
-        return 1;
-    } else {
-        return 0;
+    if (balloon_event_fn || balloon_stat_fn || balloon_opaque) {
+        /* We're already registered one balloon handler.  How many can
+         * a guest really have?
+         */
+        error_report("Another balloon device already registered");
+        return -1;
     }
+    balloon_event_fn = event_func;
+    balloon_stat_fn = stat_func;
+    balloon_opaque = opaque;
+    return 0;
 }
 
-int qemu_balloon_status(MonitorCompletion cb, void *opaque)
+void qemu_remove_balloon_handler(void *opaque)
 {
-    if (qemu_balloon_event) {
-        qemu_balloon_event(qemu_balloon_event_opaque, 0, cb, opaque);
-        return 1;
-    } else {
-        return 0;
-    }
-}
-
-static void print_balloon_stat(const char *key, QObject *obj, void *opaque)
-{
-    Monitor *mon = opaque;
-
-    if (strcmp(key, "actual"))
-        monitor_printf(mon, ",%s=%" PRId64, key,
-                       qint_get_int(qobject_to_qint(obj)));
-}
-
-void monitor_print_balloon(Monitor *mon, const QObject *data)
-{
-    QDict *qdict;
-
-    qdict = qobject_to_qdict(data);
-    if (!qdict_haskey(qdict, "actual"))
+    if (balloon_opaque != opaque) {
         return;
-
-    monitor_printf(mon, "balloon: actual=%" PRId64,
-                   qdict_get_int(qdict, "actual") >> 20);
-    qdict_iter(qdict, print_balloon_stat, mon);
-    monitor_printf(mon, "\n");
+    }
+    balloon_event_fn = NULL;
+    balloon_stat_fn = NULL;
+    balloon_opaque = NULL;
 }
 
-/**
- * do_info_balloon(): Balloon information
- *
- * Make an asynchronous request for balloon info.  When the request completes
- * a QDict will be returned according to the following specification:
- *
- * - "actual": current balloon value in bytes
- * The following fields may or may not be present:
- * - "mem_swapped_in": Amount of memory swapped in (bytes)
- * - "mem_swapped_out": Amount of memory swapped out (bytes)
- * - "major_page_faults": Number of major faults
- * - "minor_page_faults": Number of minor faults
- * - "free_mem": Total amount of free and unused memory (bytes)
- * - "total_mem": Total amount of available memory (bytes)
- *
- * Example:
- *
- * { "actual": 1073741824, "mem_swapped_in": 0, "mem_swapped_out": 0,
- *   "major_page_faults": 142, "minor_page_faults": 239245,
- *   "free_mem": 1014185984, "total_mem": 1044668416 }
- */
-int do_info_balloon(Monitor *mon, MonitorCompletion cb, void *opaque)
+static int qemu_balloon(ram_addr_t target)
 {
-    int ret;
+    if (!balloon_event_fn) {
+        return 0;
+    }
+    trace_balloon_event(balloon_opaque, target);
+    balloon_event_fn(balloon_opaque, target);
+    return 1;
+}
+
+static int qemu_balloon_status(BalloonInfo *info)
+{
+    if (!balloon_stat_fn) {
+        return 0;
+    }
+    balloon_stat_fn(balloon_opaque, info);
+    return 1;
+}
+
+BalloonInfo *qmp_query_balloon(Error **errp)
+{
+    BalloonInfo *info;
 
     if (kvm_enabled() && !kvm_has_sync_mmu()) {
-        qerror_report(QERR_KVM_MISSING_CAP, "synchronous MMU", "balloon");
-        return -1;
+        error_set(errp, QERR_KVM_MISSING_CAP, "synchronous MMU", "balloon");
+        return NULL;
     }
 
-    ret = qemu_balloon_status(cb, opaque);
-    if (!ret) {
-        qerror_report(QERR_DEVICE_NOT_ACTIVE, "balloon");
-        return -1;
+    info = g_malloc0(sizeof(*info));
+
+    if (qemu_balloon_status(info) == 0) {
+        error_set(errp, QERR_DEVICE_NOT_ACTIVE, "balloon");
+        qapi_free_BalloonInfo(info);
+        return NULL;
     }
 
-    return 0;
+    return info;
 }
 
 /**
@@ -129,6 +106,7 @@ int do_info_balloon(Monitor *mon, MonitorCompletion cb, void *opaque)
 int do_balloon(Monitor *mon, const QDict *params,
 	       MonitorCompletion cb, void *opaque)
 {
+    int64_t target;
     int ret;
 
     if (kvm_enabled() && !kvm_has_sync_mmu()) {
@@ -136,7 +114,12 @@ int do_balloon(Monitor *mon, const QDict *params,
         return -1;
     }
 
-    ret = qemu_balloon(qdict_get_int(params, "value"), cb, opaque);
+    target = qdict_get_int(params, "value");
+    if (target <= 0) {
+        qerror_report(QERR_INVALID_PARAMETER_VALUE, "target", "a size");
+        return -1;
+    }
+    ret = qemu_balloon(target);
     if (ret == 0) {
         qerror_report(QERR_DEVICE_NOT_ACTIVE, "balloon");
         return -1;

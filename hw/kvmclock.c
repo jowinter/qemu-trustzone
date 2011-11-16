@@ -46,7 +46,7 @@ static void kvmclock_pre_save(void *opaque)
      * it on next vmsave (which would return a different value). Will be reset
      * when the VM is continued.
      */
-    s->clock_valid = !vm_running;
+    s->clock_valid = !runstate_is_running();
 }
 
 static int kvmclock_post_load(void *opaque, int version_id)
@@ -59,7 +59,8 @@ static int kvmclock_post_load(void *opaque, int version_id)
     return kvm_vm_ioctl(kvm_state, KVM_SET_CLOCK, &data);
 }
 
-static void kvmclock_vm_state_change(void *opaque, int running, int reason)
+static void kvmclock_vm_state_change(void *opaque, int running,
+                                     RunState state)
 {
     KVMClockState *s = opaque;
 
@@ -101,11 +102,8 @@ static SysBusDeviceInfo kvmclock_info = {
 void kvmclock_create(void)
 {
     if (kvm_enabled() &&
-        first_cpu->cpuid_kvm_features & ((1ULL << KVM_FEATURE_CLOCKSOURCE)
-#ifdef KVM_FEATURE_CLOCKSOURCE2
-        || (1ULL << KVM_FEATURE_CLOCKSOURCE2)
-#endif
-    )) {
+        first_cpu->cpuid_kvm_features & ((1ULL << KVM_FEATURE_CLOCKSOURCE) |
+                                         (1ULL << KVM_FEATURE_CLOCKSOURCE2))) {
         sysbus_create_simple("kvmclock", -1, NULL);
     }
 }

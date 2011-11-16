@@ -2,10 +2,10 @@
 #define QEMU_PCI_H
 
 #include "qemu-common.h"
-#include "qobject.h"
 
 #include "qdev.h"
 #include "memory.h"
+#include "dma.h"
 
 /* PCI includes legacy ISA access.  */
 #include "isa.h"
@@ -90,11 +90,9 @@ typedef struct PCIIORegion {
     pcibus_t addr; /* current PCI mapping address. -1 means not mapped */
 #define PCI_BAR_UNMAPPED (~(pcibus_t)0)
     pcibus_t size;
-    pcibus_t filtered_size;
     uint8_t type;
-    PCIMapIORegionFunc *map_func;
-    ram_addr_t ram_addr;
     MemoryRegion *memory;
+    MemoryRegion *address_space;
 } PCIIORegion;
 
 #define PCI_ROM_SLOT 6
@@ -175,7 +173,7 @@ struct PCIDevice {
     /* Space to store MSIX table */
     uint8_t *msix_table_page;
     /* MMIO index used to map MSIX table and pending bit entries. */
-    int msix_mmio_index;
+    MemoryRegion msix_mmio;
     /* Reference-count for entries actually in use by driver. */
     unsigned *msix_entry_used;
     /* Region including the MSI-X table */
@@ -191,7 +189,8 @@ struct PCIDevice {
 
     /* Location of option rom */
     char *romfile;
-    ram_addr_t rom_offset;
+    bool has_rom;
+    MemoryRegion rom;
     uint32_t rom_bar;
 };
 
@@ -201,19 +200,13 @@ PCIDevice *pci_register_device(PCIBus *bus, const char *name,
                                PCIConfigWriteFunc *config_write);
 
 void pci_register_bar(PCIDevice *pci_dev, int region_num,
-                            pcibus_t size, uint8_t type,
-                            PCIMapIORegionFunc *map_func);
-void pci_register_bar_simple(PCIDevice *pci_dev, int region_num,
-                             pcibus_t size, uint8_t attr, ram_addr_t ram_addr);
-void pci_register_bar_region(PCIDevice *pci_dev, int region_num,
-                             uint8_t attr, MemoryRegion *memory);
+                      uint8_t attr, MemoryRegion *memory);
+pcibus_t pci_get_bar_addr(PCIDevice *pci_dev, int region_num);
 
 int pci_add_capability(PCIDevice *pdev, uint8_t cap_id,
                        uint8_t offset, uint8_t size);
 
 void pci_del_capability(PCIDevice *pci_dev, uint8_t cap_id, uint8_t cap_size);
-
-void pci_reserve_capability(PCIDevice *pci_dev, uint8_t offset, uint8_t size);
 
 uint8_t pci_find_capability(PCIDevice *pci_dev, uint8_t cap_id);
 
@@ -224,6 +217,8 @@ void pci_default_write_config(PCIDevice *d,
                               uint32_t address, uint32_t val, int len);
 void pci_device_save(PCIDevice *s, QEMUFile *f);
 int pci_device_load(PCIDevice *s, QEMUFile *f);
+MemoryRegion *pci_address_space(PCIDevice *dev);
+MemoryRegion *pci_address_space_io(PCIDevice *dev);
 
 typedef void (*pci_set_irq_fn)(void *opaque, int irq_num, int level);
 typedef int (*pci_map_irq_fn)(PCIDevice *pci_dev, int irq_num);
@@ -238,10 +233,13 @@ typedef int (*pci_hotplug_fn)(DeviceState *qdev, PCIDevice *pci_dev,
                               PCIHotplugState state);
 void pci_bus_new_inplace(PCIBus *bus, DeviceState *parent,
                          const char *name,
-                         MemoryRegion *address_space,
+                         MemoryRegion *address_space_mem,
+                         MemoryRegion *address_space_io,
                          uint8_t devfn_min);
 PCIBus *pci_bus_new(DeviceState *parent, const char *name,
-                    MemoryRegion *address_space, uint8_t devfn_min);
+                    MemoryRegion *address_space_mem,
+                    MemoryRegion *address_space_io,
+                    uint8_t devfn_min);
 void pci_bus_irqs(PCIBus *bus, pci_set_irq_fn set_irq, pci_map_irq_fn map_irq,
                   void *irq_opaque, int nirq);
 int pci_bus_get_irq_level(PCIBus *bus, int irq_num);
@@ -249,12 +247,11 @@ void pci_bus_hotplug(PCIBus *bus, pci_hotplug_fn hotplug, DeviceState *dev);
 PCIBus *pci_register_bus(DeviceState *parent, const char *name,
                          pci_set_irq_fn set_irq, pci_map_irq_fn map_irq,
                          void *irq_opaque,
-                         MemoryRegion *address_space,
+                         MemoryRegion *address_space_mem,
+                         MemoryRegion *address_space_io,
                          uint8_t devfn_min, int nirq);
 void pci_device_reset(PCIDevice *dev);
 void pci_bus_reset(PCIBus *bus);
-
-void pci_bus_set_mem_base(PCIBus *bus, target_phys_addr_t base);
 
 PCIDevice *pci_nic_init(NICInfo *nd, const char *default_model,
                         const char *default_devaddr);
@@ -273,10 +270,6 @@ int pci_parse_devaddr(const char *addr, int *domp, int *busp,
                       unsigned int *slotp, unsigned int *funcp);
 int pci_read_devaddr(Monitor *mon, const char *addr, int *domp, int *busp,
                      unsigned *slotp);
-
-void do_pci_info_print(Monitor *mon, const QObject *data);
-void do_pci_info(Monitor *mon, QObject **ret_data);
-void pci_bridge_update_mappings(PCIBus *b);
 
 void pci_device_deassert_intx(PCIDevice *dev);
 
@@ -489,6 +482,72 @@ static inline int pci_is_express(const PCIDevice *d)
 static inline uint32_t pci_config_size(const PCIDevice *d)
 {
     return pci_is_express(d) ? PCIE_CONFIG_SPACE_SIZE : PCI_CONFIG_SPACE_SIZE;
+}
+
+/* DMA access functions */
+static inline int pci_dma_rw(PCIDevice *dev, dma_addr_t addr,
+                             void *buf, dma_addr_t len, DMADirection dir)
+{
+    cpu_physical_memory_rw(addr, buf, len, dir == DMA_DIRECTION_FROM_DEVICE);
+    return 0;
+}
+
+static inline int pci_dma_read(PCIDevice *dev, dma_addr_t addr,
+                               void *buf, dma_addr_t len)
+{
+    return pci_dma_rw(dev, addr, buf, len, DMA_DIRECTION_TO_DEVICE);
+}
+
+static inline int pci_dma_write(PCIDevice *dev, dma_addr_t addr,
+                                const void *buf, dma_addr_t len)
+{
+    return pci_dma_rw(dev, addr, (void *) buf, len, DMA_DIRECTION_FROM_DEVICE);
+}
+
+#define PCI_DMA_DEFINE_LDST(_l, _s, _bits)                              \
+    static inline uint##_bits##_t ld##_l##_pci_dma(PCIDevice *dev,      \
+                                                   dma_addr_t addr)     \
+    {                                                                   \
+        return ld##_l##_phys(addr);                                     \
+    }                                                                   \
+    static inline void st##_s##_pci_dma(PCIDevice *dev,                 \
+                          dma_addr_t addr, uint##_bits##_t val)         \
+    {                                                                   \
+        st##_s##_phys(addr, val);                                       \
+    }
+
+PCI_DMA_DEFINE_LDST(ub, b, 8);
+PCI_DMA_DEFINE_LDST(uw_le, w_le, 16)
+PCI_DMA_DEFINE_LDST(l_le, l_le, 32);
+PCI_DMA_DEFINE_LDST(q_le, q_le, 64);
+PCI_DMA_DEFINE_LDST(uw_be, w_be, 16)
+PCI_DMA_DEFINE_LDST(l_be, l_be, 32);
+PCI_DMA_DEFINE_LDST(q_be, q_be, 64);
+
+#undef PCI_DMA_DEFINE_LDST
+
+static inline void *pci_dma_map(PCIDevice *dev, dma_addr_t addr,
+                                dma_addr_t *plen, DMADirection dir)
+{
+    target_phys_addr_t len = *plen;
+    void *buf;
+
+    buf = cpu_physical_memory_map(addr, &len, dir == DMA_DIRECTION_FROM_DEVICE);
+    *plen = len;
+    return buf;
+}
+
+static inline void pci_dma_unmap(PCIDevice *dev, void *buffer, dma_addr_t len,
+                                 DMADirection dir, dma_addr_t access_len)
+{
+    cpu_physical_memory_unmap(buffer, len, dir == DMA_DIRECTION_FROM_DEVICE,
+                              access_len);
+}
+
+static inline void pci_dma_sglist_init(QEMUSGList *qsg, PCIDevice *dev,
+                                       int alloc_hint)
+{
+    qemu_sglist_init(qsg, alloc_hint);
 }
 
 #endif

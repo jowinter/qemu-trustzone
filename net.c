@@ -150,12 +150,11 @@ void qemu_macaddr_default_if_unset(MACAddr *macaddr)
 static char *assign_name(VLANClientState *vc1, const char *model)
 {
     VLANState *vlan;
+    VLANClientState *vc;
     char buf[256];
     int id = 0;
 
     QTAILQ_FOREACH(vlan, &vlans, next) {
-        VLANClientState *vc;
-
         QTAILQ_FOREACH(vc, &vlan->clients, next) {
             if (vc != vc1 && strcmp(vc->model, model) == 0) {
                 id++;
@@ -163,9 +162,15 @@ static char *assign_name(VLANClientState *vc1, const char *model)
         }
     }
 
+    QTAILQ_FOREACH(vc, &non_vlan_clients, next) {
+        if (vc != vc1 && strcmp(vc->model, model) == 0) {
+            id++;
+        }
+    }
+
     snprintf(buf, sizeof(buf), "%s.%d", model, id);
 
-    return qemu_strdup(buf);
+    return g_strdup(buf);
 }
 
 static ssize_t qemu_deliver_packet(VLANClientState *sender,
@@ -189,12 +194,12 @@ VLANClientState *qemu_new_net_client(NetClientInfo *info,
 
     assert(info->size >= sizeof(VLANClientState));
 
-    vc = qemu_mallocz(info->size);
+    vc = g_malloc0(info->size);
 
     vc->info = info;
-    vc->model = qemu_strdup(model);
+    vc->model = g_strdup(model);
     if (name) {
-        vc->name = qemu_strdup(name);
+        vc->name = g_strdup(name);
     } else {
         vc->name = assign_name(vc, model);
     }
@@ -263,9 +268,9 @@ static void qemu_free_vlan_client(VLANClientState *vc)
             vc->peer->peer = NULL;
         }
     }
-    qemu_free(vc->name);
-    qemu_free(vc->model);
-    qemu_free(vc);
+    g_free(vc->name);
+    g_free(vc->model);
+    g_free(vc);
 }
 
 void qemu_del_vlan_client(VLANClientState *vc)
@@ -635,7 +640,7 @@ VLANState *qemu_find_vlan(int id, int allocate)
         return NULL;
     }
 
-    vlan = qemu_mallocz(sizeof(VLANState));
+    vlan = g_malloc0(sizeof(VLANState));
     vlan->id = id;
     QTAILQ_INIT(&vlan->clients);
 
@@ -653,6 +658,8 @@ VLANClientState *qemu_find_netdev(const char *id)
     VLANClientState *vc;
 
     QTAILQ_FOREACH(vc, &non_vlan_clients, next) {
+        if (vc->info->type == NET_CLIENT_TYPE_NIC)
+            continue;
         if (!strcmp(vc->name, id)) {
             return vc;
         }
@@ -703,7 +710,7 @@ int qemu_find_nic_model(NICInfo *nd, const char * const *models,
     int i;
 
     if (!nd->model)
-        nd->model = qemu_strdup(default_model);
+        nd->model = g_strdup(default_model);
 
     for (i = 0 ; models[i]; i++) {
         if (strcmp(nd->model, models[i]) == 0)
@@ -726,12 +733,7 @@ int net_handle_fd_param(Monitor *mon, const char *param)
             return -1;
         }
     } else {
-        char *endptr = NULL;
-
-        fd = strtol(param, &endptr, 10);
-        if (*endptr || (fd == 0 && param == endptr)) {
-            return -1;
-        }
+        fd = qemu_parse_fd(param);
     }
 
     return fd;
@@ -767,13 +769,13 @@ static int net_init_nic(QemuOpts *opts,
         nd->vlan = vlan;
     }
     if (name) {
-        nd->name = qemu_strdup(name);
+        nd->name = g_strdup(name);
     }
     if (qemu_opt_get(opts, "model")) {
-        nd->model = qemu_strdup(qemu_opt_get(opts, "model"));
+        nd->model = g_strdup(qemu_opt_get(opts, "model"));
     }
     if (qemu_opt_get(opts, "addr")) {
-        nd->devaddr = qemu_strdup(qemu_opt_get(opts, "addr"));
+        nd->devaddr = g_strdup(qemu_opt_get(opts, "addr"));
     }
 
     if (qemu_opt_get(opts, "macaddr") &&
@@ -1212,7 +1214,7 @@ int do_netdev_del(Monitor *mon, const QDict *qdict, QObject **ret_data)
     VLANClientState *vc;
 
     vc = qemu_find_netdev(id);
-    if (!vc || vc->info->type == NET_CLIENT_TYPE_NIC) {
+    if (!vc) {
         qerror_report(QERR_DEVICE_NOT_FOUND, id);
         return -1;
     }
@@ -1270,7 +1272,11 @@ int do_set_link(Monitor *mon, const QDict *qdict, QObject **ret_data)
             }
         }
     }
-    vc = qemu_find_netdev(name);
+    QTAILQ_FOREACH(vc, &non_vlan_clients, next) {
+        if (!strcmp(vc->name, name)) {
+            goto done;
+        }
+    }
 done:
 
     if (!vc) {

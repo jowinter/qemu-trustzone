@@ -285,17 +285,28 @@ struct USBPacket {
     int pid;
     uint8_t devaddr;
     uint8_t devep;
-    uint8_t *data;
-    int len;
+    QEMUIOVector iov;
+    int result; /* transfer length or USB_RET_* status code */
     /* Internal use by the USB layer.  */
     USBDevice *owner;
 };
+
+void usb_packet_init(USBPacket *p);
+void usb_packet_setup(USBPacket *p, int pid, uint8_t addr, uint8_t ep);
+void usb_packet_addbuf(USBPacket *p, void *ptr, size_t len);
+int usb_packet_map(USBPacket *p, QEMUSGList *sgl);
+void usb_packet_unmap(USBPacket *p);
+void usb_packet_copy(USBPacket *p, void *ptr, size_t bytes);
+void usb_packet_skip(USBPacket *p, size_t bytes);
+void usb_packet_cleanup(USBPacket *p);
 
 int usb_handle_packet(USBDevice *dev, USBPacket *p);
 void usb_packet_complete(USBDevice *dev, USBPacket *p);
 void usb_cancel_packet(USBPacket * p);
 
-void usb_attach(USBPort *port, USBDevice *dev);
+void usb_attach(USBPort *port);
+void usb_detach(USBPort *port);
+void usb_reset(USBPort *port);
 void usb_wakeup(USBDevice *dev);
 int usb_generic_handle_packet(USBDevice *s, USBPacket *p);
 void usb_generic_async_ctrl_complete(USBDevice *s, USBPacket *p);
@@ -306,9 +317,6 @@ void usb_send_msg(USBDevice *dev, int msg);
 USBDevice *usb_host_device_open(const char *devname);
 int usb_host_device_close(const char *devname);
 void usb_host_info(Monitor *mon);
-
-/* usb-hid.c */
-void usb_hid_datain_cb(USBDevice *dev, void *opaque, void (*datain)(void *));
 
 /* usb-bt.c */
 USBDevice *usb_bt_init(HCIInfo *hci);
@@ -331,7 +339,8 @@ enum musb_irq_source_e {
     musb_irq_tx,
     musb_set_vbus,
     musb_set_session,
-    __musb_irq_max,
+    /* Add new interrupts here */
+    musb_irq_max, /* total number of interrupts defined */
 };
 
 typedef struct MUSBState MUSBState;
@@ -373,6 +382,8 @@ int usb_register_companion(const char *masterbus, USBPort *ports[],
                            void *opaque, USBPortOps *ops, int speedmask);
 void usb_port_location(USBPort *downstream, USBPort *upstream, int portnr);
 void usb_unregister_port(USBBus *bus, USBPort *port);
+int usb_claim_port(USBDevice *dev);
+void usb_release_port(USBDevice *dev);
 int usb_device_attach(USBDevice *dev);
 int usb_device_detach(USBDevice *dev);
 int usb_device_delete_addr(int busnr, int addr);

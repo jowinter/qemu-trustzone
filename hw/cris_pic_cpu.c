@@ -22,16 +22,11 @@
  * THE SOFTWARE.
  */
 
+#include "sysbus.h"
 #include "hw.h"
-#include "pc.h"
 #include "etraxfs.h"
 
 #define D(x)
-
-void pic_info(Monitor *mon)
-{}
-void irq_info(Monitor *mon)
-{}
 
 static void cris_pic_cpu_handler(void *opaque, int irq, int level)
 {

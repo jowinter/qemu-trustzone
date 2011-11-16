@@ -14,6 +14,7 @@
  *
  */
 
+#include <dirent.h>
 #include <sys/types.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
@@ -27,6 +28,12 @@
 #include "kvm_ppc.h"
 #include "cpu.h"
 #include "device_tree.h"
+#include "hw/sysbus.h"
+#include "hw/spapr.h"
+
+#include "hw/sysbus.h"
+#include "hw/spapr.h"
+#include "hw/spapr_vio.h"
 
 //#define DEBUG_KVM
 
@@ -38,6 +45,8 @@
     do { } while (0)
 #endif
 
+#define PROC_DEVTREE_CPU      "/proc/device-tree/cpus/"
+
 const KVMCapabilityInfo kvm_arch_required_capabilities[] = {
     KVM_CAP_LAST_INFO
 };
@@ -46,6 +55,9 @@ static int cap_interrupt_unset = false;
 static int cap_interrupt_level = false;
 static int cap_segstate;
 static int cap_booke_sregs;
+static int cap_ppc_smt;
+static int cap_ppc_rma;
+static int cap_spapr_tce;
 
 /* XXX We have a race condition where we actually have a level triggered
  *     interrupt, but the infrastructure can't expose that yet, so the guest
@@ -69,6 +81,9 @@ int kvm_arch_init(KVMState *s)
     cap_interrupt_level = kvm_check_extension(s, KVM_CAP_PPC_IRQ_LEVEL);
     cap_segstate = kvm_check_extension(s, KVM_CAP_PPC_SEGSTATE);
     cap_booke_sregs = kvm_check_extension(s, KVM_CAP_PPC_BOOKE_SREGS);
+    cap_ppc_smt = kvm_check_extension(s, KVM_CAP_PPC_SMT);
+    cap_ppc_rma = kvm_check_extension(s, KVM_CAP_PPC_RMA);
+    cap_spapr_tce = kvm_check_extension(s, KVM_CAP_SPAPR_TCE);
 
     if (!cap_interrupt_level) {
         fprintf(stderr, "KVM: Couldn't find level irq capability. Expect the "
@@ -105,6 +120,52 @@ static int kvm_arch_sync_sregs(CPUState *cenv)
     return kvm_vcpu_ioctl(cenv, KVM_SET_SREGS, &sregs);
 }
 
+/* Set up a shared TLB array with KVM */
+static int kvm_booke206_tlb_init(CPUState *env)
+{
+    struct kvm_book3e_206_tlb_params params = {};
+    struct kvm_config_tlb cfg = {};
+    struct kvm_enable_cap encap = {};
+    unsigned int entries = 0;
+    int ret, i;
+
+    if (!kvm_enabled() ||
+        !kvm_check_extension(env->kvm_state, KVM_CAP_SW_TLB)) {
+        return 0;
+    }
+
+    assert(ARRAY_SIZE(params.tlb_sizes) == BOOKE206_MAX_TLBN);
+
+    for (i = 0; i < BOOKE206_MAX_TLBN; i++) {
+        params.tlb_sizes[i] = booke206_tlb_size(env, i);
+        params.tlb_ways[i] = booke206_tlb_ways(env, i);
+        entries += params.tlb_sizes[i];
+    }
+
+    assert(entries == env->nb_tlb);
+    assert(sizeof(struct kvm_book3e_206_tlb_entry) == sizeof(ppcmas_tlb_t));
+
+    env->tlb_dirty = true;
+
+    cfg.array = (uintptr_t)env->tlb.tlbm;
+    cfg.array_len = sizeof(ppcmas_tlb_t) * entries;
+    cfg.params = (uintptr_t)&params;
+    cfg.mmu_type = KVM_MMU_FSL_BOOKE_NOHV;
+
+    encap.cap = KVM_CAP_SW_TLB;
+    encap.args[0] = (uintptr_t)&cfg;
+
+    ret = kvm_vcpu_ioctl(env, KVM_ENABLE_CAP, &encap);
+    if (ret < 0) {
+        fprintf(stderr, "%s: couldn't enable KVM_CAP_SW_TLB: %s\n",
+                __func__, strerror(-ret));
+        return ret;
+    }
+
+    env->kvm_sw_tlb = true;
+    return 0;
+}
+
 int kvm_arch_init_vcpu(CPUState *cenv)
 {
     int ret;
@@ -116,11 +177,45 @@ int kvm_arch_init_vcpu(CPUState *cenv)
 
     idle_timer = qemu_new_timer_ns(vm_clock, kvm_kick_env, cenv);
 
+    /* Some targets support access to KVM's guest TLB. */
+    switch (cenv->mmu_model) {
+    case POWERPC_MMU_BOOKE206:
+        ret = kvm_booke206_tlb_init(cenv);
+        break;
+    default:
+        break;
+    }
+
     return ret;
 }
 
 void kvm_arch_reset_vcpu(CPUState *env)
 {
+}
+
+static void kvm_sw_tlb_put(CPUState *env)
+{
+    struct kvm_dirty_tlb dirty_tlb;
+    unsigned char *bitmap;
+    int ret;
+
+    if (!env->kvm_sw_tlb) {
+        return;
+    }
+
+    bitmap = g_malloc((env->nb_tlb + 7) / 8);
+    memset(bitmap, 0xFF, (env->nb_tlb + 7) / 8);
+
+    dirty_tlb.bitmap = (uintptr_t)bitmap;
+    dirty_tlb.num_dirty = env->nb_tlb;
+
+    ret = kvm_vcpu_ioctl(env, KVM_DIRTY_TLB, &dirty_tlb);
+    if (ret) {
+        fprintf(stderr, "%s: KVM_DIRTY_TLB: %s\n",
+                __func__, strerror(-ret));
+    }
+
+    g_free(bitmap);
 }
 
 int kvm_arch_put_registers(CPUState *env, int level)
@@ -159,6 +254,11 @@ int kvm_arch_put_registers(CPUState *env, int level)
     ret = kvm_vcpu_ioctl(env, KVM_SET_REGS, &regs);
     if (ret < 0)
         return ret;
+
+    if (env->tlb_dirty) {
+        kvm_sw_tlb_put(env);
+        env->tlb_dirty = false;
+    }
 
     return ret;
 }
@@ -452,6 +552,14 @@ int kvm_arch_handle_exit(CPUState *env, struct kvm_run *run)
         dprintf("handle halt\n");
         ret = kvmppc_handle_halt(env);
         break;
+#ifdef CONFIG_PSERIES
+    case KVM_EXIT_PAPR_HCALL:
+        dprintf("handle PAPR hypercall\n");
+        run->papr_hcall.ret = spapr_hypercall(env, run->papr_hcall.nr,
+                                              run->papr_hcall.args);
+        ret = 1;
+        break;
+#endif
     default:
         fprintf(stderr, "KVM: unknown exit reason %d\n", run->exit_reason);
         ret = -1;
@@ -509,6 +617,93 @@ uint32_t kvmppc_get_tbfreq(void)
     return retval;
 }
 
+/* Try to find a device tree node for a CPU with clock-frequency property */
+static int kvmppc_find_cpu_dt(char *buf, int buf_len)
+{
+    struct dirent *dirp;
+    DIR *dp;
+
+    if ((dp = opendir(PROC_DEVTREE_CPU)) == NULL) {
+        printf("Can't open directory " PROC_DEVTREE_CPU "\n");
+        return -1;
+    }
+
+    buf[0] = '\0';
+    while ((dirp = readdir(dp)) != NULL) {
+        FILE *f;
+        snprintf(buf, buf_len, "%s%s/clock-frequency", PROC_DEVTREE_CPU,
+                 dirp->d_name);
+        f = fopen(buf, "r");
+        if (f) {
+            snprintf(buf, buf_len, "%s%s", PROC_DEVTREE_CPU, dirp->d_name);
+            fclose(f);
+            break;
+        }
+        buf[0] = '\0';
+    }
+    closedir(dp);
+    if (buf[0] == '\0') {
+        printf("Unknown host!\n");
+        return -1;
+    }
+
+    return 0;
+}
+
+/* Read a CPU node property from the host device tree that's a single
+ * integer (32-bit or 64-bit).  Returns 0 if anything goes wrong
+ * (can't find or open the property, or doesn't understand the
+ * format) */
+static uint64_t kvmppc_read_int_cpu_dt(const char *propname)
+{
+    char buf[PATH_MAX];
+    union {
+        uint32_t v32;
+        uint64_t v64;
+    } u;
+    FILE *f;
+    int len;
+
+    if (kvmppc_find_cpu_dt(buf, sizeof(buf))) {
+        return -1;
+    }
+
+    strncat(buf, "/", sizeof(buf) - strlen(buf));
+    strncat(buf, propname, sizeof(buf) - strlen(buf));
+
+    f = fopen(buf, "rb");
+    if (!f) {
+        return -1;
+    }
+
+    len = fread(&u, 1, sizeof(u), f);
+    fclose(f);
+    switch (len) {
+    case 4:
+        /* property is a 32-bit quantity */
+        return be32_to_cpu(u.v32);
+    case 8:
+        return be64_to_cpu(u.v64);
+    }
+
+    return 0;
+}
+
+uint64_t kvmppc_get_clockfreq(void)
+{
+    return kvmppc_read_int_cpu_dt("clock-frequency");
+}
+
+uint32_t kvmppc_get_vmx(void)
+{
+    return kvmppc_read_int_cpu_dt("ibm,vmx");
+}
+
+uint32_t kvmppc_get_dfp(void)
+{
+    return kvmppc_read_int_cpu_dt("ibm,dfp");
+}
+
 int kvmppc_get_hypercall(CPUState *env, uint8_t *buf, int buf_len)
 {
     uint32_t *hc = (uint32_t*)buf;
@@ -537,6 +732,197 @@ int kvmppc_get_hypercall(CPUState *env, uint8_t *buf, int buf_len)
     hc[3] = 0x60000000;
 
     return 0;
+}
+
+void kvmppc_set_papr(CPUState *env)
+{
+    struct kvm_enable_cap cap = {};
+    struct kvm_one_reg reg = {};
+    struct kvm_sregs sregs = {};
+    int ret;
+
+    cap.cap = KVM_CAP_PPC_PAPR;
+    ret = kvm_vcpu_ioctl(env, KVM_ENABLE_CAP, &cap);
+
+    if (ret) {
+        goto fail;
+    }
+
+    /*
+     * XXX We set HIOR here. It really should be a qdev property of
+     *     the CPU node, but we don't have CPUs converted to qdev yet.
+     *
+     *     Once we have qdev CPUs, move HIOR to a qdev property and
+     *     remove this chunk.
+     */
+    reg.id = KVM_ONE_REG_PPC_HIOR;
+    reg.u.reg64 = env->spr[SPR_HIOR];
+    ret = kvm_vcpu_ioctl(env, KVM_SET_ONE_REG, &reg);
+    if (ret) {
+        goto fail;
+    }
+
+    /* Set SDR1 so kernel space finds the HTAB */
+    ret = kvm_vcpu_ioctl(env, KVM_GET_SREGS, &sregs);
+    if (ret) {
+        goto fail;
+    }
+
+    sregs.u.s.sdr1 = env->spr[SPR_SDR1];
+
+    ret = kvm_vcpu_ioctl(env, KVM_SET_SREGS, &sregs);
+    if (ret) {
+        goto fail;
+    }
+
+    return;
+
+fail:
+    cpu_abort(env, "This KVM version does not support PAPR\n");
+}
+
+int kvmppc_smt_threads(void)
+{
+    return cap_ppc_smt ? cap_ppc_smt : 1;
+}
+
+off_t kvmppc_alloc_rma(const char *name, MemoryRegion *sysmem)
+{
+    void *rma;
+    off_t size;
+    int fd;
+    struct kvm_allocate_rma ret;
+    MemoryRegion *rma_region;
+
+    /* If cap_ppc_rma == 0, contiguous RMA allocation is not supported
+     * if cap_ppc_rma == 1, contiguous RMA allocation is supported, but
+     *                      not necessary on this hardware
+     * if cap_ppc_rma == 2, contiguous RMA allocation is needed on this hardware
+     *
+     * FIXME: We should allow the user to force contiguous RMA
+     * allocation in the cap_ppc_rma==1 case.
+     */
+    if (cap_ppc_rma < 2) {
+        return 0;
+    }
+
+    fd = kvm_vm_ioctl(kvm_state, KVM_ALLOCATE_RMA, &ret);
+    if (fd < 0) {
+        fprintf(stderr, "KVM: Error on KVM_ALLOCATE_RMA: %s\n",
+                strerror(errno));
+        return -1;
+    }
+
+    size = MIN(ret.rma_size, 256ul << 20);
+
+    rma = mmap(NULL, size, PROT_READ|PROT_WRITE, MAP_SHARED, fd, 0);
+    if (rma == MAP_FAILED) {
+        fprintf(stderr, "KVM: Error mapping RMA: %s\n", strerror(errno));
+        return -1;
+    };
+
+    rma_region = g_new(MemoryRegion, 1);
+    memory_region_init_ram_ptr(rma_region, NULL, name, size, rma);
+    memory_region_add_subregion(sysmem, 0, rma_region);
+
+    return size;
+}
+
+void *kvmppc_create_spapr_tce(uint32_t liobn, uint32_t window_size, int *pfd)
+{
+    struct kvm_create_spapr_tce args = {
+        .liobn = liobn,
+        .window_size = window_size,
+    };
+    long len;
+    int fd;
+    void *table;
+
+    if (!cap_spapr_tce) {
+        return NULL;
+    }
+
+    fd = kvm_vm_ioctl(kvm_state, KVM_CREATE_SPAPR_TCE, &args);
+    if (fd < 0) {
+        return NULL;
+    }
+
+    len = (window_size / SPAPR_VIO_TCE_PAGE_SIZE) * sizeof(VIOsPAPR_RTCE);
+    /* FIXME: round this up to page size */
+
+    table = mmap(NULL, len, PROT_READ|PROT_WRITE, MAP_SHARED, fd, 0);
+    if (table == MAP_FAILED) {
+        close(fd);
+        return NULL;
+    }
+
+    *pfd = fd;
+    return table;
+}
+
+int kvmppc_remove_spapr_tce(void *table, int fd, uint32_t window_size)
+{
+    long len;
+
+    if (fd < 0) {
+        return -1;
+    }
+
+    len = (window_size / SPAPR_VIO_TCE_PAGE_SIZE)*sizeof(VIOsPAPR_RTCE);
+    if ((munmap(table, len) < 0) ||
+        (close(fd) < 0)) {
+        fprintf(stderr, "KVM: Unexpected error removing KVM SPAPR TCE "
+                "table: %s", strerror(errno));
+        /* Leak the table */
+    }
+
+    return 0;
+}
+
+static inline uint32_t mfpvr(void)
+{
+    uint32_t pvr;
+
+    asm ("mfpvr %0"
+         : "=r"(pvr));
+    return pvr;
+}
+
+static void alter_insns(uint64_t *word, uint64_t flags, bool on)
+{
+    if (on) {
+        *word |= flags;
+    } else {
+        *word &= ~flags;
+    }
+}
+
+const ppc_def_t *kvmppc_host_cpu_def(void)
+{
+    uint32_t host_pvr = mfpvr();
+    const ppc_def_t *base_spec;
+    ppc_def_t *spec;
+    uint32_t vmx = kvmppc_get_vmx();
+    uint32_t dfp = kvmppc_get_dfp();
+
+    base_spec = ppc_find_by_pvr(host_pvr);
+
+    spec = g_malloc0(sizeof(*spec));
+    memcpy(spec, base_spec, sizeof(*spec));
+
+    /* Now fix up the spec with information we can query from the host */
+
+    if (vmx != -1) {
+        /* Only override when we know what the host supports */
+        alter_insns(&spec->insns_flags, PPC_ALTIVEC, vmx > 0);
+        alter_insns(&spec->insns_flags2, PPC2_VSX, vmx > 1);
+    }
+    if (dfp != -1) {
+        /* Only override when we know what the host supports */
+        alter_insns(&spec->insns_flags2, PPC2_DFP, dfp);
+    }
+
+    return spec;
 }
 
 bool kvm_arch_stop_on_emulation_error(CPUState *env)

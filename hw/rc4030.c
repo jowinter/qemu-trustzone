@@ -50,7 +50,7 @@ do { fprintf(stderr, "rc4030 ERROR: %s: " fmt, __func__ , ## __VA_ARGS__); } whi
 typedef struct dma_pagetable_entry {
     int32_t frame;
     int32_t owner;
-} __attribute__((packed)) dma_pagetable_entry;
+} QEMU_PACKED dma_pagetable_entry;
 
 #define DMA_PAGESIZE    4096
 #define DMA_REG_ENABLE  1
@@ -789,8 +789,8 @@ static rc4030_dma *rc4030_allocate_dmas(void *opaque, int n)
     struct rc4030DMAState *p;
     int i;
 
-    s = (rc4030_dma *)qemu_mallocz(sizeof(rc4030_dma) * n);
-    p = (struct rc4030DMAState *)qemu_mallocz(sizeof(struct rc4030DMAState) * n);
+    s = (rc4030_dma *)g_malloc0(sizeof(rc4030_dma) * n);
+    p = (struct rc4030DMAState *)g_malloc0(sizeof(struct rc4030DMAState) * n);
     for (i = 0; i < n; i++) {
         p->opaque = opaque;
         p->n = i;
@@ -806,7 +806,7 @@ void *rc4030_init(qemu_irq timer, qemu_irq jazz_bus,
     rc4030State *s;
     int s_chipset, s_jazzio;
 
-    s = qemu_mallocz(sizeof(rc4030State));
+    s = g_malloc0(sizeof(rc4030State));
 
     *irqs = qemu_allocate_irqs(rc4030_irq_jazz_request, s, 16);
     *dmas = rc4030_allocate_dmas(s, 4);

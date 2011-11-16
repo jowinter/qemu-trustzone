@@ -28,6 +28,7 @@
 
 #include "qemu-common.h"
 #include "nbd.h"
+#include "block_int.h"
 #include "module.h"
 #include "qemu_socket.h"
 
@@ -46,7 +47,9 @@
 #endif
 
 typedef struct BDRVNBDState {
+    CoMutex lock;
     int sock;
+    uint32_t nbdflags;
     off_t size;
     size_t blocksize;
     char *export_name; /* An NBD server may export several devices */
@@ -65,7 +68,7 @@ static int nbd_config(BDRVNBDState *s, const char *filename, int flags)
     const char *unixpath;
     int err = -EINVAL;
 
-    file = qemu_strdup(filename);
+    file = g_strdup(filename);
 
     export_name = strstr(file, EN_OPTSTR);
     if (export_name) {
@@ -74,7 +77,7 @@ static int nbd_config(BDRVNBDState *s, const char *filename, int flags)
         }
         export_name[0] = 0; /* truncate 'file' */
         export_name += strlen(EN_OPTSTR);
-        s->export_name = qemu_strdup(export_name);
+        s->export_name = g_strdup(export_name);
     }
 
     /* extract the host_spec - fail if it's not nbd:... */
@@ -87,18 +90,18 @@ static int nbd_config(BDRVNBDState *s, const char *filename, int flags)
         if (unixpath[0] != '/') { /* We demand  an absolute path*/
             goto out;
         }
-        s->host_spec = qemu_strdup(unixpath);
+        s->host_spec = g_strdup(unixpath);
     } else {
-        s->host_spec = qemu_strdup(host_spec);
+        s->host_spec = g_strdup(host_spec);
     }
 
     err = 0;
 
 out:
-    qemu_free(file);
+    g_free(file);
     if (err != 0) {
-        qemu_free(s->export_name);
-        qemu_free(s->host_spec);
+        g_free(s->export_name);
+        g_free(s->host_spec);
     }
     return err;
 }
@@ -110,7 +113,6 @@ static int nbd_establish_connection(BlockDriverState *bs)
     int ret;
     off_t size;
     size_t blocksize;
-    uint32_t nbdflags;
 
     if (s->host_spec[0] == '/') {
         sock = unix_socket_outgoing(s->host_spec);
@@ -125,7 +127,7 @@ static int nbd_establish_connection(BlockDriverState *bs)
     }
 
     /* NBD handshake */
-    ret = nbd_receive_negotiate(sock, s->export_name, &nbdflags, &size,
+    ret = nbd_receive_negotiate(sock, s->export_name, &s->nbdflags, &size,
                                 &blocksize);
     if (ret == -1) {
         logout("Failed to negotiate with the NBD server\n");
@@ -174,6 +176,7 @@ static int nbd_open(BlockDriverState *bs, const char* filename, int flags)
      */
     result = nbd_establish_connection(bs);
 
+    qemu_co_mutex_init(&s->lock);
     return result;
 }
 
@@ -237,11 +240,33 @@ static int nbd_write(BlockDriverState *bs, int64_t sector_num,
     return 0;
 }
 
+static coroutine_fn int nbd_co_read(BlockDriverState *bs, int64_t sector_num,
+                                    uint8_t *buf, int nb_sectors)
+{
+    int ret;
+    BDRVNBDState *s = bs->opaque;
+    qemu_co_mutex_lock(&s->lock);
+    ret = nbd_read(bs, sector_num, buf, nb_sectors);
+    qemu_co_mutex_unlock(&s->lock);
+    return ret;
+}
+
+static coroutine_fn int nbd_co_write(BlockDriverState *bs, int64_t sector_num,
+                                     const uint8_t *buf, int nb_sectors)
+{
+    int ret;
+    BDRVNBDState *s = bs->opaque;
+    qemu_co_mutex_lock(&s->lock);
+    ret = nbd_write(bs, sector_num, buf, nb_sectors);
+    qemu_co_mutex_unlock(&s->lock);
+    return ret;
+}
+
 static void nbd_close(BlockDriverState *bs)
 {
     BDRVNBDState *s = bs->opaque;
-    qemu_free(s->export_name);
-    qemu_free(s->host_spec);
+    g_free(s->export_name);
+    g_free(s->host_spec);
 
     nbd_teardown_connection(bs);
 }
@@ -257,8 +282,8 @@ static BlockDriver bdrv_nbd = {
     .format_name	= "nbd",
     .instance_size	= sizeof(BDRVNBDState),
     .bdrv_file_open	= nbd_open,
-    .bdrv_read		= nbd_read,
-    .bdrv_write		= nbd_write,
+    .bdrv_read          = nbd_co_read,
+    .bdrv_write         = nbd_co_write,
     .bdrv_close		= nbd_close,
     .bdrv_getlength	= nbd_getlength,
     .protocol_name	= "nbd",

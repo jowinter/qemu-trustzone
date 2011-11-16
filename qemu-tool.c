@@ -29,10 +29,6 @@ struct QEMUBH
     void *opaque;
 };
 
-void qemu_service_io(void)
-{
-}
-
 Monitor *cur_mon;
 
 int monitor_cur_is_qmp(void)
@@ -76,12 +72,12 @@ void qemu_notify_event(void)
 QEMUTimer *qemu_new_timer(QEMUClock *clock, int scale,
                           QEMUTimerCB *cb, void *opaque)
 {
-    return qemu_malloc(1);
+    return g_malloc(1);
 }
 
 void qemu_free_timer(QEMUTimer *ts)
 {
-    qemu_free(ts);
+    g_free(ts);
 }
 
 void qemu_del_timer(QEMUTimer *ts)

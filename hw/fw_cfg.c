@@ -60,64 +60,55 @@ struct FWCfgState {
 #define JPG_FILE 0
 #define BMP_FILE 1
 
-static FILE *probe_splashfile(char *filename, int *file_sizep, int *file_typep)
+static char *read_splashfile(char *filename, int *file_sizep, int *file_typep)
 {
-    FILE *fp = NULL;
-    int fop_ret;
-    int file_size;
+    GError *err = NULL;
+    gboolean res;
+    gchar *content;
     int file_type = -1;
-    unsigned char buf[2] = {0, 0};
-    unsigned int filehead_value = 0;
+    unsigned int filehead = 0;
     int bmp_bpp;
 
-    fp = fopen(filename, "rb");
-    if (fp == NULL) {
-        error_report("failed to open file '%s'.", filename);
-        return fp;
+    res = g_file_get_contents(filename, &content, (gsize *)file_sizep, &err);
+    if (res == FALSE) {
+        error_report("failed to read splash file '%s'", filename);
+        g_error_free(err);
+        return NULL;
     }
+
     /* check file size */
-    fseek(fp, 0L, SEEK_END);
-    file_size = ftell(fp);
-    if (file_size < 2) {
-        error_report("file size is less than 2 bytes '%s'.", filename);
-        fclose(fp);
-        fp = NULL;
-        return fp;
+    if (*file_sizep < 30) {
+        goto error;
     }
+
     /* check magic ID */
-    fseek(fp, 0L, SEEK_SET);
-    fop_ret = fread(buf, 1, 2, fp);
-    filehead_value = (buf[0] + (buf[1] << 8)) & 0xffff;
-    if (filehead_value == 0xd8ff) {
+    filehead = ((content[0] & 0xff) + (content[1] << 8)) & 0xffff;
+    if (filehead == 0xd8ff) {
         file_type = JPG_FILE;
+    } else if (filehead == 0x4d42) {
+        file_type = BMP_FILE;
     } else {
-        if (filehead_value == 0x4d42) {
-            file_type = BMP_FILE;
-        }
+        goto error;
     }
-    if (file_type < 0) {
-        error_report("'%s' not jpg/bmp file,head:0x%x.",
-                         filename, filehead_value);
-        fclose(fp);
-        fp = NULL;
-        return fp;
-    }
+
     /* check BMP bpp */
     if (file_type == BMP_FILE) {
-        fseek(fp, 28, SEEK_SET);
-        fop_ret = fread(buf, 1, 2, fp);
-        bmp_bpp = (buf[0] + (buf[1] << 8)) & 0xffff;
+        bmp_bpp = (content[28] + (content[29] << 8)) & 0xffff;
         if (bmp_bpp != 24) {
-            error_report("only 24bpp bmp file is supported.");
-            fclose(fp);
-            fp = NULL;
-            return fp;
+            goto error;
         }
     }
+
     /* return values */
-    *file_sizep = file_size;
     *file_typep = file_type;
-    return fp;
+
+    return content;
+
+error:
+    error_report("splash file '%s' format not recognized; must be JPEG "
+                 "or 24 bit BMP", filename);
+    g_free(content);
+    return NULL;
 }
 
 static void fw_cfg_bootsplash(FWCfgState *s)
@@ -125,9 +116,7 @@ static void fw_cfg_bootsplash(FWCfgState *s)
     int boot_splash_time = -1;
     const char *boot_splash_filename = NULL;
     char *p;
-    char *filename;
-    FILE *fp;
-    int fop_ret;
+    char *filename, *file_data;
     int file_size;
     int file_type = -1;
     const char *temp;
@@ -167,21 +156,19 @@ static void fw_cfg_bootsplash(FWCfgState *s)
             error_report("failed to find file '%s'.", boot_splash_filename);
             return;
         }
-        /* probing the file */
-        fp = probe_splashfile(filename, &file_size, &file_type);
-        if (fp == NULL) {
-            qemu_free(filename);
+
+        /* loading file data */
+        file_data = read_splashfile(filename, &file_size, &file_type);
+        if (file_data == NULL) {
+            g_free(filename);
             return;
         }
-        /* loading file data */
         if (boot_splash_filedata != NULL) {
-            qemu_free(boot_splash_filedata);
+            g_free(boot_splash_filedata);
         }
-        boot_splash_filedata = qemu_malloc(file_size);
+        boot_splash_filedata = (uint8_t *)file_data;
         boot_splash_filedata_size = file_size;
-        fseek(fp, 0L, SEEK_SET);
-        fop_ret = fread(boot_splash_filedata, 1, file_size, fp);
-        fclose(fp);
+
         /* insert data */
         if (file_type == JPG_FILE) {
             fw_cfg_add_file(s, "bootsplash.jpg",
@@ -190,7 +177,7 @@ static void fw_cfg_bootsplash(FWCfgState *s)
             fw_cfg_add_file(s, "bootsplash.bmp",
                     boot_splash_filedata, boot_splash_filedata_size);
         }
-        qemu_free(filename);
+        g_free(filename);
     }
 }
 
@@ -201,7 +188,8 @@ static void fw_cfg_write(FWCfgState *s, uint8_t value)
 
     FW_CFG_DPRINTF("write %d\n", value);
 
-    if (s->cur_entry & FW_CFG_WRITE_CHANNEL && s->cur_offset < e->len) {
+    if (s->cur_entry & FW_CFG_WRITE_CHANNEL && e->callback &&
+        s->cur_offset < e->len) {
         e->data[s->cur_offset++] = value;
         if (s->cur_offset == e->len) {
             e->callback(e->callback_opaque, e->data);
@@ -372,7 +360,7 @@ int fw_cfg_add_i16(FWCfgState *s, uint16_t key, uint16_t value)
 {
     uint16_t *copy;
 
-    copy = qemu_malloc(sizeof(value));
+    copy = g_malloc(sizeof(value));
     *copy = cpu_to_le16(value);
     return fw_cfg_add_bytes(s, key, (uint8_t *)copy, sizeof(value));
 }
@@ -381,7 +369,7 @@ int fw_cfg_add_i32(FWCfgState *s, uint16_t key, uint32_t value)
 {
     uint32_t *copy;
 
-    copy = qemu_malloc(sizeof(value));
+    copy = g_malloc(sizeof(value));
     *copy = cpu_to_le32(value);
     return fw_cfg_add_bytes(s, key, (uint8_t *)copy, sizeof(value));
 }
@@ -390,7 +378,7 @@ int fw_cfg_add_i64(FWCfgState *s, uint16_t key, uint64_t value)
 {
     uint64_t *copy;
 
-    copy = qemu_malloc(sizeof(value));
+    copy = g_malloc(sizeof(value));
     *copy = cpu_to_le64(value);
     return fw_cfg_add_bytes(s, key, (uint8_t *)copy, sizeof(value));
 }
@@ -423,7 +411,7 @@ int fw_cfg_add_file(FWCfgState *s,  const char *filename, uint8_t *data,
 
     if (!s->files) {
         int dsize = sizeof(uint32_t) + sizeof(FWCfgFile) * FW_CFG_FILE_SLOTS;
-        s->files = qemu_mallocz(dsize);
+        s->files = g_malloc0(dsize);
         fw_cfg_add_bytes(s, FW_CFG_FILE_DIR, (uint8_t*)s->files, dsize);
     }
 

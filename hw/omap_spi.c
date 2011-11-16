@@ -595,7 +595,7 @@ static int omap_mcspi_init(SysBusDevice *busdev)
     OMAPSPIState *s = FROM_SYSBUS(OMAPSPIState, busdev);
     
     s->buscount = (s->mpu_model < omap3430) ? 2 : 4;
-    s->bus = qemu_mallocz(s->buscount * sizeof(*s->bus));
+    s->bus = g_new0(OMAPSPIBusState, s->buscount);
     for (i = 0; i < s->buscount; i++) {
         bs = &s->bus[i];
         if (s->mpu_model < omap3430) {
@@ -607,7 +607,7 @@ static int omap_mcspi_init(SysBusDevice *busdev)
         }
         sysbus_init_irq(busdev, &bs->irq);
         bs->bus = spi_init_bus(&busdev->qdev, NULL, bs->chnum);
-        bs->ch = qemu_mallocz(bs->chnum * sizeof(*bs->ch));
+        bs->ch = g_new0(struct omap_mcspi_ch_s, bs->chnum);
         for (j = 0; j < bs->chnum; j++) {
             sysbus_init_irq(busdev, &bs->ch[j].txdrq);
             sysbus_init_irq(busdev, &bs->ch[j].rxdrq);

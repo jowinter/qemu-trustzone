@@ -203,7 +203,7 @@ static uint8_t usb_get_modem_lines(USBSerialState *s)
     int flags;
     uint8_t ret;
 
-    if (qemu_chr_ioctl(s->cs, CHR_IOCTL_SERIAL_GET_TIOCM, &flags) == -ENOTSUP)
+    if (qemu_chr_fe_ioctl(s->cs, CHR_IOCTL_SERIAL_GET_TIOCM, &flags) == -ENOTSUP)
         return FTDI_CTS|FTDI_DSR|FTDI_RLSD;
 
     ret = 0;
@@ -263,7 +263,7 @@ static int usb_serial_handle_control(USBDevice *dev, USBPacket *p,
     case DeviceOutVendor | FTDI_SET_MDM_CTRL:
     {
         static int flags;
-        qemu_chr_ioctl(s->cs,CHR_IOCTL_SERIAL_GET_TIOCM, &flags);
+        qemu_chr_fe_ioctl(s->cs,CHR_IOCTL_SERIAL_GET_TIOCM, &flags);
         if (value & FTDI_SET_RTS) {
             if (value & FTDI_RTS)
                 flags |= CHR_TIOCM_RTS;
@@ -276,7 +276,7 @@ static int usb_serial_handle_control(USBDevice *dev, USBPacket *p,
             else
                 flags &= ~CHR_TIOCM_DTR;
         }
-        qemu_chr_ioctl(s->cs,CHR_IOCTL_SERIAL_SET_TIOCM, &flags);
+        qemu_chr_fe_ioctl(s->cs,CHR_IOCTL_SERIAL_SET_TIOCM, &flags);
         break;
     }
     case DeviceOutVendor | FTDI_SET_FLOW_CTRL:
@@ -295,7 +295,7 @@ static int usb_serial_handle_control(USBDevice *dev, USBPacket *p,
             divisor = 1;
 
         s->params.speed = (48000000 / 2) / (8 * divisor + subdivisor8);
-        qemu_chr_ioctl(s->cs, CHR_IOCTL_SERIAL_SET_PARAMS, &s->params);
+        qemu_chr_fe_ioctl(s->cs, CHR_IOCTL_SERIAL_SET_PARAMS, &s->params);
         break;
     }
     case DeviceOutVendor | FTDI_SET_DATA:
@@ -324,7 +324,7 @@ static int usb_serial_handle_control(USBDevice *dev, USBPacket *p,
                 DPRINTF("unsupported stop bits %d\n", value & FTDI_STOP);
                 goto fail;
         }
-        qemu_chr_ioctl(s->cs, CHR_IOCTL_SERIAL_SET_PARAMS, &s->params);
+        qemu_chr_fe_ioctl(s->cs, CHR_IOCTL_SERIAL_SET_PARAMS, &s->params);
         /* TODO: TX ON/OFF */
         break;
     case DeviceInVendor | FTDI_GET_MDM_ST:
@@ -359,37 +359,42 @@ static int usb_serial_handle_control(USBDevice *dev, USBPacket *p,
 static int usb_serial_handle_data(USBDevice *dev, USBPacket *p)
 {
     USBSerialState *s = (USBSerialState *)dev;
-    int ret = 0;
+    int i, ret = 0;
     uint8_t devep = p->devep;
-    uint8_t *data = p->data;
-    int len = p->len;
-    int first_len;
+    struct iovec *iov;
+    uint8_t header[2];
+    int first_len, len;
 
     switch (p->pid) {
     case USB_TOKEN_OUT:
         if (devep != 2)
             goto fail;
-        qemu_chr_write(s->cs, data, len);
+        for (i = 0; i < p->iov.niov; i++) {
+            iov = p->iov.iov + i;
+            qemu_chr_fe_write(s->cs, iov->iov_base, iov->iov_len);
+        }
         break;
 
     case USB_TOKEN_IN:
         if (devep != 1)
             goto fail;
         first_len = RECV_BUF - s->recv_ptr;
+        len = p->iov.size;
         if (len <= 2) {
             ret = USB_RET_NAK;
             break;
         }
-        *data++ = usb_get_modem_lines(s) | 1;
+        header[0] = usb_get_modem_lines(s) | 1;
         /* We do not have the uart details */
         /* handle serial break */
         if (s->event_trigger && s->event_trigger & FTDI_BI) {
             s->event_trigger &= ~FTDI_BI;
-            *data = FTDI_BI;
+            header[1] = FTDI_BI;
+            usb_packet_copy(p, header, 2);
             ret = 2;
             break;
         } else {
-            *data++ = 0;
+            header[1] = 0;
         }
         len -= 2;
         if (len > s->recv_used)
@@ -400,9 +405,10 @@ static int usb_serial_handle_data(USBDevice *dev, USBPacket *p)
         }
         if (first_len > len)
             first_len = len;
-        memcpy(data, s->recv_buf + s->recv_ptr, first_len);
+        usb_packet_copy(p, header, 2);
+        usb_packet_copy(p, s->recv_buf + s->recv_ptr, first_len);
         if (len > first_len)
-            memcpy(data + first_len, s->recv_buf, len - first_len);
+            usb_packet_copy(p, s->recv_buf, len - first_len);
         s->recv_used -= len;
         s->recv_ptr = (s->recv_ptr + len) % RECV_BUF;
         ret = len + 2;
@@ -422,7 +428,7 @@ static void usb_serial_handle_destroy(USBDevice *dev)
 {
     USBSerialState *s = (USBSerialState *)dev;
 
-    qemu_chr_close(s->cs);
+    qemu_chr_delete(s->cs);
 }
 
 static int usb_serial_can_read(void *opaque)
@@ -532,7 +538,7 @@ static USBDevice *usb_serial_init(const char *filename)
     filename++;
 
     snprintf(label, sizeof(label), "usbserial%d", index++);
-    cdrv = qemu_chr_open(label, filename, NULL);
+    cdrv = qemu_chr_new(label, filename, NULL);
     if (!cdrv)
         return NULL;
 
@@ -555,7 +561,7 @@ static USBDevice *usb_braille_init(const char *unused)
     USBDevice *dev;
     CharDriverState *cdrv;
 
-    cdrv = qemu_chr_open("braille", "braille", NULL);
+    cdrv = qemu_chr_new("braille", "braille", NULL);
     if (!cdrv)
         return NULL;
 

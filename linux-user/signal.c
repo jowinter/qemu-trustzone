@@ -152,7 +152,7 @@ void host_to_target_sigset(target_sigset_t *d, const sigset_t *s)
 
     host_to_target_sigset_internal(&d1, s);
     for(i = 0;i < TARGET_NSIG_WORDS; i++)
-        d->sig[i] = tswapl(d1.sig[i]);
+        d->sig[i] = tswapal(d1.sig[i]);
 }
 
 static void target_to_host_sigset_internal(sigset_t *d,
@@ -173,7 +173,7 @@ void target_to_host_sigset(sigset_t *d, const target_sigset_t *s)
     int i;
 
     for(i = 0;i < TARGET_NSIG_WORDS; i++)
-        s1.sig[i] = tswapl(s->sig[i]);
+        s1.sig[i] = tswapal(s->sig[i]);
     target_to_host_sigset_internal(d, &s1);
 }
 
@@ -234,14 +234,14 @@ static void tswap_siginfo(target_siginfo_t *tinfo,
     if (sig == SIGILL || sig == SIGFPE || sig == SIGSEGV ||
         sig == SIGBUS || sig == SIGTRAP) {
         tinfo->_sifields._sigfault._addr =
-            tswapl(info->_sifields._sigfault._addr);
+            tswapal(info->_sifields._sigfault._addr);
     } else if (sig == SIGIO) {
 	tinfo->_sifields._sigpoll._fd = tswap32(info->_sifields._sigpoll._fd);
     } else if (sig >= TARGET_SIGRTMIN) {
         tinfo->_sifields._rt._pid = tswap32(info->_sifields._rt._pid);
         tinfo->_sifields._rt._uid = tswap32(info->_sifields._rt._uid);
         tinfo->_sifields._rt._sigval.sival_ptr =
-            tswapl(info->_sifields._rt._sigval.sival_ptr);
+            tswapal(info->_sifields._rt._sigval.sival_ptr);
     }
 }
 
@@ -262,7 +262,7 @@ void target_to_host_siginfo(siginfo_t *info, const target_siginfo_t *tinfo)
     info->si_pid = tswap32(tinfo->_sifields._rt._pid);
     info->si_uid = tswap32(tinfo->_sifields._rt._uid);
     info->si_value.sival_ptr =
-            (void *)(long)tswapl(tinfo->_sifields._rt._sigval.sival_ptr);
+            (void *)(long)tswapal(tinfo->_sifields._rt._sigval.sival_ptr);
 }
 
 static int fatal_signal (int sig)
@@ -586,19 +586,19 @@ int do_sigaction(int sig, const struct target_sigaction *act,
             sig, act, oact);
 #endif
     if (oact) {
-        oact->_sa_handler = tswapl(k->_sa_handler);
-        oact->sa_flags = tswapl(k->sa_flags);
+        oact->_sa_handler = tswapal(k->_sa_handler);
+        oact->sa_flags = tswapal(k->sa_flags);
 #if !defined(TARGET_MIPS)
-        oact->sa_restorer = tswapl(k->sa_restorer);
+        oact->sa_restorer = tswapal(k->sa_restorer);
 #endif
         oact->sa_mask = k->sa_mask;
     }
     if (act) {
         /* FIXME: This is not threadsafe.  */
-        k->_sa_handler = tswapl(act->_sa_handler);
-        k->sa_flags = tswapl(act->sa_flags);
+        k->_sa_handler = tswapal(act->_sa_handler);
+        k->sa_flags = tswapal(act->sa_flags);
 #if !defined(TARGET_MIPS)
-        k->sa_restorer = tswapl(act->sa_restorer);
+        k->sa_restorer = tswapal(act->sa_restorer);
 #endif
         k->sa_mask = act->sa_mask;
 
@@ -1274,10 +1274,7 @@ setup_return(CPUState *env, struct target_sigaction *ka,
 
 		if (__put_user(retcodes[idx], rc))
 			return 1;
-#if 0
-		flush_icache_range((abi_ulong)rc,
-				   (abi_ulong)(rc + 1));
-#endif
+
 		retcode = rc_addr + thumb;
 	}
 
@@ -2299,12 +2296,14 @@ void sparc64_set_context(CPUSPARCState *env)
      */
     err |= __get_user(env->fprs, &(ucp->tuc_mcontext.mc_fpregs.mcfpu_fprs));
     {
-        uint32_t *src, *dst;
-        src = ucp->tuc_mcontext.mc_fpregs.mcfpu_fregs.sregs;
-        dst = env->fpr;
-        /* XXX: check that the CPU storage is the same as user context */
-        for (i = 0; i < 64; i++, dst++, src++)
-            err |= __get_user(*dst, src);
+        uint32_t *src = ucp->tuc_mcontext.mc_fpregs.mcfpu_fregs.sregs;
+        for (i = 0; i < 64; i++, src++) {
+            if (i & 1) {
+                err |= __get_user(env->fpr[i/2].l.lower, src);
+            } else {
+                err |= __get_user(env->fpr[i/2].l.upper, src);
+            }
+        }
     }
     err |= __get_user(env->fsr,
                       &(ucp->tuc_mcontext.mc_fpregs.mcfpu_fsr));
@@ -2393,12 +2392,14 @@ void sparc64_get_context(CPUSPARCState *env)
     err |= __put_user(i7, &(mcp->mc_i7));
 
     {
-        uint32_t *src, *dst;
-        src = env->fpr;
-        dst = ucp->tuc_mcontext.mc_fpregs.mcfpu_fregs.sregs;
-        /* XXX: check that the CPU storage is the same as user context */
-        for (i = 0; i < 64; i++, dst++, src++)
-            err |= __put_user(*src, dst);
+        uint32_t *dst = ucp->tuc_mcontext.mc_fpregs.mcfpu_fregs.sregs;
+        for (i = 0; i < 64; i++, dst++) {
+            if (i & 1) {
+                err |= __put_user(env->fpr[i/2].l.lower, dst);
+            } else {
+                err |= __put_user(env->fpr[i/2].l.upper, dst);
+            }
+        }
     }
     err |= __put_user(env->fsr, &(mcp->mc_fpregs.mcfpu_fsr));
     err |= __put_user(env->gsr, &(mcp->mc_fpregs.mcfpu_gsr));
@@ -3064,10 +3065,10 @@ static void setup_frame(int sig, struct target_sigaction *ka,
         goto give_sigsegv;
 
     /* Set up registers for signal handler */
-    regs->gregs[15] = (unsigned long) frame;
+    regs->gregs[15] = frame_addr;
     regs->gregs[4] = signal; /* Arg for signal handler */
     regs->gregs[5] = 0;
-    regs->gregs[6] = (unsigned long) &frame->sc;
+    regs->gregs[6] = frame_addr += offsetof(typeof(*frame), sc);
     regs->pc = (unsigned long) ka->_sa_handler;
 
     unlock_user_struct(frame, frame_addr, 1);
@@ -3127,10 +3128,10 @@ static void setup_rt_frame(int sig, struct target_sigaction *ka,
         goto give_sigsegv;
 
     /* Set up registers for signal handler */
-    regs->gregs[15] = (unsigned long) frame;
+    regs->gregs[15] = frame_addr;
     regs->gregs[4] = signal; /* Arg for signal handler */
-    regs->gregs[5] = (unsigned long) &frame->info;
-    regs->gregs[6] = (unsigned long) &frame->uc;
+    regs->gregs[5] = frame_addr + offsetof(typeof(*frame), info);
+    regs->gregs[6] = frame_addr + offsetof(typeof(*frame), uc);
     regs->pc = (unsigned long) ka->_sa_handler;
 
     unlock_user_struct(frame, frame_addr, 1);
@@ -3381,11 +3382,12 @@ static void setup_frame(int sig, struct target_sigaction *ka,
         goto badframe;
 
     /* Set up registers for signal handler */
-    env->regs[1] = (unsigned long) frame;
+    env->regs[1] = frame_addr;
     /* Signal handler args: */
     env->regs[5] = sig; /* Arg 0: signum */
     env->regs[6] = 0;
-    env->regs[7] = (unsigned long) &frame->uc; /* arg 1: sigcontext */
+    /* arg 1: sigcontext */
+    env->regs[7] = frame_addr += offsetof(typeof(*frame), uc);
 
     /* Offset of 4 to handle microblaze rtid r14, 0 */
     env->sregs[SR_PC] = (unsigned long)ka->_sa_handler;
@@ -3559,11 +3561,11 @@ static void setup_frame(int sig, struct target_sigaction *ka,
 	setup_sigcontext(&frame->sc, env);
 
 	/* Move the stack and setup the arguments for the handler.  */
-	env->regs[R_SP] = (uint32_t) (unsigned long) frame;
+	env->regs[R_SP] = frame_addr;
 	env->regs[10] = sig;
 	env->pc = (unsigned long) ka->_sa_handler;
 	/* Link SRP so the guest returns through the trampoline.  */
-	env->pregs[PR_SRP] = (uint32_t) (unsigned long) &frame->retcode[0];
+	env->pregs[PR_SRP] = frame_addr + offsetof(typeof(*frame), retcode);
 
 	unlock_user_struct(frame, frame_addr, 1);
 	return;
@@ -3769,11 +3771,11 @@ static void setup_frame(int sig, struct target_sigaction *ka,
     }
 
     /* Set up registers for signal handler */
-    env->regs[15] = (target_ulong)(unsigned long) frame;
+    env->regs[15] = frame_addr;
     env->psw.addr = (target_ulong) ka->_sa_handler | PSW_ADDR_AMODE;
 
     env->regs[2] = sig; //map_signal(sig);
-    env->regs[3] = (target_ulong)(unsigned long) &frame->sc;
+    env->regs[3] = frame_addr += offsetof(typeof(*frame), sc);
 
     /* We forgot to include these in the sigcontext.
        To avoid breaking binary compatibility, they are passed as args. */
@@ -3844,12 +3846,12 @@ static void setup_rt_frame(int sig, struct target_sigaction *ka,
     }
 
     /* Set up registers for signal handler */
-    env->regs[15] = (target_ulong)(unsigned long) frame;
+    env->regs[15] = frame_addr;
     env->psw.addr = (target_ulong) ka->_sa_handler | PSW_ADDR_AMODE;
 
     env->regs[2] = sig; //map_signal(sig);
-    env->regs[3] = (target_ulong)(unsigned long) &frame->info;
-    env->regs[4] = (target_ulong)(unsigned long) &frame->uc;
+    env->regs[3] = frame_addr + offsetof(typeof(*frame), info);
+    env->regs[4] = frame_addr + offsetof(typeof(*frame), uc);
     return;
 
 give_sigsegv:

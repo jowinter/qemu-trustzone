@@ -23,6 +23,7 @@
 #include "elf.h"
 #include "mc146818rtc.h"
 #include "blockdev.h"
+#include "exec-memory.h"
 
 #define MAX_IDE_BUS 2
 
@@ -41,8 +42,8 @@ static struct _loaderparams {
     const char *initrd_filename;
 } loaderparams;
 
-static void mips_qemu_writel (void *opaque, target_phys_addr_t addr,
-			      uint32_t val)
+static void mips_qemu_write (void *opaque, target_phys_addr_t addr,
+                             uint64_t val, unsigned size)
 {
     if ((addr & 0xffff) == 0 && val == 42)
         qemu_system_reset_request ();
@@ -50,24 +51,17 @@ static void mips_qemu_writel (void *opaque, target_phys_addr_t addr,
         qemu_system_shutdown_request ();
 }
 
-static uint32_t mips_qemu_readl (void *opaque, target_phys_addr_t addr)
+static uint64_t mips_qemu_read (void *opaque, target_phys_addr_t addr,
+                                unsigned size)
 {
     return 0;
 }
 
-static CPUWriteMemoryFunc * const mips_qemu_write[] = {
-    &mips_qemu_writel,
-    &mips_qemu_writel,
-    &mips_qemu_writel,
+static const MemoryRegionOps mips_qemu_ops = {
+    .read = mips_qemu_read,
+    .write = mips_qemu_write,
+    .endianness = DEVICE_NATIVE_ENDIAN,
 };
-
-static CPUReadMemoryFunc * const mips_qemu_read[] = {
-    &mips_qemu_readl,
-    &mips_qemu_readl,
-    &mips_qemu_readl,
-};
-
-static int mips_qemu_iomemtype = 0;
 
 typedef struct ResetData {
     CPUState *env;
@@ -126,7 +120,7 @@ static int64_t load_kernel(void)
 
     /* Store command line.  */
     params_size = 264;
-    params_buf = qemu_malloc(params_size);
+    params_buf = g_malloc(params_size);
 
     params_buf[0] = tswap32(ram_size);
     params_buf[1] = tswap32(0x12345678);
@@ -162,8 +156,10 @@ void mips_r4k_init (ram_addr_t ram_size,
                     const char *initrd_filename, const char *cpu_model)
 {
     char *filename;
-    ram_addr_t ram_offset;
-    ram_addr_t bios_offset;
+    MemoryRegion *address_space_mem = get_system_memory();
+    MemoryRegion *ram = g_new(MemoryRegion, 1);
+    MemoryRegion *bios;
+    MemoryRegion *iomem = g_new(MemoryRegion, 1);
     int bios_size;
     CPUState *env;
     ResetData *reset_info;
@@ -186,7 +182,7 @@ void mips_r4k_init (ram_addr_t ram_size,
         fprintf(stderr, "Unable to find CPU definition\n");
         exit(1);
     }
-    reset_info = qemu_mallocz(sizeof(ResetData));
+    reset_info = g_malloc0(sizeof(ResetData));
     reset_info->env = env;
     reset_info->vector = env->active_tc.PC;
     qemu_register_reset(main_cpu_reset, reset_info);
@@ -198,16 +194,12 @@ void mips_r4k_init (ram_addr_t ram_size,
                 ((unsigned int)ram_size / (1 << 20)));
         exit(1);
     }
-    ram_offset = qemu_ram_alloc(NULL, "mips_r4k.ram", ram_size);
+    memory_region_init_ram(ram, NULL, "mips_r4k.ram", ram_size);
 
-    cpu_register_physical_memory(0, ram_size, ram_offset | IO_MEM_RAM);
+    memory_region_add_subregion(address_space_mem, 0, ram);
 
-    if (!mips_qemu_iomemtype) {
-        mips_qemu_iomemtype = cpu_register_io_memory(mips_qemu_read,
-                                                     mips_qemu_write, NULL,
-                                                     DEVICE_NATIVE_ENDIAN);
-    }
-    cpu_register_physical_memory(0x1fbf0000, 0x10000, mips_qemu_iomemtype);
+    memory_region_init_io(iomem, &mips_qemu_ops, NULL, "mips-qemu", 0x10000);
+    memory_region_add_subregion(address_space_mem, 0x1fbf0000, iomem);
 
     /* Try to load a BIOS image. If this fails, we continue regardless,
        but initialize the hardware ourselves. When a kernel gets
@@ -227,15 +219,15 @@ void mips_r4k_init (ram_addr_t ram_size,
     be = 0;
 #endif
     if ((bios_size > 0) && (bios_size <= BIOS_SIZE)) {
-        bios_offset = qemu_ram_alloc(NULL, "mips_r4k.bios", BIOS_SIZE);
-	cpu_register_physical_memory(0x1fc00000, BIOS_SIZE,
-                                     bios_offset | IO_MEM_ROM);
+        bios = g_new(MemoryRegion, 1);
+        memory_region_init_ram(bios, NULL, "mips_r4k.bios", BIOS_SIZE);
+        memory_region_set_readonly(bios, true);
+        memory_region_add_subregion(get_system_memory(), 0x1fc00000, bios);
 
         load_image_targphys(filename, 0x1fc00000, BIOS_SIZE);
     } else if ((dinfo = drive_get(IF_PFLASH, 0, 0)) != NULL) {
         uint32_t mips_rom = 0x00400000;
-        bios_offset = qemu_ram_alloc(NULL, "mips_r4k.bios", mips_rom);
-        if (!pflash_cfi01_register(0x1fc00000, bios_offset,
+        if (!pflash_cfi01_register(0x1fc00000, NULL, "mips_r4k.bios", mips_rom,
                                    dinfo->bdrv, sector_len,
                                    mips_rom / sector_len,
                                    4, 0, 0, 0, 0, be)) {
@@ -248,7 +240,7 @@ void mips_r4k_init (ram_addr_t ram_size,
 		bios_name);
     }
     if (filename) {
-        qemu_free(filename);
+        g_free(filename);
     }
 
     if (kernel_filename) {
@@ -264,8 +256,8 @@ void mips_r4k_init (ram_addr_t ram_size,
     cpu_mips_clock_init(env);
 
     /* The PIC is attached to the MIPS CPU INT0 pin */
+    isa_bus_new(NULL, get_system_io());
     i8259 = i8259_init(env->irq[2]);
-    isa_bus_new(NULL);
     isa_bus_irqs(i8259);
 
     rtc_init(2000, NULL);

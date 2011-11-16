@@ -1705,7 +1705,7 @@ static I2CSlaveInfo twl4030_info[4] = {
 void *twl4030_init(i2c_bus *bus, qemu_irq irq1, qemu_irq irq2,
                    const TWL4030KeyMap *keymap)
 {
-    TWL4030State *s = (TWL4030State *)qemu_mallocz(sizeof(*s));
+    TWL4030State *s = (TWL4030State *)g_malloc0(sizeof(*s));
 
     s->irq1 = irq1;
     s->irq2 = irq2;

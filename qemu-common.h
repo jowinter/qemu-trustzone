@@ -13,7 +13,6 @@
 
 typedef struct QEMUTimer QEMUTimer;
 typedef struct QEMUFile QEMUFile;
-typedef struct QEMUBH QEMUBH;
 typedef struct DeviceState DeviceState;
 
 struct Monitor;
@@ -37,6 +36,7 @@ typedef struct Monitor Monitor;
 #include <sys/time.h>
 #include <assert.h>
 #include <signal.h>
+#include <glib.h>
 
 #ifdef _WIN32
 #include "qemu-os-win32.h"
@@ -95,6 +95,10 @@ static inline char *realpath(const char *path, char *resolved_path)
 }
 #endif
 
+/* icount */
+void configure_icount(const char *option);
+extern int use_icount;
+
 /* FIXME: Remove NEED_CPU_H.  */
 #ifndef NEED_CPU_H
 
@@ -112,27 +116,6 @@ static inline char *realpath(const char *path, char *resolved_path)
 int qemu_main(int argc, char **argv, char **envp);
 #endif
 
-/* bottom halves */
-typedef void QEMUBHFunc(void *opaque);
-
-void async_context_push(void);
-void async_context_pop(void);
-int get_async_context_id(void);
-
-QEMUBH *qemu_bh_new(QEMUBHFunc *cb, void *opaque);
-void qemu_bh_schedule(QEMUBH *bh);
-/* Bottom halfs that are scheduled from a bottom half handler are instantly
- * invoked.  This can create an infinite loop if a bottom half handler
- * schedules itself.  qemu_bh_schedule_idle() avoids this infinite loop by
- * ensuring that the bottom half isn't executed until the next main loop
- * iteration.
- */
-void qemu_bh_schedule_idle(QEMUBH *bh);
-void qemu_bh_cancel(QEMUBH *bh);
-void qemu_bh_delete(QEMUBH *bh);
-int qemu_bh_poll(void);
-void qemu_bh_update_timeout(int *timeout);
-
 void qemu_get_timedate(struct tm *tm, int offset);
 int qemu_timedate_diff(struct tm *tm);
 
@@ -146,6 +129,7 @@ time_t mktimegm(struct tm *tm);
 int qemu_fls(int i);
 int qemu_fdatasync(int fd);
 int fcntl_setfl(int fd, int flag);
+int qemu_parse_fd(const char *param);
 
 /*
  * strtosz() suffixes used to specify the default treatment of an
@@ -161,6 +145,8 @@ int fcntl_setfl(int fd, int flag);
 #define STRTOSZ_DEFSUFFIX_B	'B'
 int64_t strtosz(const char *nptr, char **end);
 int64_t strtosz_suffix(const char *nptr, char **end, const char default_suffix);
+int64_t strtosz_suffix_unit(const char *nptr, char **end,
+                            const char default_suffix, int64_t unit);
 
 /* path.c */
 void init_paths(const char *prefix);
@@ -183,15 +169,6 @@ const char *path(const char *pathname);
 #define qemu_toascii(c)		toascii((unsigned char)(c))
 
 void *qemu_oom_check(void *ptr);
-void *qemu_malloc(size_t size);
-void *qemu_realloc(void *ptr, size_t size);
-void *qemu_mallocz(size_t size);
-void qemu_free(void *ptr);
-char *qemu_strdup(const char *str);
-char *qemu_strndup(const char *str, size_t size);
-
-void qemu_mutex_lock_iothread(void);
-void qemu_mutex_unlock_iothread(void);
 
 int qemu_open(const char *name, int flags, ...);
 ssize_t qemu_write_full(int fd, const void *buf, size_t count)
@@ -199,7 +176,6 @@ ssize_t qemu_write_full(int fd, const void *buf, size_t count)
 void qemu_set_cloexec(int fd);
 
 #ifndef _WIN32
-int qemu_add_child_watch(pid_t pid);
 int qemu_eventfd(int pipefd[2]);
 int qemu_pipe(int pipefd[2]);
 #endif
@@ -213,14 +189,6 @@ int qemu_pipe(int pipefd[2]);
 /* Error handling.  */
 
 void QEMU_NORETURN hw_error(const char *fmt, ...) GCC_FMT_ATTR(1, 2);
-
-/* IO callbacks.  */
-typedef void IOReadHandler(void *opaque, const uint8_t *buf, int size);
-typedef int IOCanReadHandler(void *opaque);
-typedef void IOHandler(void *opaque);
-
-void qemu_iohandler_fill(int *pnfds, fd_set *readfds, fd_set *writefds, fd_set *xfds);
-void qemu_iohandler_poll(fd_set *readfds, fd_set *writefds, fd_set *xfds, int rc);
 
 struct ParallelIOArg {
     void *buffer;
@@ -270,20 +238,18 @@ typedef struct I2SCodec I2SCodec;
 typedef struct SSIBus SSIBus;
 typedef struct EventNotifier EventNotifier;
 typedef struct VirtIODevice VirtIODevice;
+typedef struct QEMUSGList QEMUSGList;
 
 typedef uint64_t pcibus_t;
 
-void cpu_exec_init_all(unsigned long tb_size);
+void tcg_exec_init(unsigned long tb_size);
+bool tcg_enabled(void);
+
+void cpu_exec_init_all(void);
 
 /* CPU save/load.  */
 void cpu_save(QEMUFile *f, void *opaque);
 int cpu_load(QEMUFile *f, void *opaque, int version_id);
-
-/* Force QEMU to stop what it's doing and service IO */
-void qemu_service_io(void);
-
-/* Force QEMU to process pending events */
-void qemu_notify_event(void);
 
 /* Unblock cpu */
 void qemu_cpu_kick(void *env);

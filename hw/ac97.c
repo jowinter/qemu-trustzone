@@ -18,6 +18,7 @@
 #include "audiodev.h"
 #include "audio/audio.h"
 #include "pci.h"
+#include "dma.h"
 
 enum {
     AC97_Reset                     = 0x00,
@@ -149,6 +150,7 @@ typedef struct AC97BusMasterRegs {
 typedef struct AC97LinkState {
     PCIDevice dev;
     QEMUSoundCard card;
+    uint32_t use_broken_id;
     uint32_t glob_cnt;
     uint32_t glob_sta;
     uint32_t cas;
@@ -160,8 +162,9 @@ typedef struct AC97LinkState {
     SWVoiceIn *voice_mc;
     int invalid_freq[3];
     uint8_t silence[128];
-    uint32_t base[2];
     int bup_flag;
+    MemoryRegion io_nam;
+    MemoryRegion io_nabm;
 } AC97LinkState;
 
 enum {
@@ -223,7 +226,7 @@ static void fetch_bd (AC97LinkState *s, AC97BusMasterRegs *r)
 {
     uint8_t b[8];
 
-    cpu_physical_memory_read (r->bdbar + r->civ * 8, b, 8);
+    pci_dma_read (&s->dev, r->bdbar + r->civ * 8, b, 8);
     r->bd_valid = 1;
     r->bd.addr = le32_to_cpu (*(uint32_t *) &b[0]) & ~3;
     r->bd.ctl_len = le32_to_cpu (*(uint32_t *) &b[4]);
@@ -583,7 +586,7 @@ static uint32_t nam_readw (void *opaque, uint32_t addr)
 {
     AC97LinkState *s = opaque;
     uint32_t val = ~0U;
-    uint32_t index = addr - s->base[0];
+    uint32_t index = addr;
     s->cas = 0;
     val = mixer_load (s, index);
     return val;
@@ -611,7 +614,7 @@ static void nam_writeb (void *opaque, uint32_t addr, uint32_t val)
 static void nam_writew (void *opaque, uint32_t addr, uint32_t val)
 {
     AC97LinkState *s = opaque;
-    uint32_t index = addr - s->base[0];
+    uint32_t index = addr;
     s->cas = 0;
     switch (index) {
     case AC97_Reset:
@@ -714,7 +717,7 @@ static uint32_t nabm_readb (void *opaque, uint32_t addr)
 {
     AC97LinkState *s = opaque;
     AC97BusMasterRegs *r = NULL;
-    uint32_t index = addr - s->base[1];
+    uint32_t index = addr;
     uint32_t val = ~0U;
 
     switch (index) {
@@ -769,7 +772,7 @@ static uint32_t nabm_readw (void *opaque, uint32_t addr)
 {
     AC97LinkState *s = opaque;
     AC97BusMasterRegs *r = NULL;
-    uint32_t index = addr - s->base[1];
+    uint32_t index = addr;
     uint32_t val = ~0U;
 
     switch (index) {
@@ -798,7 +801,7 @@ static uint32_t nabm_readl (void *opaque, uint32_t addr)
 {
     AC97LinkState *s = opaque;
     AC97BusMasterRegs *r = NULL;
-    uint32_t index = addr - s->base[1];
+    uint32_t index = addr;
     uint32_t val = ~0U;
 
     switch (index) {
@@ -848,7 +851,7 @@ static void nabm_writeb (void *opaque, uint32_t addr, uint32_t val)
 {
     AC97LinkState *s = opaque;
     AC97BusMasterRegs *r = NULL;
-    uint32_t index = addr - s->base[1];
+    uint32_t index = addr;
     switch (index) {
     case PI_LVI:
     case PO_LVI:
@@ -904,7 +907,7 @@ static void nabm_writew (void *opaque, uint32_t addr, uint32_t val)
 {
     AC97LinkState *s = opaque;
     AC97BusMasterRegs *r = NULL;
-    uint32_t index = addr - s->base[1];
+    uint32_t index = addr;
     switch (index) {
     case PI_SR:
     case PO_SR:
@@ -924,7 +927,7 @@ static void nabm_writel (void *opaque, uint32_t addr, uint32_t val)
 {
     AC97LinkState *s = opaque;
     AC97BusMasterRegs *r = NULL;
-    uint32_t index = addr - s->base[1];
+    uint32_t index = addr;
     switch (index) {
     case PI_BDBAR:
     case PO_BDBAR:
@@ -972,7 +975,7 @@ static int write_audio (AC97LinkState *s, AC97BusMasterRegs *r,
     while (temp) {
         int copied;
         to_copy = audio_MIN (temp, sizeof (tmpbuf));
-        cpu_physical_memory_read (addr, tmpbuf, to_copy);
+        pci_dma_read (&s->dev, addr, tmpbuf, to_copy);
         copied = AUD_write (s->voice_po, tmpbuf, to_copy);
         dolog ("write_audio max=%x to_copy=%x copied=%x\n",
                max, to_copy, copied);
@@ -1053,7 +1056,7 @@ static int read_audio (AC97LinkState *s, AC97BusMasterRegs *r,
             *stop = 1;
             break;
         }
-        cpu_physical_memory_write (addr, tmpbuf, acquired);
+        pci_dma_write (&s->dev, addr, tmpbuf, acquired);
         temp -= acquired;
         addr += acquired;
         nread += acquired;
@@ -1230,31 +1233,33 @@ static const VMStateDescription vmstate_ac97 = {
     }
 };
 
-static void ac97_map (PCIDevice *pci_dev, int region_num,
-                      pcibus_t addr, pcibus_t size, int type)
-{
-    AC97LinkState *s = DO_UPCAST (AC97LinkState, dev, pci_dev);
-    PCIDevice *d = &s->dev;
+static const MemoryRegionPortio nam_portio[] = {
+    { 0, 256 * 1, 1, .read = nam_readb, },
+    { 0, 256 * 2, 2, .read = nam_readw, },
+    { 0, 256 * 4, 4, .read = nam_readl, },
+    { 0, 256 * 1, 1, .write = nam_writeb, },
+    { 0, 256 * 2, 2, .write = nam_writew, },
+    { 0, 256 * 4, 4, .write = nam_writel, },
+    PORTIO_END_OF_LIST(),
+};
 
-    if (!region_num) {
-        s->base[0] = addr;
-        register_ioport_read (addr, 256 * 1, 1, nam_readb, d);
-        register_ioport_read (addr, 256 * 2, 2, nam_readw, d);
-        register_ioport_read (addr, 256 * 4, 4, nam_readl, d);
-        register_ioport_write (addr, 256 * 1, 1, nam_writeb, d);
-        register_ioport_write (addr, 256 * 2, 2, nam_writew, d);
-        register_ioport_write (addr, 256 * 4, 4, nam_writel, d);
-    }
-    else {
-        s->base[1] = addr;
-        register_ioport_read (addr, 64 * 1, 1, nabm_readb, d);
-        register_ioport_read (addr, 64 * 2, 2, nabm_readw, d);
-        register_ioport_read (addr, 64 * 4, 4, nabm_readl, d);
-        register_ioport_write (addr, 64 * 1, 1, nabm_writeb, d);
-        register_ioport_write (addr, 64 * 2, 2, nabm_writew, d);
-        register_ioport_write (addr, 64 * 4, 4, nabm_writel, d);
-    }
-}
+static const MemoryRegionOps ac97_io_nam_ops = {
+    .old_portio = nam_portio,
+};
+
+static const MemoryRegionPortio nabm_portio[] = {
+    { 0, 64 * 1, 1, .read = nabm_readb, },
+    { 0, 64 * 2, 2, .read = nabm_readw, },
+    { 0, 64 * 4, 4, .read = nabm_readl, },
+    { 0, 64 * 1, 1, .write = nabm_writeb, },
+    { 0, 64 * 2, 2, .write = nabm_writew, },
+    { 0, 64 * 4, 4, .write = nabm_writel, },
+    PORTIO_END_OF_LIST()
+};
+
+static const MemoryRegionOps ac97_io_nabm_ops = {
+    .old_portio = nabm_portio,
+};
 
 static void ac97_on_reset (void *opaque)
 {
@@ -1301,22 +1306,32 @@ static int ac97_initfn (PCIDevice *dev)
     c[PCI_BASE_ADDRESS_0 + 6] = 0x00;
     c[PCI_BASE_ADDRESS_0 + 7] = 0x00;
 
-    c[PCI_SUBSYSTEM_VENDOR_ID] = 0x86;      /* svid subsystem vendor id rwo */
-    c[PCI_SUBSYSTEM_VENDOR_ID + 1] = 0x80;
-
-    c[PCI_SUBSYSTEM_ID] = 0x00;      /* sid subsystem id rwo */
-    c[PCI_SUBSYSTEM_ID + 1] = 0x00;
+    if (s->use_broken_id) {
+        c[PCI_SUBSYSTEM_VENDOR_ID] = 0x86;
+        c[PCI_SUBSYSTEM_VENDOR_ID + 1] = 0x80;
+        c[PCI_SUBSYSTEM_ID] = 0x00;
+        c[PCI_SUBSYSTEM_ID + 1] = 0x00;
+    }
 
     c[PCI_INTERRUPT_LINE] = 0x00;      /* intr_ln interrupt line rw */
-    /* TODO: RST# value should be 0. */
     c[PCI_INTERRUPT_PIN] = 0x01;      /* intr_pn interrupt pin ro */
 
-    pci_register_bar (&s->dev, 0, 256 * 4, PCI_BASE_ADDRESS_SPACE_IO,
-                      ac97_map);
-    pci_register_bar (&s->dev, 1, 64 * 4, PCI_BASE_ADDRESS_SPACE_IO, ac97_map);
+    memory_region_init_io (&s->io_nam, &ac97_io_nam_ops, s, "ac97-nam", 1024);
+    memory_region_init_io (&s->io_nabm, &ac97_io_nabm_ops, s, "ac97-nabm", 256);
+    pci_register_bar (&s->dev, 0, PCI_BASE_ADDRESS_SPACE_IO, &s->io_nam);
+    pci_register_bar (&s->dev, 1, PCI_BASE_ADDRESS_SPACE_IO, &s->io_nabm);
     qemu_register_reset (ac97_on_reset, s);
     AUD_register_card ("ac97", &s->card);
     ac97_on_reset (s);
+    return 0;
+}
+
+static int ac97_exitfn (PCIDevice *dev)
+{
+    AC97LinkState *s = DO_UPCAST (AC97LinkState, dev, dev);
+
+    memory_region_destroy (&s->io_nam);
+    memory_region_destroy (&s->io_nabm);
     return 0;
 }
 
@@ -1332,10 +1347,15 @@ static PCIDeviceInfo ac97_info = {
     .qdev.size    = sizeof (AC97LinkState),
     .qdev.vmsd    = &vmstate_ac97,
     .init         = ac97_initfn,
+    .exit         = ac97_exitfn,
     .vendor_id    = PCI_VENDOR_ID_INTEL,
     .device_id    = PCI_DEVICE_ID_INTEL_82801AA_5,
     .revision     = 0x01,
     .class_id     = PCI_CLASS_MULTIMEDIA_AUDIO,
+    .qdev.props   = (Property[]) {
+        DEFINE_PROP_UINT32("use_broken_id", AC97LinkState, use_broken_id, 0),
+        DEFINE_PROP_END_OF_LIST(),
+    }
 };
 
 static void ac97_register (void)

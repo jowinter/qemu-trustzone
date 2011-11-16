@@ -27,6 +27,9 @@
 #include "block.h"
 #include "qemu-option.h"
 #include "qemu-queue.h"
+#include "qemu-coroutine.h"
+#include "qemu-timer.h"
+#include "qapi-types.h"
 
 #define BLOCK_FLAG_ENCRYPT	1
 #define BLOCK_FLAG_COMPAT6	4
@@ -60,7 +63,6 @@ struct BlockDriver {
                       const uint8_t *buf, int nb_sectors);
     void (*bdrv_close)(BlockDriverState *bs);
     int (*bdrv_create)(const char *filename, QEMUOptionParameter *options);
-    int (*bdrv_flush)(BlockDriverState *bs);
     int (*bdrv_is_allocated)(BlockDriverState *bs, int64_t sector_num,
                              int nb_sectors, int *pnum);
     int (*bdrv_set_key)(BlockDriverState *bs, const char *key);
@@ -74,8 +76,17 @@ struct BlockDriver {
         BlockDriverCompletionFunc *cb, void *opaque);
     BlockDriverAIOCB *(*bdrv_aio_flush)(BlockDriverState *bs,
         BlockDriverCompletionFunc *cb, void *opaque);
-    int (*bdrv_discard)(BlockDriverState *bs, int64_t sector_num,
-                        int nb_sectors);
+    BlockDriverAIOCB *(*bdrv_aio_discard)(BlockDriverState *bs,
+        int64_t sector_num, int nb_sectors,
+        BlockDriverCompletionFunc *cb, void *opaque);
+
+    int coroutine_fn (*bdrv_co_readv)(BlockDriverState *bs,
+        int64_t sector_num, int nb_sectors, QEMUIOVector *qiov);
+    int coroutine_fn (*bdrv_co_writev)(BlockDriverState *bs,
+        int64_t sector_num, int nb_sectors, QEMUIOVector *qiov);
+    int coroutine_fn (*bdrv_co_flush)(BlockDriverState *bs);
+    int coroutine_fn (*bdrv_co_discard)(BlockDriverState *bs,
+        int64_t sector_num, int nb_sectors);
 
     int (*bdrv_aio_multiwrite)(BlockDriverState *bs, BlockRequest *reqs,
         int num_reqs);
@@ -112,8 +123,8 @@ struct BlockDriver {
     /* removable device specific */
     int (*bdrv_is_inserted)(BlockDriverState *bs);
     int (*bdrv_media_changed)(BlockDriverState *bs);
-    int (*bdrv_eject)(BlockDriverState *bs, int eject_flag);
-    int (*bdrv_set_locked)(BlockDriverState *bs, int locked);
+    void (*bdrv_eject)(BlockDriverState *bs, int eject_flag);
+    void (*bdrv_lock_medium)(BlockDriverState *bs, bool locked);
 
     /* to control generic scsi devices */
     int (*bdrv_ioctl)(BlockDriverState *bs, unsigned long int req, void *buf);
@@ -148,27 +159,23 @@ struct BlockDriverState {
     int read_only; /* if true, the media is read only */
     int keep_read_only; /* if true, the media was requested to stay read only */
     int open_flags; /* flags used to open the file, re-used for re-open */
-    int removable; /* if true, the media can be removed */
-    int locked;    /* if true, the media cannot temporarily be ejected */
-    int tray_open; /* if true, the virtual tray is open */
     int encrypted; /* if true, the media is encrypted */
     int valid_key; /* if true, a valid encryption key has been set */
     int sg;        /* if true, the device is a /dev/sg* */
-    /* event callback when inserting/removing */
-    void (*change_cb)(void *opaque, int reason);
-    void *change_opaque;
 
     BlockDriver *drv; /* NULL means no media */
     void *opaque;
 
-    DeviceState *peer;
+    void *dev;                  /* attached device model, if any */
+    /* TODO change to DeviceState when all users are qdevified */
+    const BlockDevOps *dev_ops;
+    void *dev_opaque;
 
     char filename[1024];
     char backing_file[1024]; /* if non zero, the image is a diff of
                                 this file image */
     char backing_format[16]; /* if non-zero and backing_file exists */
     int is_temporary;
-    int media_changed;
 
     BlockDriverState *backing_hd;
     BlockDriverState *file;
@@ -178,10 +185,9 @@ struct BlockDriverState {
     void *sync_aiocb;
 
     /* I/O stats (display with "info blockstats"). */
-    uint64_t rd_bytes;
-    uint64_t wr_bytes;
-    uint64_t rd_ops;
-    uint64_t wr_ops;
+    uint64_t nr_bytes[BDRV_MAX_IOTYPE];
+    uint64_t nr_ops[BDRV_MAX_IOTYPE];
+    uint64_t total_time_ns[BDRV_MAX_IOTYPE];
     uint64_t wr_highest_sector;
 
     /* Whether the disk can expand beyond total_sectors */
@@ -197,6 +203,8 @@ struct BlockDriverState {
        drivers. They are not used by the block driver */
     int cyls, heads, secs, translation;
     BlockErrorAction on_read_error, on_write_error;
+    bool iostatus_enabled;
+    BlockDeviceIoStatus iostatus;
     char device_name[32];
     unsigned long *dirty_bitmap;
     int64_t dirty_count;
@@ -204,9 +212,6 @@ struct BlockDriverState {
     QTAILQ_ENTRY(BlockDriverState) list;
     void *private;
 };
-
-#define CHANGE_MEDIA    0x01
-#define CHANGE_SIZE     0x02
 
 struct BlockDriverAIOCB {
     AIOPool *pool;
@@ -222,45 +227,8 @@ void *qemu_aio_get(AIOPool *pool, BlockDriverState *bs,
                    BlockDriverCompletionFunc *cb, void *opaque);
 void qemu_aio_release(void *p);
 
-void *qemu_blockalign(BlockDriverState *bs, size_t size);
-
 #ifdef _WIN32
 int is_windows_drive(const char *filename);
 #endif
-
-typedef struct BlockConf {
-    BlockDriverState *bs;
-    uint16_t physical_block_size;
-    uint16_t logical_block_size;
-    uint16_t min_io_size;
-    uint32_t opt_io_size;
-    int32_t bootindex;
-    uint32_t discard_granularity;
-} BlockConf;
-
-static inline unsigned int get_physical_block_exp(BlockConf *conf)
-{
-    unsigned int exp = 0, size;
-
-    for (size = conf->physical_block_size;
-        size > conf->logical_block_size;
-        size >>= 1) {
-        exp++;
-    }
-
-    return exp;
-}
-
-#define DEFINE_BLOCK_PROPERTIES(_state, _conf)                          \
-    DEFINE_PROP_DRIVE("drive", _state, _conf.bs),                       \
-    DEFINE_PROP_UINT16("logical_block_size", _state,                    \
-                       _conf.logical_block_size, 512),                  \
-    DEFINE_PROP_UINT16("physical_block_size", _state,                   \
-                       _conf.physical_block_size, 512),                 \
-    DEFINE_PROP_UINT16("min_io_size", _state, _conf.min_io_size, 0),  \
-    DEFINE_PROP_UINT32("opt_io_size", _state, _conf.opt_io_size, 0),    \
-    DEFINE_PROP_INT32("bootindex", _state, _conf.bootindex, -1),        \
-    DEFINE_PROP_UINT32("discard_granularity", _state, \
-                       _conf.discard_granularity, 0)
 
 #endif /* BLOCK_INT_H */

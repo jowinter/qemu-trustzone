@@ -811,6 +811,8 @@ QemuCocoaView *cocoaView;
 
         char **argv = (char**)malloc( sizeof(char*)*3 );
 
+        [sheet close];
+
         asprintf(&argv[0], "%s", bin);
         asprintf(&argv[1], "-hda");
         asprintf(&argv[2], "%s", img);
@@ -1004,15 +1006,15 @@ static void cocoa_refresh(DisplayState *ds)
 static void cocoa_cleanup(void)
 {
     COCOA_DEBUG("qemu_cocoa: cocoa_cleanup\n");
-	qemu_free(dcl);
+    g_free(dcl);
 }
 
 void cocoa_display_init(DisplayState *ds, int full_screen)
 {
     COCOA_DEBUG("qemu_cocoa: cocoa_display_init\n");
 
-	dcl = qemu_mallocz(sizeof(DisplayChangeListener));
-	
+    dcl = g_malloc0(sizeof(DisplayChangeListener));
+
     // register vga output callbacks
     dcl->dpy_update = cocoa_update;
     dcl->dpy_resize = cocoa_resize;

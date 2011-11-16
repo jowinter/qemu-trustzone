@@ -64,6 +64,7 @@ struct KVMState
     int vmfd;
     int coalesced_mmio;
     struct kvm_coalesced_mmio_ring *coalesced_mmio_ring;
+    bool coalesced_flush_in_progress;
     int broken_set_mem_region;
     int migration_log;
     int vcpu_events;
@@ -400,9 +401,9 @@ static int kvm_physical_sync_dirty_bitmap(target_phys_addr_t start_addr,
         size = ALIGN(((mem->memory_size) >> TARGET_PAGE_BITS),
                      /*HOST_LONG_BITS*/ 64) / 8;
         if (!d.dirty_bitmap) {
-            d.dirty_bitmap = qemu_malloc(size);
+            d.dirty_bitmap = g_malloc(size);
         } else if (size > allocated_size) {
-            d.dirty_bitmap = qemu_realloc(d.dirty_bitmap, size);
+            d.dirty_bitmap = g_realloc(d.dirty_bitmap, size);
         }
         allocated_size = size;
         memset(d.dirty_bitmap, 0, allocated_size);
@@ -419,7 +420,7 @@ static int kvm_physical_sync_dirty_bitmap(target_phys_addr_t start_addr,
                                       mem->start_addr, mem->memory_size);
         start_addr = mem->start_addr + mem->memory_size;
     }
-    qemu_free(d.dirty_bitmap);
+    g_free(d.dirty_bitmap);
 
     return ret;
 }
@@ -479,7 +480,7 @@ static int kvm_check_many_ioeventfds(void)
      * Older kernels have a 6 device limit on the KVM io bus.  Find out so we
      * can avoid creating too many ioeventfds.
      */
-#if defined(CONFIG_EVENTFD) && defined(CONFIG_IOTHREAD)
+#if defined(CONFIG_EVENTFD)
     int ioeventfds[7];
     int i, ret = 0;
     for (i = 0; i < ARRAY_SIZE(ioeventfds); i++) {
@@ -702,7 +703,7 @@ int kvm_init(void)
     int ret;
     int i;
 
-    s = qemu_mallocz(sizeof(KVMState));
+    s = g_malloc0(sizeof(KVMState));
 
 #ifdef KVM_CAP_SET_GUEST_DEBUG
     QTAILQ_INIT(&s->kvm_sw_breakpoints);
@@ -739,6 +740,7 @@ int kvm_init(void)
         fprintf(stderr, "Please add the 'switch_amode' kernel parameter to "
                         "your host kernel command line\n");
 #endif
+        ret = s->vmfd;
         goto err;
     }
 
@@ -797,14 +799,14 @@ int kvm_init(void)
 
 err:
     if (s) {
-        if (s->vmfd != -1) {
+        if (s->vmfd >= 0) {
             close(s->vmfd);
         }
         if (s->fd != -1) {
             close(s->fd);
         }
     }
-    qemu_free(s);
+    g_free(s);
 
     return ret;
 }
@@ -876,6 +878,13 @@ static int kvm_handle_internal_error(CPUState *env, struct kvm_run *run)
 void kvm_flush_coalesced_mmio_buffer(void)
 {
     KVMState *s = kvm_state;
+
+    if (s->coalesced_flush_in_progress) {
+        return;
+    }
+
+    s->coalesced_flush_in_progress = true;
+
     if (s->coalesced_mmio_ring) {
         struct kvm_coalesced_mmio_ring *ring = s->coalesced_mmio_ring;
         while (ring->first != ring->last) {
@@ -888,6 +897,8 @@ void kvm_flush_coalesced_mmio_buffer(void)
             ring->first = (ring->first + 1) % KVM_COALESCED_MMIO_MAX;
         }
     }
+
+    s->coalesced_flush_in_progress = false;
 }
 
 static void do_kvm_cpu_synchronize_state(void *_env)
@@ -1014,7 +1025,7 @@ int kvm_cpu_exec(CPUState *env)
 
     if (ret < 0) {
         cpu_dump_state(env, stderr, fprintf, CPU_DUMP_CODE);
-        vm_stop(VMSTOP_PANIC);
+        vm_stop(RUN_STATE_INTERNAL_ERROR);
     }
 
     env->exit_request = 0;
@@ -1188,7 +1199,7 @@ int kvm_insert_breakpoint(CPUState *current_env, target_ulong addr,
             return 0;
         }
 
-        bp = qemu_malloc(sizeof(struct kvm_sw_breakpoint));
+        bp = g_malloc(sizeof(struct kvm_sw_breakpoint));
         if (!bp) {
             return -ENOMEM;
         }
@@ -1197,7 +1208,7 @@ int kvm_insert_breakpoint(CPUState *current_env, target_ulong addr,
         bp->use_count = 1;
         err = kvm_arch_insert_sw_breakpoint(current_env, bp);
         if (err) {
-            qemu_free(bp);
+            g_free(bp);
             return err;
         }
 
@@ -1243,7 +1254,7 @@ int kvm_remove_breakpoint(CPUState *current_env, target_ulong addr,
         }
 
         QTAILQ_REMOVE(&current_env->kvm_state->kvm_sw_breakpoints, bp, entry);
-        qemu_free(bp);
+        g_free(bp);
     } else {
         err = kvm_arch_remove_hw_breakpoint(addr, len, type);
         if (err) {
@@ -1316,19 +1327,18 @@ int kvm_set_signal_mask(CPUState *env, const sigset_t *sigset)
         return kvm_vcpu_ioctl(env, KVM_SET_SIGNAL_MASK, NULL);
     }
 
-    sigmask = qemu_malloc(sizeof(*sigmask) + sizeof(*sigset));
+    sigmask = g_malloc(sizeof(*sigmask) + sizeof(*sigset));
 
     sigmask->len = 8;
     memcpy(sigmask->sigset, sigset, sizeof(*sigset));
     r = kvm_vcpu_ioctl(env, KVM_SET_SIGNAL_MASK, sigmask);
-    qemu_free(sigmask);
+    g_free(sigmask);
 
     return r;
 }
 
 int kvm_set_ioeventfd_mmio_long(int fd, uint32_t addr, uint32_t val, bool assign)
 {
-#ifdef KVM_IOEVENTFD
     int ret;
     struct kvm_ioeventfd iofd;
 
@@ -1353,14 +1363,10 @@ int kvm_set_ioeventfd_mmio_long(int fd, uint32_t addr, uint32_t val, bool assign
     }
 
     return 0;
-#else
-    return -ENOSYS;
-#endif
 }
 
 int kvm_set_ioeventfd_pio_word(int fd, uint16_t addr, uint16_t val, bool assign)
 {
-#ifdef KVM_IOEVENTFD
     struct kvm_ioeventfd kick = {
         .datamatch = val,
         .addr = addr,
@@ -1380,9 +1386,6 @@ int kvm_set_ioeventfd_pio_word(int fd, uint16_t addr, uint16_t val, bool assign)
         return r;
     }
     return 0;
-#else
-    return -ENOSYS;
-#endif
 }
 
 int kvm_on_sigbus_vcpu(CPUState *env, int code, void *addr)

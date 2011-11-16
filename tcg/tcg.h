@@ -22,6 +22,16 @@
  * THE SOFTWARE.
  */
 #include "qemu-common.h"
+
+/* Target word size (must be identical to pointer size). */
+#if UINTPTR_MAX == UINT32_MAX
+# define TCG_TARGET_REG_BITS 32
+#elif UINTPTR_MAX == UINT64_MAX
+# define TCG_TARGET_REG_BITS 64
+#else
+# error Unknown pointer size for tcg target
+#endif
+
 #include "tcg-target.h"
 #include "tcg-runtime.h"
 
@@ -45,6 +55,49 @@ typedef uint32_t TCGRegSet;
 typedef uint64_t TCGRegSet;
 #else
 #error unsupported
+#endif
+
+/* Turn some undef macros into false macros.  */
+#if TCG_TARGET_REG_BITS == 32
+#define TCG_TARGET_HAS_div_i64          0
+#define TCG_TARGET_HAS_div2_i64         0
+#define TCG_TARGET_HAS_rot_i64          0
+#define TCG_TARGET_HAS_ext8s_i64        0
+#define TCG_TARGET_HAS_ext16s_i64       0
+#define TCG_TARGET_HAS_ext32s_i64       0
+#define TCG_TARGET_HAS_ext8u_i64        0
+#define TCG_TARGET_HAS_ext16u_i64       0
+#define TCG_TARGET_HAS_ext32u_i64       0
+#define TCG_TARGET_HAS_bswap16_i64      0
+#define TCG_TARGET_HAS_bswap32_i64      0
+#define TCG_TARGET_HAS_bswap64_i64      0
+#define TCG_TARGET_HAS_neg_i64          0
+#define TCG_TARGET_HAS_not_i64          0
+#define TCG_TARGET_HAS_andc_i64         0
+#define TCG_TARGET_HAS_orc_i64          0
+#define TCG_TARGET_HAS_eqv_i64          0
+#define TCG_TARGET_HAS_nand_i64         0
+#define TCG_TARGET_HAS_nor_i64          0
+#define TCG_TARGET_HAS_deposit_i64      0
+#endif
+
+#ifndef TCG_TARGET_deposit_i32_valid
+#define TCG_TARGET_deposit_i32_valid(ofs, len) 1
+#endif
+#ifndef TCG_TARGET_deposit_i64_valid
+#define TCG_TARGET_deposit_i64_valid(ofs, len) 1
+#endif
+
+/* Only one of DIV or DIV2 should be defined.  */
+#if defined(TCG_TARGET_HAS_div_i32)
+#define TCG_TARGET_HAS_div2_i32         0
+#elif defined(TCG_TARGET_HAS_div2_i32)
+#define TCG_TARGET_HAS_div_i32          0
+#endif
+#if defined(TCG_TARGET_HAS_div_i64)
+#define TCG_TARGET_HAS_div2_i64         0
+#elif defined(TCG_TARGET_HAS_div2_i64)
+#define TCG_TARGET_HAS_div_i64          0
 #endif
 
 typedef enum TCGOpcode {
@@ -122,7 +175,7 @@ typedef enum TCGType {
 
 typedef tcg_target_ulong TCGArg;
 
-/* Define a type and accessor macros for varables.  Using a struct is
+/* Define a type and accessor macros for variables.  Using a struct is
    nice because it gives some level of type safely.  Ideally the compiler
    be able to see through all this.  However in practice this is not true,
    expecially on targets with braindamaged ABIs (e.g. i386).
@@ -410,6 +463,11 @@ static inline TCGv_i64 tcg_temp_local_new_i64(void)
 void tcg_temp_free_i64(TCGv_i64 arg);
 char *tcg_get_arg_str_i64(TCGContext *s, char *buf, int buf_size, TCGv_i64 arg);
 
+static inline bool tcg_arg_is_local(TCGContext *s, TCGArg arg)
+{
+    return s->temps[arg].temp_local;
+}
+
 #if defined(CONFIG_DEBUG_TCG)
 /* If you call tcg_clear_temp_count() at the start of a section of
  * code which is not supposed to leak any TCG temporaries, then
@@ -440,13 +498,20 @@ typedef struct TCGArgConstraint {
 
 #define TCG_MAX_OP_ARGS 16
 
-#define TCG_OPF_BB_END     0x01 /* instruction defines the end of a basic
-                                   block */
-#define TCG_OPF_CALL_CLOBBER 0x02 /* instruction clobbers call registers 
-                                   and potentially update globals. */
-#define TCG_OPF_SIDE_EFFECTS 0x04 /* instruction has side effects : it
-                                     cannot be removed if its output
-                                     are not used */
+/* Bits for TCGOpDef->flags, 8 bits available.  */
+enum {
+    /* Instruction defines the end of a basic block.  */
+    TCG_OPF_BB_END       = 0x01,
+    /* Instruction clobbers call registers and potentially update globals.  */
+    TCG_OPF_CALL_CLOBBER = 0x02,
+    /* Instruction has side effects: it cannot be removed
+       if its outputs are not used.  */
+    TCG_OPF_SIDE_EFFECTS = 0x04,
+    /* Instruction operands are 64-bits (otherwise 32-bits).  */
+    TCG_OPF_64BIT        = 0x08,
+    /* Instruction is optional and not implemented by the host.  */
+    TCG_OPF_NOT_PRESENT  = 0x10,
+};
 
 typedef struct TCGOpDef {
     const char *name;
@@ -458,7 +523,10 @@ typedef struct TCGOpDef {
     int used;
 #endif
 } TCGOpDef;
-        
+
+extern TCGOpDef tcg_op_defs[];
+extern const size_t tcg_op_defs_max;
+
 typedef struct TCGTargetOpDef {
     TCGOpcode op;
     const char *args_ct_str[TCG_MAX_OP_ARGS];
@@ -517,10 +585,9 @@ TCGv_i32 tcg_const_local_i32(int32_t val);
 TCGv_i64 tcg_const_local_i64(int64_t val);
 
 extern uint8_t code_gen_prologue[];
-#if defined(_ARCH_PPC) && !defined(_ARCH_PPC64)
-#define tcg_qemu_tb_exec(env, tb_ptr)                                    \
-    ((long REGPARM __attribute__ ((longcall)) (*)(void *, void *))code_gen_prologue)(env, tb_ptr)
-#else
-#define tcg_qemu_tb_exec(env, tb_ptr)                                    \
+
+/* TCG targets may use a different definition of tcg_qemu_tb_exec. */
+#if !defined(tcg_qemu_tb_exec)
+# define tcg_qemu_tb_exec(env, tb_ptr) \
     ((long REGPARM (*)(void *, void *))code_gen_prologue)(env, tb_ptr)
 #endif

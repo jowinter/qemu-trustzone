@@ -37,6 +37,7 @@
 #include "qemu-common.h"
 #include "qemu-error.h"
 #include "usb.h"
+#include "usb-desc.h"
 #include "monitor.h"
 
 #include "hw/ccid.h"
@@ -176,56 +177,56 @@ enum {
      */
 };
 
-typedef struct __attribute__ ((__packed__)) CCID_Header {
+typedef struct QEMU_PACKED CCID_Header {
     uint8_t     bMessageType;
     uint32_t    dwLength;
     uint8_t     bSlot;
     uint8_t     bSeq;
 } CCID_Header;
 
-typedef struct __attribute__ ((__packed__)) CCID_BULK_IN {
+typedef struct QEMU_PACKED CCID_BULK_IN {
     CCID_Header hdr;
     uint8_t     bStatus;        /* Only used in BULK_IN */
     uint8_t     bError;         /* Only used in BULK_IN */
 } CCID_BULK_IN;
 
-typedef struct __attribute__ ((__packed__)) CCID_SlotStatus {
+typedef struct QEMU_PACKED CCID_SlotStatus {
     CCID_BULK_IN b;
     uint8_t     bClockStatus;
 } CCID_SlotStatus;
 
-typedef struct __attribute__ ((__packed__)) CCID_Parameter {
+typedef struct QEMU_PACKED CCID_Parameter {
     CCID_BULK_IN b;
     uint8_t     bProtocolNum;
     uint8_t     abProtocolDataStructure[0];
 } CCID_Parameter;
 
-typedef struct __attribute__ ((__packed__)) CCID_DataBlock {
+typedef struct QEMU_PACKED CCID_DataBlock {
     CCID_BULK_IN b;
     uint8_t      bChainParameter;
     uint8_t      abData[0];
 } CCID_DataBlock;
 
 /* 6.1.4 PC_to_RDR_XfrBlock */
-typedef struct __attribute__ ((__packed__)) CCID_XferBlock {
+typedef struct QEMU_PACKED CCID_XferBlock {
     CCID_Header  hdr;
     uint8_t      bBWI; /* Block Waiting Timeout */
     uint16_t     wLevelParameter; /* XXX currently unused */
     uint8_t      abData[0];
 } CCID_XferBlock;
 
-typedef struct __attribute__ ((__packed__)) CCID_IccPowerOn {
+typedef struct QEMU_PACKED CCID_IccPowerOn {
     CCID_Header hdr;
     uint8_t     bPowerSelect;
     uint16_t    abRFU;
 } CCID_IccPowerOn;
 
-typedef struct __attribute__ ((__packed__)) CCID_IccPowerOff {
+typedef struct QEMU_PACKED CCID_IccPowerOff {
     CCID_Header hdr;
     uint16_t    abRFU;
 } CCID_IccPowerOff;
 
-typedef struct __attribute__ ((__packed__)) CCID_SetParameters {
+typedef struct QEMU_PACKED CCID_SetParameters {
     CCID_Header hdr;
     uint8_t     bProtocolNum;
     uint16_t   abRFU;
@@ -306,56 +307,7 @@ typedef struct USBCCIDState {
  *   0dc3:1004 Athena Smartcard Solutions, Inc.
  */
 
-static const uint8_t qemu_ccid_dev_descriptor[] = {
-        0x12,       /*  u8 bLength; */
-        USB_DT_DEVICE, /*  u8 bDescriptorType; Device */
-        0x10, 0x01, /*  u16 bcdUSB; v1.1 */
-
-        0x00,       /*  u8  bDeviceClass; */
-        0x00,       /*  u8  bDeviceSubClass; */
-        0x00,       /*  u8  bDeviceProtocol; [ low/full speeds only ] */
-        0x40,       /*  u8  bMaxPacketSize0; 8 Bytes (valid: 8,16,32,64) */
-
-        /* Vendor and product id are arbitrary.  */
-                    /*  u16 idVendor  */
-        CCID_VENDOR_ID & 0xff, CCID_VENDOR_ID >> 8,
-                    /*  u16 idProduct */
-        CCID_PRODUCT_ID & 0xff, CCID_PRODUCT_ID >> 8,
-                    /*  u16 bcdDevice */
-        CCID_DEVICE_VERSION & 0xff, CCID_DEVICE_VERSION >> 8,
-        0x01,       /*  u8  iManufacturer; */
-        0x02,       /*  u8  iProduct; */
-        0x03,       /*  u8  iSerialNumber; */
-        0x01,       /*  u8  bNumConfigurations; */
-};
-
-static const uint8_t qemu_ccid_config_descriptor[] = {
-
-        /* one configuration */
-        0x09,       /* u8  bLength; */
-        USB_DT_CONFIG, /* u8  bDescriptorType; Configuration */
-        0x5d, 0x00, /* u16 wTotalLength; 9+9+54+7+7+7 */
-        0x01,       /* u8  bNumInterfaces; (1) */
-        0x01,       /* u8  bConfigurationValue; */
-        0x00,       /* u8  iConfiguration; */
-        0xe0,       /* u8  bmAttributes;
-                                 Bit 7: must be set,
-                                     6: Self-powered,
-                                     5: Remote wakeup,
-                                     4..0: resvd */
-        100/2,      /* u8  MaxPower; 50 == 100mA */
-
-        /* one interface */
-        0x09,       /* u8  if_bLength; */
-        USB_DT_INTERFACE, /* u8  if_bDescriptorType; Interface */
-        0x00,       /* u8  if_bInterfaceNumber; */
-        0x00,       /* u8  if_bAlternateSetting; */
-        0x03,       /* u8  if_bNumEndpoints; */
-        0x0b,       /* u8  if_bInterfaceClass; Smart Card Device Class */
-        0x00,       /* u8  if_bInterfaceSubClass; Subclass code */
-        0x00,       /* u8  if_bInterfaceProtocol; Protocol code */
-        0x04,       /* u8  if_iInterface; Index of string descriptor */
-
+static const uint8_t qemu_ccid_descriptor[] = {
         /* Smart Card Device Class Descriptor */
         0x36,       /* u8  bLength; */
         0x21,       /* u8  bDescriptorType; Functional */
@@ -439,38 +391,81 @@ static const uint8_t qemu_ccid_config_descriptor[] = {
                      *                  02h PIN Modification
                      */
         0x01,       /* u8  bMaxCCIDBusySlots; */
+};
 
-        /* Interrupt-IN endpoint */
-        0x07,       /* u8  ep_bLength; */
-                    /* u8  ep_bDescriptorType; Endpoint */
-        USB_DT_ENDPOINT,
-                    /* u8  ep_bEndpointAddress; IN Endpoint 1 */
-        0x80 | CCID_INT_IN_EP,
-        0x03,       /* u8  ep_bmAttributes; Interrupt */
-                    /* u16 ep_wMaxPacketSize; */
-        CCID_MAX_PACKET_SIZE & 0xff, (CCID_MAX_PACKET_SIZE >> 8),
-        0xff,       /* u8  ep_bInterval; */
+enum {
+    STR_MANUFACTURER = 1,
+    STR_PRODUCT,
+    STR_SERIALNUMBER,
+    STR_INTERFACE,
+};
 
-        /* Bulk-In endpoint */
-        0x07,       /* u8  ep_bLength; */
-                    /* u8  ep_bDescriptorType; Endpoint */
-        USB_DT_ENDPOINT,
-                    /* u8  ep_bEndpointAddress; IN Endpoint 2 */
-        0x80 | CCID_BULK_IN_EP,
-        0x02,       /* u8  ep_bmAttributes; Bulk */
-        0x40, 0x00, /* u16 ep_wMaxPacketSize; */
-        0x00,       /* u8  ep_bInterval; */
+static const USBDescStrings desc_strings = {
+    [STR_MANUFACTURER]  = "QEMU " QEMU_VERSION,
+    [STR_PRODUCT]       = "QEMU USB CCID",
+    [STR_SERIALNUMBER]  = "1",
+    [STR_INTERFACE]     = "CCID Interface",
+};
 
-        /* Bulk-Out endpoint */
-        0x07,       /* u8  ep_bLength; */
-                    /* u8  ep_bDescriptorType; Endpoint */
-        USB_DT_ENDPOINT,
-                    /* u8  ep_bEndpointAddress; OUT Endpoint 3 */
-        CCID_BULK_OUT_EP,
-        0x02,       /* u8  ep_bmAttributes; Bulk */
-        0x40, 0x00, /* u16 ep_wMaxPacketSize; */
-        0x00,       /* u8  ep_bInterval; */
+static const USBDescIface desc_iface0 = {
+    .bInterfaceNumber              = 0,
+    .bNumEndpoints                 = 3,
+    .bInterfaceClass               = 0x0b,
+    .bInterfaceSubClass            = 0x00,
+    .bInterfaceProtocol            = 0x00,
+    .iInterface                    = STR_INTERFACE,
+    .ndesc                         = 1,
+    .descs = (USBDescOther[]) {
+        {
+            /* smartcard descriptor */
+            .data = qemu_ccid_descriptor,
+        },
+    },
+    .eps = (USBDescEndpoint[]) {
+        {
+            .bEndpointAddress      = USB_DIR_IN | CCID_INT_IN_EP,
+            .bmAttributes          = USB_ENDPOINT_XFER_INT,
+            .bInterval             = 255,
+            .wMaxPacketSize        = 64,
+        },{
+            .bEndpointAddress      = USB_DIR_IN | CCID_BULK_IN_EP,
+            .bmAttributes          = USB_ENDPOINT_XFER_BULK,
+            .wMaxPacketSize        = 64,
+        },{
+            .bEndpointAddress      = USB_DIR_OUT | CCID_BULK_OUT_EP,
+            .bmAttributes          = USB_ENDPOINT_XFER_BULK,
+            .wMaxPacketSize        = 64,
+        },
+    }
+};
 
+static const USBDescDevice desc_device = {
+    .bcdUSB                        = 0x0110,
+    .bMaxPacketSize0               = 64,
+    .bNumConfigurations            = 1,
+    .confs = (USBDescConfig[]) {
+        {
+            .bNumInterfaces        = 1,
+            .bConfigurationValue   = 1,
+            .bmAttributes          = 0xa0,
+            .bMaxPower             = 50,
+            .nif = 1,
+            .ifs = &desc_iface0,
+        },
+    },
+};
+
+static const USBDesc desc_ccid = {
+    .id = {
+        .idVendor          = CCID_VENDOR_ID,
+        .idProduct         = CCID_PRODUCT_ID,
+        .bcdDevice         = CCID_DEVICE_VERSION,
+        .iManufacturer     = STR_MANUFACTURER,
+        .iProduct          = STR_PRODUCT,
+        .iSerialNumber     = STR_SERIALNUMBER,
+    },
+    .full = &desc_device,
+    .str  = desc_strings,
 };
 
 static bool ccid_has_pending_answers(USBCCIDState *s)
@@ -610,95 +605,17 @@ static int ccid_handle_control(USBDevice *dev, USBPacket *p, int request,
     int ret = 0;
 
     DPRINTF(s, 1, "got control %x, value %x\n", request, value);
+    ret = usb_desc_handle_control(dev, p, request, value, index, length, data);
+    if (ret >= 0) {
+        return ret;
+    }
+
     switch (request) {
-    case DeviceRequest | USB_REQ_GET_STATUS:
-        data[0] = (1 << USB_DEVICE_SELF_POWERED) |
-            (dev->remote_wakeup << USB_DEVICE_REMOTE_WAKEUP);
-        data[1] = 0x00;
-        ret = 2;
-        break;
-    case DeviceOutRequest | USB_REQ_CLEAR_FEATURE:
-        if (value == USB_DEVICE_REMOTE_WAKEUP) {
-            dev->remote_wakeup = 0;
-        } else {
-            goto fail;
-        }
-        ret = 0;
-        break;
-    case DeviceOutRequest | USB_REQ_SET_FEATURE:
-        if (value == USB_DEVICE_REMOTE_WAKEUP) {
-            dev->remote_wakeup = 1;
-        } else {
-            goto fail;
-        }
-        ret = 0;
-        break;
-    case DeviceOutRequest | USB_REQ_SET_ADDRESS:
-        dev->addr = value;
-        ret = 0;
-        break;
-    case DeviceRequest | USB_REQ_GET_DESCRIPTOR:
-        switch (value >> 8) {
-        case USB_DT_DEVICE:
-            memcpy(data, qemu_ccid_dev_descriptor,
-                   sizeof(qemu_ccid_dev_descriptor));
-            ret = sizeof(qemu_ccid_dev_descriptor);
-            break;
-        case USB_DT_CONFIG:
-            memcpy(data, qemu_ccid_config_descriptor,
-                   sizeof(qemu_ccid_config_descriptor));
-            ret = sizeof(qemu_ccid_config_descriptor);
-            break;
-        case USB_DT_STRING:
-            switch (value & 0xff) {
-            case 0:
-                /* language ids */
-                data[0] = 4;
-                data[1] = 3;
-                data[2] = 0x09;
-                data[3] = 0x04;
-                ret = 4;
-                break;
-            case 1:
-                /* vendor description */
-                ret = set_usb_string(data, CCID_VENDOR_DESCRIPTION);
-                break;
-            case 2:
-                /* product description */
-                ret = set_usb_string(data, CCID_PRODUCT_DESCRIPTION);
-                break;
-            case 3:
-                /* serial number */
-                ret = set_usb_string(data, CCID_SERIAL_NUMBER_STRING);
-                break;
-            case 4:
-                /* interface name */
-                ret = set_usb_string(data, CCID_INTERFACE_NAME);
-                break;
-            default:
-                goto fail;
-            }
-            break;
-        default:
-            goto fail;
-        }
-        break;
-    case DeviceRequest | USB_REQ_GET_CONFIGURATION:
-        data[0] = 1;
-        ret = 1;
-        break;
-    case DeviceOutRequest | USB_REQ_SET_CONFIGURATION:
-        /* Only one configuration - we just ignore the request */
-        ret = 0;
-        break;
     case DeviceRequest | USB_REQ_GET_INTERFACE:
         data[0] = 0;
         ret = 1;
         break;
     case InterfaceOutRequest | USB_REQ_SET_INTERFACE:
-        ret = 0;
-        break;
-    case EndpointOutRequest | USB_REQ_CLEAR_FEATURE:
         ret = 0;
         break;
 
@@ -716,7 +633,6 @@ static int ccid_handle_control(USBDevice *dev, USBPacket *p, int request,
         ret = USB_RET_STALL;
         break;
     default:
-fail:
         DPRINTF(s, 1, "got unsupported/bogus control %x, value %x\n",
                 request, value);
         ret = USB_RET_STALL;
@@ -895,6 +811,7 @@ static void ccid_on_slot_change(USBCCIDState *s, bool full)
         s->bmSlotICCState |= SLOT_0_CHANGED_MASK;
     }
     s->notify_slot_change = true;
+    usb_wakeup(&s->dev);
 }
 
 static void ccid_write_data_block_error(
@@ -934,16 +851,16 @@ static int ccid_handle_bulk_out(USBCCIDState *s, USBPacket *p)
 {
     CCID_Header *ccid_header;
 
-    if (p->len + s->bulk_out_pos > BULK_OUT_DATA_SIZE) {
+    if (p->iov.size + s->bulk_out_pos > BULK_OUT_DATA_SIZE) {
         return USB_RET_STALL;
     }
     ccid_header = (CCID_Header *)s->bulk_out_data;
-    memcpy(s->bulk_out_data + s->bulk_out_pos, p->data, p->len);
-    s->bulk_out_pos += p->len;
-    if (p->len == CCID_MAX_PACKET_SIZE) {
+    usb_packet_copy(p, s->bulk_out_data + s->bulk_out_pos, p->iov.size);
+    s->bulk_out_pos += p->iov.size;
+    if (p->iov.size == CCID_MAX_PACKET_SIZE) {
         DPRINTF(s, D_VERBOSE,
-            "usb-ccid: bulk_in: expecting more packets (%d/%d)\n",
-            p->len, ccid_header->dwLength);
+            "usb-ccid: bulk_in: expecting more packets (%zd/%d)\n",
+            p->iov.size, ccid_header->dwLength);
         return 0;
     }
     if (s->bulk_out_pos < 10) {
@@ -1006,15 +923,17 @@ static int ccid_handle_bulk_out(USBCCIDState *s, USBPacket *p)
     return 0;
 }
 
-static int ccid_bulk_in_copy_to_guest(USBCCIDState *s, uint8_t *data, int len)
+static int ccid_bulk_in_copy_to_guest(USBCCIDState *s, USBPacket *p)
 {
     int ret = 0;
 
-    assert(len > 0);
+    assert(p->iov.size > 0);
     ccid_bulk_in_get(s);
     if (s->current_bulk_in != NULL) {
-        ret = MIN(s->current_bulk_in->len - s->current_bulk_in->pos, len);
-        memcpy(data, s->current_bulk_in->data + s->current_bulk_in->pos, ret);
+        ret = MIN(s->current_bulk_in->len - s->current_bulk_in->pos,
+                  p->iov.size);
+        usb_packet_copy(p, s->current_bulk_in->data +
+                        s->current_bulk_in->pos, ret);
         s->current_bulk_in->pos += ret;
         if (s->current_bulk_in->pos == s->current_bulk_in->len) {
             ccid_bulk_in_release(s);
@@ -1025,11 +944,13 @@ static int ccid_bulk_in_copy_to_guest(USBCCIDState *s, uint8_t *data, int len)
     }
     if (ret > 0) {
         DPRINTF(s, D_MORE_INFO,
-                "%s: %d/%d req/act to guest (BULK_IN)\n", __func__, len, ret);
+                "%s: %zd/%d req/act to guest (BULK_IN)\n",
+                __func__, p->iov.size, ret);
     }
-    if (ret != USB_RET_NAK && ret < len) {
+    if (ret != USB_RET_NAK && ret < p->iov.size) {
         DPRINTF(s, 1,
-            "%s: returning short (EREMOTEIO) %d < %d\n", __func__, ret, len);
+                "%s: returning short (EREMOTEIO) %d < %zd\n",
+                __func__, ret, p->iov.size);
     }
     return ret;
 }
@@ -1038,8 +959,7 @@ static int ccid_handle_data(USBDevice *dev, USBPacket *p)
 {
     USBCCIDState *s = DO_UPCAST(USBCCIDState, dev, dev);
     int ret = 0;
-    uint8_t *data = p->data;
-    int len = p->len;
+    uint8_t buf[2];
 
     switch (p->pid) {
     case USB_TOKEN_OUT:
@@ -1049,28 +969,30 @@ static int ccid_handle_data(USBDevice *dev, USBPacket *p)
     case USB_TOKEN_IN:
         switch (p->devep & 0xf) {
         case CCID_BULK_IN_EP:
-            if (!len) {
+            if (!p->iov.size) {
                 ret = USB_RET_NAK;
             } else {
-                ret = ccid_bulk_in_copy_to_guest(s, data, len);
+                ret = ccid_bulk_in_copy_to_guest(s, p);
             }
             break;
         case CCID_INT_IN_EP:
             if (s->notify_slot_change) {
                 /* page 56, RDR_to_PC_NotifySlotChange */
-                data[0] = CCID_MESSAGE_TYPE_RDR_to_PC_NotifySlotChange;
-                data[1] = s->bmSlotICCState;
+                buf[0] = CCID_MESSAGE_TYPE_RDR_to_PC_NotifySlotChange;
+                buf[1] = s->bmSlotICCState;
+                usb_packet_copy(p, buf, 2);
                 ret = 2;
                 s->notify_slot_change = false;
                 s->bmSlotICCState &= ~SLOT_0_CHANGED_MASK;
                 DPRINTF(s, D_INFO,
                         "handle_data: int_in: notify_slot_change %X, "
-                        "requested len %d\n",
-                        s->bmSlotICCState, len);
+                        "requested len %zd\n",
+                        s->bmSlotICCState, p->iov.size);
             }
             break;
         default:
             DPRINTF(s, 1, "Bad endpoint\n");
+            ret = USB_RET_STALL;
             break;
         }
         break;
@@ -1252,6 +1174,7 @@ static int ccid_initfn(USBDevice *dev)
 {
     USBCCIDState *s = DO_UPCAST(USBCCIDState, dev, dev);
 
+    usb_desc_init(dev);
     qbus_create_inplace(&s->bus.qbus, &ccid_bus_info, &dev->qdev, NULL);
     s->bus.qbus.allow_hotplug = 1;
     s->card = NULL;
@@ -1377,6 +1300,7 @@ static struct USBDeviceInfo ccid_info = {
     .qdev.desc      = "CCID Rev 1.1 smartcard reader",
     .qdev.size      = sizeof(USBCCIDState),
     .init           = ccid_initfn,
+    .usb_desc       = &desc_ccid,
     .handle_packet  = usb_generic_handle_packet,
     .handle_reset   = ccid_handle_reset,
     .handle_control = ccid_handle_control,

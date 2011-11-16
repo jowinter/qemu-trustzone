@@ -110,6 +110,7 @@ struct vhd_dyndisk_header {
 };
 
 typedef struct BDRVVPCState {
+    CoMutex lock;
     uint8_t footer_buf[HEADER_SIZE];
     uint64_t free_data_block_offset;
     int max_table_entries;
@@ -156,6 +157,7 @@ static int vpc_open(BlockDriverState *bs, int flags)
     struct vhd_dyndisk_header* dyndisk_header;
     uint8_t buf[HEADER_SIZE];
     uint32_t checksum;
+    int err = -1;
 
     if (bdrv_pread(bs->file, 0, s->footer_buf, HEADER_SIZE) != HEADER_SIZE)
         goto fail;
@@ -176,6 +178,11 @@ static int vpc_open(BlockDriverState *bs, int flags)
     bs->total_sectors = (int64_t)
         be16_to_cpu(footer->cyls) * footer->heads * footer->secs_per_cyl;
 
+    if (bs->total_sectors >= 65535 * 16 * 255) {
+        err = -EFBIG;
+        goto fail;
+    }
+
     if (bdrv_pread(bs->file, be64_to_cpu(footer->data_offset), buf, HEADER_SIZE)
             != HEADER_SIZE)
         goto fail;
@@ -190,7 +197,7 @@ static int vpc_open(BlockDriverState *bs, int flags)
     s->bitmap_size = ((s->block_size / (8 * 512)) + 511) & ~511;
 
     s->max_table_entries = be32_to_cpu(dyndisk_header->max_table_entries);
-    s->pagetable = qemu_malloc(s->max_table_entries * 4);
+    s->pagetable = g_malloc(s->max_table_entries * 4);
 
     s->bat_offset = be64_to_cpu(dyndisk_header->table_offset);
     if (bdrv_pread(bs->file, s->bat_offset, s->pagetable,
@@ -214,15 +221,16 @@ static int vpc_open(BlockDriverState *bs, int flags)
     s->last_bitmap_offset = (int64_t) -1;
 
 #ifdef CACHE
-    s->pageentry_u8 = qemu_malloc(512);
+    s->pageentry_u8 = g_malloc(512);
     s->pageentry_u32 = s->pageentry_u8;
     s->pageentry_u16 = s->pageentry_u8;
     s->last_pagetable = -1;
 #endif
 
+    qemu_co_mutex_init(&s->lock);
     return 0;
  fail:
-    return -1;
+    return err;
 }
 
 /*
@@ -401,6 +409,17 @@ static int vpc_read(BlockDriverState *bs, int64_t sector_num,
     return 0;
 }
 
+static coroutine_fn int vpc_co_read(BlockDriverState *bs, int64_t sector_num,
+                                    uint8_t *buf, int nb_sectors)
+{
+    int ret;
+    BDRVVPCState *s = bs->opaque;
+    qemu_co_mutex_lock(&s->lock);
+    ret = vpc_read(bs, sector_num, buf, nb_sectors);
+    qemu_co_mutex_unlock(&s->lock);
+    return ret;
+}
+
 static int vpc_write(BlockDriverState *bs, int64_t sector_num,
     const uint8_t *buf, int nb_sectors)
 {
@@ -437,9 +456,20 @@ static int vpc_write(BlockDriverState *bs, int64_t sector_num,
     return 0;
 }
 
-static int vpc_flush(BlockDriverState *bs)
+static coroutine_fn int vpc_co_write(BlockDriverState *bs, int64_t sector_num,
+                                     const uint8_t *buf, int nb_sectors)
 {
-    return bdrv_flush(bs->file);
+    int ret;
+    BDRVVPCState *s = bs->opaque;
+    qemu_co_mutex_lock(&s->lock);
+    ret = vpc_write(bs, sector_num, buf, nb_sectors);
+    qemu_co_mutex_unlock(&s->lock);
+    return ret;
+}
+
+static coroutine_fn int vpc_co_flush(BlockDriverState *bs)
+{
+    return bdrv_co_flush(bs->file);
 }
 
 /*
@@ -613,9 +643,9 @@ static int vpc_create(const char *filename, QEMUOptionParameter *options)
 static void vpc_close(BlockDriverState *bs)
 {
     BDRVVPCState *s = bs->opaque;
-    qemu_free(s->pagetable);
+    g_free(s->pagetable);
 #ifdef CACHE
-    qemu_free(s->pageentry_u8);
+    g_free(s->pageentry_u8);
 #endif
 }
 
@@ -633,9 +663,9 @@ static BlockDriver bdrv_vpc = {
     .instance_size  = sizeof(BDRVVPCState),
     .bdrv_probe     = vpc_probe,
     .bdrv_open      = vpc_open,
-    .bdrv_read      = vpc_read,
-    .bdrv_write     = vpc_write,
-    .bdrv_flush     = vpc_flush,
+    .bdrv_read      = vpc_co_read,
+    .bdrv_write     = vpc_co_write,
+    .bdrv_co_flush  = vpc_co_flush,
     .bdrv_close     = vpc_close,
     .bdrv_create    = vpc_create,
 

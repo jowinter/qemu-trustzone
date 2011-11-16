@@ -42,6 +42,8 @@ typedef struct mpcore_priv_state {
     int iomemtype;
     mpcore_timer_state timer[8];
     uint32_t num_cpu;
+    MemoryRegion iomem;
+    MemoryRegion container;
 } mpcore_priv_state;
 
 /* Per-CPU Timers.  */
@@ -153,7 +155,8 @@ static void mpcore_timer_init(mpcore_priv_state *mpcore,
 
 /* Per-CPU private memory mapped IO.  */
 
-static uint32_t mpcore_priv_read(void *opaque, target_phys_addr_t offset)
+static uint64_t mpcore_priv_read(void *opaque, target_phys_addr_t offset,
+                                 unsigned size)
 {
     mpcore_priv_state *s = (mpcore_priv_state *)opaque;
     int id;
@@ -209,7 +212,7 @@ bad_reg:
 }
 
 static void mpcore_priv_write(void *opaque, target_phys_addr_t offset,
-                          uint32_t value)
+                              uint64_t value, unsigned size)
 {
     mpcore_priv_state *s = (mpcore_priv_state *)opaque;
     int id;
@@ -262,23 +265,19 @@ bad_reg:
     hw_error("mpcore_priv_write: Bad offset %x\n", (int)offset);
 }
 
-static CPUReadMemoryFunc * const mpcore_priv_readfn[] = {
-   mpcore_priv_read,
-   mpcore_priv_read,
-   mpcore_priv_read
+static const MemoryRegionOps mpcore_priv_ops = {
+    .read = mpcore_priv_read,
+    .write = mpcore_priv_write,
+    .endianness = DEVICE_NATIVE_ENDIAN,
 };
 
-static CPUWriteMemoryFunc * const mpcore_priv_writefn[] = {
-   mpcore_priv_write,
-   mpcore_priv_write,
-   mpcore_priv_write
-};
-
-static void mpcore_priv_map(SysBusDevice *dev, target_phys_addr_t base)
+static void mpcore_priv_map_setup(mpcore_priv_state *s)
 {
-    mpcore_priv_state *s = FROM_SYSBUSGIC(mpcore_priv_state, dev);
-    cpu_register_physical_memory(base, 0x1000, s->iomemtype);
-    cpu_register_physical_memory(base + 0x1000, 0x1000, s->gic.iomemtype);
+    memory_region_init(&s->container, "mpcode-priv-container", 0x2000);
+    memory_region_init_io(&s->iomem, &mpcore_priv_ops, s, "mpcode-priv",
+                          0x1000);
+    memory_region_add_subregion(&s->container, 0, &s->iomem);
+    memory_region_add_subregion(&s->container, 0x1000, &s->gic.iomem);
 }
 
 static int mpcore_priv_init(SysBusDevice *dev)
@@ -289,10 +288,8 @@ static int mpcore_priv_init(SysBusDevice *dev)
     s->access = 0xf;
 
     gic_init(&s->gic, s->num_cpu);
-    s->iomemtype = cpu_register_io_memory(mpcore_priv_readfn,
-                                          mpcore_priv_writefn, s,
-                                          DEVICE_NATIVE_ENDIAN);
-    sysbus_init_mmio_cb(dev, 0x2000, mpcore_priv_map);
+    mpcore_priv_map_setup(s);
+    sysbus_init_mmio_region(dev, &s->container);
     for (i = 0; i < s->num_cpu * 2; i++) {
         mpcore_timer_init(s, &s->timer[i], i);
     }

@@ -154,6 +154,12 @@ static int net_socket_mcast_create(struct sockaddr_in *mcastaddr, struct in_addr
     struct ip_mreq imr;
     int fd;
     int val, ret;
+#ifdef __OpenBSD__
+    unsigned char loop;
+#else
+    int loop;
+#endif
+
     if (!IN_MULTICAST(ntohl(mcastaddr->sin_addr.s_addr))) {
 	fprintf(stderr, "qemu: error: specified mcastaddr \"%s\" (0x%08x) does not contain a multicast address\n",
 		inet_ntoa(mcastaddr->sin_addr),
@@ -197,9 +203,9 @@ static int net_socket_mcast_create(struct sockaddr_in *mcastaddr, struct in_addr
     }
 
     /* Force mcast msgs to loopback (eg. several QEMUs in same host */
-    val = 1;
+    loop = 1;
     ret=setsockopt(fd, IPPROTO_IP, IP_MULTICAST_LOOP,
-                   (const char *)&val, sizeof(val));
+                   (const char *)&loop, sizeof(loop));
     if (ret < 0) {
 	perror("setsockopt(SOL_IP, IP_MULTICAST_LOOP)");
 	goto fail;
@@ -398,7 +404,7 @@ static int net_socket_listen_init(VLANState *vlan,
     if (parse_host_port(&saddr, host_str) < 0)
         return -1;
 
-    s = qemu_mallocz(sizeof(NetSocketListenState));
+    s = g_malloc0(sizeof(NetSocketListenState));
 
     fd = qemu_socket(PF_INET, SOCK_STREAM, 0);
     if (fd < 0) {
@@ -422,8 +428,8 @@ static int net_socket_listen_init(VLANState *vlan,
         return -1;
     }
     s->vlan = vlan;
-    s->model = qemu_strdup(model);
-    s->name = name ? qemu_strdup(name) : NULL;
+    s->model = g_strdup(model);
+    s->name = name ? g_strdup(name) : NULL;
     s->fd = fd;
     qemu_set_fd_handler(fd, net_socket_accept, NULL, s);
     return 0;

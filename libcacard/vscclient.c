@@ -357,6 +357,7 @@ connect_to_qemu(
     if (sock < 0) {
         /* Error */
         fprintf(stderr, "Error opening socket!\n");
+        return -1;
     }
 
     memset(&hints, 0, sizeof(struct addrinfo));
@@ -370,13 +371,13 @@ connect_to_qemu(
     if (ret != 0) {
         /* Error */
         fprintf(stderr, "getaddrinfo failed\n");
-        return 5;
+        return -1;
     }
 
     if (connect(sock, server->ai_addr, server->ai_addrlen) < 0) {
         /* Error */
         fprintf(stderr, "Could not connect\n");
-        return 5;
+        return -1;
     }
     if (verbose) {
         printf("Connected (sizeof Header=%zd)!\n", sizeof(VSCMsgHeader));
@@ -488,7 +489,7 @@ main(
         for (i = 0; i < cert_count; i++) {
             len += strlen(cert_names[i])+1; /* 1 == comma */
         }
-        new_args = qemu_malloc(len);
+        new_args = g_malloc(len);
         strcpy(new_args, emul_args);
         strcat(new_args, SOFT_STRING);
         for (i = 0; i < cert_count; i++) {
@@ -505,6 +506,10 @@ main(
     qemu_host = strdup(argv[argc - 2]);
     qemu_port = strdup(argv[argc - 1]);
     sock = connect_to_qemu(qemu_host, qemu_port);
+    if (sock == -1) {
+        fprintf(stderr, "error opening socket, exiting.\n");
+        exit(5);
+    }
 
     qemu_mutex_init(&write_lock);
     qemu_mutex_init(&pending_reader_lock);
@@ -585,7 +590,7 @@ main(
                 printf(" recv APDU: ");
                 print_byte_array(pbSendBuffer, mhHeader.length);
             }
-            /* Transmit recieved APDU */
+            /* Transmit received APDU */
             dwSendLength = mhHeader.length;
             dwRecvLength = sizeof(pbRecvBuffer);
             reader = vreader_get_reader_by_id(mhHeader.reader_id);

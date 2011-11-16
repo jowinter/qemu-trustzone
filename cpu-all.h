@@ -20,6 +20,7 @@
 #define CPU_ALL_H
 
 #include "qemu-common.h"
+#include "qemu-tls.h"
 #include "cpu-common.h"
 
 /* some important defines:
@@ -290,7 +291,6 @@ extern unsigned long reserved_va;
 
 /* ??? These should be the larger of unsigned long and target_ulong.  */
 extern unsigned long qemu_real_host_page_size;
-extern unsigned long qemu_host_page_bits;
 extern unsigned long qemu_host_page_size;
 extern unsigned long qemu_host_page_mask;
 
@@ -335,7 +335,8 @@ void cpu_dump_statistics(CPUState *env, FILE *f, fprintf_function cpu_fprintf,
 void QEMU_NORETURN cpu_abort(CPUState *env, const char *fmt, ...)
     GCC_FMT_ATTR(2, 3);
 extern CPUState *first_cpu;
-extern CPUState *cpu_single_env;
+DECLARE_TLS(CPUState *,cpu_single_env);
+#define cpu_single_env get_tls(cpu_single_env)
 
 /* Flags for use in ENV->INTERRUPT_PENDING.
 
@@ -488,7 +489,7 @@ typedef struct RAMBlock {
 
 typedef struct RAMList {
     uint8_t *phys_dirty;
-    QLIST_HEAD(ram, RAMBlock) blocks;
+    QLIST_HEAD(, RAMBlock) blocks;
 } RAMList;
 extern RAMList ram_list;
 

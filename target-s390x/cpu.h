@@ -280,7 +280,7 @@ void do_interrupt (CPUState *env);
 int cpu_s390x_signal_handler(int host_signum, void *pinfo,
                            void *puc);
 int cpu_s390x_handle_mmu_fault (CPUS390XState *env, target_ulong address, int rw,
-                              int mmu_idx, int is_softmuu);
+                                int mmu_idx);
 #define cpu_handle_mmu_fault cpu_s390x_handle_mmu_fault
 
 
@@ -698,7 +698,7 @@ typedef struct LowCore
     /* align to the top of the prefix area */
 
     uint8_t         pad18[0x2000-0x1400];      /* 0x1400 */
-} __attribute__((packed)) LowCore;
+} QEMU_PACKED LowCore;
 
 /* STSI */
 #define STSI_LEVEL_MASK         0x00000000f0000000ULL

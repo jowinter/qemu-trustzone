@@ -596,6 +596,9 @@ static int readv_f(int argc, char **argv)
 
     nr_iov = argc - optind;
     buf = create_iovec(&qiov, &argv[optind], nr_iov, 0xab);
+    if (buf == NULL) {
+        return 0;
+    }
 
     gettimeofday(&t1, NULL);
     cnt = do_aio_readv(&qiov, offset, &total);
@@ -850,6 +853,9 @@ static int writev_f(int argc, char **argv)
 
     nr_iov = argc - optind;
     buf = create_iovec(&qiov, &argv[optind], nr_iov, pattern);
+    if (buf == NULL) {
+        return 0;
+    }
 
     gettimeofday(&t1, NULL);
     cnt = do_aio_writev(&qiov, offset, &total);
@@ -880,7 +886,7 @@ static void multiwrite_help(void)
 " in a batch of requests that may be merged by qemu\n"
 "\n"
 " Example:\n"
-" 'multiwrite 512 1k 1k ; 4k 1k' \n"
+" 'multiwrite 512 1k 1k ; 4k 1k'\n"
 "  writes 2 kB at 512 bytes and 1 kB at 4 kB into the open file\n"
 "\n"
 " Writes into a segment of the currently open file, using a buffer\n"
@@ -950,25 +956,25 @@ static int multiwrite_f(int argc, char **argv)
         }
     }
 
-    reqs = qemu_malloc(nr_reqs * sizeof(*reqs));
-    buf = qemu_malloc(nr_reqs * sizeof(*buf));
-    qiovs = qemu_malloc(nr_reqs * sizeof(*qiovs));
+    reqs = g_malloc0(nr_reqs * sizeof(*reqs));
+    buf = g_malloc0(nr_reqs * sizeof(*buf));
+    qiovs = g_malloc(nr_reqs * sizeof(*qiovs));
 
-    for (i = 0; i < nr_reqs; i++) {
+    for (i = 0; i < nr_reqs && optind < argc; i++) {
         int j;
 
         /* Read the offset of the request */
         offset = cvtnum(argv[optind]);
         if (offset < 0) {
             printf("non-numeric offset argument -- %s\n", argv[optind]);
-            return 0;
+            goto out;
         }
         optind++;
 
         if (offset & 0x1ff) {
             printf("offset %lld is not sector aligned\n",
                    (long long)offset);
-            return 0;
+            goto out;
         }
 
         if (i == 0) {
@@ -985,16 +991,22 @@ static int multiwrite_f(int argc, char **argv)
         nr_iov = j - optind;
 
         /* Build request */
+        buf[i] = create_iovec(&qiovs[i], &argv[optind], nr_iov, pattern);
+        if (buf[i] == NULL) {
+            goto out;
+        }
+
         reqs[i].qiov = &qiovs[i];
-        buf[i] = create_iovec(reqs[i].qiov, &argv[optind], nr_iov, pattern);
         reqs[i].sector = offset >> 9;
         reqs[i].nb_sectors = reqs[i].qiov->size >> 9;
 
         optind = j + 1;
 
-        offset += reqs[i].qiov->size;
         pattern++;
     }
+
+    /* If there were empty requests at the end, ignore them */
+    nr_reqs = i;
 
     gettimeofday(&t1, NULL);
     cnt = do_aio_multiwrite(reqs, nr_reqs, &total);
@@ -1015,11 +1027,13 @@ static int multiwrite_f(int argc, char **argv)
 out:
     for (i = 0; i < nr_reqs; i++) {
         qemu_io_free(buf[i]);
-        qemu_iovec_destroy(&qiovs[i]);
+        if (reqs[i].qiov != NULL) {
+            qemu_iovec_destroy(&qiovs[i]);
+        }
     }
-    qemu_free(buf);
-    qemu_free(reqs);
-    qemu_free(qiovs);
+    g_free(buf);
+    g_free(reqs);
+    g_free(qiovs);
     return 0;
 }
 
@@ -1186,6 +1200,10 @@ static int aio_read_f(int argc, char **argv)
 
     nr_iov = argc - optind;
     ctx->buf = create_iovec(&ctx->qiov, &argv[optind], nr_iov, 0xab);
+    if (ctx->buf == NULL) {
+        free(ctx);
+        return 0;
+    }
 
     gettimeofday(&ctx->t1, NULL);
     acb = bdrv_aio_readv(bs, ctx->offset >> 9, &ctx->qiov,
@@ -1249,6 +1267,7 @@ static int aio_write_f(int argc, char **argv)
         case 'P':
             pattern = parse_pattern(optarg);
             if (pattern < 0) {
+                free(ctx);
                 return 0;
             }
             break;
@@ -1280,6 +1299,10 @@ static int aio_write_f(int argc, char **argv)
 
     nr_iov = argc - optind;
     ctx->buf = create_iovec(&ctx->qiov, &argv[optind], nr_iov, pattern);
+    if (ctx->buf == NULL) {
+        free(ctx);
+        return 0;
+    }
 
     gettimeofday(&ctx->t1, NULL);
     acb = bdrv_aio_writev(bs, ctx->offset >> 9, &ctx->qiov,
@@ -1582,7 +1605,7 @@ static const cmdinfo_t map_cmd = {
 
 static int close_f(int argc, char **argv)
 {
-    bdrv_close(bs);
+    bdrv_delete(bs);
     bs = NULL;
     return 0;
 }
@@ -1611,6 +1634,7 @@ static int openfile(char *name, int flags, int growable)
 
         if (bdrv_open(bs, name, flags, NULL) < 0) {
             fprintf(stderr, "%s: can't open device %s\n", progname, name);
+            bdrv_delete(bs);
             bs = NULL;
             return 1;
         }
@@ -1834,7 +1858,7 @@ int main(int argc, char **argv)
     qemu_aio_flush();
 
     if (bs) {
-        bdrv_close(bs);
+        bdrv_delete(bs);
     }
     return 0;
 }

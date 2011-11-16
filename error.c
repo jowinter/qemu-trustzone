@@ -12,8 +12,9 @@
 
 #include "qemu-common.h"
 #include "error.h"
+#include "qjson.h"
+#include "qdict.h"
 #include "error_int.h"
-#include "qemu-objects.h"
 #include "qerror.h"
 
 struct Error
@@ -32,7 +33,7 @@ void error_set(Error **errp, const char *fmt, ...)
         return;
     }
 
-    err = qemu_mallocz(sizeof(*err));
+    err = g_malloc0(sizeof(*err));
 
     va_start(ap, fmt);
     err->obj = qobject_to_qdict(qobject_from_jsonv(fmt, &ap));
@@ -52,7 +53,7 @@ const char *error_get_pretty(Error *err)
     if (err->msg == NULL) {
         QString *str;
         str = qerror_format(err->fmt, err->obj);
-        err->msg = qemu_strdup(qstring_get_str(str));
+        err->msg = g_strdup(qstring_get_str(str));
         QDECREF(str);
     }
 
@@ -86,8 +87,8 @@ void error_free(Error *err)
 {
     if (err) {
         QDECREF(err->obj);
-        qemu_free(err->msg);
-        qemu_free(err);
+        g_free(err->msg);
+        g_free(err);
     }
 }
 
@@ -96,6 +97,10 @@ bool error_is_type(Error *err, const char *fmt)
     const char *error_class;
     char *ptr;
     char *end;
+
+    if (!err) {
+        return false;
+    }
 
     ptr = strstr(fmt, "'class': '");
     assert(ptr != NULL);
@@ -133,7 +138,7 @@ void error_set_qobject(Error **errp, QObject *obj)
     if (errp == NULL) {
         return;
     }
-    err = qemu_mallocz(sizeof(*err));
+    err = g_malloc0(sizeof(*err));
     err->obj = qobject_to_qdict(obj);
     qobject_incref(obj);
 

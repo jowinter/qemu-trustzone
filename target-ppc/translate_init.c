@@ -24,6 +24,8 @@
 
 #include "dis-asm.h"
 #include "gdbstub.h"
+#include <kvm.h>
+#include "kvm_ppc.h"
 
 //#define PPC_DUMP_CPU
 //#define PPC_DEBUG_SPR
@@ -31,22 +33,6 @@
 #if defined(CONFIG_USER_ONLY)
 #define TODO_USER_ONLY 1
 #endif
-
-struct ppc_def_t {
-    const char *name;
-    uint32_t pvr;
-    uint32_t svr;
-    uint64_t insns_flags;
-    uint64_t insns_flags2;
-    uint64_t msr_mask;
-    powerpc_mmu_t   mmu_model;
-    powerpc_excp_t  excp_model;
-    powerpc_input_t bus_model;
-    uint32_t flags;
-    int bfd_mach;
-    void (*init_proc)(CPUPPCState *env);
-    int  (*check_pow)(CPUPPCState *env);
-};
 
 /* For user-mode emulation, we don't emulate any IRQ controller */
 #if defined(CONFIG_USER_ONLY)
@@ -128,6 +114,19 @@ static void spr_write_lr (void *opaque, int sprn, int gprn)
 {
     tcg_gen_mov_tl(cpu_lr, cpu_gpr[gprn]);
 }
+
+/* CFAR */
+#if defined(TARGET_PPC64) && !defined(CONFIG_USER_ONLY)
+static void spr_read_cfar (void *opaque, int gprn, int sprn)
+{
+    tcg_gen_mov_tl(cpu_gpr[gprn], cpu_cfar);
+}
+
+static void spr_write_cfar (void *opaque, int sprn, int gprn)
+{
+    tcg_gen_mov_tl(cpu_cfar, cpu_gpr[gprn]);
+}
+#endif /* defined(TARGET_PPC64) && !defined(CONFIG_USER_ONLY) */
 
 /* CTR */
 static void spr_read_ctr (void *opaque, int gprn, int sprn)
@@ -3253,6 +3252,9 @@ static void init_proc_401 (CPUPPCState *env)
     env->icache_line_size = 32;
     /* Allocate hardware IRQ controller */
     ppc40x_irq_init(env);
+
+    SET_FIT_PERIOD(12, 16, 20, 24);
+    SET_WDT_PERIOD(16, 20, 24, 28);
 }
 
 /* PowerPC 401x2                                                             */
@@ -3291,6 +3293,9 @@ static void init_proc_401x2 (CPUPPCState *env)
     env->icache_line_size = 32;
     /* Allocate hardware IRQ controller */
     ppc40x_irq_init(env);
+
+    SET_FIT_PERIOD(12, 16, 20, 24);
+    SET_WDT_PERIOD(16, 20, 24, 28);
 }
 
 /* PowerPC 401x3                                                             */
@@ -3324,6 +3329,9 @@ static void init_proc_401x3 (CPUPPCState *env)
     env->icache_line_size = 32;
     /* Allocate hardware IRQ controller */
     ppc40x_irq_init(env);
+
+    SET_FIT_PERIOD(12, 16, 20, 24);
+    SET_WDT_PERIOD(16, 20, 24, 28);
 }
 
 /* IOP480                                                                    */
@@ -3362,6 +3370,9 @@ static void init_proc_IOP480 (CPUPPCState *env)
     env->icache_line_size = 32;
     /* Allocate hardware IRQ controller */
     ppc40x_irq_init(env);
+
+    SET_FIT_PERIOD(8, 12, 16, 20);
+    SET_WDT_PERIOD(16, 20, 24, 28);
 }
 
 /* PowerPC 403                                                               */
@@ -3392,6 +3403,9 @@ static void init_proc_403 (CPUPPCState *env)
     env->icache_line_size = 32;
     /* Allocate hardware IRQ controller */
     ppc40x_irq_init(env);
+
+    SET_FIT_PERIOD(8, 12, 16, 20);
+    SET_WDT_PERIOD(16, 20, 24, 28);
 }
 
 /* PowerPC 403 GCX                                                           */
@@ -3442,6 +3456,9 @@ static void init_proc_403GCX (CPUPPCState *env)
     env->icache_line_size = 32;
     /* Allocate hardware IRQ controller */
     ppc40x_irq_init(env);
+
+    SET_FIT_PERIOD(8, 12, 16, 20);
+    SET_WDT_PERIOD(16, 20, 24, 28);
 }
 
 /* PowerPC 405                                                               */
@@ -3491,6 +3508,9 @@ static void init_proc_405 (CPUPPCState *env)
     env->icache_line_size = 32;
     /* Allocate hardware IRQ controller */
     ppc40x_irq_init(env);
+
+    SET_FIT_PERIOD(8, 12, 16, 20);
+    SET_WDT_PERIOD(16, 20, 24, 28);
 }
 
 /* PowerPC 440 EP                                                            */
@@ -3573,6 +3593,9 @@ static void init_proc_440EP (CPUPPCState *env)
     env->dcache_line_size = 32;
     env->icache_line_size = 32;
     /* XXX: TODO: allocate internal IRQ controller */
+
+    SET_FIT_PERIOD(12, 16, 20, 24);
+    SET_WDT_PERIOD(20, 24, 28, 32);
 }
 
 /* PowerPC 440 GP                                                            */
@@ -3637,6 +3660,9 @@ static void init_proc_440GP (CPUPPCState *env)
     env->dcache_line_size = 32;
     env->icache_line_size = 32;
     /* XXX: TODO: allocate internal IRQ controller */
+
+    SET_FIT_PERIOD(12, 16, 20, 24);
+    SET_WDT_PERIOD(20, 24, 28, 32);
 }
 
 /* PowerPC 440x4                                                             */
@@ -3701,6 +3727,9 @@ static void init_proc_440x4 (CPUPPCState *env)
     env->dcache_line_size = 32;
     env->icache_line_size = 32;
     /* XXX: TODO: allocate internal IRQ controller */
+
+    SET_FIT_PERIOD(12, 16, 20, 24);
+    SET_WDT_PERIOD(20, 24, 28, 32);
 }
 
 /* PowerPC 440x5                                                             */
@@ -3782,6 +3811,9 @@ static void init_proc_440x5 (CPUPPCState *env)
     env->dcache_line_size = 32;
     env->icache_line_size = 32;
     ppc40x_irq_init(env);
+
+    SET_FIT_PERIOD(12, 16, 20, 24);
+    SET_WDT_PERIOD(20, 24, 28, 32);
 }
 
 /* PowerPC 460 (guessed)                                                     */
@@ -3870,6 +3902,9 @@ static void init_proc_460 (CPUPPCState *env)
     env->dcache_line_size = 32;
     env->icache_line_size = 32;
     /* XXX: TODO: allocate internal IRQ controller */
+
+    SET_FIT_PERIOD(12, 16, 20, 24);
+    SET_WDT_PERIOD(20, 24, 28, 32);
 }
 
 /* PowerPC 460F (guessed)                                                    */
@@ -3961,6 +3996,9 @@ static void init_proc_460F (CPUPPCState *env)
     env->dcache_line_size = 32;
     env->icache_line_size = 32;
     /* XXX: TODO: allocate internal IRQ controller */
+
+    SET_FIT_PERIOD(12, 16, 20, 24);
+    SET_WDT_PERIOD(20, 24, 28, 32);
 }
 
 /* Freescale 5xx cores (aka RCPU) */
@@ -6481,7 +6519,7 @@ static void init_proc_970MP (CPUPPCState *env)
                               PPC_64B | PPC_ALTIVEC |                         \
                               PPC_SEGMENT_64B | PPC_SLBI |                    \
                               PPC_POPCNTB | PPC_POPCNTWD)
-#define POWERPC_INSNS2_POWER7 (PPC_NONE)
+#define POWERPC_INSNS2_POWER7 (PPC2_VSX | PPC2_DFP)
 #define POWERPC_MSRM_POWER7   (0x800000000204FF36ULL)
 #define POWERPC_MMU_POWER7    (POWERPC_MMU_2_06)
 #define POWERPC_EXCP_POWER7   (POWERPC_EXCP_POWER7)
@@ -6489,7 +6527,7 @@ static void init_proc_970MP (CPUPPCState *env)
 #define POWERPC_BFDM_POWER7   (bfd_mach_ppc64)
 #define POWERPC_FLAG_POWER7   (POWERPC_FLAG_VRE | POWERPC_FLAG_SE |            \
                               POWERPC_FLAG_BE | POWERPC_FLAG_PMM |            \
-                              POWERPC_FLAG_BUS_CLK)
+                              POWERPC_FLAG_BUS_CLK | POWERPC_FLAG_CFAR)
 #define check_pow_POWER7    check_pow_nocheck
 
 static void init_proc_POWER7 (CPUPPCState *env)
@@ -6507,6 +6545,14 @@ static void init_proc_POWER7 (CPUPPCState *env)
     spr_register(env, SPR_SPURR,   "SPURR",
                  &spr_read_purr, SPR_NOACCESS,
                  &spr_read_purr, SPR_NOACCESS,
+                 0x00000000);
+    spr_register(env, SPR_CFAR, "SPR_CFAR",
+                 SPR_NOACCESS, SPR_NOACCESS,
+                 &spr_read_cfar, &spr_write_cfar,
+                 0x00000000);
+    spr_register(env, SPR_DSCR, "SPR_DSCR",
+                 SPR_NOACCESS, SPR_NOACCESS,
+                 &spr_read_generic, &spr_write_generic,
                  0x00000000);
 #endif /* !CONFIG_USER_ONLY */
     /* Memory management */
@@ -7271,6 +7317,8 @@ enum {
     CPU_POWERPC_POWER6A            = 0x0F000002,
 #define CPU_POWERPC_POWER7           CPU_POWERPC_POWER7_v20
     CPU_POWERPC_POWER7_v20         = 0x003F0200,
+    CPU_POWERPC_POWER7_v21         = 0x003F0201,
+    CPU_POWERPC_POWER7_v23         = 0x003F0203,
     CPU_POWERPC_970                = 0x00390202,
 #define CPU_POWERPC_970FX            CPU_POWERPC_970FX_v31
     CPU_POWERPC_970FX_v10          = 0x00391100,
@@ -9077,6 +9125,8 @@ static const ppc_def_t ppc_defs[] = {
     /* POWER7                                                                */
     POWERPC_DEF("POWER7",        CPU_POWERPC_POWER7,                 POWER7),
     POWERPC_DEF("POWER7_v2.0",   CPU_POWERPC_POWER7_v20,             POWER7),
+    POWERPC_DEF("POWER7_v2.1",   CPU_POWERPC_POWER7_v21,             POWER7),
+    POWERPC_DEF("POWER7_v2.3",   CPU_POWERPC_POWER7_v23,             POWER7),
     /* PowerPC 970                                                           */
     POWERPC_DEF("970",           CPU_POWERPC_970,                    970),
     /* PowerPC 970FX (G5)                                                    */
@@ -9327,13 +9377,13 @@ static void init_ppc_proc (CPUPPCState *env, const ppc_def_t *def)
             nb_tlb *= 2;
         switch (env->tlb_type) {
         case TLB_6XX:
-            env->tlb.tlb6 = qemu_mallocz(nb_tlb * sizeof(ppc6xx_tlb_t));
+            env->tlb.tlb6 = g_malloc0(nb_tlb * sizeof(ppc6xx_tlb_t));
             break;
         case TLB_EMB:
-            env->tlb.tlbe = qemu_mallocz(nb_tlb * sizeof(ppcemb_tlb_t));
+            env->tlb.tlbe = g_malloc0(nb_tlb * sizeof(ppcemb_tlb_t));
             break;
         case TLB_MAS:
-            env->tlb.tlbm = qemu_mallocz(nb_tlb * sizeof(ppcmas_tlb_t));
+            env->tlb.tlbm = g_malloc0(nb_tlb * sizeof(ppcmas_tlb_t));
             break;
         }
         /* Pre-compute some useful values */
@@ -9679,8 +9729,7 @@ static int gdb_get_float_reg(CPUState *env, uint8_t *mem_buf, int n)
         return 8;
     }
     if (n == 32) {
-        /* FPSCR not implemented  */
-        memset(mem_buf, 0, 4);
+        stl_p(mem_buf, env->fpscr);
         return 4;
     }
     return 0;
@@ -9797,6 +9846,22 @@ int cpu_ppc_register_internal (CPUPPCState *env, const ppc_def_t *def)
     env->bus_model = def->bus_model;
     env->insns_flags = def->insns_flags;
     env->insns_flags2 = def->insns_flags2;
+    if (!kvm_enabled()) {
+        /* TCG doesn't (yet) emulate some groups of instructions that
+         * are implemented on some otherwise supported CPUs (e.g. VSX
+         * and decimal floating point instructions on POWER7).  We
+         * remove unsupported instruction groups from the cpu state's
+         * instruction masks and hope the guest can cope.  For at
+         * least the pseries machine, the unavailability of these
+         * instructions can be advertise to the guest via the device
+         * tree.
+         *
+         * FIXME: we should have a similar masking for CPU features
+         * not accessible under KVM, but so far, there aren't any of
+         * those. */
+        env->insns_flags &= PPC_TCG_INSNS;
+        env->insns_flags2 &= PPC_TCG_INSNS2;
+    }
     env->flags = def->flags;
     env->bfd_mach = def->bfd_mach;
     env->check_pow = def->check_pow;
@@ -9982,42 +10047,34 @@ int cpu_ppc_register_internal (CPUPPCState *env, const ppc_def_t *def)
     return 0;
 }
 
-static const ppc_def_t *ppc_find_by_pvr (uint32_t pvr)
+static bool ppc_cpu_usable(const ppc_def_t *def)
 {
-    const ppc_def_t *ret;
-    uint32_t pvr_rev;
-    int i, best, match, best_match, max;
+#if defined(TARGET_PPCEMB)
+    /* When using the ppcemb target, we only support 440 style cores */
+    if (def->mmu_model != POWERPC_MMU_BOOKE) {
+        return false;
+    }
+#endif
 
-    ret = NULL;
-    max = ARRAY_SIZE(ppc_defs);
-    best = -1;
-    pvr_rev = pvr & 0xFFFF;
-    /* We want all specified bits to match */
-    best_match = 32 - ctz32(pvr_rev);
-    for (i = 0; i < max; i++) {
-        /* We check that the 16 higher bits are the same to ensure the CPU
-         * model will be the choosen one.
-         */
-        if (((pvr ^ ppc_defs[i].pvr) >> 16) == 0) {
-            /* We want as much as possible of the low-level 16 bits
-             * to be the same but we allow inexact matches.
-             */
-            match = clz32(pvr_rev ^ (ppc_defs[i].pvr & 0xFFFF));
-            /* We check '>=' instead of '>' because the PPC_defs table
-             * is ordered by increasing revision.
-             * Then, we will match the higher revision compatible
-             * with the requested PVR
-             */
-            if (match >= best_match) {
-                best = i;
-                best_match = match;
-            }
+    return true;
+}
+
+const ppc_def_t *ppc_find_by_pvr(uint32_t pvr)
+{
+    int i;
+
+    for (i = 0; i < ARRAY_SIZE(ppc_defs); i++) {
+        if (!ppc_cpu_usable(&ppc_defs[i])) {
+            continue;
+        }
+
+        /* If we have an exact match, we're done */
+        if (pvr == ppc_defs[i].pvr) {
+            return &ppc_defs[i];
         }
     }
-    if (best != -1)
-        ret = &ppc_defs[best];
 
-    return ret;
+    return NULL;
 }
 
 #include <ctype.h>
@@ -10027,6 +10084,10 @@ const ppc_def_t *cpu_ppc_find_by_name (const char *name)
     const ppc_def_t *ret;
     const char *p;
     int i, max, len;
+
+    if (kvm_enabled() && (strcasecmp(name, "host") == 0)) {
+        return kvmppc_host_cpu_def();
+    }
 
     /* Check if the given name is a PVR */
     len = strlen(name);
@@ -10046,6 +10107,10 @@ const ppc_def_t *cpu_ppc_find_by_name (const char *name)
     ret = NULL;
     max = ARRAY_SIZE(ppc_defs);
     for (i = 0; i < max; i++) {
+        if (!ppc_cpu_usable(&ppc_defs[i])) {
+            continue;
+        }
+
         if (strcasecmp(name, ppc_defs[i].name) == 0) {
             ret = &ppc_defs[i];
             break;
@@ -10061,6 +10126,10 @@ void ppc_cpu_list (FILE *f, fprintf_function cpu_fprintf)
 
     max = ARRAY_SIZE(ppc_defs);
     for (i = 0; i < max; i++) {
+        if (!ppc_cpu_usable(&ppc_defs[i])) {
+            continue;
+        }
+
         (*cpu_fprintf)(f, "PowerPC %-16s PVR %08x\n",
                        ppc_defs[i].name, ppc_defs[i].pvr);
     }

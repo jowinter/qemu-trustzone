@@ -30,6 +30,8 @@
 #include "pci.h"
 #include "qemu-timer.h"
 #include "usb-uhci.h"
+#include "iov.h"
+#include "dma.h"
 
 //#define DEBUG
 //#define DEBUG_DUMP_DATA
@@ -93,17 +95,12 @@ static const char *pid2str(int pid)
 #endif
 
 #ifdef DEBUG_DUMP_DATA
-static void dump_data(const uint8_t *data, int len)
+static void dump_data(USBPacket *p, int ret)
 {
-    int i;
-
-    printf("uhci: data: ");
-    for(i = 0; i < len; i++)
-        printf(" %02x", data[i]);
-    printf("\n");
+    iov_hexdump(p->iov.iov, p->iov.niov, stderr, "uhci", ret);
 }
 #else
-static void dump_data(const uint8_t *data, int len) {}
+static void dump_data(USBPacket *p, int ret) {}
 #endif
 
 typedef struct UHCIState UHCIState;
@@ -115,6 +112,7 @@ typedef struct UHCIState UHCIState;
  */
 typedef struct UHCIAsync {
     USBPacket packet;
+    QEMUSGList sgl;
     UHCIState *uhci;
     QTAILQ_ENTRY(UHCIAsync) next;
     uint32_t  td;
@@ -122,7 +120,6 @@ typedef struct UHCIAsync {
     int8_t    valid;
     uint8_t   isoc;
     uint8_t   done;
-    uint8_t   buffer[2048];
 } UHCIAsync;
 
 typedef struct UHCIPort {
@@ -132,6 +129,7 @@ typedef struct UHCIPort {
 
 struct UHCIState {
     PCIDevice dev;
+    MemoryRegion io_bar;
     USBBus bus; /* Note unused when we're a companion controller */
     uint16_t cmd; /* cmd register */
     uint16_t status;
@@ -170,7 +168,7 @@ typedef struct UHCI_QH {
 
 static UHCIAsync *uhci_async_alloc(UHCIState *s)
 {
-    UHCIAsync *async = qemu_malloc(sizeof(UHCIAsync));
+    UHCIAsync *async = g_malloc(sizeof(UHCIAsync));
 
     memset(&async->packet, 0, sizeof(async->packet));
     async->uhci  = s;
@@ -179,13 +177,17 @@ static UHCIAsync *uhci_async_alloc(UHCIState *s)
     async->token = 0;
     async->done  = 0;
     async->isoc  = 0;
+    usb_packet_init(&async->packet);
+    pci_dma_sglist_init(&async->sgl, &s->dev, 1);
 
     return async;
 }
 
 static void uhci_async_free(UHCIState *s, UHCIAsync *async)
 {
-    qemu_free(async);
+    usb_packet_cleanup(&async->packet);
+    qemu_sglist_destroy(&async->sgl);
+    g_free(async);
 }
 
 static void uhci_async_link(UHCIState *s, UHCIAsync *async)
@@ -338,8 +340,8 @@ static void uhci_reset(void *opaque)
     for(i = 0; i < NB_PORTS; i++) {
         port = &s->ports[i];
         port->ctrl = 0x0080;
-        if (port->port.dev) {
-            usb_attach(&port->port, port->port.dev);
+        if (port->port.dev && port->port.dev->attached) {
+            usb_reset(&port->port);
         }
     }
 
@@ -444,7 +446,7 @@ static void uhci_ioport_writew(void *opaque, uint32_t addr, uint32_t val)
             for(i = 0; i < NB_PORTS; i++) {
                 port = &s->ports[i];
                 dev = port->port.dev;
-                if (dev) {
+                if (dev && dev->attached) {
                     usb_send_msg(dev, USB_MSG_RESET);
                 }
             }
@@ -484,7 +486,7 @@ static void uhci_ioport_writew(void *opaque, uint32_t addr, uint32_t val)
                 return;
             port = &s->ports[n];
             dev = port->port.dev;
-            if (dev) {
+            if (dev && dev->attached) {
                 /* port reset */
                 if ( (val & UHCI_PORT_RESET) &&
                      !(port->ctrl & UHCI_PORT_RESET) ) {
@@ -648,23 +650,24 @@ static int uhci_broadcast_packet(UHCIState *s, USBPacket *p)
 {
     int i, ret;
 
-    DPRINTF("uhci: packet enter. pid %s addr 0x%02x ep %d len %d\n",
-           pid2str(p->pid), p->devaddr, p->devep, p->len);
+    DPRINTF("uhci: packet enter. pid %s addr 0x%02x ep %d len %zd\n",
+           pid2str(p->pid), p->devaddr, p->devep, p->iov.size);
     if (p->pid == USB_TOKEN_OUT || p->pid == USB_TOKEN_SETUP)
-        dump_data(p->data, p->len);
+        dump_data(p, 0);
 
     ret = USB_RET_NODEV;
     for (i = 0; i < NB_PORTS && ret == USB_RET_NODEV; i++) {
         UHCIPort *port = &s->ports[i];
         USBDevice *dev = port->port.dev;
 
-        if (dev && (port->ctrl & UHCI_PORT_EN))
+        if (dev && dev->attached && (port->ctrl & UHCI_PORT_EN)) {
             ret = usb_handle_packet(dev, p);
+        }
     }
 
-    DPRINTF("uhci: packet exit. ret %d len %d\n", ret, p->len);
+    DPRINTF("uhci: packet exit. ret %d len %zd\n", ret, p->iov.size);
     if (p->pid == USB_TOKEN_IN && ret > 0)
-        dump_data(p->data, ret);
+        dump_data(p, ret);
 
     return ret;
 }
@@ -684,7 +687,7 @@ static int uhci_complete_td(UHCIState *s, UHCI_TD *td, UHCIAsync *async, uint32_
     max_len = ((td->token >> 21) + 1) & 0x7ff;
     pid = td->token & 0xff;
 
-    ret = async->packet.len;
+    ret = async->packet.result;
 
     if (td->ctrl & TD_CTRL_IOS)
         td->ctrl &= ~TD_CTRL_ACTIVE;
@@ -692,7 +695,7 @@ static int uhci_complete_td(UHCIState *s, UHCI_TD *td, UHCIAsync *async, uint32_
     if (ret < 0)
         goto out;
 
-    len = async->packet.len;
+    len = async->packet.result;
     td->ctrl = (td->ctrl & ~0x7ff) | ((len - 1) & 0x7ff);
 
     /* The NAK bit may have been set by a previous frame, so clear it
@@ -706,11 +709,6 @@ static int uhci_complete_td(UHCIState *s, UHCI_TD *td, UHCIAsync *async, uint32_
         if (len > max_len) {
             ret = USB_RET_BABBLE;
             goto out;
-        }
-
-        if (len > 0) {
-            /* write the data back */
-            cpu_physical_memory_write(td->buffer, async->buffer, len);
         }
 
         if ((td->ctrl & TD_CTRL_SPD) && len < max_len) {
@@ -827,16 +825,14 @@ static int uhci_handle_td(UHCIState *s, uint32_t addr, UHCI_TD *td, uint32_t *in
     max_len = ((td->token >> 21) + 1) & 0x7ff;
     pid = td->token & 0xff;
 
-    async->packet.pid     = pid;
-    async->packet.devaddr = (td->token >> 8) & 0x7f;
-    async->packet.devep   = (td->token >> 15) & 0xf;
-    async->packet.data    = async->buffer;
-    async->packet.len     = max_len;
+    usb_packet_setup(&async->packet, pid, (td->token >> 8) & 0x7f,
+                     (td->token >> 15) & 0xf);
+    qemu_sglist_add(&async->sgl, td->buffer, max_len);
+    usb_packet_map(&async->packet, &async->sgl);
 
     switch(pid) {
     case USB_TOKEN_OUT:
     case USB_TOKEN_SETUP:
-        cpu_physical_memory_read(td->buffer, async->buffer, max_len);
         len = uhci_broadcast_packet(s, &async->packet);
         if (len >= 0)
             len = max_len;
@@ -859,10 +855,11 @@ static int uhci_handle_td(UHCIState *s, uint32_t addr, UHCI_TD *td, uint32_t *in
         return 2;
     }
 
-    async->packet.len = len;
+    async->packet.result = len;
 
 done:
     len = uhci_complete_td(s, td, async, int_mask);
+    usb_packet_unmap(&async->packet);
     uhci_async_free(s, async);
     return len;
 }
@@ -879,7 +876,7 @@ static void uhci_async_complete(USBPort *port, USBPacket *packet)
         uint32_t link = async->td;
         uint32_t int_mask = 0, val;
 
-        cpu_physical_memory_read(link & ~0xf, (uint8_t *) &td, sizeof(td));
+        pci_dma_read(&s->dev, link & ~0xf, (uint8_t *) &td, sizeof(td));
         le32_to_cpus(&td.link);
         le32_to_cpus(&td.ctrl);
         le32_to_cpus(&td.token);
@@ -891,8 +888,8 @@ static void uhci_async_complete(USBPort *port, USBPacket *packet)
 
         /* update the status bits of the TD */
         val = cpu_to_le32(td.ctrl);
-        cpu_physical_memory_write((link & ~0xf) + 4,
-                                  (const uint8_t *)&val, sizeof(val));
+        pci_dma_write(&s->dev, (link & ~0xf) + 4,
+                      (const uint8_t *)&val, sizeof(val));
         uhci_async_free(s, async);
     } else {
         async->done = 1;
@@ -955,7 +952,7 @@ static void uhci_process_frame(UHCIState *s)
 
     DPRINTF("uhci: processing frame %d addr 0x%x\n" , s->frnum, frame_addr);
 
-    cpu_physical_memory_read(frame_addr, (uint8_t *)&link, 4);
+    pci_dma_read(&s->dev, frame_addr, (uint8_t *)&link, 4);
     le32_to_cpus(&link);
 
     int_mask = 0;
@@ -979,7 +976,7 @@ static void uhci_process_frame(UHCIState *s)
                 break;
             }
 
-            cpu_physical_memory_read(link & ~0xf, (uint8_t *) &qh, sizeof(qh));
+            pci_dma_read(&s->dev, link & ~0xf, (uint8_t *) &qh, sizeof(qh));
             le32_to_cpus(&qh.link);
             le32_to_cpus(&qh.el_link);
 
@@ -999,7 +996,7 @@ static void uhci_process_frame(UHCIState *s)
         }
 
         /* TD */
-        cpu_physical_memory_read(link & ~0xf, (uint8_t *) &td, sizeof(td));
+        pci_dma_read(&s->dev, link & ~0xf, (uint8_t *) &td, sizeof(td));
         le32_to_cpus(&td.link);
         le32_to_cpus(&td.ctrl);
         le32_to_cpus(&td.token);
@@ -1013,8 +1010,8 @@ static void uhci_process_frame(UHCIState *s)
         if (old_td_ctrl != td.ctrl) {
             /* update the status bits of the TD */
             val = cpu_to_le32(td.ctrl);
-            cpu_physical_memory_write((link & ~0xf) + 4,
-                                      (const uint8_t *)&val, sizeof(val));
+            pci_dma_write(&s->dev, (link & ~0xf) + 4,
+                          (const uint8_t *)&val, sizeof(val));
         }
 
         if (ret < 0) {
@@ -1042,8 +1039,8 @@ static void uhci_process_frame(UHCIState *s)
 	    /* update QH element link */
             qh.el_link = link;
             val = cpu_to_le32(qh.el_link);
-            cpu_physical_memory_write((curr_qh & ~0xf) + 4,
-                                          (const uint8_t *)&val, sizeof(val));
+            pci_dma_write(&s->dev, (curr_qh & ~0xf) + 4,
+                          (const uint8_t *)&val, sizeof(val));
 
             if (!depth_first(link)) {
                /* done with this QH */
@@ -1101,18 +1098,19 @@ static void uhci_frame_timer(void *opaque)
     qemu_mod_timer(s->frame_timer, s->expire_time);
 }
 
-static void uhci_map(PCIDevice *pci_dev, int region_num,
-                    pcibus_t addr, pcibus_t size, int type)
-{
-    UHCIState *s = (UHCIState *)pci_dev;
+static const MemoryRegionPortio uhci_portio[] = {
+    { 0, 32, 2, .write = uhci_ioport_writew, },
+    { 0, 32, 2, .read = uhci_ioport_readw, },
+    { 0, 32, 4, .write = uhci_ioport_writel, },
+    { 0, 32, 4, .read = uhci_ioport_readl, },
+    { 0, 32, 1, .write = uhci_ioport_writeb, },
+    { 0, 32, 1, .read = uhci_ioport_readb, },
+    PORTIO_END_OF_LIST()
+};
 
-    register_ioport_write(addr, 32, 2, uhci_ioport_writew, s);
-    register_ioport_read(addr, 32, 2, uhci_ioport_readw, s);
-    register_ioport_write(addr, 32, 4, uhci_ioport_writel, s);
-    register_ioport_read(addr, 32, 4, uhci_ioport_readl, s);
-    register_ioport_write(addr, 32, 1, uhci_ioport_writeb, s);
-    register_ioport_read(addr, 32, 1, uhci_ioport_readb, s);
-}
+static const MemoryRegionOps uhci_ioport_ops = {
+    .old_portio = uhci_portio,
+};
 
 static USBPortOps uhci_port_ops = {
     .attach = uhci_attach,
@@ -1133,7 +1131,7 @@ static int usb_uhci_common_initfn(PCIDevice *dev)
 
     pci_conf[PCI_CLASS_PROG] = 0x00;
     /* TODO: reset value should be 0. */
-    pci_conf[PCI_INTERRUPT_PIN] = 4; // interrupt pin 3
+    pci_conf[PCI_INTERRUPT_PIN] = 4; /* interrupt pin D */
     pci_conf[USB_SBRN] = USB_RELEASE_1; // release number
 
     if (s->masterbus) {
@@ -1159,10 +1157,10 @@ static int usb_uhci_common_initfn(PCIDevice *dev)
 
     qemu_register_reset(uhci_reset, s);
 
+    memory_region_init_io(&s->io_bar, &uhci_ioport_ops, s, "uhci", 0x20);
     /* Use region 4 for consistency with real hardware.  BSD guests seem
        to rely on this.  */
-    pci_register_bar(&s->dev, 4, 0x20,
-                           PCI_BASE_ADDRESS_SPACE_IO, uhci_map);
+    pci_register_bar(&s->dev, 4, PCI_BASE_ADDRESS_SPACE_IO, &s->io_bar);
 
     return 0;
 }
@@ -1182,6 +1180,14 @@ static int usb_uhci_vt82c686b_initfn(PCIDevice *dev)
     return usb_uhci_common_initfn(dev);
 }
 
+static int usb_uhci_exit(PCIDevice *dev)
+{
+    UHCIState *s = DO_UPCAST(UHCIState, dev, dev);
+
+    memory_region_destroy(&s->io_bar);
+    return 0;
+}
+
 static Property uhci_properties[] = {
     DEFINE_PROP_STRING("masterbus", UHCIState, masterbus),
     DEFINE_PROP_UINT32("firstport", UHCIState, firstport, 0),
@@ -1194,6 +1200,7 @@ static PCIDeviceInfo uhci_info[] = {
         .qdev.size    = sizeof(UHCIState),
         .qdev.vmsd    = &vmstate_uhci,
         .init         = usb_uhci_common_initfn,
+        .exit         = usb_uhci_exit,
         .vendor_id    = PCI_VENDOR_ID_INTEL,
         .device_id    = PCI_DEVICE_ID_INTEL_82371SB_2,
         .revision     = 0x01,
@@ -1204,6 +1211,7 @@ static PCIDeviceInfo uhci_info[] = {
         .qdev.size    = sizeof(UHCIState),
         .qdev.vmsd    = &vmstate_uhci,
         .init         = usb_uhci_common_initfn,
+        .exit         = usb_uhci_exit,
         .vendor_id    = PCI_VENDOR_ID_INTEL,
         .device_id    = PCI_DEVICE_ID_INTEL_82371AB_2,
         .revision     = 0x01,
@@ -1214,6 +1222,7 @@ static PCIDeviceInfo uhci_info[] = {
         .qdev.size    = sizeof(UHCIState),
         .qdev.vmsd    = &vmstate_uhci,
         .init         = usb_uhci_vt82c686b_initfn,
+        .exit         = usb_uhci_exit,
         .vendor_id    = PCI_VENDOR_ID_VIA,
         .device_id    = PCI_DEVICE_ID_VIA_UHCI,
         .revision     = 0x01,

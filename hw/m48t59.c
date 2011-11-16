@@ -50,8 +50,6 @@
  */
 
 struct M48t59State {
-    /* Model parameters */
-    uint32_t type; // 2 = m48t02, 8 = m48t08, 59 = m48t59
     /* Hardware parameters */
     qemu_irq IRQ;
     uint32_t io_base;
@@ -64,14 +62,18 @@ struct M48t59State {
     struct QEMUTimer *alrm_timer;
     struct QEMUTimer *wd_timer;
     /* NVRAM storage */
-    uint8_t  lock;
-    uint16_t addr;
     uint8_t *buffer;
+    /* Model parameters */
+    uint32_t type; /* 2 = m48t02, 8 = m48t08, 59 = m48t59 */
+    /* NVRAM storage */
+    uint16_t addr;
+    uint8_t  lock;
 };
 
 typedef struct M48t59ISAState {
     ISADevice busdev;
     M48t59State state;
+    MemoryRegion io;
 } M48t59ISAState;
 
 typedef struct M48t59SysBusState {
@@ -478,7 +480,6 @@ static void NVRAM_writeb (void *opaque, uint32_t addr, uint32_t val)
 {
     M48t59State *NVRAM = opaque;
 
-    addr -= NVRAM->io_base;
     NVRAM_PRINTF("%s: 0x%08x => 0x%08x\n", __func__, addr, val);
     switch (addr) {
     case 0:
@@ -490,7 +491,7 @@ static void NVRAM_writeb (void *opaque, uint32_t addr, uint32_t val)
         NVRAM->addr |= val << 8;
         break;
     case 3:
-        m48t59_write(NVRAM, val, NVRAM->addr);
+        m48t59_write(NVRAM, NVRAM->addr, val);
         NVRAM->addr = 0x0000;
         break;
     default:
@@ -503,7 +504,6 @@ static uint32_t NVRAM_readb (void *opaque, uint32_t addr)
     M48t59State *NVRAM = opaque;
     uint32_t retval;
 
-    addr -= NVRAM->io_base;
     switch (addr) {
     case 3:
         retval = m48t59_read(NVRAM, NVRAM->addr);
@@ -625,6 +625,15 @@ static void m48t59_reset_sysbus(DeviceState *d)
     m48t59_reset_common(NVRAM);
 }
 
+static const MemoryRegionPortio m48t59_portio[] = {
+    {0, 4, 1, .read = NVRAM_readb, .write = NVRAM_writeb },
+    PORTIO_END_OF_LIST(),
+};
+
+static const MemoryRegionOps m48t59_io_ops = {
+    .old_portio = m48t59_portio,
+};
+
 /* Initialisation routine */
 M48t59State *m48t59_init(qemu_irq IRQ, target_phys_addr_t mem_base,
                          uint32_t io_base, uint16_t size, int type)
@@ -668,10 +677,9 @@ M48t59State *m48t59_init_isa(uint32_t io_base, uint16_t size, int type)
     d = DO_UPCAST(M48t59ISAState, busdev, dev);
     s = &d->state;
 
+    memory_region_init_io(&d->io, &m48t59_io_ops, s, "m48t59", 4);
     if (io_base != 0) {
-        register_ioport_read(io_base, 0x04, 1, NVRAM_readb, s);
-        register_ioport_write(io_base, 0x04, 1, NVRAM_writeb, s);
-        isa_init_ioport_range(dev, io_base, 4);
+        isa_register_ioport(dev, &d->io, io_base);
     }
 
     return s;
@@ -679,7 +687,7 @@ M48t59State *m48t59_init_isa(uint32_t io_base, uint16_t size, int type)
 
 static void m48t59_init_common(M48t59State *s)
 {
-    s->buffer = qemu_mallocz(s->size);
+    s->buffer = g_malloc0(s->size);
     if (s->type == 59) {
         s->alrm_timer = qemu_new_timer_ns(vm_clock, &alarm_cb, s);
         s->wd_timer = qemu_new_timer_ns(vm_clock, &watchdog_cb, s);

@@ -98,6 +98,7 @@ void cpu_reset(CPUX86State *env)
     env->mxcsr = 0x1f80;
 
     env->pat = 0x0007040600070406ULL;
+    env->msr_ia32_misc_enable = MSR_IA32_MISC_ENABLE_DEFAULT;
 
     memset(env->dr, 0, sizeof(env->dr));
     env->dr[6] = DR6_FIXED_1;
@@ -108,7 +109,7 @@ void cpu_reset(CPUX86State *env)
 
 void cpu_x86_close(CPUX86State *env)
 {
-    qemu_free(env);
+    g_free(env);
 }
 
 static void cpu_x86_version(CPUState *env, int *family, int *model)
@@ -546,7 +547,7 @@ void cpu_x86_update_cr4(CPUX86State *env, uint32_t new_cr4)
 #if defined(CONFIG_USER_ONLY)
 
 int cpu_x86_handle_mmu_fault(CPUX86State *env, target_ulong addr,
-                             int is_write, int mmu_idx, int is_softmmu)
+                             int is_write, int mmu_idx)
 {
     /* user mode only emulation */
     is_write &= 1;
@@ -573,7 +574,7 @@ int cpu_x86_handle_mmu_fault(CPUX86State *env, target_ulong addr,
    1  = generate PF fault
 */
 int cpu_x86_handle_mmu_fault(CPUX86State *env, target_ulong addr,
-                             int is_write1, int mmu_idx, int is_softmmu)
+                             int is_write1, int mmu_idx)
 {
     uint64_t ptep, pte;
     target_ulong pde_addr, pte_addr;
@@ -1239,12 +1240,12 @@ CPUX86State *cpu_x86_init(const char *cpu_model)
     CPUX86State *env;
     static int inited;
 
-    env = qemu_mallocz(sizeof(CPUX86State));
+    env = g_malloc0(sizeof(CPUX86State));
     cpu_exec_init(env);
     env->cpu_model_str = cpu_model;
 
-    /* init various static tables */
-    if (!inited) {
+    /* init various static tables used in TCG mode */
+    if (tcg_enabled() && !inited) {
         inited = 1;
         optimize_flags_init();
 #ifndef CONFIG_USER_ONLY
@@ -1256,6 +1257,7 @@ CPUX86State *cpu_x86_init(const char *cpu_model)
         cpu_x86_close(env);
         return NULL;
     }
+    env->cpuid_apic_id = env->cpu_index;
     mce_init(env);
 
     qemu_init_vcpu(env);

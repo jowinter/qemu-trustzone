@@ -106,31 +106,27 @@ static void bitband_writel(void *opaque, target_phys_addr_t offset,
     cpu_physical_memory_write(addr, (uint8_t *)&v, 4);
 }
 
-static CPUReadMemoryFunc * const bitband_readfn[] = {
-   bitband_readb,
-   bitband_readw,
-   bitband_readl
-};
-
-static CPUWriteMemoryFunc * const bitband_writefn[] = {
-   bitband_writeb,
-   bitband_writew,
-   bitband_writel
+static const MemoryRegionOps bitband_ops = {
+    .old_mmio = {
+        .read = { bitband_readb, bitband_readw, bitband_readl, },
+        .write = { bitband_writeb, bitband_writew, bitband_writel, },
+    },
+    .endianness = DEVICE_NATIVE_ENDIAN,
 };
 
 typedef struct {
     SysBusDevice busdev;
+    MemoryRegion iomem;
     uint32_t base;
 } BitBandState;
 
 static int bitband_init(SysBusDevice *dev)
 {
     BitBandState *s = FROM_SYSBUS(BitBandState, dev);
-    int iomemtype;
 
-    iomemtype = cpu_register_io_memory(bitband_readfn, bitband_writefn,
-                                       &s->base, DEVICE_NATIVE_ENDIAN);
-    sysbus_init_mmio(dev, 0x02000000, iomemtype);
+    memory_region_init_io(&s->iomem, &bitband_ops, &s->base, "bitband",
+                          0x02000000);
+    sysbus_init_mmio_region(dev, &s->iomem);
     return 0;
 }
 
@@ -160,7 +156,8 @@ static void armv7m_reset(void *opaque)
    flash_size and sram_size are in kb.
    Returns the NVIC array.  */
 
-qemu_irq *armv7m_init(int flash_size, int sram_size,
+qemu_irq *armv7m_init(MemoryRegion *address_space_mem,
+                      int flash_size, int sram_size,
                       const char *kernel_filename, const char *cpu_model)
 {
     CPUState *env;
@@ -173,6 +170,9 @@ qemu_irq *armv7m_init(int flash_size, int sram_size,
     uint64_t lowaddr;
     int i;
     int big_endian;
+    MemoryRegion *sram = g_new(MemoryRegion, 1);
+    MemoryRegion *flash = g_new(MemoryRegion, 1);
+    MemoryRegion *hack = g_new(MemoryRegion, 1);
 
     flash_size *= 1024;
     sram_size *= 1024;
@@ -198,12 +198,11 @@ qemu_irq *armv7m_init(int flash_size, int sram_size,
 #endif
 
     /* Flash programming is done via the SCU, so pretend it is ROM.  */
-    cpu_register_physical_memory(0, flash_size,
-                                 qemu_ram_alloc(NULL, "armv7m.flash",
-                                                flash_size) | IO_MEM_ROM);
-    cpu_register_physical_memory(0x20000000, sram_size,
-                                 qemu_ram_alloc(NULL, "armv7m.sram",
-                                                sram_size) | IO_MEM_RAM);
+    memory_region_init_ram(flash, NULL, "armv7m.flash", flash_size);
+    memory_region_set_readonly(flash, true);
+    memory_region_add_subregion(address_space_mem, 0, flash);
+    memory_region_init_ram(sram, NULL, "armv7m.sram", sram_size);
+    memory_region_add_subregion(address_space_mem, 0x20000000, sram);
     armv7m_bitband_init();
 
     nvic = qdev_create(NULL, "armv7m_nvic");
@@ -236,9 +235,8 @@ qemu_irq *armv7m_init(int flash_size, int sram_size,
     /* Hack to map an additional page of ram at the top of the address
        space.  This stops qemu complaining about executing code outside RAM
        when returning from an exception.  */
-    cpu_register_physical_memory(0xfffff000, 0x1000,
-                                 qemu_ram_alloc(NULL, "armv7m.hack", 
-                                                0x1000) | IO_MEM_RAM);
+    memory_region_init_ram(hack, NULL, "armv7m.hack", 0x1000);
+    memory_region_add_subregion(address_space_mem, 0xfffff000, hack);
 
     qemu_register_reset(armv7m_reset, env);
     return pic;

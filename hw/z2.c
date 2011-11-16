@@ -20,6 +20,7 @@
 #include "blockdev.h"
 #include "console.h"
 #include "audio/audio.h"
+#include "exec-memory.h"
 
 #ifdef DEBUG_Z2
 #define DPRINTF(fmt, ...) \
@@ -277,6 +278,7 @@ static void z2_init(ram_addr_t ram_size,
                 const char *kernel_filename, const char *kernel_cmdline,
                 const char *initrd_filename, const char *cpu_model)
 {
+    MemoryRegion *address_space_mem = get_system_memory();
     uint32_t sector_len = 0x10000;
     PXA2xxState *cpu;
     DriveInfo *dinfo;
@@ -290,7 +292,7 @@ static void z2_init(ram_addr_t ram_size,
     }
 
     /* Setup CPU & memory */
-    cpu = pxa270_init(z2_binfo.ram_size, cpu_model);
+    cpu = pxa270_init(address_space_mem, z2_binfo.ram_size, cpu_model);
 
 #ifdef TARGET_WORDS_BIGENDIAN
     be = 1;
@@ -305,7 +307,7 @@ static void z2_init(ram_addr_t ram_size,
     }
 
     if (!pflash_cfi01_register(Z2_FLASH_BASE,
-                               qemu_ram_alloc(NULL, "z2.flash0", Z2_FLASH_SIZE),
+                               NULL, "z2.flash0", Z2_FLASH_SIZE,
                                dinfo->bdrv, sector_len,
                                Z2_FLASH_SIZE / sector_len, 4, 0, 0, 0, 0,
                                be)) {

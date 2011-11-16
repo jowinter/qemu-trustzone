@@ -12,6 +12,45 @@ here. For full change detail consult the git history:
 Bug numbers refer to Launchpad qemu-linaro bugs, eg:
 https://bugs.launchpad.net/qemu-linaro/+bug/703094
 
+version 2011.11:
+ - The ARM vexpress-a9, versatilepb, versatileab and realview-*
+   boards now have audio support (thanks to Mathieu Sonet who
+   contributed a PL041 implementation upstream)
+ - Support for multiple instances of the "-sd" option on the
+   command line has been dropped; this was never present in
+   upstream QEMU and has been removed for consistency. Use
+   "-drive,if=sd,index=N,file=file.img" for N=0,1,2... instead
+ - Fixes #886980: 8 and 16 bit reads from the OMAP GPIO module
+   would crash due to an infinite recursion
+
+version 2011.10:
+ - Beagle models now support USB networking (run the model with
+   "-usb -device usb-net,netdev=mynet -netdev user,id=mynet")
+ - Instructions introduced with the Cortex-A15 (ARM mode
+   SDIV and UDIV, and the VFPv4 fused multiply-accumulate
+   instructions VFMA, VFMS, VFNMA, VFNMS) are now supported
+   in linux-user mode
+ - Fixes a bug which would cause returning of the wrong NaN values
+   in some cases (when more than one input is a NaN or when the
+   "default NaN" should be returned)
+
+version 2011.09:
+ - linux-user mode now supports the 64 bit cmpxchg kernel helpers
+   (only needed for applications compiled for ARMv6 or lower)
+ - correct a bug which would cause a crash trying to use USB
+   on the n800 and n810 models
+ - PL111 display controller now supported; this fixes a problem
+   where BGR was interpreted as RGB on recent versatilepb kernels
+ - Compilation failures on SPARC, ARM, ia64 fixed
+
+version 2011.08:
+ - Fixes #816791: ARMv6 cp15 barrier instructions now work
+   in linux-user mode as well as system mode
+ - Support for ARM1176JZF-S core has been added (thanks to
+   Jamie Iles <jamie@jamieiles.com>)
+ - Add workaround for kernel bug #727781 (which has resurfaced
+   in 3.0) to suppress warnings about bad-width omap i2c accesses
+
 version 2011.07:
  - Fixes a compile failure on ia64 hosts
  - Fixes #728630: syscall 369 (prlimit64) implemented in

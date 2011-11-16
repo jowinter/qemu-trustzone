@@ -9,6 +9,8 @@
 #ifndef PXA_H
 # define PXA_H			"pxa.h"
 
+#include "memory.h"
+
 /* Interrupt numbers */
 # define PXA2XX_PIC_SSP3	0
 # define PXA2XX_PIC_USBH2	2
@@ -120,6 +122,11 @@ typedef struct {
     CPUState *env;
     DeviceState *pic;
     qemu_irq reset;
+    MemoryRegion sdram;
+    MemoryRegion internal;
+    MemoryRegion cm_iomem;
+    MemoryRegion mm_iomem;
+    MemoryRegion pm_iomem;
     DeviceState *dma;
     DeviceState *gpio;
     PXA2xxLCDState *lcd;
@@ -149,6 +156,7 @@ typedef struct {
 } PXA2xxState;
 
 struct PXA2xxI2SState {
+    MemoryRegion iomem;
     qemu_irq irq;
     qemu_irq rx_dma;
     qemu_irq tx_dma;
@@ -173,7 +181,8 @@ struct PXA2xxI2SState {
 # define PA_FMT			"0x%08lx"
 # define REG_FMT		"0x" TARGET_FMT_plx
 
-PXA2xxState *pxa270_init(unsigned int sdram_size, const char *revision);
-PXA2xxState *pxa255_init(unsigned int sdram_size);
+PXA2xxState *pxa270_init(MemoryRegion *address_space, unsigned int sdram_size,
+                         const char *revision);
+PXA2xxState *pxa255_init(MemoryRegion *address_space, unsigned int sdram_size);
 
 #endif	/* PXA_H */

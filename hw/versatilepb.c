@@ -180,7 +180,9 @@ static void versatile_init(ram_addr_t ram_size,
     qemu_irq *cpu_pic;
     qemu_irq pic[32];
     qemu_irq sic[32];
-    DeviceState *dev;
+    DeviceState *dev, *sysctl;
+    SysBusDevice *busdev;
+    DeviceState *pl041;
     PCIBus *pci_bus;
     NICInfo *nd;
     int n;
@@ -198,7 +200,12 @@ static void versatile_init(ram_addr_t ram_size,
     /* SDRAM at address zero.  */
     cpu_register_physical_memory(0, ram_size, ram_offset | IO_MEM_RAM);
 
-    arm_sysctl_init(0x10000000, 0x41007004, 0x02000000);
+    sysctl = qdev_create(NULL, "realview_sysctl");
+    qdev_prop_set_uint32(sysctl, "sys_id", 0x41007004);
+    qdev_init_nofail(sysctl);
+    qdev_prop_set_uint32(sysctl, "proc_id", 0x02000000);
+    sysbus_mmio_map(sysbus_from_qdev(sysctl), 0, 0x10000000);
+
     cpu_pic = arm_pic_init_cpu(env);
     dev = sysbus_create_varargs("pl190", 0x10140000,
                                 cpu_pic[0], cpu_pic[1], NULL);
@@ -214,8 +221,15 @@ static void versatile_init(ram_addr_t ram_size,
     sysbus_create_simple("pl050_keyboard", 0x10006000, sic[3]);
     sysbus_create_simple("pl050_mouse", 0x10007000, sic[4]);
 
-    dev = sysbus_create_varargs("versatile_pci", 0x40000000,
-                                sic[27], sic[28], sic[29], sic[30], NULL);
+    dev = qdev_create(NULL, "versatile_pci");
+    busdev = sysbus_from_qdev(dev);
+    qdev_init_nofail(dev);
+    sysbus_mmio_map(busdev, 0, 0x41000000); /* PCI self-config */
+    sysbus_mmio_map(busdev, 1, 0x42000000); /* PCI config */
+    sysbus_connect_irq(busdev, 0, sic[27]);
+    sysbus_connect_irq(busdev, 1, sic[28]);
+    sysbus_connect_irq(busdev, 2, sic[29]);
+    sysbus_connect_irq(busdev, 3, sic[30]);
     pci_bus = (PCIBus *)qdev_get_child_bus(dev, "pci");
 
     /* The Versatile PCI bridge does not provide access to PCI IO space,
@@ -250,13 +264,22 @@ static void versatile_init(ram_addr_t ram_size,
 
     /* The versatile/PB actually has a modified Color LCD controller
        that includes hardware cursor support from the PL111.  */
-    sysbus_create_simple("pl110_versatile", 0x10120000, pic[16]);
+    dev = sysbus_create_simple("pl110_versatile", 0x10120000, pic[16]);
+    /* Wire up the mux control signals from the SYS_CLCD register */
+    qdev_connect_gpio_out(sysctl, 0, qdev_get_gpio_in(dev, 0));
 
     sysbus_create_varargs("pl181", 0x10005000, sic[22], sic[1], NULL);
     sysbus_create_varargs("pl181", 0x1000b000, sic[23], sic[2], NULL);
 
     /* Add PL031 Real Time Clock. */
     sysbus_create_simple("pl031", 0x101e8000, pic[10]);
+
+    /* Add PL041 AACI Interface to the LM4549 codec */
+    pl041 = qdev_create(NULL, "pl041");
+    qdev_prop_set_uint32(pl041, "nc_fifo_depth", 512);
+    qdev_init_nofail(pl041);
+    sysbus_mmio_map(sysbus_from_qdev(pl041), 0, 0x10004000);
+    sysbus_connect_irq(sysbus_from_qdev(pl041), 0, sic[24]);
 
     /* Memory map for Versatile/PB:  */
     /* 0x10000000 System registers.  */

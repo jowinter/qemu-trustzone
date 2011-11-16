@@ -212,12 +212,24 @@ void set_floatx80_rounding_precision(int val STATUS_PARAM);
 void float_raise( int8 flags STATUS_PARAM);
 
 /*----------------------------------------------------------------------------
+| Options to indicate which negations to perform in float*_muladd()
+| Using these differs from negating an input or output before calling
+| the muladd function in that this means that a NaN doesn't have its
+| sign bit inverted before it is propagated.
+*----------------------------------------------------------------------------*/
+enum {
+    float_muladd_negate_c = 1,
+    float_muladd_negate_product = 2,
+    float_muladd_negate_result = 3,
+};
+
+/*----------------------------------------------------------------------------
 | Software IEC/IEEE integer-to-floating-point conversion routines.
 *----------------------------------------------------------------------------*/
 float32 int32_to_float32( int32 STATUS_PARAM );
 float64 int32_to_float64( int32 STATUS_PARAM );
-float32 uint32_to_float32( unsigned int STATUS_PARAM );
-float64 uint32_to_float64( unsigned int STATUS_PARAM );
+float32 uint32_to_float32( uint32 STATUS_PARAM );
+float64 uint32_to_float64( uint32 STATUS_PARAM );
 floatx80 int32_to_floatx80( int32 STATUS_PARAM );
 float128 int32_to_float128( int32 STATUS_PARAM );
 float32 int64_to_float32( int64 STATUS_PARAM );
@@ -249,7 +261,7 @@ extern const float16 float16_default_nan;
 | Software IEC/IEEE single-precision conversion routines.
 *----------------------------------------------------------------------------*/
 int16 float32_to_int16_round_to_zero( float32 STATUS_PARAM );
-unsigned int float32_to_uint16_round_to_zero( float32 STATUS_PARAM );
+uint16 float32_to_uint16_round_to_zero( float32 STATUS_PARAM );
 int32 float32_to_int32( float32 STATUS_PARAM );
 int32 float32_to_int32_round_to_zero( float32 STATUS_PARAM );
 uint32 float32_to_uint32( float32 STATUS_PARAM );
@@ -269,6 +281,7 @@ float32 float32_sub( float32, float32 STATUS_PARAM );
 float32 float32_mul( float32, float32 STATUS_PARAM );
 float32 float32_div( float32, float32 STATUS_PARAM );
 float32 float32_rem( float32, float32 STATUS_PARAM );
+float32 float32_muladd(float32, float32, float32, int STATUS_PARAM);
 float32 float32_sqrt( float32 STATUS_PARAM );
 float32 float32_exp2( float32 STATUS_PARAM );
 float32 float32_log2( float32 STATUS_PARAM );
@@ -352,7 +365,7 @@ extern const float32 float32_default_nan;
 | Software IEC/IEEE double-precision conversion routines.
 *----------------------------------------------------------------------------*/
 int16 float64_to_int16_round_to_zero( float64 STATUS_PARAM );
-unsigned int float64_to_uint16_round_to_zero( float64 STATUS_PARAM );
+uint16 float64_to_uint16_round_to_zero( float64 STATUS_PARAM );
 int32 float64_to_int32( float64 STATUS_PARAM );
 int32 float64_to_int32_round_to_zero( float64 STATUS_PARAM );
 uint32 float64_to_uint32( float64 STATUS_PARAM );
@@ -375,6 +388,7 @@ float64 float64_sub( float64, float64 STATUS_PARAM );
 float64 float64_mul( float64, float64 STATUS_PARAM );
 float64 float64_div( float64, float64 STATUS_PARAM );
 float64 float64_rem( float64, float64 STATUS_PARAM );
+float64 float64_muladd(float64, float64, float64, int STATUS_PARAM);
 float64 float64_sqrt( float64 STATUS_PARAM );
 float64 float64_log2( float64 STATUS_PARAM );
 int float64_eq( float64, float64 STATUS_PARAM );

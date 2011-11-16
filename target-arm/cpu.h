@@ -289,7 +289,7 @@ uint32_t do_arm_semihosting(CPUARMState *env);
 int cpu_arm_signal_handler(int host_signum, void *pinfo,
                            void *puc);
 int cpu_arm_handle_mmu_fault (CPUARMState *env, target_ulong address, int rw,
-                              int mmu_idx, int is_softmuu);
+                              int mmu_idx);
 #define cpu_handle_mmu_fault cpu_arm_handle_mmu_fault
 
 
@@ -408,7 +408,7 @@ enum arm_features {
     ARM_FEATURE_VFP3,
     ARM_FEATURE_VFP_FP16,
     ARM_FEATURE_NEON,
-    ARM_FEATURE_DIV,
+    ARM_FEATURE_THUMB_DIV, /* divide supported in Thumb encoding */
     ARM_FEATURE_M, /* Microcontroller profile.  */
     ARM_FEATURE_OMAPCP, /* OMAP specific CP15 ops handling.  */
     ARM_FEATURE_THUMB2EE,
@@ -417,6 +417,8 @@ enum arm_features {
     ARM_FEATURE_V5,
     ARM_FEATURE_STRONGARM,
     ARM_FEATURE_VAPA, /* cp15 VA to PA lookups */
+    ARM_FEATURE_ARM_DIV, /* divide supported in ARM encoding */
+    ARM_FEATURE_VFP4, /* VFPv4 (implies that NEON is v2) */
     ARM_FEATURE_TRUSTZONE, /* TrustZone Security Extensions. */
     ARM_FEATURE_ITRACE /* Instruction tracing enabled */
 };

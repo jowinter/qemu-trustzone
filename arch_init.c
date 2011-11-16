@@ -78,6 +78,8 @@ const char arch_config_name[] = CONFIG_QEMU_CONFDIR "/target-" TARGET_ARCH ".con
 #define QEMU_ARCH QEMU_ARCH_SH4
 #elif defined(TARGET_SPARC)
 #define QEMU_ARCH QEMU_ARCH_SPARC
+#elif defined(TARGET_XTENSA)
+#define QEMU_ARCH QEMU_ARCH_XTENSA
 #endif
 
 const uint32_t arch_type = QEMU_ARCH;
@@ -235,7 +237,7 @@ static void sort_ram_list(void)
     QLIST_FOREACH(block, &ram_list.blocks, next) {
         ++n;
     }
-    blocks = qemu_malloc(n * sizeof *blocks);
+    blocks = g_malloc(n * sizeof *blocks);
     n = 0;
     QLIST_FOREACH_SAFE(block, &ram_list.blocks, next, nblock) {
         blocks[n++] = block;
@@ -245,7 +247,7 @@ static void sort_ram_list(void)
     while (--n >= 0) {
         QLIST_INSERT_HEAD(&ram_list.blocks, blocks[n], next);
     }
-    qemu_free(blocks);
+    g_free(blocks);
 }
 
 int ram_save_live(Monitor *mon, QEMUFile *f, int stage, void *opaque)
@@ -254,6 +256,7 @@ int ram_save_live(Monitor *mon, QEMUFile *f, int stage, void *opaque)
     uint64_t bytes_transferred_last;
     double bwidth = 0;
     uint64_t expected_time = 0;
+    int ret;
 
     if (stage < 0) {
         cpu_physical_memory_set_dirty_tracking(0);
@@ -261,8 +264,8 @@ int ram_save_live(Monitor *mon, QEMUFile *f, int stage, void *opaque)
     }
 
     if (cpu_physical_sync_dirty_bitmap(0, TARGET_PHYS_ADDR_MAX) != 0) {
-        qemu_file_set_error(f);
-        return 0;
+        qemu_file_set_error(f, -EINVAL);
+        return -EINVAL;
     }
 
     if (stage == 1) {
@@ -298,7 +301,7 @@ int ram_save_live(Monitor *mon, QEMUFile *f, int stage, void *opaque)
     bytes_transferred_last = bytes_transferred;
     bwidth = qemu_get_clock_ns(rt_clock);
 
-    while (!qemu_file_rate_limit(f)) {
+    while ((ret = qemu_file_rate_limit(f)) == 0) {
         int bytes_sent;
 
         bytes_sent = ram_save_block(f);
@@ -306,6 +309,10 @@ int ram_save_live(Monitor *mon, QEMUFile *f, int stage, void *opaque)
         if (bytes_sent == 0) { /* no more blocks */
             break;
         }
+    }
+
+    if (ret < 0) {
+        return ret;
     }
 
     bwidth = qemu_get_clock_ns(rt_clock) - bwidth;
@@ -369,6 +376,7 @@ int ram_load(QEMUFile *f, void *opaque, int version_id)
 {
     ram_addr_t addr;
     int flags;
+    int error;
 
     if (version_id < 3 || version_id > 4) {
         return -EINVAL;
@@ -449,17 +457,13 @@ int ram_load(QEMUFile *f, void *opaque, int version_id)
 
             qemu_get_buffer(f, host, TARGET_PAGE_SIZE);
         }
-        if (qemu_file_has_error(f)) {
-            return -EIO;
+        error = qemu_file_get_error(f);
+        if (error) {
+            return error;
         }
     } while (!(flags & RAM_SAVE_FLAG_EOS));
 
     return 0;
-}
-
-void qemu_service_io(void)
-{
-    qemu_notify_event();
 }
 
 #ifdef HAS_AUDIO

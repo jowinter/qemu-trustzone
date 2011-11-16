@@ -23,14 +23,9 @@
  */
 
 #include "hw.h"
-#include "pc.h"
+#include "microblaze_pic_cpu.h"
 
 #define D(x)
-
-void pic_info(Monitor *mon)
-{}
-void irq_info(Monitor *mon)
-{}
 
 static void microblaze_pic_cpu_handler(void *opaque, int irq, int level)
 {
@@ -43,7 +38,6 @@ static void microblaze_pic_cpu_handler(void *opaque, int irq, int level)
         cpu_reset_interrupt(env, type);
 }
 
-qemu_irq *microblaze_pic_init_cpu(CPUState *env);
 qemu_irq *microblaze_pic_init_cpu(CPUState *env)
 {
     return qemu_allocate_irqs(microblaze_pic_cpu_handler, env, 2);

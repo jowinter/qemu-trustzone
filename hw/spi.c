@@ -38,7 +38,7 @@ SPIBus *spi_init_bus(DeviceState *parent, const char *name, int num_channels)
 {
     SPIBus *bus = FROM_QBUS(SPIBus, qbus_create(&spi_bus_info, parent, name));
     bus->channels = num_channels;
-    bus->device = qemu_mallocz(bus->channels * sizeof(SPIDevice *));
+    bus->device = g_new0(SPIDevice*, bus->channels);
     return bus;
 }
 

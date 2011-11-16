@@ -8,7 +8,7 @@
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
  * published by the Free Software Foundation; either version 2 or
- * (at your option) any later version of the License.
+ * (at your option) version 3 of the License.
  *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -315,7 +315,7 @@ struct MUSBEndPoint {
 };
 
 struct MUSBState {
-    qemu_irq *irqs;
+    qemu_irq irqs[musb_irq_max];
     USBBus bus;
     USBPort port;
 
@@ -331,9 +331,7 @@ struct MUSBState {
     uint16_t rx_intr;
     uint16_t rx_mask;
 
-#ifdef SETUPLEN_HACK
     int setup_len;
-#endif
     int session;
 
     uint8_t buf[0x8000];
@@ -350,7 +348,6 @@ void musb_reset(MUSBState *s)
     s->faddr = 0x00;
     s->devctl = 0;
     s->power = MGC_M_POWER_HSENAB;
-
     s->tx_intr = 0x0000;
     s->rx_intr = 0x0000;
     s->tx_mask = 0xffff;
@@ -359,9 +356,7 @@ void musb_reset(MUSBState *s)
     s->mask = 0x06;
     s->idx = 0;
 
-#ifdef SETUPLEN_HACK
     s->setup_len = 0;
-#endif
     s->session = 0;
     memset(s->buf, 0, sizeof(s->buf));
 
@@ -373,17 +368,20 @@ void musb_reset(MUSBState *s)
         s->ep[i].maxp[1] = 0x40;
         s->ep[i].musb = s;
         s->ep[i].epnum = i;
+        usb_packet_init(&s->ep[i].packey[0].p);
+        usb_packet_init(&s->ep[i].packey[1].p);
     }
 }
 
 struct MUSBState *musb_init(DeviceState *parent_device, int gpio_base)
 {
-    MUSBState *s = qemu_mallocz(sizeof(*s));
-    s->irqs = qemu_mallocz(__musb_irq_max * sizeof(qemu_irq));
+    MUSBState *s = g_malloc0(sizeof(*s));
     int i;
-    for (i = 0; i < __musb_irq_max; i++) {
+
+    for (i = 0; i < musb_irq_max; i++) {
         s->irqs[i] = qdev_get_gpio_in(parent_device, gpio_base + i);
     }
+
     musb_reset(s);
 
     usb_bus_new(&s->bus, &musb_bus_ops, parent_device);
@@ -624,12 +622,10 @@ static void musb_packet(MUSBState *s, MUSBEndPoint *ep,
     ep->interrupt[dir] = ttype == USB_ENDPOINT_XFER_INT;
     ep->delayed_cb[dir] = cb;
 
-    ep->packey[dir].p.pid = pid;
     /* A wild guess on the FADDR semantics... */
-    ep->packey[dir].p.devaddr = ep->faddr[idx];
-    ep->packey[dir].p.devep = ep->type[idx] & 0xf;
-    ep->packey[dir].p.data = (void *) ep->buf[idx];
-    ep->packey[dir].p.len = len;
+    usb_packet_setup(&ep->packey[dir].p, pid, ep->faddr[idx],
+                     ep->type[idx] & 0xf);
+    usb_packet_addbuf(&ep->packey[dir].p, ep->buf[idx], len);
     ep->packey[dir].ep = ep;
     ep->packey[dir].dir = dir;
 
@@ -757,7 +753,7 @@ static void musb_rx_packet_complete(USBPacket *packey, void *opaque)
 
     if (ep->status[1] == USB_RET_STALL) {
         ep->status[1] = 0;
-        packey->len = 0;
+        packey->result = 0;
 
         ep->csr[1] |= MGC_M_RXCSR_H_RXSTALL;
         if (!epnum)
@@ -771,7 +767,7 @@ static void musb_rx_packet_complete(USBPacket *packey, void *opaque)
          * Data-errors in Isochronous.  */
         if (ep->interrupt[1])
             return musb_packet(s, ep, epnum, USB_TOKEN_IN,
-                            packey->len, musb_rx_packet_complete, 1);
+                            packey->iov.size, musb_rx_packet_complete, 1);
 
         ep->csr[1] |= MGC_M_RXCSR_DATAERROR;
         if (!epnum)
@@ -796,14 +792,14 @@ static void musb_rx_packet_complete(USBPacket *packey, void *opaque)
     /* TODO: check len for over/underruns of an OUT packet?  */
     /* TODO: perhaps make use of e->ext_size[1] here.  */
 
-    packey->len = ep->status[1];
+    packey->result = ep->status[1];
 
     if (!(ep->csr[1] & (MGC_M_RXCSR_H_RXSTALL | MGC_M_RXCSR_DATAERROR))) {
         ep->csr[1] |= MGC_M_RXCSR_FIFOFULL | MGC_M_RXCSR_RXPKTRDY;
         if (!epnum)
             ep->csr[0] |= MGC_M_CSR0_RXPKTRDY;
 
-        ep->rxcount = packey->len; /* XXX: MIN(packey->len, ep->maxp[1]); */
+        ep->rxcount = packey->result; /* XXX: MIN(packey->len, ep->maxp[1]); */
         /* In DMA mode: assert DMA request for this EP */
     }
 
@@ -875,12 +871,12 @@ static void musb_rx_req(MUSBState *s, int epnum)
      * 64 bytes of the FIFO, only move the FIFO start and return. (Obsolete) */
     if (ep->packey[1].p.pid == USB_TOKEN_IN && ep->status[1] >= 0 &&
                     (ep->fifostart[1]) + ep->rxcount <
-                    ep->packey[1].p.len) {
+                    ep->packey[1].p.iov.size) {
         TRACE("0x%08x, %d",  ep->fifostart[1], ep->rxcount );
         ep->fifostart[1] += ep->rxcount;
         ep->fifolen[1] = 0;
 
-        ep->rxcount = MIN(ep->packey[0].p.len - (ep->fifostart[1]),
+        ep->rxcount = MIN(ep->packey[0].p.iov.size - (ep->fifostart[1]),
                         ep->maxp[1]);
 
         ep->csr[1] &= ~MGC_M_RXCSR_H_REQPKT;
@@ -1545,7 +1541,7 @@ static void musb_writew(void *opaque, target_phys_addr_t addr, uint32_t value)
         musb_write_fifo(s->ep + ep, (value >> 8 ) & 0xff);
         musb_write_fifo(s->ep + ep, (value >> 16) & 0xff);
         musb_write_fifo(s->ep + ep, (value >> 24) & 0xff);
-        break;
+            break;
     default:
         TRACE("unknown register 0x%02x", (int) addr);
         break;

@@ -332,6 +332,49 @@ enum
     ARM_HWCAP_ARM_VFPv3D16  = 1 << 13,
 };
 
+#define TARGET_HAS_GUEST_VALIDATE_BASE
+/* We want the opportunity to check the suggested base */
+bool guest_validate_base(unsigned long guest_base)
+{
+    unsigned long real_start, test_page_addr;
+
+    /* We need to check that we can force a fault on access to the
+     * commpage at 0xffff0fxx
+     */
+    test_page_addr = guest_base + (0xffff0f00 & qemu_host_page_mask);
+    /* Note it needs to be writeable to let us initialise it */
+    real_start = (unsigned long)
+                 mmap((void *)test_page_addr, qemu_host_page_size,
+                     PROT_READ | PROT_WRITE,
+                     MAP_ANONYMOUS | MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+
+    /* If we can't map it then try another address */
+    if (real_start == -1ul) {
+        return 0;
+    }
+
+    if (real_start != test_page_addr) {
+        /* OS didn't put the page where we asked - unmap and reject */
+        munmap((void *)real_start, qemu_host_page_size);
+        return 0;
+    }
+
+    /* Leave the page mapped
+     * Populate it (mmap should have left it all 0'd)
+     */
+
+    /* Kernel helper versions */
+    __put_user(5, (uint32_t *)g2h(0xffff0ffcul));
+
+    /* Now it's populated make it RO */
+    if (mprotect((void *)test_page_addr, qemu_host_page_size, PROT_READ)) {
+        perror("Protecting guest commpage");
+        exit(-1);
+    }
+
+    return 1; /* All good */
+}
+
 #define ELF_HWCAP (ARM_HWCAP_ARM_SWP | ARM_HWCAP_ARM_HALF               \
                    | ARM_HWCAP_ARM_THUMB | ARM_HWCAP_ARM_FAST_MULT      \
                    | ARM_HWCAP_ARM_FPA | ARM_HWCAP_ARM_VFP              \
@@ -575,8 +618,8 @@ static inline void init_thread(struct target_pt_regs *_regs, struct image_info *
 {
     _regs->gpr[1] = infop->start_stack;
 #if defined(TARGET_PPC64) && !defined(TARGET_ABI32)
-    _regs->gpr[2] = ldq_raw(infop->entry + 8) + infop->load_addr;
-    infop->entry = ldq_raw(infop->entry) + infop->load_addr;
+    _regs->gpr[2] = ldq_raw(infop->entry + 8) + infop->load_bias;
+    infop->entry = ldq_raw(infop->entry) + infop->load_bias;
 #endif
     _regs->nip = infop->entry;
 }
@@ -1309,6 +1352,14 @@ static abi_ulong create_elf_tables(abi_ulong p, int argc, int envc,
     return sp;
 }
 
+#ifndef TARGET_HAS_GUEST_VALIDATE_BASE
+/* If the guest doesn't have a validation function just agree */
+bool guest_validate_base(unsigned long guest_base)
+{
+    return 1;
+}
+#endif
+
 static void probe_guest_base(const char *image_name,
                              abi_ulong loaddr, abi_ulong hiaddr)
 {
@@ -1345,7 +1396,9 @@ static void probe_guest_base(const char *image_name,
             if (real_start == (unsigned long)-1) {
                 goto exit_perror;
             }
-            if (real_start == host_start) {
+            guest_base = real_start - loaddr;
+            if ((real_start == host_start) &&
+                guest_validate_base(guest_base)) {
                 break;
             }
             /* That address didn't work.  Unmap and try a different one.
@@ -1368,7 +1421,6 @@ static void probe_guest_base(const char *image_name,
         qemu_log("Relocating guest address space from 0x"
                  TARGET_ABI_FMT_lx " to 0x%lx\n",
                  loaddr, real_start);
-        guest_base = real_start - loaddr;
     }
     return;
 
@@ -1473,7 +1525,7 @@ static void load_elf_image(const char *image_name, int image_fd,
 #ifdef CONFIG_USE_FDPIC
     {
         struct elf32_fdpic_loadseg *loadsegs = info->loadsegs =
-            qemu_malloc(sizeof(*loadsegs) * info->nsegs);
+            g_malloc(sizeof(*loadsegs) * info->nsegs);
 
         for (i = 0; i < ehdr->e_phnum; ++i) {
             switch (phdr[i].p_type) {
@@ -1832,11 +1884,11 @@ int load_elf_binary(struct linux_binprm * bprm, struct target_pt_regs * regs,
     info->start_stack = bprm->p;
 
     /* If we have an interpreter, set that as the program's entry point.
-       Copy the load_addr as well, to help PPC64 interpret the entry
+       Copy the load_bias as well, to help PPC64 interpret the entry
        point as a function descriptor.  Do this after creating elf tables
        so that we copy the original program entry point into the AUXV.  */
     if (elf_interpreter) {
-        info->load_addr = interp_info.load_addr;
+        info->load_bias = interp_info.load_bias;
         info->entry = interp_info.entry;
         free(elf_interpreter);
     }
@@ -2063,7 +2115,7 @@ static struct mm_struct *vma_init(void)
 {
     struct mm_struct *mm;
 
-    if ((mm = qemu_malloc(sizeof (*mm))) == NULL)
+    if ((mm = g_malloc(sizeof (*mm))) == NULL)
         return (NULL);
 
     mm->mm_count = 0;
@@ -2078,9 +2130,9 @@ static void vma_delete(struct mm_struct *mm)
 
     while ((vma = vma_first(mm)) != NULL) {
         QTAILQ_REMOVE(&mm->mm_mmap, vma, vma_link);
-        qemu_free(vma);
+        g_free(vma);
     }
-    qemu_free(mm);
+    g_free(mm);
 }
 
 static int vma_add_mapping(struct mm_struct *mm, abi_ulong start,
@@ -2088,7 +2140,7 @@ static int vma_add_mapping(struct mm_struct *mm, abi_ulong start,
 {
     struct vm_area_struct *vma;
 
-    if ((vma = qemu_mallocz(sizeof (*vma))) == NULL)
+    if ((vma = g_malloc0(sizeof (*vma))) == NULL)
         return (-1);
 
     vma->vma_start = start;
@@ -2412,7 +2464,7 @@ static void fill_thread_info(struct elf_note_info *info, const CPUState *env)
     TaskState *ts = (TaskState *)env->opaque;
     struct elf_thread_status *ets;
 
-    ets = qemu_mallocz(sizeof (*ets));
+    ets = g_malloc0(sizeof (*ets));
     ets->num_notes = 1; /* only prstatus is dumped */
     fill_prstatus(&ets->prstatus, ts, 0);
     elf_core_copy_regs(&ets->prstatus.pr_reg, env);
@@ -2436,13 +2488,13 @@ static int fill_note_info(struct elf_note_info *info,
 
     QTAILQ_INIT(&info->thread_list);
 
-    info->notes = qemu_mallocz(NUMNOTES * sizeof (struct memelfnote));
+    info->notes = g_malloc0(NUMNOTES * sizeof (struct memelfnote));
     if (info->notes == NULL)
         return (-ENOMEM);
-    info->prstatus = qemu_mallocz(sizeof (*info->prstatus));
+    info->prstatus = g_malloc0(sizeof (*info->prstatus));
     if (info->prstatus == NULL)
         return (-ENOMEM);
-    info->psinfo = qemu_mallocz(sizeof (*info->psinfo));
+    info->psinfo = g_malloc0(sizeof (*info->psinfo));
     if (info->prstatus == NULL)
         return (-ENOMEM);
 
@@ -2483,12 +2535,12 @@ static void free_note_info(struct elf_note_info *info)
     while (!QTAILQ_EMPTY(&info->thread_list)) {
         ets = QTAILQ_FIRST(&info->thread_list);
         QTAILQ_REMOVE(&info->thread_list, ets, ets_link);
-        qemu_free(ets);
+        g_free(ets);
     }
 
-    qemu_free(info->prstatus);
-    qemu_free(info->psinfo);
-    qemu_free(info->notes);
+    g_free(info->prstatus);
+    g_free(info->psinfo);
+    g_free(info->notes);
 }
 
 static int write_note_info(struct elf_note_info *info, int fd)

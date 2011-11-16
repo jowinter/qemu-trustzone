@@ -97,12 +97,12 @@ struct sun4m_hwdef {
         target_phys_addr_t reg_base, vram_base;
     } vsimm[MAX_VSIMMS];
     target_phys_addr_t ecc_base;
-    uint32_t ecc_version;
-    uint8_t nvram_machine_id;
-    uint16_t machine_id;
-    uint32_t iommu_version;
     uint64_t max_mem;
     const char * const default_cpu_model;
+    uint32_t ecc_version;
+    uint32_t iommu_version;
+    uint16_t machine_id;
+    uint8_t nvram_machine_id;
 };
 
 #define MAX_IOUNITS 5
@@ -115,11 +115,11 @@ struct sun4d_hwdef {
     target_phys_addr_t ledma_base, le_base;
     target_phys_addr_t tcx_base;
     target_phys_addr_t sbi_base;
-    uint8_t nvram_machine_id;
-    uint16_t machine_id;
-    uint32_t iounit_version;
     uint64_t max_mem;
     const char * const default_cpu_model;
+    uint32_t iounit_version;
+    uint16_t machine_id;
+    uint8_t nvram_machine_id;
 };
 
 struct sun4c_hwdef {
@@ -128,11 +128,11 @@ struct sun4c_hwdef {
     target_phys_addr_t serial_base, fd_base;
     target_phys_addr_t idreg_base, dma_base, esp_base, le_base;
     target_phys_addr_t tcx_base, aux1_base;
-    uint8_t nvram_machine_id;
-    uint16_t machine_id;
-    uint32_t iommu_version;
     uint64_t max_mem;
     const char * const default_cpu_model;
+    uint32_t iommu_version;
+    uint16_t machine_id;
+    uint8_t nvram_machine_id;
 };
 
 int DMA_get_channel_mode (int nchan)
@@ -216,13 +216,13 @@ static void nvram_init(M48t59State *nvram, uint8_t *macaddr,
 
 static DeviceState *slavio_intctl;
 
-void pic_info(Monitor *mon)
+void sun4m_pic_info(Monitor *mon)
 {
     if (slavio_intctl)
         slavio_pic_info(mon, slavio_intctl);
 }
 
-void irq_info(Monitor *mon)
+void sun4m_irq_info(Monitor *mon)
 {
     if (slavio_intctl)
         slavio_irq_info(mon, slavio_intctl);
@@ -593,19 +593,25 @@ static void idreg_init(target_phys_addr_t addr)
     cpu_physical_memory_write_rom(addr, idreg_data, sizeof(idreg_data));
 }
 
+typedef struct IDRegState {
+    SysBusDevice busdev;
+    MemoryRegion mem;
+} IDRegState;
+
 static int idreg_init1(SysBusDevice *dev)
 {
-    ram_addr_t idreg_offset;
+    IDRegState *s = FROM_SYSBUS(IDRegState, dev);
 
-    idreg_offset = qemu_ram_alloc(NULL, "sun4m.idreg", sizeof(idreg_data));
-    sysbus_init_mmio(dev, sizeof(idreg_data), idreg_offset | IO_MEM_ROM);
+    memory_region_init_ram(&s->mem, NULL, "sun4m.idreg", sizeof(idreg_data));
+    memory_region_set_readonly(&s->mem, true);
+    sysbus_init_mmio_region(dev, &s->mem);
     return 0;
 }
 
 static SysBusDeviceInfo idreg_info = {
     .init = idreg_init1,
     .qdev.name  = "macio_idreg",
-    .qdev.size  = sizeof(SysBusDevice),
+    .qdev.size  = sizeof(IDRegState),
 };
 
 static void idreg_register_devices(void)
@@ -614,6 +620,11 @@ static void idreg_register_devices(void)
 }
 
 device_init(idreg_register_devices);
+
+typedef struct AFXState {
+    SysBusDevice busdev;
+    MemoryRegion mem;
+} AFXState;
 
 /* SS-5 TCX AFX register */
 static void afx_init(target_phys_addr_t addr)
@@ -630,17 +641,17 @@ static void afx_init(target_phys_addr_t addr)
 
 static int afx_init1(SysBusDevice *dev)
 {
-    ram_addr_t afx_offset;
+    AFXState *s = FROM_SYSBUS(AFXState, dev);
 
-    afx_offset = qemu_ram_alloc(NULL, "sun4m.afx", 4);
-    sysbus_init_mmio(dev, 4, afx_offset | IO_MEM_RAM);
+    memory_region_init_ram(&s->mem, NULL, "sun4m.afx", 4);
+    sysbus_init_mmio_region(dev, &s->mem);
     return 0;
 }
 
 static SysBusDeviceInfo afx_info = {
     .init = afx_init1,
     .qdev.name  = "tcx_afx",
-    .qdev.size  = sizeof(SysBusDevice),
+    .qdev.size  = sizeof(AFXState),
 };
 
 static void afx_register_devices(void)
@@ -649,6 +660,11 @@ static void afx_register_devices(void)
 }
 
 device_init(afx_register_devices);
+
+typedef struct PROMState {
+    SysBusDevice busdev;
+    MemoryRegion prom;
+} PROMState;
 
 /* Boot PROM (OpenBIOS) */
 static uint64_t translate_prom_address(void *opaque, uint64_t addr)
@@ -681,7 +697,7 @@ static void prom_init(target_phys_addr_t addr, const char *bios_name)
         if (ret < 0 || ret > PROM_SIZE_MAX) {
             ret = load_image_targphys(filename, addr, PROM_SIZE_MAX);
         }
-        qemu_free(filename);
+        g_free(filename);
     } else {
         ret = -1;
     }
@@ -693,17 +709,18 @@ static void prom_init(target_phys_addr_t addr, const char *bios_name)
 
 static int prom_init1(SysBusDevice *dev)
 {
-    ram_addr_t prom_offset;
+    PROMState *s = FROM_SYSBUS(PROMState, dev);
 
-    prom_offset = qemu_ram_alloc(NULL, "sun4m.prom", PROM_SIZE_MAX);
-    sysbus_init_mmio(dev, PROM_SIZE_MAX, prom_offset | IO_MEM_ROM);
+    memory_region_init_ram(&s->prom, NULL, "sun4m.prom", PROM_SIZE_MAX);
+    memory_region_set_readonly(&s->prom, true);
+    sysbus_init_mmio_region(dev, &s->prom);
     return 0;
 }
 
 static SysBusDeviceInfo prom_info = {
     .init = prom_init1,
     .qdev.name  = "openprom",
-    .qdev.size  = sizeof(SysBusDevice),
+    .qdev.size  = sizeof(PROMState),
     .qdev.props = (Property[]) {
         {/* end of property list */}
     }
@@ -719,19 +736,17 @@ device_init(prom_register_devices);
 typedef struct RamDevice
 {
     SysBusDevice busdev;
+    MemoryRegion ram;
     uint64_t size;
 } RamDevice;
 
 /* System RAM */
 static int ram_init1(SysBusDevice *dev)
 {
-    ram_addr_t RAM_size, ram_offset;
     RamDevice *d = FROM_SYSBUS(RamDevice, dev);
 
-    RAM_size = d->size;
-
-    ram_offset = qemu_ram_alloc(NULL, "sun4m.ram", RAM_size);
-    sysbus_init_mmio(dev, RAM_size, ram_offset);
+    memory_region_init_ram(&d->ram, NULL, "sun4m.ram", d->size);
+    sysbus_init_mmio_region(dev, &d->ram);
     return 0;
 }
 

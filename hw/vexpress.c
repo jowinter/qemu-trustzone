@@ -54,7 +54,6 @@ static void vexpress_register_flash(target_phys_addr_t addr, const char *name,
 				    unsigned long flash_size,
 				    DriveInfo *dinfo)
 {
-  ram_addr_t phys_flash;
   unsigned long bdev_size;
 
   /* Skip the flashes if no image has been given */
@@ -75,9 +74,9 @@ static void vexpress_register_flash(target_phys_addr_t addr, const char *name,
     flash_size = bdev_size;
   }
   
-  phys_flash = qemu_ram_alloc(NULL, name, flash_size);
-  pflash_cfi02_register(addr, phys_flash, dinfo? dinfo->bdrv : NULL,
-			0x10000, (flash_size + 0xFFFF) >> 16, 1, 4, 
+  pflash_cfi02_register(addr, NULL, name, flash_size, 
+                        dinfo? dinfo->bdrv : NULL, 0x10000, 
+                        (flash_size + 0xFFFF) >> 16, 1, 4, 
 			0x0090, 0x227E, 0x2212, 0x2201,
 			0x555, 0x2AA, 0);
 
@@ -92,7 +91,7 @@ static void vexpress_a9_init(ram_addr_t ram_size,
 {
     CPUState *env = NULL;
     ram_addr_t ram_offset, vram_offset, sram_offset;
-    DeviceState *dev, *sysctl;
+    DeviceState *dev, *sysctl, *pl041;
     SysBusDevice *busdev;
 #if defined(TARGET_HAS_TRUSTZONE)
     SysBusDevice *bp147;
@@ -177,6 +176,11 @@ static void vexpress_a9_init(ram_addr_t ram_size,
     /* 0x10001000 SP810 system control */
     /* 0x10002000 serial bus PCI */
     /* 0x10004000 PL041 audio */
+    pl041 = qdev_create(NULL, "pl041");
+    qdev_prop_set_uint32(pl041, "nc_fifo_depth", 512);
+    qdev_init_nofail(pl041);
+    sysbus_mmio_map(sysbus_from_qdev(pl041), 0, 0x10004000);
+    sysbus_connect_irq(sysbus_from_qdev(pl041), 0, pic[11]);
 
     dev = sysbus_create_varargs("pl181", 0x10005000, pic[9], pic[10], NULL);
     /* Wire up MMC card detect and read-only signals */
@@ -212,7 +216,7 @@ static void vexpress_a9_init(ram_addr_t ram_size,
     /* Daughterboard peripherals : 0x10020000 .. 0x20000000 */
 
     /* 0x10020000 PL111 CLCD (daughterboard) */
-    sysbus_create_simple("pl110", 0x10020000, pic[44]);
+    sysbus_create_simple("pl111", 0x10020000, pic[44]);
 
     /* 0x10060000 AXI RAM */
     /* 0x100e0000 PL341 Dynamic Memory Controller */

@@ -283,6 +283,7 @@
 #define MSR_IA32_APICBASE_BSP           (1<<8)
 #define MSR_IA32_APICBASE_ENABLE        (1<<11)
 #define MSR_IA32_APICBASE_BASE          (0xfffff<<12)
+#define MSR_IA32_TSCDEADLINE            0x6e0
 
 #define MSR_MTRRcap			0xfe
 #define MSR_MTRRcap_VCNT		8
@@ -298,6 +299,10 @@
 #define MSR_MCG_CTL                     0x17b
 
 #define MSR_IA32_PERF_STATUS            0x198
+
+#define MSR_IA32_MISC_ENABLE		0x1a0
+/* Indicates good rep/movs microcode on some processors: */
+#define MSR_IA32_MISC_ENABLE_DEFAULT    1
 
 #define MSR_MTRRphysBase(reg)		(0x200 + 2 * (reg))
 #define MSR_MTRRphysMask(reg)		(0x200 + 2 * (reg) + 1)
@@ -687,8 +692,10 @@ typedef struct CPUX86State {
     uint64_t async_pf_en_msr;
 
     uint64_t tsc;
+    uint64_t tsc_deadline;
 
     uint64_t mcg_status;
+    uint64_t msr_ia32_misc_enable;
 
     /* exception/interrupt handling */
     int error_code;
@@ -743,6 +750,7 @@ typedef struct CPUX86State {
     uint32_t cpuid_kvm_features;
     uint32_t cpuid_svm_features;
     bool tsc_valid;
+    int tsc_khz;
     
     /* in order to simplify APIC support, we leave this pointer to the
        user */
@@ -889,7 +897,7 @@ void host_cpuid(uint32_t function, uint32_t count,
 
 /* helper.c */
 int cpu_x86_handle_mmu_fault(CPUX86State *env, target_ulong addr,
-                             int is_write, int mmu_idx, int is_softmmu);
+                             int is_write, int mmu_idx);
 #define cpu_handle_mmu_fault cpu_x86_handle_mmu_fault
 void cpu_x86_set_a20(CPUX86State *env, int a20_state);
 
@@ -989,11 +997,6 @@ static inline int cpu_mmu_index (CPUState *env)
 
 /* translate.c */
 void optimize_flags_init(void);
-
-typedef struct CCTable {
-    int (*compute_all)(void); /* return all the flags */
-    int (*compute_c)(void);  /* return the C flag */
-} CCTable;
 
 #if defined(CONFIG_USER_ONLY)
 static inline void cpu_clone_regs(CPUState *env, target_ulong newsp)

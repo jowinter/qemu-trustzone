@@ -19,6 +19,7 @@
  */
 #include "hw.h"
 #include "omap.h"
+#include "sysbus.h"
 
 /* Interrupt Handlers */
 struct omap_intr_handler_bank_s {
@@ -32,10 +33,15 @@ struct omap_intr_handler_bank_s {
 };
 
 struct omap_intr_handler_s {
+    SysBusDevice busdev;
     qemu_irq *pins;
     qemu_irq parent_intr[2];
+    MemoryRegion mmio;
+    void *iclk;
+    void *fclk;
     unsigned char nbanks;
     int level_only;
+    uint32_t size;
 
     uint8_t revision;
 
@@ -44,13 +50,8 @@ struct omap_intr_handler_s {
     int sir_intr[2];
     int autoidle;
     uint32_t mask;
-    struct omap_intr_handler_bank_s bank[];
+    struct omap_intr_handler_bank_s bank[3];
 };
-
-inline qemu_irq omap_inth_get_pin(struct omap_intr_handler_s *s, int n)
-{
-    return s->pins[n];
-}
 
 static void omap_inth_sir_update(struct omap_intr_handler_s *s, int is_fiq)
 {
@@ -67,7 +68,7 @@ static void omap_inth_sir_update(struct omap_intr_handler_s *s, int is_fiq)
         level = s->bank[j].irqs & ~s->bank[j].mask &
                 (is_fiq ? s->bank[j].fiq : ~s->bank[j].fiq);
         for (f = ffs(level), i = f - 1, level >>= f - 1; f; i += f,
-             level >>= f) {
+                        level >>= f) {
             p = s->bank[j].priority[i];
             if (p <= p_intr) {
                 p_intr = p;
@@ -86,7 +87,7 @@ static inline void omap_inth_update(struct omap_intr_handler_s *s, int is_fiq)
 
     for (i = 0; i < s->nbanks; ++i)
         has_intr |= s->bank[i].irqs & ~s->bank[i].mask &
-                    (is_fiq ? s->bank[i].fiq : ~s->bank[i].fiq);
+                (is_fiq ? s->bank[i].fiq : ~s->bank[i].fiq);
 
     if (s->new_agr[is_fiq] & has_intr & s->mask) {
         s->new_agr[is_fiq] = 0;
@@ -144,7 +145,8 @@ static void omap_set_intr_noedge(void *opaque, int irq, int req)
         bank->irqs = (bank->inputs &= ~(1 << n)) | bank->swi;
 }
 
-static uint32_t omap_inth_read(void *opaque, target_phys_addr_t addr)
+static uint64_t omap_inth_read(void *opaque, target_phys_addr_t addr,
+                               unsigned size)
 {
     struct omap_intr_handler_s *s = (struct omap_intr_handler_s *) opaque;
     int i, offset = addr;
@@ -154,13 +156,13 @@ static uint32_t omap_inth_read(void *opaque, target_phys_addr_t addr)
     offset &= 0xff;
 
     switch (offset) {
-    case 0x00:  /* ITR */
+    case 0x00:	/* ITR */
         return bank->irqs;
 
-    case 0x04:  /* MIR */
+    case 0x04:	/* MIR */
         return bank->mask;
 
-    case 0x10:  /* SIR_IRQ_CODE */
+    case 0x10:	/* SIR_IRQ_CODE */
     case 0x14:  /* SIR_FIQ_CODE */
         if (bank_no != 0)
             break;
@@ -171,49 +173,49 @@ static uint32_t omap_inth_read(void *opaque, target_phys_addr_t addr)
             bank->irqs &= ~(1 << i);
         return line_no;
 
-    case 0x18:  /* CONTROL_REG */
+    case 0x18:	/* CONTROL_REG */
         if (bank_no != 0)
             break;
         return 0;
 
-    case 0x1c:  /* ILR0 */
-    case 0x20:  /* ILR1 */
-    case 0x24:  /* ILR2 */
-    case 0x28:  /* ILR3 */
-    case 0x2c:  /* ILR4 */
-    case 0x30:  /* ILR5 */
-    case 0x34:  /* ILR6 */
-    case 0x38:  /* ILR7 */
-    case 0x3c:  /* ILR8 */
-    case 0x40:  /* ILR9 */
-    case 0x44:  /* ILR10 */
-    case 0x48:  /* ILR11 */
-    case 0x4c:  /* ILR12 */
-    case 0x50:  /* ILR13 */
-    case 0x54:  /* ILR14 */
-    case 0x58:  /* ILR15 */
-    case 0x5c:  /* ILR16 */
-    case 0x60:  /* ILR17 */
-    case 0x64:  /* ILR18 */
-    case 0x68:  /* ILR19 */
-    case 0x6c:  /* ILR20 */
-    case 0x70:  /* ILR21 */
-    case 0x74:  /* ILR22 */
-    case 0x78:  /* ILR23 */
-    case 0x7c:  /* ILR24 */
-    case 0x80:  /* ILR25 */
-    case 0x84:  /* ILR26 */
-    case 0x88:  /* ILR27 */
-    case 0x8c:  /* ILR28 */
-    case 0x90:  /* ILR29 */
-    case 0x94:  /* ILR30 */
-    case 0x98:  /* ILR31 */
+    case 0x1c:	/* ILR0 */
+    case 0x20:	/* ILR1 */
+    case 0x24:	/* ILR2 */
+    case 0x28:	/* ILR3 */
+    case 0x2c:	/* ILR4 */
+    case 0x30:	/* ILR5 */
+    case 0x34:	/* ILR6 */
+    case 0x38:	/* ILR7 */
+    case 0x3c:	/* ILR8 */
+    case 0x40:	/* ILR9 */
+    case 0x44:	/* ILR10 */
+    case 0x48:	/* ILR11 */
+    case 0x4c:	/* ILR12 */
+    case 0x50:	/* ILR13 */
+    case 0x54:	/* ILR14 */
+    case 0x58:	/* ILR15 */
+    case 0x5c:	/* ILR16 */
+    case 0x60:	/* ILR17 */
+    case 0x64:	/* ILR18 */
+    case 0x68:	/* ILR19 */
+    case 0x6c:	/* ILR20 */
+    case 0x70:	/* ILR21 */
+    case 0x74:	/* ILR22 */
+    case 0x78:	/* ILR23 */
+    case 0x7c:	/* ILR24 */
+    case 0x80:	/* ILR25 */
+    case 0x84:	/* ILR26 */
+    case 0x88:	/* ILR27 */
+    case 0x8c:	/* ILR28 */
+    case 0x90:	/* ILR29 */
+    case 0x94:	/* ILR30 */
+    case 0x98:	/* ILR31 */
         i = (offset - 0x1c) >> 2;
         return (bank->priority[i] << 2) |
-            (((bank->sens_edge >> i) & 1) << 1) |
-            ((bank->fiq >> i) & 1);
+                (((bank->sens_edge >> i) & 1) << 1) |
+                ((bank->fiq >> i) & 1);
 
-    case 0x9c:  /* ISR */
+    case 0x9c:	/* ISR */
         return 0x00000000;
 
     }
@@ -222,7 +224,7 @@ static uint32_t omap_inth_read(void *opaque, target_phys_addr_t addr)
 }
 
 static void omap_inth_write(void *opaque, target_phys_addr_t addr,
-                            uint32_t value)
+                            uint64_t value, unsigned size)
 {
     struct omap_intr_handler_s *s = (struct omap_intr_handler_s *) opaque;
     int i, offset = addr;
@@ -231,24 +233,24 @@ static void omap_inth_write(void *opaque, target_phys_addr_t addr,
     offset &= 0xff;
 
     switch (offset) {
-    case 0x00:  /* ITR */
+    case 0x00:	/* ITR */
         /* Important: ignore the clearing if the IRQ is level-triggered and
            the input bit is 1 */
         bank->irqs &= value | (bank->inputs & bank->sens_edge);
         return;
 
-    case 0x04:  /* MIR */
+    case 0x04:	/* MIR */
         bank->mask = value;
         omap_inth_update(s, 0);
         omap_inth_update(s, 1);
         return;
 
-    case 0x10:  /* SIR_IRQ_CODE */
-    case 0x14:  /* SIR_FIQ_CODE */
+    case 0x10:	/* SIR_IRQ_CODE */
+    case 0x14:	/* SIR_FIQ_CODE */
         OMAP_RO_REG(addr);
         break;
 
-    case 0x18:  /* CONTROL_REG */
+    case 0x18:	/* CONTROL_REG */
         if (bank_no != 0)
             break;
         if (value & 2) {
@@ -263,38 +265,38 @@ static void omap_inth_write(void *opaque, target_phys_addr_t addr,
         }
         return;
 
-    case 0x1c:  /* ILR0 */
-    case 0x20:  /* ILR1 */
-    case 0x24:  /* ILR2 */
-    case 0x28:  /* ILR3 */
-    case 0x2c:  /* ILR4 */
-    case 0x30:  /* ILR5 */
-    case 0x34:  /* ILR6 */
-    case 0x38:  /* ILR7 */
-    case 0x3c:  /* ILR8 */
-    case 0x40:  /* ILR9 */
-    case 0x44:  /* ILR10 */
-    case 0x48:  /* ILR11 */
-    case 0x4c:  /* ILR12 */
-    case 0x50:  /* ILR13 */
-    case 0x54:  /* ILR14 */
-    case 0x58:  /* ILR15 */
-    case 0x5c:  /* ILR16 */
-    case 0x60:  /* ILR17 */
-    case 0x64:  /* ILR18 */
-    case 0x68:  /* ILR19 */
-    case 0x6c:  /* ILR20 */
-    case 0x70:  /* ILR21 */
-    case 0x74:  /* ILR22 */
-    case 0x78:  /* ILR23 */
-    case 0x7c:  /* ILR24 */
-    case 0x80:  /* ILR25 */
-    case 0x84:  /* ILR26 */
-    case 0x88:  /* ILR27 */
-    case 0x8c:  /* ILR28 */
-    case 0x90:  /* ILR29 */
-    case 0x94:  /* ILR30 */
-    case 0x98:  /* ILR31 */
+    case 0x1c:	/* ILR0 */
+    case 0x20:	/* ILR1 */
+    case 0x24:	/* ILR2 */
+    case 0x28:	/* ILR3 */
+    case 0x2c:	/* ILR4 */
+    case 0x30:	/* ILR5 */
+    case 0x34:	/* ILR6 */
+    case 0x38:	/* ILR7 */
+    case 0x3c:	/* ILR8 */
+    case 0x40:	/* ILR9 */
+    case 0x44:	/* ILR10 */
+    case 0x48:	/* ILR11 */
+    case 0x4c:	/* ILR12 */
+    case 0x50:	/* ILR13 */
+    case 0x54:	/* ILR14 */
+    case 0x58:	/* ILR15 */
+    case 0x5c:	/* ILR16 */
+    case 0x60:	/* ILR17 */
+    case 0x64:	/* ILR18 */
+    case 0x68:	/* ILR19 */
+    case 0x6c:	/* ILR20 */
+    case 0x70:	/* ILR21 */
+    case 0x74:	/* ILR22 */
+    case 0x78:	/* ILR23 */
+    case 0x7c:	/* ILR24 */
+    case 0x80:	/* ILR25 */
+    case 0x84:	/* ILR26 */
+    case 0x88:	/* ILR27 */
+    case 0x8c:	/* ILR28 */
+    case 0x90:	/* ILR29 */
+    case 0x94:	/* ILR30 */
+    case 0x98:	/* ILR31 */
         i = (offset - 0x1c) >> 2;
         bank->priority[i] = (value >> 2) & 0x1f;
         bank->sens_edge &= ~(1 << i);
@@ -303,7 +305,7 @@ static void omap_inth_write(void *opaque, target_phys_addr_t addr,
         bank->fiq |= (value & 1) << i;
         return;
 
-    case 0x9c:  /* ISR */
+    case 0x9c:	/* ISR */
         for (i = 0; i < 32; i ++)
             if (value & (1 << i)) {
                 omap_set_intr(s, 32 * bank_no + i, 1);
@@ -314,20 +316,20 @@ static void omap_inth_write(void *opaque, target_phys_addr_t addr,
     OMAP_BAD_REG(addr);
 }
 
-static CPUReadMemoryFunc * const omap_inth_readfn[] = {
-    omap_badwidth_read32,
-    omap_badwidth_read32,
-    omap_inth_read,
+static const MemoryRegionOps omap_inth_mem_ops = {
+    .read = omap_inth_read,
+    .write = omap_inth_write,
+    .endianness = DEVICE_NATIVE_ENDIAN,
+    .valid = {
+        .min_access_size = 4,
+        .max_access_size = 4,
+    },
 };
 
-static CPUWriteMemoryFunc * const omap_inth_writefn[] = {
-    omap_inth_write,
-    omap_inth_write,
-    omap_inth_write,
-};
-
-void omap_inth_reset(struct omap_intr_handler_s *s)
+static void omap_inth_reset(DeviceState *dev)
 {
+    struct omap_intr_handler_s *s = FROM_SYSBUS(struct omap_intr_handler_s,
+                                                sysbus_from_qdev(dev));
     int i;
 
     for (i = 0; i < s->nbanks; ++i){
@@ -354,35 +356,37 @@ void omap_inth_reset(struct omap_intr_handler_s *s)
     qemu_set_irq(s->parent_intr[1], 0);
 }
 
-struct omap_intr_handler_s *omap_inth_init(target_phys_addr_t base,
-                                           unsigned long size,
-                                           unsigned char nbanks,
-                                           qemu_irq **pins,
-                                           qemu_irq parent_irq,
-                                           qemu_irq parent_fiq,
-                                           omap_clk clk)
+static int omap_intc_init(SysBusDevice *dev)
 {
-    int iomemtype;
-    struct omap_intr_handler_s *s = qemu_mallocz(sizeof(*s) +
-        sizeof(struct omap_intr_handler_bank_s) * nbanks);
-    
-    s->parent_intr[0] = parent_irq;
-    s->parent_intr[1] = parent_fiq;
-    s->nbanks = nbanks;
-    s->pins = qemu_allocate_irqs(omap_set_intr, s, nbanks * 32);
-    if (pins)
-        *pins = s->pins;
-
-    omap_inth_reset(s);
-
-    iomemtype = cpu_register_io_memory(omap_inth_readfn,
-                    omap_inth_writefn, s, DEVICE_NATIVE_ENDIAN);
-    cpu_register_physical_memory(base, size, iomemtype);
-
-    return s;
+    struct omap_intr_handler_s *s;
+    s = FROM_SYSBUS(struct omap_intr_handler_s, dev);
+    if (!s->iclk) {
+        hw_error("omap-intc: clk not connected\n");
+    }
+    s->nbanks = 1;
+    sysbus_init_irq(dev, &s->parent_intr[0]);
+    sysbus_init_irq(dev, &s->parent_intr[1]);
+    qdev_init_gpio_in(&dev->qdev, omap_set_intr, s->nbanks * 32);
+    memory_region_init_io(&s->mmio, &omap_inth_mem_ops, s,
+                          "omap-intc", s->size);
+    sysbus_init_mmio_region(dev, &s->mmio);
+    return 0;
 }
 
-static uint32_t omap2_inth_read(void *opaque, target_phys_addr_t addr)
+static SysBusDeviceInfo omap_intc_info = {
+    .init = omap_intc_init,
+    .qdev.name = "omap-intc",
+    .qdev.size = sizeof(struct omap_intr_handler_s),
+    .qdev.reset = omap_inth_reset,
+    .qdev.props = (Property[]) {
+        DEFINE_PROP_UINT32("size", struct omap_intr_handler_s, size, 0x100),
+        DEFINE_PROP_PTR("clk", struct omap_intr_handler_s, iclk),
+        DEFINE_PROP_END_OF_LIST()
+    }
+};
+
+static uint64_t omap2_inth_read(void *opaque, target_phys_addr_t addr,
+                                unsigned size)
 {
     struct omap_intr_handler_s *s = (struct omap_intr_handler_s *) opaque;
     int offset = addr;
@@ -405,7 +409,7 @@ static uint32_t omap2_inth_read(void *opaque, target_phys_addr_t addr)
         return (s->autoidle >> 2) & 1;
 
     case 0x14:	/* INTC_SYSSTATUS */
-        return 1; /* RESETDONE */
+        return 1;						/* RESETDONE */
 
     case 0x40:	/* INTC_SIR_IRQ */
         return s->sir_intr[0];
@@ -414,7 +418,7 @@ static uint32_t omap2_inth_read(void *opaque, target_phys_addr_t addr)
         return s->sir_intr[1];
 
     case 0x48:	/* INTC_CONTROL */
-        return (!s->mask) << 2; /* GLOBALMASK */
+        return (!s->mask) << 2;					/* GLOBALMASK */
 
     case 0x4c:	/* INTC_PROTECTION */
         return 0;
@@ -466,7 +470,7 @@ static uint32_t omap2_inth_read(void *opaque, target_phys_addr_t addr)
 }
 
 static void omap2_inth_write(void *opaque, target_phys_addr_t addr,
-                             uint32_t value)
+                             uint64_t value, unsigned size)
 {
     struct omap_intr_handler_s *s = (struct omap_intr_handler_s *) opaque;
     int offset = addr;
@@ -486,7 +490,7 @@ static void omap2_inth_write(void *opaque, target_phys_addr_t addr,
         s->autoidle &= 4;
         s->autoidle |= (value & 1) << 2;
         if (value & 2)						/* SOFTRESET */
-            omap_inth_reset(s);
+            omap_inth_reset(&s->busdev.qdev);
         return;
 
     case 0x48:	/* INTC_CONTROL */
@@ -508,7 +512,7 @@ static void omap2_inth_write(void *opaque, target_phys_addr_t addr,
          * for every register, see Chapter 3 and 4 for privileged mode.  */
         if (value & 1)
             fprintf(stderr, "%s: protection mode enable attempt\n",
-                    __FUNCTION__);
+                            __FUNCTION__);
         return;
 
     case 0x50:	/* INTC_IDLE */
@@ -569,44 +573,55 @@ static void omap2_inth_write(void *opaque, target_phys_addr_t addr,
     OMAP_BAD_REG(addr);
 }
 
-static CPUReadMemoryFunc * const omap2_inth_readfn[] = {
-    omap_badwidth_read32,
-    omap_badwidth_read32,
-    omap2_inth_read,
+static const MemoryRegionOps omap2_inth_mem_ops = {
+    .read = omap2_inth_read,
+    .write = omap2_inth_write,
+    .endianness = DEVICE_NATIVE_ENDIAN,
+    .valid = {
+        .min_access_size = 4,
+        .max_access_size = 4,
+    },
 };
 
-static CPUWriteMemoryFunc * const omap2_inth_writefn[] = {
-    omap2_inth_write,
-    omap2_inth_write,
-    omap2_inth_write,
-};
-
-struct omap_intr_handler_s *omap2_inth_init(struct omap_mpu_state_s *mpu,
-                                            target_phys_addr_t base,
-                                            int size, int nbanks,
-                                            qemu_irq **pins,
-                                            qemu_irq parent_irq,
-                                            qemu_irq parent_fiq,
-                                            omap_clk fclk, omap_clk iclk)
+static int omap2_intc_init(SysBusDevice *dev)
 {
-    int iomemtype;
-    struct omap_intr_handler_s *s = qemu_mallocz(sizeof(*s) +
-        sizeof(struct omap_intr_handler_bank_s) * nbanks);
-
-    s->revision = cpu_class_omap3(mpu) ? 0x40 : 0x21;
-    s->parent_intr[0] = parent_irq;
-    s->parent_intr[1] = parent_fiq;
-    s->nbanks = nbanks;
+    struct omap_intr_handler_s *s;
+    s = FROM_SYSBUS(struct omap_intr_handler_s, dev);
+    if (!s->iclk) {
+        hw_error("omap2-intc: iclk not connected\n");
+    }
+    if (!s->fclk) {
+        hw_error("omap2-intc: fclk not connected\n");
+    }
     s->level_only = 1;
-    s->pins = qemu_allocate_irqs(omap_set_intr_noedge, s, nbanks * 32);
-    if (pins)
-        *pins = s->pins;
-
-    omap_inth_reset(s);
-
-    iomemtype = cpu_register_io_memory(omap2_inth_readfn,
-                    omap2_inth_writefn, s, DEVICE_NATIVE_ENDIAN);
-    cpu_register_physical_memory(base, size, iomemtype);
-
-    return s;
+    s->nbanks = 3;
+    sysbus_init_irq(dev, &s->parent_intr[0]);
+    sysbus_init_irq(dev, &s->parent_intr[1]);
+    qdev_init_gpio_in(&dev->qdev, omap_set_intr_noedge, s->nbanks * 32);
+    memory_region_init_io(&s->mmio, &omap2_inth_mem_ops, s,
+                          "omap2-intc", 0x1000);
+    sysbus_init_mmio_region(dev, &s->mmio);
+    return 0;
 }
+
+static SysBusDeviceInfo omap2_intc_info = {
+    .init = omap2_intc_init,
+    .qdev.name = "omap2-intc",
+    .qdev.size = sizeof(struct omap_intr_handler_s),
+    .qdev.reset = omap_inth_reset,
+    .qdev.props = (Property[]) {
+        DEFINE_PROP_UINT8("revision", struct omap_intr_handler_s,
+                          revision, 0x21),
+        DEFINE_PROP_PTR("iclk", struct omap_intr_handler_s, iclk),
+        DEFINE_PROP_PTR("fclk", struct omap_intr_handler_s, fclk),
+        DEFINE_PROP_END_OF_LIST()
+    }
+};
+
+static void omap_intc_register_device(void)
+{
+    sysbus_register_withprop(&omap_intc_info);
+    sysbus_register_withprop(&omap2_intc_info);
+}
+
+device_init(omap_intc_register_device)

@@ -252,7 +252,9 @@ static const int tcg_target_call_iarg_regs[] = {
 
 static const int tcg_target_call_oarg_regs[] = {
     TCG_REG_R2,
-    TCG_REG_R3,
+#if TCG_TARGET_REG_BITS == 32
+    TCG_REG_R3
+#endif
 };
 
 #define S390_CC_EQ      8
@@ -2319,9 +2321,4 @@ static void tcg_target_qemu_prologue(TCGContext *s)
 
     /* br %r14 (return) */
     tcg_out_insn(s, RR, BCR, S390_CC_ALWAYS, TCG_REG_R14);
-}
-
-static inline void tcg_out_addi(TCGContext *s, int reg, tcg_target_long val)
-{
-    tcg_abort();
 }

@@ -54,7 +54,7 @@ static void omap_gpio_set(void *opaque, int line, int level)
         s->inputs &= ~(1 << line);
 
     if (((s->edge & s->inputs & ~prev) | (~s->edge & ~s->inputs & prev)) &
-        (1 << line) & s->dir & ~s->mask) {
+                    (1 << line) & s->dir & ~s->mask) {
         s->ints |= 1 << line;
         qemu_irq_raise(s->irq);
     }
@@ -94,7 +94,7 @@ static uint32_t omap_gpio_read(void *opaque, target_phys_addr_t addr)
 }
 
 static void omap_gpio_write(void *opaque, target_phys_addr_t addr,
-                            uint32_t value)
+                uint32_t value)
 {
     struct omap_gpio_s *s = (struct omap_gpio_s *) opaque;
     int offset = addr & OMAP_MPUI_REG_MASK;
@@ -230,7 +230,7 @@ static void omap2_gpio_module_wake(struct omap2_gpio_s *s, int line)
 }
 
 static inline void omap2_gpio_module_out_update(struct omap2_gpio_s *s,
-                                                uint32_t diff)
+                uint32_t diff)
 {
     int ln;
 
@@ -367,7 +367,7 @@ static uint32_t omap2_gpio_module_read(void *opaque, target_phys_addr_t addr)
 }
 
 static void omap2_gpio_module_write(void *opaque, target_phys_addr_t addr,
-                                    uint32_t value)
+                uint32_t value)
 {
     struct omap2_gpio_s *s = (struct omap2_gpio_s *) opaque;
     uint32_t diff;
@@ -510,11 +510,11 @@ static void omap2_gpio_module_write(void *opaque, target_phys_addr_t addr,
 
 static uint32_t omap2_gpio_module_readp(void *opaque, target_phys_addr_t addr)
 {
-    return omap2_gpio_module_readp(opaque, addr) >> ((addr & 3) << 3);
+    return omap2_gpio_module_read(opaque, addr & ~3) >> ((addr & 3) << 3);
 }
 
 static void omap2_gpio_module_writep(void *opaque, target_phys_addr_t addr,
-                                     uint32_t value)
+                uint32_t value)
 {
     uint32_t cur = 0;
     uint32_t mask = 0xffff;
@@ -696,8 +696,8 @@ static int omap2_gpio_init(SysBusDevice *dev)
     } else {
         s->modulecount = 6;
     }
-    s->modules = qemu_mallocz(s->modulecount * sizeof(struct omap2_gpio_s));
-    s->handler = qemu_mallocz(s->modulecount * 32 * sizeof(qemu_irq));
+    s->modules = g_malloc0(s->modulecount * sizeof(struct omap2_gpio_s));
+    s->handler = g_malloc0(s->modulecount * 32 * sizeof(qemu_irq));
     qdev_init_gpio_in(&dev->qdev, omap2_gpio_set, s->modulecount * 32);
     qdev_init_gpio_out(&dev->qdev, s->handler, s->modulecount * 32);
     for (i = 0; i < s->modulecount; i++) {

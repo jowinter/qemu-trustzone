@@ -18,6 +18,7 @@
  * with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 #include "hw.h"
+#include "qemu-timer.h"
 #include "omap.h"
 
 /* 32-kHz Sync Timer of the OMAP2 */
@@ -130,7 +131,7 @@ struct omap_synctimer_s *omap_synctimer_init(struct omap_target_agent_s *ta,
                                              struct omap_mpu_state_s *mpu,
                                              omap_clk fclk, omap_clk iclk)
 {
-    struct omap_synctimer_s *s = qemu_mallocz(sizeof(*s));
+    struct omap_synctimer_s *s = g_malloc0(sizeof(*s));
 
     omap_synctimer_reset(s);
     if (cpu_class_omap3(mpu)) {

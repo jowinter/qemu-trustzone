@@ -388,7 +388,6 @@ static int bdrv_qed_open(BlockDriverState *bs, int flags)
     if (ret < 0) {
         return ret;
     }
-    ret = 0; /* ret should always be 0 or -errno */
     qed_header_le_to_cpu(&le_header, &s->header);
 
     if (s->header.magic != QED_MAGIC) {
@@ -533,11 +532,6 @@ static void bdrv_qed_close(BlockDriverState *bs)
     qemu_vfree(s->l1_table);
 }
 
-static int bdrv_qed_flush(BlockDriverState *bs)
-{
-    return bdrv_flush(bs->file);
-}
-
 static int qed_create(const char *filename, uint32_t cluster_size,
                       uint64_t image_size, uint32_t table_size,
                       const char *backing_file, const char *backing_fmt)
@@ -595,7 +589,7 @@ static int qed_create(const char *filename, uint32_t cluster_size,
         goto out;
     }
 
-    l1_table = qemu_mallocz(l1_size);
+    l1_table = g_malloc0(l1_size);
     ret = bdrv_pwrite(bs, header.l1_table_offset, l1_table, l1_size);
     if (ret < 0) {
         goto out;
@@ -603,7 +597,7 @@ static int qed_create(const char *filename, uint32_t cluster_size,
 
     ret = 0; /* success */
 out:
-    qemu_free(l1_table);
+    g_free(l1_table);
     bdrv_delete(bs);
     return ret;
 }
@@ -680,15 +674,11 @@ static int bdrv_qed_is_allocated(BlockDriverState *bs, int64_t sector_num,
     };
     QEDRequest request = { .l2_table = NULL };
 
-    async_context_push();
-
     qed_find_cluster(s, &request, pos, len, qed_is_allocated_cb, &cb);
 
     while (cb.is_allocated == -1) {
         qemu_aio_wait();
     }
-
-    async_context_pop();
 
     qed_unref_l2_cache_entry(request.l2_table);
 
@@ -915,14 +905,14 @@ static void qed_commit_l2_update(void *opaque, int ret)
     QEDAIOCB *acb = opaque;
     BDRVQEDState *s = acb_to_s(acb);
     CachedL2Table *l2_table = acb->request.l2_table;
+    uint64_t l2_offset = l2_table->offset;
 
     qed_commit_l2_cache_entry(&s->l2_cache, l2_table);
 
     /* This is guaranteed to succeed because we just committed the entry to the
      * cache.
      */
-    acb->request.l2_table = qed_find_l2_cache_entry(&s->l2_cache,
-                                                    l2_table->offset);
+    acb->request.l2_table = qed_find_l2_cache_entry(&s->l2_cache, l2_offset);
     assert(acb->request.l2_table != NULL);
 
     qed_aio_next_io(opaque, ret);
@@ -1423,18 +1413,20 @@ static int bdrv_qed_change_backing_file(BlockDriverState *bs,
     }
 
     /* Prepare new header */
-    buffer = qemu_malloc(buffer_len);
+    buffer = g_malloc(buffer_len);
 
     qed_header_cpu_to_le(&new_header, &le_header);
     memcpy(buffer, &le_header, sizeof(le_header));
     buffer_len = sizeof(le_header);
 
-    memcpy(buffer + buffer_len, backing_file, backing_file_len);
-    buffer_len += backing_file_len;
+    if (backing_file) {
+        memcpy(buffer + buffer_len, backing_file, backing_file_len);
+        buffer_len += backing_file_len;
+    }
 
     /* Write new header */
     ret = bdrv_pwrite_sync(bs->file, 0, buffer, buffer_len);
-    qemu_free(buffer);
+    g_free(buffer);
     if (ret == 0) {
         memcpy(&s->header, &new_header, sizeof(new_header));
     }
@@ -1483,7 +1475,6 @@ static BlockDriver bdrv_qed = {
     .bdrv_open                = bdrv_qed_open,
     .bdrv_close               = bdrv_qed_close,
     .bdrv_create              = bdrv_qed_create,
-    .bdrv_flush               = bdrv_qed_flush,
     .bdrv_is_allocated        = bdrv_qed_is_allocated,
     .bdrv_make_empty          = bdrv_qed_make_empty,
     .bdrv_aio_readv           = bdrv_qed_aio_readv,

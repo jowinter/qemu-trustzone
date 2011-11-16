@@ -63,16 +63,33 @@
 #error GUEST_BASE not supported on this host.
 #endif
 
+/* Forward declarations for functions declared in tcg-target.c and used here. */
 static void tcg_target_init(TCGContext *s);
 static void tcg_target_qemu_prologue(TCGContext *s);
 static void patch_reloc(uint8_t *code_ptr, int type, 
                         tcg_target_long value, tcg_target_long addend);
 
-static TCGOpDef tcg_op_defs[] = {
+/* Forward declarations for functions declared and used in tcg-target.c. */
+static int target_parse_constraint(TCGArgConstraint *ct, const char **pct_str);
+static void tcg_out_ld(TCGContext *s, TCGType type, int ret, int arg1,
+                       tcg_target_long arg2);
+static void tcg_out_mov(TCGContext *s, TCGType type, int ret, int arg);
+static void tcg_out_movi(TCGContext *s, TCGType type,
+                         int ret, tcg_target_long arg);
+static void tcg_out_op(TCGContext *s, TCGOpcode opc, const TCGArg *args,
+                       const int *const_args);
+static void tcg_out_st(TCGContext *s, TCGType type, int arg, int arg1,
+                       tcg_target_long arg2);
+static int tcg_target_const_match(tcg_target_long val,
+                                  const TCGArgConstraint *arg_ct);
+static int tcg_target_get_call_iarg_regs_count(int flags);
+
+TCGOpDef tcg_op_defs[] = {
 #define DEF(s, oargs, iargs, cargs, flags) { #s, oargs, iargs, cargs, iargs + oargs + cargs, flags },
 #include "tcg-opc.h"
 #undef DEF
 };
+const size_t tcg_op_defs_max = ARRAY_SIZE(tcg_op_defs);
 
 static TCGRegSet tcg_target_available_regs[2];
 static TCGRegSet tcg_target_call_clobber_regs;
@@ -166,7 +183,7 @@ void *tcg_malloc_internal(TCGContext *s, int size)
     
     if (size > TCG_POOL_CHUNK_SIZE) {
         /* big malloc: insert a new pool (XXX: could optimize) */
-        p = qemu_malloc(sizeof(TCGPool) + size);
+        p = g_malloc(sizeof(TCGPool) + size);
         p->size = size;
         if (s->pool_current)
             s->pool_current->next = p;
@@ -183,7 +200,7 @@ void *tcg_malloc_internal(TCGContext *s, int size)
             if (!p->next) {
             new_pool:
                 pool_size = TCG_POOL_CHUNK_SIZE;
-                p = qemu_malloc(sizeof(TCGPool) + pool_size);
+                p = g_malloc(sizeof(TCGPool) + pool_size);
                 p->size = pool_size;
                 p->next = NULL;
                 if (s->pool_current) 
@@ -227,8 +244,8 @@ void tcg_context_init(TCGContext *s)
         total_args += n;
     }
 
-    args_ct = qemu_malloc(sizeof(TCGArgConstraint) * total_args);
-    sorted_args = qemu_malloc(sizeof(int) * total_args);
+    args_ct = g_malloc(sizeof(TCGArgConstraint) * total_args);
+    sorted_args = g_malloc(sizeof(int) * total_args);
 
     for(op = 0; op < NB_OPS; op++) {
         def = &tcg_op_defs[op];
@@ -778,7 +795,9 @@ static char *tcg_get_arg_str_idx(TCGContext *s, char *buf, int buf_size,
 {
     TCGTemp *ts;
 
+    assert(idx >= 0 && idx < s->nb_temps);
     ts = &s->temps[idx];
+    assert(ts);
     if (idx < s->nb_globals) {
         pstrcpy(buf, buf_size, ts->name);
     } else {
@@ -1128,18 +1147,19 @@ void tcg_add_target_add_op_defs(const TCGTargetOpDef *tdefs)
 #if defined(CONFIG_DEBUG_TCG)
     i = 0;
     for (op = 0; op < ARRAY_SIZE(tcg_op_defs); op++) {
-        if (op < INDEX_op_call || op == INDEX_op_debug_insn_start) {
+        const TCGOpDef *def = &tcg_op_defs[op];
+        if (op < INDEX_op_call
+            || op == INDEX_op_debug_insn_start
+            || (def->flags & TCG_OPF_NOT_PRESENT)) {
             /* Wrong entry in op definitions? */
-            if (tcg_op_defs[op].used) {
-                fprintf(stderr, "Invalid op definition for %s\n",
-                        tcg_op_defs[op].name);
+            if (def->used) {
+                fprintf(stderr, "Invalid op definition for %s\n", def->name);
                 i = 1;
             }
         } else {
             /* Missing entry in op definitions? */
-            if (!tcg_op_defs[op].used) {
-                fprintf(stderr, "Missing op definition for %s\n",
-                        tcg_op_defs[op].name);
+            if (!def->used) {
+                fprintf(stderr, "Missing op definition for %s\n", def->name);
                 i = 1;
             }
         }
@@ -2124,6 +2144,10 @@ static inline int tcg_gen_code_common(TCGContext *s, uint8_t *gen_code_buf,
         case INDEX_op_end:
             goto the_end;
         default:
+            /* Sanity check that we've not introduced any unhandled opcodes. */
+            if (def->flags & TCG_OPF_NOT_PRESENT) {
+                tcg_abort();
+            }
             /* Note: in order to speed up the code, it would be much
                faster to have specialized register allocator functions for
                some common argument patterns */

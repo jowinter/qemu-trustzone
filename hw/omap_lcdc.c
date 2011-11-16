@@ -24,8 +24,6 @@
 struct omap_lcd_panel_s {
     qemu_irq irq;
     DisplayState *state;
-    ram_addr_t imif_base;
-    ram_addr_t emiff_base;
 
     int plm;
     int tft;
@@ -436,17 +434,14 @@ void omap_lcdc_reset(struct omap_lcd_panel_s *s)
 }
 
 struct omap_lcd_panel_s *omap_lcdc_init(target_phys_addr_t base, qemu_irq irq,
-                struct omap_dma_lcd_channel_s *dma,
-                ram_addr_t imif_base, ram_addr_t emiff_base, omap_clk clk)
+                struct omap_dma_lcd_channel_s *dma, omap_clk clk)
 {
     int iomemtype;
     struct omap_lcd_panel_s *s = (struct omap_lcd_panel_s *)
-            qemu_mallocz(sizeof(struct omap_lcd_panel_s));
+            g_malloc0(sizeof(struct omap_lcd_panel_s));
 
     s->irq = irq;
     s->dma = dma;
-    s->imif_base = imif_base;
-    s->emiff_base = emiff_base;
     omap_lcdc_reset(s);
 
     iomemtype = cpu_register_io_memory(omap_lcdc_readfn,

@@ -32,6 +32,7 @@
 #include "arm-misc.h"
 #include "flash.h"
 #include "blockdev.h"
+#include "exec-memory.h"
 
 /*****************************************************************************/
 /* Siemens SX1 Cellphone V1 */
@@ -121,6 +122,7 @@ static void sx1_init(ram_addr_t ram_size,
                 const int version)
 {
     struct omap_mpu_state_s *cpu;
+    MemoryRegion *address_space = get_system_memory();
     int io;
     static uint32_t cs0val = 0x00213090;
     static uint32_t cs1val = 0x00215070;
@@ -135,7 +137,7 @@ static void sx1_init(ram_addr_t ram_size,
         flash_size = flash2_size;
     }
 
-    cpu = omap310_mpu_init(sx1_binfo.ram_size, cpu_model);
+    cpu = omap310_mpu_init(address_space, sx1_binfo.ram_size, cpu_model);
 
     /* External Flash (EMIFS) */
     cpu_register_physical_memory(OMAP_CS0_BASE, flash_size,
@@ -161,8 +163,8 @@ static void sx1_init(ram_addr_t ram_size,
 #endif
 
     if ((dinfo = drive_get(IF_PFLASH, 0, fl_idx)) != NULL) {
-        if (!pflash_cfi01_register(OMAP_CS0_BASE, qemu_ram_alloc(NULL,
-                                   "omap_sx1.flash0-1", flash_size),
+        if (!pflash_cfi01_register(OMAP_CS0_BASE, NULL,
+                                   "omap_sx1.flash0-1", flash_size,
                                    dinfo->bdrv, sector_size,
                                    flash_size / sector_size,
                                    4, 0, 0, 0, 0, be)) {
@@ -182,8 +184,8 @@ static void sx1_init(ram_addr_t ram_size,
         cpu_register_physical_memory(OMAP_CS1_BASE + flash1_size,
                         OMAP_CS1_SIZE - flash1_size, io);
 
-        if (!pflash_cfi01_register(OMAP_CS1_BASE, qemu_ram_alloc(NULL,
-                                   "omap_sx1.flash1-1", flash1_size),
+        if (!pflash_cfi01_register(OMAP_CS1_BASE, NULL,
+                                   "omap_sx1.flash1-1", flash1_size,
                                    dinfo->bdrv, sector_size,
                                    flash1_size / sector_size,
                                    4, 0, 0, 0, 0, be)) {
