@@ -40,12 +40,15 @@ struct omap_sdrc_s {
 
 void omap_sdrc_reset(struct omap_sdrc_s *s)
 {
+    /* TODO: ideally we should copy s->sharing, s->cs[*].mcfg
+     * from system control module
+     */
     s->config    = 0x10;
     s->cscfg     = 0x4;
-    s->sharing   = 0; // TODO: copy from system control module
+    s->sharing   = 0;
     s->dlla_ctrl = 0;
     s->power_reg = 0x85;
-    s->cs[0].mcfg        = s->cs[1].mcfg        = 0; // TODO: copy from system control module!
+    s->cs[0].mcfg        = s->cs[1].mcfg        = 0;
     s->cs[0].mr          = s->cs[1].mr          = 0x0024;
     s->cs[0].emr2        = s->cs[1].emr2        = 0;
     s->cs[0].actim_ctrla = s->cs[1].actim_ctrla = 0;
@@ -58,46 +61,46 @@ static uint32_t omap_sdrc_read(void *opaque, target_phys_addr_t addr)
 {
     struct omap_sdrc_s *s = (struct omap_sdrc_s *) opaque;
     int cs = 0;
-    
+
     switch (addr) {
-    case 0x00:  /* SDRC_REVISION */
+    case 0x00: /* SDRC_REVISION */
         return 0x20;
 
-    case 0x10:  /* SDRC_SYSCONFIG */
+    case 0x10: /* SDRC_SYSCONFIG */
         return s->config;
 
-    case 0x14:  /* SDRC_SYSSTATUS */
+    case 0x14: /* SDRC_SYSSTATUS */
         return 1; /* RESETDONE */
 
-    case 0x40:  /* SDRC_CS_CFG */
+    case 0x40: /* SDRC_CS_CFG */
         return s->cscfg;
 
-    case 0x44:  /* SDRC_SHARING */
+    case 0x44: /* SDRC_SHARING */
         return s->sharing;
 
-    case 0x48:  /* SDRC_ERR_ADDR */
+    case 0x48: /* SDRC_ERR_ADDR */
         return 0;
 
-    case 0x4c:  /* SDRC_ERR_TYPE */
+    case 0x4c: /* SDRC_ERR_TYPE */
         return 0x8;
 
-    case 0x60:  /* SDRC_DLLA_SCTRL */
+    case 0x60: /* SDRC_DLLA_SCTRL */
         return s->dlla_ctrl;
 
-    case 0x64:  /* SDRC_DLLA_STATUS */
+    case 0x64: /* SDRC_DLLA_STATUS */
         return ~(s->dlla_ctrl & 0x4);
 
-    case 0x68:  /* SDRC_DLLB_CTRL */
+    case 0x68: /* SDRC_DLLB_CTRL */
     case 0x6c: /* SDRC_DLLB_STATUS */
         return 0x00;
 
-    case 0x70:  /* SDRC_POWER */
+    case 0x70: /* SDRC_POWER */
         return s->power_reg;
 
     case 0xb0 ... 0xd8:
         cs = 1;
         addr -= 0x30;
-        /* fall through */
+       /* fall through */
     case 0x80 ... 0xa8:
         switch (addr & 0x3f) {
         case 0x00: /* SDRC_MCFG_x */
@@ -111,20 +114,24 @@ static uint32_t omap_sdrc_read(void *opaque, target_phys_addr_t addr)
         case 0x10: /* SDRC_EMR3_x */
             return 0x00;
         case 0x14:
-            if (cs)
+            if (cs) {
                 return s->cs[1].actim_ctrla; /* SDRC_ACTIM_CTRLA_1 */
-            return 0x00;                     /* SDRC_DCDL1_CTRL */
+            }
+            return 0x00;                    /* SDRC_DCDL1_CTRL */
         case 0x18:
-            if (cs)
+            if (cs) {
                 return s->cs[1].actim_ctrlb; /* SDRC_ACTIM_CTRLB_1 */
-            return 0x00;                     /* SDRC_DCDL2_CTRL */
+            }
+            return 0x00;                    /* SDRC_DCDL2_CTRL */
         case 0x1c:
-            if (!cs)
+            if (!cs) {
                 return s->cs[0].actim_ctrla; /* SDRC_ACTIM_CTRLA_0 */
+            }
             break;
         case 0x20:
-            if (!cs)
+            if (!cs) {
                 return s->cs[0].actim_ctrlb; /* SDRC_ACTIM_CTRLB_0 */
+            }
             break;
         case 0x24: /* SDRC_RFR_CTRL_x */
             return s->cs[cs].rfr_ctrl;
@@ -133,7 +140,7 @@ static uint32_t omap_sdrc_read(void *opaque, target_phys_addr_t addr)
         default:
             break;
         }
-        addr += cs * 0x30; // restore address to get correct error messages
+        addr += cs * 0x30; /* restore address to get correct error messages */
         break;
 
     default:
@@ -151,47 +158,45 @@ static void omap_sdrc_write(void *opaque, target_phys_addr_t addr,
     int cs = 0;
 
     switch (addr) {
-    case 0x00:  /* SDRC_REVISION */
-    case 0x14:  /* SDRC_SYSSTATUS */
-    case 0x48:  /* SDRC_ERR_ADDR */
-    case 0x64:  /* SDRC_DLLA_STATUS */
-    case 0x6c:  /* SDRC_DLLB_STATUS */
+    case 0x00: /* SDRC_REVISION */
+    case 0x14: /* SDRC_SYSSTATUS */
+    case 0x48: /* SDRC_ERR_ADDR */
+    case 0x64: /* SDRC_DLLA_STATUS */
+    case 0x6c: /* SDRC_DLLB_STATUS */
         OMAP_RO_REGV(addr, value);
         break;
 
-    case 0x10:  /* SDRC_SYSCONFIG */
-        /* ignore invalid idle mode settings */
-        /*if ((value >> 3) != 0x2)
-         fprintf(stderr, "%s: bad SDRAM idle mode %i for SDRC_SYSCONFIG (full value 0x%08x)\n",
-         __FUNCTION__, value >> 3, value);*/
-        if (value & 2)
+    case 0x10: /* SDRC_SYSCONFIG */
+        if (value & 2) {
             omap_sdrc_reset(s);
+        }
         s->config = value & 0x18;
         break;
 
-    case 0x40:  /* SDRC_CS_CFG */
+    case 0x40: /* SDRC_CS_CFG */
         s->cscfg = value & 0x30f;
         break;
 
-    case 0x44:  /* SDRC_SHARING */
-        if (!(s->sharing & 0x40000000)) /* LOCK */
+    case 0x44: /* SDRC_SHARING */
+        if (!(s->sharing & 0x40000000)) { /* LOCK */
             s->sharing = value & 0x40007f00;
+        }
         break;
 
-    case 0x4c:  /* SDRC_ERR_TYPE */
+    case 0x4c: /* SDRC_ERR_TYPE */
         OMAP_BAD_REGV(addr, value);
         break;
 
-    case 0x60:  /* SDRC_DLLA_CTRL */
+    case 0x60: /* SDRC_DLLA_CTRL */
         s->dlla_ctrl = value & 0xffff00fe;
         break;
 
-    case 0x68:  /* SDRC_DLLB_CTRL */
+    case 0x68: /* SDRC_DLLB_CTRL */
         /* silently ignore */
         /*OMAP_BAD_REGV(addr, value);*/
         break;
 
-    case 0x70:  /* SDRC_POWER_REG */
+    case 0x70: /* SDRC_POWER_REG */
         s->power_reg = value & 0x04fffffd;
         break;
 
@@ -203,10 +208,11 @@ static void omap_sdrc_write(void *opaque, target_phys_addr_t addr,
         switch (addr & 0x3f) {
         case 0x00: /* SDRC_MCFG_x */
             if (!(s->cs[cs].mcfg & 0x40000000)) { /* LOCKSTATUS */
-                if (value & 0x00080000) /* ADDRMUXLEGACY */
+                if (value & 0x00080000) { /* ADDRMUXLEGACY */
                     s->cs[cs].mcfg = value & 0x477bffdf;
-                else
-                    s->cs[cs].mcfg = value & 0x41fbffdf; // ????
+                } else {
+                    s->cs[cs].mcfg = value & 0x41fbffdf; /* TODO: marked ???? */
+                }
             }
             break;
         case 0x04: /* SDRC_MR_x */
@@ -220,24 +226,34 @@ static void omap_sdrc_write(void *opaque, target_phys_addr_t addr,
         case 0x10: /* SDRC_EMR3_x */
             break;
         case 0x14:
-            if (cs)
-                s->cs[1].actim_ctrla = value & 0xffffffdf; /* SDRC_ACTIM_CTRLA_1 */
-            break;                                         /* SDRC_DCDL1_CTRL */
+            if (cs) {
+                /* SDRC_ACTIM_CTRLA_1 */
+                s->cs[1].actim_ctrla = value & 0xffffffdf;
+            }
+            /* otherwise SDRC_DCDL1_CTRL, do nothing */
+            break;
         case 0x18:
-            if (cs)
-                s->cs[1].actim_ctrlb = value & 0x000377ff; /* SDRC_ACTIM_CTRLB_1 */
-            break;                                         /* SDRC_DCDL2_CTRL */
+            if (cs) {
+                /* SDRC_ACTIM_CTRLB_1 */
+                s->cs[1].actim_ctrlb = value & 0x000377ff;
+            }
+            /* otherwise SDRC_DCDL2_CTRL, do nothing */
+            break;
         case 0x1c:
-            if (!cs)
-                s->cs[0].actim_ctrla = value & 0xffffffdf; /* SDRC_ACTIM_CTRLA_0 */
-            else
+            if (!cs) {
+                /* SDRC_ACTIM_CTRLA_0 */
+                s->cs[0].actim_ctrla = value & 0xffffffdf;
+            } else {
                 OMAP_BAD_REGV(addr + 0x30, value);
+            }
             break;
         case 0x20:
-            if (!cs)
-                s->cs[0].actim_ctrlb = value & 0x000377ff; /* SDRC_ACTIM_CTRLB_0 */
-            else
+            if (!cs) {
+                /* SDRC_ACTIM_CTRLB_0 */
+                s->cs[0].actim_ctrlb = value & 0x000377ff;
+            } else {
                 OMAP_BAD_REGV(addr + 0x30, value);
+            }
             break;
         case 0x24: /* SDRC_RFR_CTRL_x */
             s->cs[cs].rfr_ctrl = value & 0x00ffff03;
