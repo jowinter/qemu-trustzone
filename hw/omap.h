@@ -123,7 +123,7 @@ struct omap_target_agent_s *omap3_l4ta_init(
     const struct omap3_l4_agent_info_s *agents,
     int cs);
 target_phys_addr_t omap_l4_attach(struct omap_target_agent_s *ta, int region,
-                                  int iotype);
+                int iotype);
 target_phys_addr_t omap_l4_region_base(struct omap_target_agent_s *ta,
                                        int region);
 uint32_t omap_l4_size(struct omap_target_agent_s *ta, int region);

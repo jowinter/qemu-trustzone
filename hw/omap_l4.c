@@ -31,9 +31,9 @@
 static int omap_l4_io_entries;
 static int omap_cpu_io_entry;
 static struct omap_l4_entry {
-    CPUReadMemoryFunc * const *mem_read;
-    CPUWriteMemoryFunc * const *mem_write;
-    void *opaque;
+        CPUReadMemoryFunc * const *mem_read;
+        CPUWriteMemoryFunc * const *mem_write;
+        void *opaque;
 } *omap_l4_io_entry;
 static CPUReadMemoryFunc * const *omap_l4_io_readb_fn;
 static CPUReadMemoryFunc * const *omap_l4_io_readh_fn;
@@ -44,8 +44,7 @@ static CPUWriteMemoryFunc * const *omap_l4_io_writew_fn;
 static void **omap_l4_io_opaque;
 
 int l4_register_io_memory(CPUReadMemoryFunc * const *mem_read,
-                          CPUWriteMemoryFunc * const *mem_write,
-                          void *opaque)
+                CPUWriteMemoryFunc * const *mem_write, void *opaque)
 {
     omap_l4_io_entry[omap_l4_io_entries].mem_read = mem_read;
     omap_l4_io_entry[omap_l4_io_entries].mem_write = mem_write;
@@ -76,7 +75,7 @@ static uint32_t omap_l4_io_readw(void *opaque, target_phys_addr_t addr)
 }
 
 static void omap_l4_io_writeb(void *opaque, target_phys_addr_t addr,
-                              uint32_t value)
+                uint32_t value)
 {
     unsigned int i = (addr - OMAP2_L4_BASE) >> TARGET_PAGE_BITS;
 
@@ -84,7 +83,7 @@ static void omap_l4_io_writeb(void *opaque, target_phys_addr_t addr,
 }
 
 static void omap_l4_io_writeh(void *opaque, target_phys_addr_t addr,
-                              uint32_t value)
+                uint32_t value)
 {
     unsigned int i = (addr - OMAP2_L4_BASE) >> TARGET_PAGE_BITS;
 
@@ -92,7 +91,7 @@ static void omap_l4_io_writeh(void *opaque, target_phys_addr_t addr,
 }
 
 static void omap_l4_io_writew(void *opaque, target_phys_addr_t addr,
-                              uint32_t value)
+                uint32_t value)
 {
     unsigned int i = (addr - OMAP2_L4_BASE) >> TARGET_PAGE_BITS;
 
@@ -138,9 +137,9 @@ struct omap_l4_s *omap_l4_init(target_phys_addr_t base, int ta_num,
 #ifdef L4_MUX_HACK
     omap_l4_io_entries = 1;
     omap_l4_io_entry = g_malloc0(region_count * sizeof(*omap_l4_io_entry));
-    omap_cpu_io_entry = cpu_register_io_memory(omap_l4_io_readfn,
-                                               omap_l4_io_writefn, bus,
-                                               DEVICE_NATIVE_ENDIAN);
+    omap_cpu_io_entry =
+            cpu_register_io_memory(omap_l4_io_readfn,
+                            omap_l4_io_writefn, bus, DEVICE_NATIVE_ENDIAN);
 # define L4_PAGES	(0xb4000 / TARGET_PAGE_SIZE)
     omap_l4_io_readb_fn = g_malloc0(sizeof(void *) * L4_PAGES);
     omap_l4_io_readh_fn = g_malloc0(sizeof(void *) * L4_PAGES);
@@ -164,7 +163,7 @@ target_phys_addr_t omap_l4_attach(struct omap_target_agent_s *ta, int region,
 #endif
 
     if (region < 0 || region >= ta->regions) {
-        fprintf(stderr, "%s: bad io region (%i)\n", __FUNCTION__, region);
+        fprintf(stderr, "%s: bad io region (%i)\n", __func__, region);
         exit(-1);
     }
 
@@ -176,7 +175,7 @@ target_phys_addr_t omap_l4_attach(struct omap_target_agent_s *ta, int region,
 #else
         cpu_register_physical_memory(base, size, omap_cpu_io_entry);
         i = (base - ta->bus->base) / TARGET_PAGE_SIZE;
-        for (; size > 0; size -= TARGET_PAGE_SIZE, i ++) {
+        for (; size > 0; size -= TARGET_PAGE_SIZE, i++) {
             omap_l4_io_readb_fn[i] = omap_l4_io_entry[iotype].mem_read[0];
             omap_l4_io_readh_fn[i] = omap_l4_io_entry[iotype].mem_read[1];
             omap_l4_io_readw_fn[i] = omap_l4_io_entry[iotype].mem_read[2];
@@ -207,13 +206,13 @@ static uint32_t omap2_l4ta_read(void *opaque, target_phys_addr_t addr)
     struct omap_target_agent_s *s = (struct omap_target_agent_s *) opaque;
 
     switch (addr) {
-    case 0x00:  /* COMPONENT */
+    case 0x00:	/* COMPONENT */
         return s->component;
 
-    case 0x20:  /* AGENT_CONTROL */
+    case 0x20:	/* AGENT_CONTROL */
         return s->control;
 
-    case 0x28:  /* AGENT_STATUS */
+    case 0x28:	/* AGENT_STATUS */
         return s->status;
     }
 
@@ -222,20 +221,20 @@ static uint32_t omap2_l4ta_read(void *opaque, target_phys_addr_t addr)
 }
 
 static void omap2_l4ta_write(void *opaque, target_phys_addr_t addr,
-                             uint32_t value)
+                uint32_t value)
 {
     struct omap_target_agent_s *s = (struct omap_target_agent_s *) opaque;
 
     switch (addr) {
-    case 0x00:  /* COMPONENT */
-    case 0x28:  /* AGENT_STATUS */
+    case 0x00:	/* COMPONENT */
+    case 0x28:	/* AGENT_STATUS */
         OMAP_RO_REG(addr);
         break;
 
-    case 0x20:  /* AGENT_CONTROL */
+    case 0x20:	/* AGENT_CONTROL */
         s->control = value & 0x01000700;
-        if (value & 1)        /* OCP_RESET */
-            s->status &= ~1;  /* REQ_TIMEOUT */
+        if (value & 1)					/* OCP_RESET */
+            s->status &= ~1;				/* REQ_TIMEOUT */
         break;
 
     default:
@@ -255,23 +254,21 @@ static CPUWriteMemoryFunc * const omap2_l4ta_writefn[] = {
     omap2_l4ta_write,
 };
 
-struct omap_target_agent_s *omap2_l4ta_init(
-    struct omap_l4_s *bus,
-    const struct omap_l4_region_s *regions,
-    const struct omap2_l4_agent_info_s *agents,
-    int cs)
+struct omap_target_agent_s *omap2_l4ta_init(struct omap_l4_s *bus,
+        const struct omap_l4_region_s *regions,
+        const struct omap2_l4_agent_info_s *agents,
+	int cs)
 {
     int i, iomemtype;
     struct omap_target_agent_s *ta = NULL;
     const struct omap2_l4_agent_info_s *info = NULL;
 
-    for (i = 0; i < bus->ta_num; i ++) {
+    for (i = 0; i < bus->ta_num; i ++)
         if (agents[i].ta == cs) {
             ta = &bus->ta[i];
             info = &agents[i];
             break;
         }
-    }
     if (!ta) {
         fprintf(stderr, "%s: bad target agent (%i)\n", __FUNCTION__, cs);
         exit(-1);
@@ -305,7 +302,7 @@ static uint32_t omap3_l4ta_read(void *opaque, target_phys_addr_t addr)
     case 0x18: /* CORE_L */
         return s->component;
     case 0x1c: /* CORE_H */
-        return (s->component >> 16);
+        return s->component >> 16;
     case 0x20: /* AGENT_CONTROL_L */
         return s->control;
     case 0x24: /* AGENT_CONTROL_H */
@@ -341,8 +338,9 @@ static void omap3_l4ta_write(void *opaque, target_phys_addr_t addr,
         s->control_h = value & 0x100; /* TODO: shouldn't this be read-only? */
         break;
     case 0x28: /* AGENT_STATUS_L */
-        if (value & 0x100)
+        if (value & 0x100) {
             s->status &= ~0x100; /* REQ_TIMEOUT */
+        }
         break;
     case 0x2c: /* AGENT_STATUS_H */
         /* no writable bits although the register is listed as RW */
@@ -366,8 +364,9 @@ static int omap3_l4ta_load_state(QEMUFile *f, void *opaque, int version_id)
 {
     struct omap_target_agent_s *s = (struct omap_target_agent_s *)opaque;
 
-    if (version_id)
+    if (version_id) {
         return -EINVAL;
+    }
 
     s->control = qemu_get_be32(f);
     s->control_h = qemu_get_be32(f);
@@ -409,11 +408,10 @@ struct omap_target_agent_s *omap3_l4ta_init(
             break;
         }
     if (!ta) {
-        hw_error("%s: invalid agent id (%i)", __FUNCTION__, cs);
+        hw_error("%s: invalid agent id (%i)", __func__, cs);
     }
     if (ta->bus) {
-        hw_error("%s: target agent (%d) already initialized", __FUNCTION__,
-                 cs);
+        hw_error("%s: target agent (%d) already initialized", __func__, cs);
     }
 
     ta->bus = bus;
@@ -424,19 +422,20 @@ struct omap_target_agent_s *omap3_l4ta_init(
     ta->status = 0x00000000;
     ta->control = 0x00000200;
 
-    for (i = 0; i < info->region_count; i++)
-        if (regions[info->first_region_id + i].access == L4TYPE_TA)
+    for (i = 0; i < info->region_count; i++) {
+        if (regions[info->first_region_id + i].access == L4TYPE_TA) {
             break;
+        }
+    }
     if (i >= info->region_count) {
-        hw_error("%s: specified agent (%d) has no TA region", __FUNCTION__,
-                 cs);
+        hw_error("%s: specified agent (%d) has no TA region", __func__, cs);
     }
 
 #if defined(L4_MUX_HACK) || !defined(OMAP3_REDUCE_IOREGIONS)
     iomemtype = l4_register_io_memory(0, omap3_l4ta_readfn,
                                       omap3_l4ta_writefn, ta);
     ta->base = omap_l4_attach(ta, i, iomemtype);
-    
+
     register_savevm("omap3_l4ta", ta->base >> 8, 0,
                     omap3_l4ta_save_state, omap3_l4ta_load_state, ta);
 #else
