@@ -22,7 +22,6 @@
 #include "omap.h"
 #include "irq.h"
 #include "soc_dma.h"
-#include "hw.h"
 
 //#define OMAP_DMA_DEBUG
 
