@@ -265,8 +265,9 @@ static void omap_dma_deactivate_channel(struct omap_dma_s *s,
 
     /* Don't deactive the channel if it is synchronized and the DMA request is
        active */
-    if (ch->sync && ch->enable && s->dma->drqst[ch->sync])
+    if (ch->sync && ch->enable && s->dma->drqst[ch->sync]) {
         return;
+    }
 
     if (ch->active) {
         ch->active = 0;
@@ -382,8 +383,9 @@ static void omap_dma_enable_channel(struct omap_dma_s *s,
         /* TODO: theoretically if ch->sync && ch->prefetch &&
          * !s->dma->drqst[ch->sync], we should also activate and fetch
          * from source and then stall until signalled.  */
-        if ((!ch->sync) || s->dma->drqst[ch->sync])
+        if ((!ch->sync) || s->dma->drqst[ch->sync]) {
             omap_dma_activate_channel(s, ch);
+        }
     }
 }
 
