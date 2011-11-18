@@ -106,7 +106,7 @@ struct omap_dma_channel_s {
     int type;
     int suspend;
     int buf_disable;
-    
+
     struct omap_dma_desc_linked_list_s {
         uint32_t ptr;
         uint32_t next;
@@ -290,7 +290,7 @@ static int omap_dma_sgl_next(struct omap_dma_s *s,
     int src_valid = (ch->sgl.ptr >> 2) & 3; /* SRC_VALID */
     int dst_valid = ch->sgl.ptr & 3;        /* DEST_VALID */
     if (type < 1 || type > 3) {
-        hw_error("%s: unknown descriptor type %d\n", __FUNCTION__, type);
+        hw_error("%s: unknown descriptor type %d\n", __func__, type);
     }
     TRACE("loading next descriptor at 0x%08x, type %d", ch->sgl.next, type);
     target_phys_addr_t addr = (target_phys_addr_t)ch->sgl.next;
@@ -312,36 +312,36 @@ static int omap_dma_sgl_next(struct omap_dma_s *s,
     }
     addr += 8;
     switch (src_valid) {
-        case 0:
-            ch->addr[0] = ch->active_set.src;
-            break;
-        case 1:
-            cpu_physical_memory_read(addr, data, 4);
-            ch->addr[0] = ldl_p(data);
-            addr += 4;
-            break;
-        case 2:
-            break;
-        default:
-            hw_error("%s: unknown src addressing mode %d\n",
-                     __FUNCTION__, src_valid);
-            break;
+    case 0:
+        ch->addr[0] = ch->active_set.src;
+        break;
+    case 1:
+        cpu_physical_memory_read(addr, data, 4);
+        ch->addr[0] = ldl_p(data);
+        addr += 4;
+        break;
+    case 2:
+        break;
+    default:
+        hw_error("%s: unknown src addressing mode %d\n",
+                 __func__, src_valid);
+        break;
     }
     switch (dst_valid) {
-        case 0:
-            ch->addr[1] = ch->active_set.dest;
-            break;
-        case 1:
-            cpu_physical_memory_read(addr, data, 4);
-            ch->addr[1] = ldl_p(data);
-            addr += 4;
-            break;
-        case 2:
-            break;
-        default:
-            hw_error("%s: unknown dest addressing mode %d\n",
-                     __FUNCTION__, dst_valid);
-            break;
+    case 0:
+        ch->addr[1] = ch->active_set.dest;
+        break;
+    case 1:
+        cpu_physical_memory_read(addr, data, 4);
+        ch->addr[1] = ldl_p(data);
+        addr += 4;
+        break;
+    case 2:
+        break;
+    default:
+        hw_error("%s: unknown dest addressing mode %d\n",
+                 __func__, dst_valid);
+        break;
     }
     if (type == 1 || type == 2) {
         cpu_physical_memory_read(addr, data, 4);
@@ -484,8 +484,9 @@ static void omap_dma_end_of_block(struct omap_dma_s *s,
 {
     if (ch->omap_3_1_compatible_disable) {
         omap_dma_disable_channel(s, ch);
-        if (ch->link_enabled)
+        if (ch->link_enabled) {
             omap_dma_enable_channel(s, &s->ch[ch->link_next_ch]);
+        }
     } else {
         int sgl_pause = (ch->sgl.ptr >> 7) & 1; /* PAUSE_LINK_LIST */
         TRACE("end of block, transfermode=%d, pause=%d",
@@ -493,17 +494,17 @@ static void omap_dma_end_of_block(struct omap_dma_s *s,
         if (((ch->sgl.ptr >> 8) & 3) != 1 || /* TRANSFER_MODE != linked list */
             !omap_dma_sgl_next(s, ch) ||     /* end of list */
             sgl_pause) {
-            if (!ch->auto_init)
+            if (!ch->auto_init) {
                 omap_dma_disable_channel(s, ch);
-            else if (ch->repeat || ch->end_prog)
+            } else if (ch->repeat || ch->end_prog) {
                 omap_dma_channel_load(ch);
-            else {
+            } else {
                 ch->waiting_end_prog = 1;
                 omap_dma_deactivate_channel(s, ch);
             }
         }
     }
-    
+
     if (ch->interrupts & END_BLOCK_INTR)
         ch->status |= END_BLOCK_INTR;
 }
@@ -2007,7 +2008,7 @@ static uint32_t omap_dma4_read(void *opaque, target_phys_addr_t addr)
     default:
         break;
     }
-    
+
     OMAP_BAD_REG(0x80 + chnum * 0x60 + addr);
     return 0;
 }
@@ -2022,7 +2023,7 @@ static void omap_dma4_write_ch(struct omap_dma_s *s,
         ch->src_sync = (value >> 24) & 1;	/* XXX For CamDMA must be 1 */
         if (ch->buf_disable && !ch->src_sync)
             fprintf(stderr, "%s: Buffering disable is not allowed in "
-                    "destination synchronised mode\n", __FUNCTION__);
+                            "destination synchronised mode\n", __FUNCTION__);
         ch->prefetch = (value >> 23) & 1;
         ch->bs = (value >> 18) & 1;
         ch->transparent_copy = (value >> 17) & 1;
@@ -2034,7 +2035,7 @@ static void omap_dma4_write_ch(struct omap_dma_s *s,
         ch->fs = (value & 0x0020) >> 5;
         if (ch->fs && ch->bs && ch->mode[0] && ch->mode[1])
             fprintf(stderr, "%s: For a packet transfer at least one port "
-                    "must be constant-addressed\n", __FUNCTION__);
+                            "must be constant-addressed\n", __FUNCTION__);
         ch->sync = (value & 0x001f) | ((value >> 14) & 0x0060);
         /* XXX must be 0x01 for CamDMA */
 
@@ -2081,7 +2082,7 @@ static void omap_dma4_write_ch(struct omap_dma_s *s,
         ch->endian_lock[1] =(value >> 18) & 1;
         if (ch->endian[0] != ch->endian[1])
             fprintf(stderr, "%s: DMA endiannes conversion enable attempt\n",
-                    __FUNCTION__);
+                            __FUNCTION__);
         ch->write_mode = (value >> 16) & 3;
         ch->burst[1] = (value & 0xc000) >> 14;
         ch->pack[1] = (value & 0x2000) >> 13;
@@ -2091,7 +2092,7 @@ static void omap_dma4_write_ch(struct omap_dma_s *s,
         ch->translate[0] = (value & 0x003c) >> 2;
         if (ch->translate[0] | ch->translate[1])
             fprintf(stderr, "%s: bad MReqAddressTranslate sideband signal\n",
-                    __FUNCTION__);
+                            __FUNCTION__);
         ch->data_type = 1 << (value & 3);
         if ((value & 3) == 3)
             printf("%s: bad data_type for DMA channel\n", __FUNCTION__);
@@ -2148,7 +2149,7 @@ static void omap_dma4_write_ch(struct omap_dma_s *s,
         /* ignore */
         break;
 
-    case 0x44:	/* DMA4_COLOR */
+    case 0x44: /* DMA4_COLOR */
         /* XXX only in sDMA */
         ch->color = value;
         break;
@@ -2176,7 +2177,7 @@ static void omap_dma4_write_ch(struct omap_dma_s *s,
 
     default:
         fprintf(stderr, "%s: unknown register 0x%x\n",
-                __FUNCTION__, offset + 0x80);
+                __func__, offset + 0x80);
         break;
     }
 }
@@ -2188,42 +2189,45 @@ static void omap_dma4_write(void *opaque, target_phys_addr_t addr,
     int chnum, irqn = 0;
 
     switch (addr) {
-    case 0x14:	/* DMA4_IRQSTATUS_L3 */
-        irqn ++;
-    case 0x10:	/* DMA4_IRQSTATUS_L2 */
-        irqn ++;
-    case 0x0c:	/* DMA4_IRQSTATUS_L1 */
-        irqn ++;
-    case 0x08:	/* DMA4_IRQSTATUS_L0 */
+    case 0x14: /* DMA4_IRQSTATUS_L3 */
+        irqn++;
+    case 0x10: /* DMA4_IRQSTATUS_L2 */
+        irqn++;
+    case 0x0c: /* DMA4_IRQSTATUS_L1 */
+        irqn++;
+    case 0x08: /* DMA4_IRQSTATUS_L0 */
         s->irqstat[irqn] &= ~value;
-        if (!s->irqstat[irqn])
+        if (!s->irqstat[irqn]) {
             qemu_irq_lower(s->irq[irqn]);
+        }
         break;
 
-    case 0x24:	/* DMA4_IRQENABLE_L3 */
-        irqn ++;
-    case 0x20:	/* DMA4_IRQENABLE_L2 */
-        irqn ++;
-    case 0x1c:	/* DMA4_IRQENABLE_L1 */
-        irqn ++;
-    case 0x18:	/* DMA4_IRQENABLE_L0 */
+    case 0x24: /* DMA4_IRQENABLE_L3 */
+        irqn++;
+    case 0x20: /* DMA4_IRQENABLE_L2 */
+        irqn++;
+    case 0x1c: /* DMA4_IRQENABLE_L1 */
+        irqn++;
+    case 0x18: /* DMA4_IRQENABLE_L0 */
         s->irqen[irqn] = value;
         break;
 
-    case 0x2c:	/* DMA4_OCP_SYSCONFIG */
+    case 0x2c: /* DMA4_OCP_SYSCONFIG */
         if (value & 2) { /* SOFTRESET */
             /* N/A on 3630GP?? */
             omap_dma_reset(s->dma);
         }
         s->ocp = value & 0x3321;
-        if (((s->ocp >> 12) & 3) == 3)				/* MIDLEMODE */
-            fprintf(stderr, "%s: invalid DMA power mode\n", __FUNCTION__);
+        if (((s->ocp >> 12) & 3) == 3) { /* MIDLEMODE */
+            fprintf(stderr, "%s: invalid DMA power mode\n", __func__);
+        }
         break;
 
-    case 0x78:	/* DMA4_GCR */
+    case 0x78: /* DMA4_GCR */
         s->gcr = value & 0x00ff00ff;
-        if ((value & 0xff) == 0x00)		/* MAX_CHANNEL_FIFO_DEPTH */
-            fprintf(stderr, "%s: wrong FIFO depth in GCR\n", __FUNCTION__);
+        if ((value & 0xff) == 0x00) { /* MAX_CHANNEL_FIFO_DEPTH */
+            fprintf(stderr, "%s: wrong FIFO depth in GCR\n", __func__);
+        }
         break;
 
     case 0x80 ... 0xfff:
@@ -2233,12 +2237,12 @@ static void omap_dma4_write(void *opaque, target_phys_addr_t addr,
         omap_dma4_write_ch(s, s->ch + chnum, (uint32_t)addr, value);
         break;
 
-    case 0x00:	/* DMA4_REVISION */
-    case 0x28:	/* DMA4_SYSSTATUS */
-    case 0x64:	/* DMA4_CAPS_0 */
-    case 0x6c:	/* DMA4_CAPS_2 */
-    case 0x70:	/* DMA4_CAPS_3 */
-    case 0x74:	/* DMA4_CAPS_4 */
+    case 0x00: /* DMA4_REVISION */
+    case 0x28: /* DMA4_SYSSTATUS */
+    case 0x64: /* DMA4_CAPS_0 */
+    case 0x6c: /* DMA4_CAPS_2 */
+    case 0x70: /* DMA4_CAPS_3 */
+    case 0x74: /* DMA4_CAPS_4 */
         OMAP_RO_REG(addr);
         break;
 
