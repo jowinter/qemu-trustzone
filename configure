@@ -2586,7 +2586,7 @@ fi
 # check if we have makecontext
 
 ucontext_coroutine=no
-if test "$darwin" != "yes"; then
+if test "$darwin" != "yes" && test "$cpu" != "arm"; then
   cat > $TMPC << EOF
 #include <ucontext.h>
 int main(void) { makecontext(0, 0, 0); }
