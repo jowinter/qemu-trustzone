@@ -28,7 +28,7 @@ if [ -z "$output" ]; then
     output="$PWD"
 fi
 
-for arch in x86 powerpc s390; do
+for arch in x86 powerpc s390 arm; do
     make -C "$linux" INSTALL_HDR_PATH="$tmpdir" SRCARCH=$arch headers_install
 
     rm -rf "$output/linux-headers/asm-$arch"
