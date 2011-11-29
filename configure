@@ -3468,7 +3468,7 @@ case "$target_arch2" in
     echo "CONFIG_NO_XEN=y" >> $config_target_mak
 esac
 case "$target_arch2" in
-  i386|x86_64|ppcemb|ppc|ppc64|s390x)
+  i386|x86_64|ppcemb|ppc|ppc64|s390x|arm)
     # Make sure the target and host cpus are compatible
     if test "$kvm" = "yes" -a "$target_softmmu" = "yes" -a \
       \( "$target_arch2" = "$cpu" -o \
@@ -3694,6 +3694,9 @@ if test "$linux" = "yes" ; then
   includes="-I\$(SRC_PATH)/linux-headers $includes"
   mkdir -p linux-headers
   case "$cpu" in
+  arm)
+    symlink $source_path/linux-headers/asm-arm linux-headers/asm
+    ;;
   i386|x86_64)
     symlink $source_path/linux-headers/asm-x86 linux-headers/asm
     ;;

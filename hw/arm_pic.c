@@ -9,6 +9,7 @@
 
 #include "hw.h"
 #include "arm-misc.h"
+#include "kvm.h"
 
 /* Input 0 is IRQ and input 1 is FIQ.  */
 static void arm_pic_cpu_handler(void *opaque, int irq, int level)
@@ -30,6 +31,9 @@ static void arm_pic_cpu_handler(void *opaque, int irq, int level)
     default:
         hw_error("arm_pic_cpu_handler: Bad interrupt line %d\n", irq);
     }
+
+    if (kvm_enabled())
+	    kvm_arch_interrupt(env, irq, level);
 }
 
 qemu_irq *arm_pic_init_cpu(CPUState *env)

@@ -45,6 +45,7 @@ static const unsigned char pl011_id_arm[8] =
 static const unsigned char pl011_id_luminary[8] =
   { 0x11, 0x00, 0x18, 0x01, 0x0d, 0xf0, 0x05, 0xb1 };
 
+
 static void pl011_update(pl011_state *s)
 {
     uint32_t flags;

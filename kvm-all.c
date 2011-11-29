@@ -55,6 +55,7 @@ typedef struct KVMSlot
     int flags;
 } KVMSlot;
 
+
 typedef struct kvm_dirty_log KVMDirtyLog;
 
 struct KVMState
