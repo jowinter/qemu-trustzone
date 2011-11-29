@@ -473,7 +473,13 @@ Haiku)
   linux="yes"
   linux_user="yes"
   usb="linux"
-  kvm="yes"
+  if [ "$cpu" = "arm" ]; then
+    # default to disabled unless requested by user via --enable-kvm
+    # while this is still experimental
+    kvm="no"
+  else
+    kvm="yes"
+  fi
   vhost_net="yes"
   if [ "$cpu" = "i386" -o "$cpu" = "x86_64" ] ; then
     audio_possible_drivers="$audio_possible_drivers fmod"
