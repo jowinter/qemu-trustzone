@@ -399,7 +399,11 @@ static uint64_t omap2_inth_read(void *opaque, target_phys_addr_t addr,
             offset &= ~0x60;
             bank = &s->bank[bank_no];
         } else {
-            OMAP_BAD_REG(addr);
+            /* Linux reads the nonexistent interrupt status register at 0xf8
+             * every time through its interrupt handler, so don't actually
+             * warn about it because it swamps the console with output.
+             */
+            /* OMAP_BAD_REG(addr); */
             return 0;
         }
     }
@@ -451,12 +455,6 @@ static uint64_t omap2_inth_read(void *opaque, target_phys_addr_t addr,
 
     case 0x9c:	/* INTC_PENDING_FIQ */
         return bank->irqs & ~bank->mask & bank->fiq;
-
-    case 0xf8:
-        /* Linux reads this nonexistent interrupt status register,
-         * so treat it as RAZ, the way the hardware does.
-         */
-        return 0;
 
     /* Per-line registers */
     case 0x100 ... 0x300:	/* INTC_ILR */
