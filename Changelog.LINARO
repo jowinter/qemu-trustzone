@@ -12,6 +12,9 @@ here. For full change detail consult the git history:
 Bug numbers refer to Launchpad qemu-linaro bugs, eg:
 https://bugs.launchpad.net/qemu-linaro/+bug/703094
 
+version 2011.12:
+ - There are no Linaro-specific changes of note in this release
+
 version 2011.11:
  - The ARM vexpress-a9, versatilepb, versatileab and realview-*
    boards now have audio support (thanks to Mathieu Sonet who
