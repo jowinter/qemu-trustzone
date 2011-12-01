@@ -65,6 +65,7 @@ struct SCSIDiskState
     uint32_t removable;
     bool media_changed;
     bool media_event;
+    bool eject_request;
     QEMUBH *bh;
     char *version;
     char *serial;
@@ -671,9 +672,14 @@ static int scsi_event_status_media(SCSIDiskState *s, uint8_t *outbuf)
 
     /* Event notification descriptor */
     event_code = MEC_NO_CHANGE;
-    if (media_status != MS_TRAY_OPEN && s->media_event) {
-        event_code = MEC_NEW_MEDIA;
-        s->media_event = false;
+    if (media_status != MS_TRAY_OPEN) {
+        if (s->media_event) {
+            event_code = MEC_NEW_MEDIA;
+            s->media_event = false;
+        } else if (s->eject_request) {
+            event_code = MEC_EJECT_REQUESTED;
+            s->eject_request = false;
+        }
     }
 
     outbuf[0] = event_code;
@@ -791,7 +797,7 @@ static int mode_sense_page(SCSIDiskState *s, int page, uint8_t **p_outbuf,
             break;
         }
         /* if a geometry hint is available, use it */
-        bdrv_get_geometry_hint(bdrv, &cylinders, &heads, &secs);
+        bdrv_guess_geometry(bdrv, &cylinders, &heads, &secs);
         p[2] = (cylinders >> 16) & 0xff;
         p[3] = (cylinders >> 8) & 0xff;
         p[4] = cylinders & 0xff;
@@ -825,7 +831,7 @@ static int mode_sense_page(SCSIDiskState *s, int page, uint8_t **p_outbuf,
         p[2] = 5000 >> 8;
         p[3] = 5000 & 0xff;
         /* if a geometry hint is available, use it */
-        bdrv_get_geometry_hint(bdrv, &cylinders, &heads, &secs);
+        bdrv_guess_geometry(bdrv, &cylinders, &heads, &secs);
         p[4] = heads & 0xff;
         p[5] = secs & 0xff;
         p[6] = s->qdev.blocksize >> 8;
@@ -950,8 +956,9 @@ static int scsi_disk_emulate_mode_sense(SCSIDiskReq *r, uint8_t *outbuf)
         p += 8;
     }
 
+    /* MMC prescribes that CD/DVD drives have no block descriptors.  */
     bdrv_get_geometry(s->qdev.conf.bs, &nb_sectors);
-    if (!dbd && nb_sectors) {
+    if (!dbd && s->qdev.type == TYPE_DISK && nb_sectors) {
         if (r->req.cmd.buf[0] == MODE_SENSE) {
             outbuf[3] = 8; /* Block descriptor length  */
         } else { /* MODE_SENSE_10 */
@@ -1172,6 +1179,11 @@ static int scsi_disk_emulate_command(SCSIDiskReq *r)
         outbuf[7] = 0;
         buflen = 8;
         break;
+    case REQUEST_SENSE:
+        /* Just return "NO SENSE".  */
+        buflen = scsi_build_sense(NULL, 0, outbuf, r->buflen,
+                                  (req->cmd.buf[1] & 1) == 0);
+        break;
     case MECHANISM_STATUS:
         buflen = scsi_emulate_mechanism_status(s, outbuf);
         if (buflen < 0) {
@@ -1306,6 +1318,7 @@ static int32_t scsi_send_command(SCSIRequest *req, uint8_t *buf)
     case GET_EVENT_STATUS_NOTIFICATION:
     case MECHANISM_STATUS:
     case SERVICE_ACTION_IN_16:
+    case REQUEST_SENSE:
     case VERIFY_10:
         rc = scsi_disk_emulate_command(r);
         if (rc < 0) {
@@ -1368,10 +1381,8 @@ static int32_t scsi_send_command(SCSIRequest *req, uint8_t *buf)
             goto fail;
         }
         break;
-    case SEEK_6:
     case SEEK_10:
-        DPRINTF("Seek(%d) (sector %" PRId64 ")\n", command == SEEK_6 ? 6 : 10,
-                r->req.cmd.lba);
+        DPRINTF("Seek(10) (sector %" PRId64 ")\n", r->req.cmd.lba);
         if (r->req.cmd.lba > s->qdev.max_lba) {
             goto illegal_lba;
         }
@@ -1402,8 +1413,6 @@ static int32_t scsi_send_command(SCSIRequest *req, uint8_t *buf)
         }
 
         break;
-    case REQUEST_SENSE:
-        abort();
     default:
         DPRINTF("Unknown SCSI command (%2.2x)\n", buf[0]);
         scsi_check_condition(r, SENSE_CODE(INVALID_OPCODE));
@@ -1470,6 +1479,17 @@ static void scsi_cd_change_media_cb(void *opaque, bool load)
     s->tray_open = !load;
     s->qdev.unit_attention = SENSE_CODE(UNIT_ATTENTION_NO_MEDIUM);
     s->media_event = true;
+    s->eject_request = false;
+}
+
+static void scsi_cd_eject_request_cb(void *opaque, bool force)
+{
+    SCSIDiskState *s = opaque;
+
+    s->eject_request = true;
+    if (force) {
+        s->tray_locked = false;
+    }
 }
 
 static bool scsi_cd_is_tray_open(void *opaque)
@@ -1484,6 +1504,7 @@ static bool scsi_cd_is_medium_locked(void *opaque)
 
 static const BlockDevOps scsi_cd_block_ops = {
     .change_media_cb = scsi_cd_change_media_cb,
+    .eject_request_cb = scsi_cd_eject_request_cb,
     .is_tray_open = scsi_cd_is_tray_open,
     .is_medium_locked = scsi_cd_is_medium_locked,
 };
@@ -1535,7 +1556,7 @@ static int scsi_initfn(SCSIDevice *dev)
     bdrv_set_buffer_alignment(s->qdev.conf.bs, s->qdev.blocksize);
 
     bdrv_iostatus_enable(s->qdev.conf.bs);
-    add_boot_device_path(s->qdev.conf.bootindex, &dev->qdev, ",0");
+    add_boot_device_path(s->qdev.conf.bootindex, &dev->qdev, NULL);
     return 0;
 }
 
@@ -1682,8 +1703,20 @@ static SCSIRequest *scsi_block_new_request(SCSIDevice *d, uint32_t tag,
     case WRITE_VERIFY_10:
     case WRITE_VERIFY_12:
     case WRITE_VERIFY_16:
-        return scsi_req_alloc(&scsi_disk_reqops, &s->qdev, tag, lun,
-                              hba_private);
+        /* MMC writing cannot be done via pread/pwrite, because it sometimes
+         * involves writing beyond the maximum LBA or to negative LBA (lead-in).
+         * And once you do these writes, reading from the block device is
+         * unreliable, too.  It is even possible that reads deliver random data
+         * from the host page cache (this is probably a Linux bug).
+         *
+         * We might use scsi_disk_reqops as long as no writing commands are
+         * seen, but performance usually isn't paramount on optical media.  So,
+         * just make scsi-block operate the same as scsi-generic for them.
+         */
+        if (s->qdev.type != TYPE_ROM) {
+            return scsi_req_alloc(&scsi_disk_reqops, &s->qdev, tag, lun,
+                                  hba_private);
+        }
     }
 
     return scsi_req_alloc(&scsi_generic_req_ops, &s->qdev, tag, lun,

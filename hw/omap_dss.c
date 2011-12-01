@@ -1228,7 +1228,7 @@ static void omap_disc_write(void *opaque, target_phys_addr_t addr,
                 | (s->dispc.control & 0x6000);
         }
         if (value & (1 << 12))			/* OVERLAY_OPTIMIZATION */
-            if (~((s->dispc.plane[1].attr | s->dispc.plane[2].attr) & 1)) {
+            if (!((s->dispc.plane[1].attr | s->dispc.plane[2].attr) & 1)) {
                  TRACEDISPC("Overlay Optimization when no overlay "
                             "region effectively exists leads to "
                             "unpredictable behaviour!");

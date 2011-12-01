@@ -128,7 +128,7 @@ static inline SCSIBus *scsi_bus_from_device(SCSIDevice *d)
 }
 
 SCSIDevice *scsi_bus_legacy_add_drive(SCSIBus *bus, BlockDriverState *bdrv,
-                                      int unit, bool removable);
+                                      int unit, bool removable, int bootindex);
 int scsi_bus_legacy_handle_cmdline(SCSIBus *bus);
 
 /*
@@ -179,6 +179,8 @@ extern const struct SCSISense sense_code_DEVICE_INTERNAL_RESET;
 #define SENSE_CODE(x) sense_code_ ## x
 
 int scsi_sense_valid(SCSISense sense);
+int scsi_build_sense(uint8_t *in_buf, int in_len,
+                     uint8_t *buf, int len, bool fixed);
 
 SCSIRequest *scsi_req_alloc(const SCSIReqOps *reqops, SCSIDevice *d,
                             uint32_t tag, uint32_t lun, void *hba_private);

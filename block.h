@@ -39,6 +39,15 @@ typedef struct BlockDevOps {
      */
     void (*change_media_cb)(void *opaque, bool load);
     /*
+     * Runs when an eject request is issued from the monitor, the tray
+     * is closed, and the medium is locked.
+     * Device models that do not implement is_medium_locked will not need
+     * this callback.  Device models that can lock the medium or tray might
+     * want to implement the callback and unlock the tray when "force" is
+     * true, even if they do not support eject requests.
+     */
+    void (*eject_request_cb)(void *opaque, bool force);
+    /*
      * Is the virtual tray open?
      * Device models implement this only when the device has a tray.
      */
@@ -111,6 +120,7 @@ void bdrv_detach_dev(BlockDriverState *bs, void *dev);
 void *bdrv_get_attached_dev(BlockDriverState *bs);
 void bdrv_set_dev_ops(BlockDriverState *bs, const BlockDevOps *ops,
                       void *opaque);
+void bdrv_dev_eject_request(BlockDriverState *bs, bool force);
 bool bdrv_dev_has_removable_media(BlockDriverState *bs);
 bool bdrv_dev_is_tray_open(BlockDriverState *bs);
 bool bdrv_dev_is_medium_locked(BlockDriverState *bs);
@@ -186,6 +196,10 @@ int bdrv_ioctl(BlockDriverState *bs, unsigned long int req, void *buf);
 BlockDriverAIOCB *bdrv_aio_ioctl(BlockDriverState *bs,
         unsigned long int req, void *buf,
         BlockDriverCompletionFunc *cb, void *opaque);
+
+/* Invalidate any cached metadata used by image formats */
+void bdrv_invalidate_cache(BlockDriverState *bs);
+void bdrv_invalidate_cache_all(void);
 
 /* Ensure contents are flushed to disk.  */
 int bdrv_flush(BlockDriverState *bs);

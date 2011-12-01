@@ -26,7 +26,8 @@
 #include "qemu-common.h"
 #include "block_int.h"
 #include "module.h"
-#include "zlib.h"
+#include "migration.h"
+#include <zlib.h>
 
 #define VMDK3_MAGIC (('C' << 24) | ('O' << 16) | ('W' << 8) | 'D')
 #define VMDK4_MAGIC (('K' << 24) | ('D' << 16) | ('M' << 8) | 'V')
@@ -97,6 +98,7 @@ typedef struct BDRVVmdkState {
     int num_extents;
     /* Extent array with num_extents entries, ascend ordered by address */
     VmdkExtent *extents;
+    Error *migration_blocker;
 } BDRVVmdkState;
 
 typedef struct VmdkMetaData {
@@ -659,7 +661,14 @@ static int vmdk_open(BlockDriverState *bs, int flags)
     }
     s->parent_cid = vmdk_read_cid(bs, 1);
     qemu_co_mutex_init(&s->lock);
-    return ret;
+
+    /* Disable migration when VMDK images are used */
+    error_set(&s->migration_blocker,
+              QERR_BLOCK_FORMAT_FEATURE_NOT_SUPPORTED,
+              "vmdk", bs->device_name, "live migration");
+    migrate_add_blocker(s->migration_blocker);
+
+    return 0;
 
 fail:
     vmdk_free_extents(bs);
@@ -1504,7 +1513,12 @@ exit:
 
 static void vmdk_close(BlockDriverState *bs)
 {
+    BDRVVmdkState *s = bs->opaque;
+
     vmdk_free_extents(bs);
+
+    migrate_del_blocker(s->migration_blocker);
+    error_free(s->migration_blocker);
 }
 
 static coroutine_fn int vmdk_co_flush(BlockDriverState *bs)
@@ -1581,8 +1595,8 @@ static BlockDriver bdrv_vmdk = {
     .bdrv_write     = vmdk_co_write,
     .bdrv_close     = vmdk_close,
     .bdrv_create    = vmdk_create,
-    .bdrv_co_flush  = vmdk_co_flush,
-    .bdrv_is_allocated  = vmdk_is_allocated,
+    .bdrv_co_flush_to_disk  = vmdk_co_flush,
+    .bdrv_is_allocated      = vmdk_is_allocated,
     .bdrv_get_allocated_file_size  = vmdk_get_allocated_file_size,
 
     .create_options = vmdk_create_options,

@@ -89,6 +89,9 @@ void process_incoming_migration(QEMUFile *f)
     qemu_announce_self();
     DPRINTF("successfully loaded vm state\n");
 
+    /* Make sure all file formats flush their mutable metadata */
+    bdrv_invalidate_cache_all();
+
     if (autostart) {
         vm_start();
     } else {
@@ -155,7 +158,6 @@ MigrationInfo *qmp_query_migrate(Error **errp)
 
 static void migrate_fd_monitor_suspend(MigrationState *s, Monitor *mon)
 {
-    s->mon = mon;
     if (monitor_suspend(mon) == 0) {
         DPRINTF("suspending monitor\n");
     } else {
@@ -383,7 +385,12 @@ static MigrationState *migrate_init(Monitor *mon, int detach, int blk, int inc)
     s->bandwidth_limit = bandwidth_limit;
     s->blk = blk;
     s->shared = inc;
-    s->mon = NULL;
+
+    /* s->mon is used for two things:
+       - pass fd in fd migration
+       - suspend/resume monitor for not detached migration
+    */
+    s->mon = mon;
     s->bandwidth_limit = bandwidth_limit;
     s->state = MIG_STATE_SETUP;
 
@@ -392,6 +399,18 @@ static MigrationState *migrate_init(Monitor *mon, int detach, int blk, int inc)
     }
 
     return s;
+}
+
+static GSList *migration_blockers;
+
+void migrate_add_blocker(Error *reason)
+{
+    migration_blockers = g_slist_prepend(migration_blockers, reason);
+}
+
+void migrate_del_blocker(Error *reason)
+{
+    migration_blockers = g_slist_remove(migration_blockers, reason);
 }
 
 int do_migrate(Monitor *mon, const QDict *qdict, QObject **ret_data)
@@ -410,6 +429,12 @@ int do_migrate(Monitor *mon, const QDict *qdict, QObject **ret_data)
     }
 
     if (qemu_savevm_state_blocked(mon)) {
+        return -1;
+    }
+
+    if (migration_blockers) {
+        Error *err = migration_blockers->data;
+        qerror_report_err(err);
         return -1;
     }
 
@@ -433,6 +458,10 @@ int do_migrate(Monitor *mon, const QDict *qdict, QObject **ret_data)
     if (ret < 0) {
         monitor_printf(mon, "migration failed: %s\n", strerror(-ret));
         return ret;
+    }
+
+    if (detach) {
+        s->mon = NULL;
     }
 
     notifier_list_notify(&migration_state_notifiers, s);
