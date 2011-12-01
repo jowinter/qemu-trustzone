@@ -122,7 +122,7 @@ int kvm_arch_get_registers(CPUState *env)
 int kvm_arch_interrupt(CPUState *env, int irq, int level)
 {
     struct kvm_irq_level irq_level;
-    int vcpu_idx = 0; /* Assume non-SMP for now */
+    int vcpu_idx = env->cpu_index;
     KVMState *s = kvm_state;
     int ret;
 
@@ -133,10 +133,10 @@ int kvm_arch_interrupt(CPUState *env, int irq, int level)
 
     switch (irq) {
     case ARM_PIC_CPU_IRQ:
-        irq_level.irq = KVM_ARM_IRQ_LINE * vcpu_idx;
+        irq_level.irq = KVM_ARM_IRQ_LINE | (vcpu_idx << 1);
         break;
     case ARM_PIC_CPU_FIQ:
-        irq_level.irq = (KVM_ARM_FIQ_LINE * vcpu_idx) + 1;
+        irq_level.irq = KVM_ARM_FIQ_LINE | (vcpu_idx << 1);
         break;
     default:
         fprintf(stderr, "unsupported ARM irq injection\n");
