@@ -45,10 +45,16 @@ static uint32_t arm1176_cp15_c0_c2[8] =
 { 0x0140011, 0x12002111, 0x11231121, 0x01102131, 0x01141, 0, 0, 0 };
 
 static uint32_t cpu_arm_find_by_name(const char *name);
+static void cpu_arm_apply_extra_features(CPUARMState *env, const char *name);
 
 static inline void set_feature(CPUARMState *env, int feature)
 {
     env->features |= 1u << feature;
+}
+
+static inline void clear_feature(CPUARMState *env, int feature)
+{
+    env->features &= ~(1u << feature);
 }
 
 static void cpu_reset_model_id(CPUARMState *env, uint32_t id)
@@ -296,6 +302,8 @@ void cpu_reset(CPUARMState *env)
     memset(env, 0, offsetof(CPUARMState, breakpoints));
     if (id)
         cpu_reset_model_id(env, id);
+    if (env->cpu_model_str)
+        cpu_arm_apply_extra_features(env, env->cpu_model_str);
 #if defined (CONFIG_USER_ONLY)
     env->uncached_cpsr = ARM_CPU_MODE_USR;
     /* For user mode we must enable access to coprocessors */
@@ -433,6 +441,12 @@ struct arm_cpu_t {
     const char *name;
 };
 
+struct arm_feature_t {
+    int feature;
+    const char *name;
+    int user_control;
+};
+
 static const struct arm_cpu_t arm_cpu_names[] = {
     { ARM_CPUID_ARM926, "arm926"},
     { ARM_CPUID_ARM946, "arm946"},
@@ -464,6 +478,33 @@ static const struct arm_cpu_t arm_cpu_names[] = {
     { 0, NULL}
 };
 
+static const struct arm_feature_t arm_cpu_features[] = {
+    { ARM_FEATURE_VFP, "vfp", 0 },
+    { ARM_FEATURE_AUXCR, "auxcr", 0 },
+    { ARM_FEATURE_XSCALE, "xscale", 0 },
+    { ARM_FEATURE_IWMMXT, "iwmmxt", 0 },
+    { ARM_FEATURE_V6, "v6", 0 },
+    { ARM_FEATURE_V6K, "v6k", 0 },
+    { ARM_FEATURE_V7, "v7", 0 },
+    { ARM_FEATURE_THUMB2, "thumb2", 0 },
+    { ARM_FEATURE_MPU, "mpu", 0 },
+    { ARM_FEATURE_VFP3, "vfp3", 0 },
+    { ARM_FEATURE_VFP_FP16, "vfp-fp16", 0 },
+    { ARM_FEATURE_NEON, "neon", 1 },
+    { ARM_FEATURE_THUMB_DIV, "thumb-div", 0 },
+    { ARM_FEATURE_M, "m", 0 },
+    { ARM_FEATURE_OMAPCP, "omapcp", 0 },
+    { ARM_FEATURE_THUMB2EE, "thumb2ee", 1 },
+    { ARM_FEATURE_V7MP, "v7mp", 0 },
+    { ARM_FEATURE_V4T, "v4t", 0 },
+    { ARM_FEATURE_V5, "v5", 0 },
+    { ARM_FEATURE_VAPA, "vapa", 0 },
+    { ARM_FEATURE_ARM_DIV, "arm-div", 0 },
+    { ARM_FEATURE_VFP3, "vfp4", 0 },
+    { ARM_FEATURE_TRUSTZONE, "trustzone", 1 },
+    { 0, NULL }
+};
+
 void arm_cpu_list(FILE *f, fprintf_function cpu_fprintf)
 {
     int i;
@@ -472,22 +513,108 @@ void arm_cpu_list(FILE *f, fprintf_function cpu_fprintf)
     for (i = 0; arm_cpu_names[i].name; i++) {
         (*cpu_fprintf)(f, "  %s\n", arm_cpu_names[i].name);
     }
+
+    (*cpu_fprintf)(f, "\nAvailable CPU features:\n");
+    for (i = 0; arm_cpu_features[i].name; i++) {
+        if (arm_cpu_features[i].user_control) {
+            (*cpu_fprintf)(f, "  %s\n", arm_cpu_features[i].name);
+        }
+    }
 }
 
 /* return 0 if not found */
 static uint32_t cpu_arm_find_by_name(const char *name)
 {
+    const char *features;
+    size_t name_len;
     int i;
     uint32_t id;
 
+    /* only compare up to the first "feature" specification */
+    features = strchr(name, ',');
+    name_len = features? (features - name) : strlen(name);
+
     id = 0;
     for (i = 0; arm_cpu_names[i].name; i++) {
-        if (strcmp(name, arm_cpu_names[i].name) == 0) {
+        if (strncmp(name, arm_cpu_names[i].name, name_len) == 0 &&
+            strlen(arm_cpu_names[i].name) == name_len) {
             id = arm_cpu_names[i].id;
             break;
         }
     }
     return id;
+}
+
+/* find a CPU feature by name */
+static const struct arm_feature_t* cpu_arm_feature_by_name(const char *name)
+{
+    const struct arm_feature_t* r = NULL;
+    const char *next;
+    size_t name_len;
+    int i;
+
+    /* only compare up to the first "feature" specification */
+    next = strchr(name, ',');
+    name_len = next? (next - name) : strlen(name);
+
+    for (i = 0; arm_cpu_features[i].name; i++) {
+        if (strncmp(name, arm_cpu_features[i].name, name_len) == 0 &&
+            strlen(arm_cpu_features[i].name) == name_len) {
+            r = &arm_cpu_features[i];
+            break;
+        }
+    }
+
+    return r;
+}
+
+/* dump a list of CPU features of the current core */
+void arm_dump_features(CPUState *env, FILE *f, fprintf_function cpu_fprintf)
+{
+    int is_first = 1;
+    int i;
+
+    (*cpu_fprintf)(f, "FEATURES=");
+
+    for (i = 0; arm_cpu_features[i].name; i++) {
+        if (arm_feature(env, arm_cpu_features[i].feature)) {
+            (*cpu_fprintf)(f, is_first? "%s" : ",%s", arm_cpu_features[i].name);
+            is_first = 0;
+        }
+    }
+
+    (*cpu_fprintf)(f, is_first? "---\n" : "\n");
+}
+
+/* apply additional CPU features given as part of the CPU model name */
+static void cpu_arm_apply_extra_features(CPUARMState *env, const char *name)
+{
+    const char *feature_name;
+
+    for (feature_name = strchr(name, ','); feature_name;
+         feature_name = strchr(feature_name + 1, ',')) {
+
+        const struct arm_feature_t* feature;
+        int clear = 0;
+
+        if (*(feature_name + 1) == '-') {
+            /* Requested removal of the feature */
+            clear = 1;
+            feature_name += 1;
+        }
+
+        feature = cpu_arm_feature_by_name(feature_name + 1);
+        if (!feature) {
+            cpu_abort(env, "Unrecognized processor feature near '%s'", feature_name + 1);
+        } else if (!feature->user_control) {
+            cpu_abort(env, "Extra processor feature at '%s' can not be set manually",
+                      feature->name);
+        } else if (clear) {
+            clear_feature(env, feature->feature);
+        } else {
+            set_feature(env, feature->feature);
+        }
+    }
 }
 
 void cpu_arm_close(CPUARMState *env)
