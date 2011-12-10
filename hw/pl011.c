@@ -12,6 +12,7 @@
 
 typedef struct {
     SysBusDevice busdev;
+    MemoryRegion iomem;
     uint32_t readbuff;
     uint32_t flags;
     uint32_t lcr;
@@ -54,7 +55,8 @@ static void pl011_update(pl011_state *s)
     qemu_set_irq(s->irq, flags != 0);
 }
 
-static uint32_t pl011_read(void *opaque, target_phys_addr_t offset)
+static uint64_t pl011_read(void *opaque, target_phys_addr_t offset,
+                           unsigned size)
 {
     pl011_state *s = (pl011_state *)opaque;
     uint32_t c;
@@ -124,7 +126,7 @@ static void pl011_set_read_trigger(pl011_state *s)
 }
 
 static void pl011_write(void *opaque, target_phys_addr_t offset,
-                          uint32_t value)
+                        uint64_t value, unsigned size)
 {
     pl011_state *s = (pl011_state *)opaque;
     unsigned char ch;
@@ -224,16 +226,10 @@ static void pl011_event(void *opaque, int event)
         pl011_put_fifo(opaque, 0x400);
 }
 
-static CPUReadMemoryFunc * const pl011_readfn[] = {
-   pl011_read,
-   pl011_read,
-   pl011_read
-};
-
-static CPUWriteMemoryFunc * const pl011_writefn[] = {
-   pl011_write,
-   pl011_write,
-   pl011_write
+static const MemoryRegionOps pl011_ops = {
+    .read = pl011_read,
+    .write = pl011_write,
+    .endianness = DEVICE_NATIVE_ENDIAN,
 };
 
 static const VMStateDescription vmstate_pl011 = {
@@ -263,13 +259,10 @@ static const VMStateDescription vmstate_pl011 = {
 
 static int pl011_init(SysBusDevice *dev, const unsigned char *id)
 {
-    int iomemtype;
     pl011_state *s = FROM_SYSBUS(pl011_state, dev);
 
-    iomemtype = cpu_register_io_memory(pl011_readfn,
-                                       pl011_writefn, s,
-                                       DEVICE_NATIVE_ENDIAN);
-    sysbus_init_mmio(dev, 0x1000,iomemtype);
+    memory_region_init_io(&s->iomem, &pl011_ops, s, "pl011", 0x1000);
+    sysbus_init_mmio(dev, &s->iomem);
     sysbus_init_irq(dev, &s->irq);
     s->id = id;
     s->chr = qdev_init_chardev(&dev->qdev);

@@ -3891,7 +3891,7 @@ struct omap_mpu_state_s *omap310_mpu_init(MemoryRegion *system_memory,
         dma_irqs[i] = qdev_get_gpio_in(s->ih[omap1_dma_irq_map[i].ih],
                                        omap1_dma_irq_map[i].intr);
     }
-    s->dma = omap_dma_init(0xfffed800, dma_irqs,
+    s->dma = omap_dma_init(0xfffed800, dma_irqs, system_memory,
                            qdev_get_gpio_in(s->ih[0], OMAP_INT_DMA_LCD),
                            s, omap_findclk(s, "dma_ck"), omap_dma_3_1);
 
@@ -3926,7 +3926,7 @@ struct omap_mpu_state_s *omap310_mpu_init(MemoryRegion *system_memory,
                     qdev_get_gpio_in(s->ih[1], OMAP_INT_OS_TIMER),
                     omap_findclk(s, "clk32-kHz"));
 
-    s->lcd = omap_lcdc_init(0xfffec000,
+    s->lcd = omap_lcdc_init(system_memory, 0xfffec000,
                             qdev_get_gpio_in(s->ih[0], OMAP_INT_LCD_CTRL),
                             omap_dma_get_lcdch(s->dma),
                             omap_findclk(s, "lcd_ck"));
@@ -3999,7 +3999,7 @@ struct omap_mpu_state_s *omap310_mpu_init(MemoryRegion *system_memory,
         fprintf(stderr, "qemu: missing SecureDigital device\n");
         exit(1);
     }
-    s->mmc = omap_mmc_init(0xfffb7800, dinfo->bdrv,
+    s->mmc = omap_mmc_init(0xfffb7800, system_memory, dinfo->bdrv,
                            qdev_get_gpio_in(s->ih[1], OMAP_INT_OQN),
                            &s->drq[OMAP_DMA_MMC_TX],
                     omap_findclk(s, "mmc_ck"));

@@ -35,6 +35,7 @@
 #include "loader.h"
 #include "blockdev.h"
 #include "sysbus.h"
+#include "exec-memory.h"
 
 //#define MIPID_DEBUG
 
@@ -1411,11 +1412,12 @@ static void n8x0_init(ram_addr_t ram_size, const char *boot_device,
                 const char *kernel_cmdline, const char *initrd_filename,
                 const char *cpu_model, struct arm_boot_info *binfo, int model)
 {
+    MemoryRegion *sysmem = get_system_memory();
     struct n800_s *s = (struct n800_s *) g_malloc0(sizeof(*s));
     int sdram_size = binfo->ram_size;
     DisplayState *ds;
 
-    s->cpu = omap2420_mpu_init(sdram_size, cpu_model);
+    s->cpu = omap2420_mpu_init(sysmem, sdram_size, cpu_model);
 
     /* Setup peripherals
      *
@@ -2489,6 +2491,7 @@ static void n900_init(ram_addr_t ram_size,
                       const char *initrd_filename,
                       const char *cpu_model)
 {
+    MemoryRegion *sysmem = get_system_memory();
     struct n900_s *s = g_malloc0(sizeof(*s));
     DriveInfo *dmtd = drive_get(IF_MTD, 0, 0);
     DriveInfo *dsd  = drive_get(IF_SD, 0, 0);
@@ -2499,7 +2502,7 @@ static void n900_init(ram_addr_t ram_size,
 #if MAX_SERIAL_PORTS < 3
 #error MAX_SERIAL_PORTS must be at least 3!
 #endif
-    s->cpu = omap3_mpu_init(omap3430, N900_SDRAM_SIZE,
+    s->cpu = omap3_mpu_init(sysmem, omap3430, N900_SDRAM_SIZE,
                             serial_hds[1], serial_hds[2],
                             serial_hds[0], NULL);
     omap_lcd_panel_attach(s->cpu->dss);

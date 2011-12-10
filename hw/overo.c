@@ -29,6 +29,7 @@
 #include "flash.h"
 #include "sysbus.h"
 #include "blockdev.h"
+#include "exec-memory.h"
 
 #define OVERO_NAND_CS       0
 #define OVERO_NET_CS        5
@@ -49,6 +50,7 @@ static void overo_init(ram_addr_t ram_size,
                        const char *initrd_filename,
                        const char *cpu_model)
 {
+    MemoryRegion *sysmem = get_system_memory();
     struct overo_s *s = (struct overo_s *) g_malloc0(sizeof(*s));
     DriveInfo *dmtd = drive_get(IF_MTD, 0, 0);
     DriveInfo *dsd  = drive_get(IF_SD, 0, 0);
@@ -61,7 +63,7 @@ static void overo_init(ram_addr_t ram_size,
     if (!dmtd && !dsd) {
         hw_error("%s: SD or NAND image required", __FUNCTION__);
     }
-    s->cpu = omap3_mpu_init(omap3430, ram_size,
+    s->cpu = omap3_mpu_init(sysmem, omap3430, ram_size,
                             NULL, NULL, serial_hds[0], NULL);
 
     s->nand = nand_init(dmtd ? dmtd->bdrv : NULL, NAND_MFR_MICRON, 0xba);

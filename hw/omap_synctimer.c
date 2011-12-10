@@ -21,6 +21,7 @@
 #include "qemu-timer.h"
 #include "omap.h"
 struct omap_synctimer_s {
+    MemoryRegion iomem;
     uint32_t val;
     uint16_t readh;
     uint32_t sysconfig; /*OMAP3*/
@@ -88,23 +89,12 @@ static uint32_t omap3_synctimer_readh(void *opaque, target_phys_addr_t addr)
     return ret & 0xffff;
 }
 
-static CPUReadMemoryFunc * const omap_synctimer_readfn[] = {
-    omap_badwidth_read32,
-    omap_synctimer_readh,
-    omap_synctimer_readw,
-};
-
-static CPUReadMemoryFunc * const omap3_synctimer_readfn[] = {
-    omap_badwidth_read32,
-    omap3_synctimer_readh,
-    omap3_synctimer_readw,
-};
-
 static void omap_synctimer_write(void *opaque, target_phys_addr_t addr,
                 uint32_t value)
 {
     OMAP_BAD_REG(addr);
 }
+
 
 static void omap3_synctimer_write(void *opaque, target_phys_addr_t addr,
                                   uint32_t value)
@@ -117,16 +107,36 @@ static void omap3_synctimer_write(void *opaque, target_phys_addr_t addr,
     }
 }
 
-static CPUWriteMemoryFunc * const omap_synctimer_writefn[] = {
-    omap_badwidth_write32,
-    omap_synctimer_write,
-    omap_synctimer_write,
+static const MemoryRegionOps omap_synctimer_ops = {
+    .old_mmio = {
+        .read = {
+            omap_badwidth_read32,
+            omap_synctimer_readh,
+            omap_synctimer_readw,
+        },
+        .write = {
+            omap_badwidth_write32,
+            omap_synctimer_write,
+            omap_synctimer_write,
+        },
+    },
+    .endianness = DEVICE_NATIVE_ENDIAN,
 };
 
-static CPUWriteMemoryFunc * const omap3_synctimer_writefn[] = {
-    omap_badwidth_write32,
-    omap3_synctimer_write,
-    omap3_synctimer_write,
+static const MemoryRegionOps omap3_synctimer_ops = {
+    .old_mmio = {
+        .read = {
+            omap_badwidth_read32,
+            omap3_synctimer_readh,
+            omap3_synctimer_readw,
+        },
+        .write = {
+            omap_badwidth_write32,
+            omap3_synctimer_write,
+            omap3_synctimer_write,
+        },
+    },
+    .endianness = DEVICE_NATIVE_ENDIAN,
 };
 
 struct omap_synctimer_s *omap_synctimer_init(struct omap_target_agent_s *ta,
@@ -136,13 +146,13 @@ struct omap_synctimer_s *omap_synctimer_init(struct omap_target_agent_s *ta,
 
     omap_synctimer_reset(s);
     if (cpu_class_omap3(mpu)) {
-        omap_l4_attach(ta, 0, l4_register_io_memory(omap3_synctimer_readfn,
-                                                    omap3_synctimer_writefn,
-                                                    s));
+        memory_region_init_io(&s->iomem, &omap3_synctimer_ops, s,
+                              "omap.synctimer", omap_l4_region_size(ta, 0));
     } else {
-        omap_l4_attach(ta, 0, l4_register_io_memory(omap_synctimer_readfn,
-                                                    omap_synctimer_writefn,
-                                                    s));
+        memory_region_init_io(&s->iomem, &omap_synctimer_ops, s,
+                              "omap.synctimer", omap_l4_region_size(ta, 0));
     }
+    omap_l4_attach(ta, 0, &s->iomem);
+
     return s;
 }

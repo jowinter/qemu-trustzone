@@ -27,6 +27,7 @@
 
 typedef struct omap_i2c_bus_s {
     i2c_bus *bus;
+    MemoryRegion iomem;
     qemu_irq irq;
     qemu_irq drq[2];
 
@@ -666,10 +667,20 @@ static void omap_i2c_writeb(void *opaque, target_phys_addr_t addr,
     }
 }
 
-static CPUReadMemoryFunc * const omap_i2c_readfn[] = {
-    omap_i2c_readb,
-    omap_i2c_read,
-    omap_i2c_read,
+static const MemoryRegionOps omap_i2c_ops = {
+    .old_mmio = {
+        .read = {
+            omap_i2c_readb,
+            omap_i2c_read,
+            omap_i2c_read,
+        },
+        .write = {
+            omap_i2c_writeb, /* Only the last fifo write can be 8 bit.  */
+            omap_i2c_write,
+            omap_i2c_write,
+        },
+    },
+    .endianness = DEVICE_NATIVE_ENDIAN,
 };
 
 static CPUWriteMemoryFunc * const omap_i2c_writefn[] = {
@@ -744,10 +755,10 @@ static int omap_i2c_init(SysBusDevice *dev)
         sysbus_init_irq(dev, &s->bus[i].irq);
         sysbus_init_irq(dev, &s->bus[i].drq[0]);
         sysbus_init_irq(dev, &s->bus[i].drq[1]);
-        sysbus_init_mmio(dev, (rev < OMAP2_INTR_REV) ? 0x800 : 0x1000,
-                         cpu_register_io_memory(omap_i2c_readfn,
-                                                omap_i2c_writefn, &s->bus[i],
-                                                DEVICE_NATIVE_ENDIAN));
+        memory_region_init_io(&s->bus[i].iomem, &omap_i2c_ops, &s->bus[i],
+                              "omap.i2c",
+                              (rev < OMAP2_INTR_REV) ? 0x800 : 0x1000);
+        sysbus_init_mmio(dev, &s->bus[i].iomem);
         s->bus[i].bus = i2c_init_bus(&dev->qdev, NULL);
         vmstate_register(&dev->qdev, i, &vmstate_omap_i2c_bus, &s->bus[i]);
     }

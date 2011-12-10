@@ -61,7 +61,7 @@ static uint32_t arm_timer_read(void *opaque, target_phys_addr_t offset)
             return 0;
         return s->int_level;
     default:
-        hw_error("arm_timer_read: Bad offset %x\n", (int)offset);
+        hw_error("%s: Bad offset %x\n", __func__, (int)offset);
         return 0;
     }
 }
@@ -128,7 +128,7 @@ static void arm_timer_write(void *opaque, target_phys_addr_t offset,
         arm_timer_recalibrate(s, 0);
         break;
     default:
-        hw_error("arm_timer_write: Bad offset %x\n", (int)offset);
+        hw_error("%s: Bad offset %x\n", __func__, (int)offset);
     }
     arm_timer_update(s);
 }
@@ -247,7 +247,7 @@ static int sp804_init(SysBusDevice *dev)
     s->timer[0]->irq = qi[0];
     s->timer[1]->irq = qi[1];
     memory_region_init_io(&s->iomem, &sp804_ops, s, "sp804", 0x1000);
-    sysbus_init_mmio_region(dev, &s->iomem);
+    sysbus_init_mmio(dev, &s->iomem);
     vmstate_register(&dev->qdev, -1, &vmstate_sp804, s);
     return 0;
 }
@@ -270,7 +270,7 @@ static uint64_t icp_pit_read(void *opaque, target_phys_addr_t offset,
     /* ??? Don't know the PrimeCell ID for this device.  */
     n = offset >> 8;
     if (n > 2) {
-        hw_error("sp804_read: Bad timer %d\n", n);
+        hw_error("%s: Bad timer %d\n", __func__, n);
     }
 
     return arm_timer_read(s->timer[n], offset & 0xff);
@@ -284,7 +284,7 @@ static void icp_pit_write(void *opaque, target_phys_addr_t offset,
 
     n = offset >> 8;
     if (n > 2) {
-        hw_error("sp804_write: Bad timer %d\n", n);
+        hw_error("%s: Bad timer %d\n", __func__, n);
     }
 
     arm_timer_write(s->timer[n], offset & 0xff, value);
@@ -311,7 +311,7 @@ static int icp_pit_init(SysBusDevice *dev)
     sysbus_init_irq(dev, &s->timer[2]->irq);
 
     memory_region_init_io(&s->iomem, &icp_pit_ops, s, "icp_pit", 0x1000);
-    sysbus_init_mmio_region(dev, &s->iomem);
+    sysbus_init_mmio(dev, &s->iomem);
     /* This device has no state to save/restore.  The component timers will
        save themselves.  */
     return 0;

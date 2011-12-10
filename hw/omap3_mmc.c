@@ -53,6 +53,7 @@
 struct omap3_mmc_s
 {
     SysBusDevice busdev;
+    MemoryRegion iomem;
     qemu_irq irq;
     qemu_irq dma[2];
     qemu_irq coverswitch;
@@ -734,16 +735,20 @@ static void omap3_mmc_write(void *opaque, target_phys_addr_t addr,
     }
 }
 
-static CPUReadMemoryFunc *omap3_mmc_readfn[] = {
-    omap_badwidth_read32,
-    omap_badwidth_read32,
-    omap3_mmc_read,
-};
-
-static CPUWriteMemoryFunc *omap3_mmc_writefn[] = {
-    omap_badwidth_write32,
-    omap_badwidth_write32,
-    omap3_mmc_write,
+static const MemoryRegionOps omap3_mmc_ops = {
+    .old_mmio = {
+        .read = {
+            omap_badwidth_read32,
+            omap_badwidth_read32,
+            omap3_mmc_read,
+        },
+        .write = {
+            omap_badwidth_write32,
+            omap_badwidth_write32,
+            omap3_mmc_write,
+        },
+    },
+    .endianness = DEVICE_NATIVE_ENDIAN,
 };
 
 static int omap3_mmc_init(SysBusDevice *dev)
@@ -752,10 +757,9 @@ static int omap3_mmc_init(SysBusDevice *dev)
     sysbus_init_irq(dev, &s->irq);
     sysbus_init_irq(dev, &s->dma[0]);
     sysbus_init_irq(dev, &s->dma[1]);
-    sysbus_init_mmio(dev, 0x1000,
-                     cpu_register_io_memory(omap3_mmc_readfn,
-                                            omap3_mmc_writefn, s,
-                                            DEVICE_NATIVE_ENDIAN));
+    memory_region_init_io(&s->iomem, &omap3_mmc_ops, s,
+                          "omap3_mmc", 0x1000);
+    sysbus_init_mmio(dev, &s->iomem);
     return 0;
 }
 

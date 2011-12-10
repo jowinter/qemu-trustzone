@@ -107,7 +107,6 @@ static uint64_t omap_uart_read(void *opaque, target_phys_addr_t addr,
 {
     struct omap_uart_s *s = (struct omap_uart_s *) opaque;
 
-    addr &= 0xff;
     switch (addr) {
     case 0x00:
     case 0x04:
@@ -186,7 +185,6 @@ static void omap_uart_write(void *opaque, target_phys_addr_t addr,
 {
     struct omap_uart_s *s = (struct omap_uart_s *) opaque;
 
-    addr &= 0xff;
     switch (addr) {
     case 0x00:
     case 0x04:
@@ -323,7 +321,7 @@ static int omap_uart_init(SysBusDevice *busdev)
     sysbus_init_irq(busdev, &s->rx_drq);
     memory_region_init_io(&s->iomem, &omap_uart_ops, s, "omap_uart",
                           s->mmio_size);
-    sysbus_init_mmio_region(busdev, &s->iomem);
+    sysbus_init_mmio(busdev, &s->iomem);
     return 0;
 }
 

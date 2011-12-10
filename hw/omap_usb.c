@@ -40,6 +40,7 @@ extern CPUWriteMemoryFunc *musb_write[];
 
 typedef struct omap3_hsusb_otg_s {
     SysBusDevice busdev;
+    MemoryRegion iomem;
     qemu_irq mc_irq;
     qemu_irq dma_irq;
     qemu_irq stdby_irq;
@@ -198,16 +199,20 @@ static void omap3_hsusb_otg_writew(void *opaque, target_phys_addr_t addr,
     omap3_hsusb_otg_write(2, opaque, addr, value);
 }
 
-static CPUReadMemoryFunc *omap3_hsusb_otg_readfn[] = {
-    omap3_hsusb_otg_readb,
-    omap3_hsusb_otg_readh,
-    omap3_hsusb_otg_readw,
-};
-
-static CPUWriteMemoryFunc *omap3_hsusb_otg_writefn[] = {
-    omap3_hsusb_otg_writeb,
-    omap3_hsusb_otg_writeh,
-    omap3_hsusb_otg_writew,
+static const MemoryRegionOps omap3_hsusb_otg_ops = {
+    .old_mmio = {
+        .read = {
+            omap3_hsusb_otg_readb,
+            omap3_hsusb_otg_readh,
+            omap3_hsusb_otg_readw,
+        },
+        .write = {
+            omap3_hsusb_otg_writeb,
+            omap3_hsusb_otg_writeh,
+            omap3_hsusb_otg_writew,
+        },
+    },
+    .endianness = DEVICE_NATIVE_ENDIAN,
 };
 
 static void omap3_hsusb_musb_core_intr(void *opaque, int source, int level)
@@ -223,10 +228,9 @@ static int omap3_hsusb_otg_init(SysBusDevice *dev)
     sysbus_init_irq(dev, &s->mc_irq);
     sysbus_init_irq(dev, &s->dma_irq);
     sysbus_init_irq(dev, &s->stdby_irq);
-    sysbus_init_mmio(dev, 0x1000,
-                     cpu_register_io_memory(omap3_hsusb_otg_readfn,
-                                            omap3_hsusb_otg_writefn, s,
-                                            DEVICE_NATIVE_ENDIAN));
+    memory_region_init_io(&s->iomem, &omap3_hsusb_otg_ops, s,
+                          "omap3_hsusb_otg", 0x1000);
+    sysbus_init_mmio(dev, &s->iomem);
     qdev_init_gpio_in(&dev->qdev, omap3_hsusb_musb_core_intr, musb_irq_max);
     s->musb = musb_init(&dev->qdev, 0);
     vmstate_register(&dev->qdev, -1, &vmstate_omap3_hsusb_otg, s);
@@ -242,6 +246,9 @@ static SysBusDeviceInfo omap3_hsusb_otg_info = {
 
 typedef struct omap3_hsusb_host_s {
     SysBusDevice busdev;
+    MemoryRegion tll_iomem;
+    MemoryRegion host_iomem;
+    MemoryRegion ehci_iomem;
     qemu_irq ehci_irq;
     qemu_irq tll_irq;
     
@@ -330,16 +337,20 @@ static void omap3_hsusb_host_write(void *opaque, target_phys_addr_t addr,
     }
 }
 
-static CPUReadMemoryFunc *omap3_hsusb_host_readfn[] = {
-    omap_badwidth_read32,
-    omap_badwidth_read32,
-    omap3_hsusb_host_read,
-};
-
-static CPUWriteMemoryFunc *omap3_hsusb_host_writefn[] = {
-    omap_badwidth_write32,
-    omap_badwidth_write32,
-    omap3_hsusb_host_write,
+static const MemoryRegionOps omap3_hsusb_host_ops = {
+    .old_mmio = {
+        .read = {
+            omap_badwidth_read32,
+            omap_badwidth_read32,
+            omap3_hsusb_host_read,
+        },
+        .write = {
+            omap_badwidth_write32,
+            omap_badwidth_write32,
+            omap3_hsusb_host_write,
+        },
+    },
+    .endianness = DEVICE_NATIVE_ENDIAN,
 };
 
 static uint32_t omap3_hsusb_ehci_read(void *opaque, target_phys_addr_t addr)
@@ -369,16 +380,20 @@ static void omap3_hsusb_ehci_write(void *opaque, target_phys_addr_t addr,
      }
 }
 
-static CPUReadMemoryFunc *omap3_hsusb_ehci_readfn[] = {
-    omap_badwidth_read32,
-    omap_badwidth_read32,
-    omap3_hsusb_ehci_read,
-};
-
-static CPUWriteMemoryFunc *omap3_hsusb_ehci_writefn[] = {
-    omap_badwidth_write32,
-    omap_badwidth_write32,
-    omap3_hsusb_ehci_write,
+static const MemoryRegionOps omap3_hsusb_ehci_ops = {
+    .old_mmio = {
+        .read = {
+            omap_badwidth_read32,
+            omap_badwidth_read32,
+            omap3_hsusb_ehci_read,
+        },
+        .write = {
+            omap_badwidth_write32,
+            omap_badwidth_write32,
+            omap3_hsusb_ehci_write,
+        },
+    },
+    .endianness = DEVICE_NATIVE_ENDIAN,
 };
 
 static uint32_t omap3_hsusb_tll_read(void *opaque, target_phys_addr_t addr)
@@ -423,16 +438,20 @@ static void omap3_hsusb_tll_write(void *opaque, target_phys_addr_t addr,
     }
 }
 
-static CPUReadMemoryFunc *omap3_hsusb_tll_readfn[] = {
-    omap_badwidth_read32,
-    omap_badwidth_read32,
-    omap3_hsusb_tll_read,
-};
-
-static CPUWriteMemoryFunc *omap3_hsusb_tll_writefn[] = {
-    omap_badwidth_write32,
-    omap_badwidth_write32,
-    omap3_hsusb_tll_write,
+static const MemoryRegionOps omap3_hsusb_tll_ops = {
+    .old_mmio = {
+        .read = {
+            omap_badwidth_read32,
+            omap_badwidth_read32,
+            omap3_hsusb_tll_read,
+        },
+        .write = {
+            omap_badwidth_write32,
+            omap_badwidth_write32,
+            omap3_hsusb_tll_write,
+        },
+    },
+    .endianness = DEVICE_NATIVE_ENDIAN,
 };
 
 static int omap3_hsusb_host_init(SysBusDevice *dev)
@@ -440,18 +459,16 @@ static int omap3_hsusb_host_init(SysBusDevice *dev)
     OMAP3HSUSBHostState *s = FROM_SYSBUS(OMAP3HSUSBHostState, dev);
     sysbus_init_irq(dev, &s->ehci_irq);
     sysbus_init_irq(dev, &s->tll_irq);
-    sysbus_init_mmio(dev, 0x1000,
-                     cpu_register_io_memory(omap3_hsusb_tll_readfn,
-                                            omap3_hsusb_tll_writefn, s,
-                                            DEVICE_NATIVE_ENDIAN));
-    sysbus_init_mmio(dev, 0x400,
-                     cpu_register_io_memory(omap3_hsusb_host_readfn,
-                                            omap3_hsusb_host_writefn, s,
-                                            DEVICE_NATIVE_ENDIAN));
-    sysbus_init_mmio(dev, 0x400,
-                     cpu_register_io_memory(omap3_hsusb_ehci_readfn,
-                                            omap3_hsusb_ehci_writefn, s,
-                                            DEVICE_NATIVE_ENDIAN));
+
+    memory_region_init_io(&s->tll_iomem, &omap3_hsusb_tll_ops, s,
+                              "omap_usb.tll", 0x1000);
+    memory_region_init_io(&s->host_iomem, &omap3_hsusb_host_ops, s,
+                              "omap_usb.tll", 0x400);
+    memory_region_init_io(&s->ehci_iomem, &omap3_hsusb_ehci_ops, s,
+                              "omap_usb.tll", 0x400);
+    sysbus_init_mmio(dev, &s->tll_iomem);
+    sysbus_init_mmio(dev, &s->host_iomem);
+    sysbus_init_mmio(dev, &s->ehci_iomem);
     /* OHCI is instantiated by omap3.c */
     vmstate_register(&dev->qdev, -1, &vmstate_omap3_hsusb_host, s);
     return 0;

@@ -96,6 +96,7 @@ struct omap3_l4_agent_info_s {
     int region_count;
 };
 struct omap_target_agent_s {
+    MemoryRegion iomem;
     struct omap_l4_s *bus;
     int regions;
     const struct omap_l4_region_s *start;
@@ -110,7 +111,8 @@ struct omap_l4_region_s {
     size_t size;
     int access; /* omap3_l4_region_type_t for OMAP3 */
 };
-struct omap_l4_s *omap_l4_init(target_phys_addr_t base, int ta_num,
+struct omap_l4_s *omap_l4_init(MemoryRegion *address_space,
+                               target_phys_addr_t base, int ta_num,
                                int region_count);
 struct omap_target_agent_s *omap2_l4ta_init(
     struct omap_l4_s *bus,
@@ -122,17 +124,17 @@ struct omap_target_agent_s *omap3_l4ta_init(
     const struct omap_l4_region_s *regions,
     const struct omap3_l4_agent_info_s *agents,
     int cs);
-target_phys_addr_t omap_l4_attach(struct omap_target_agent_s *ta, int region,
-                int iotype);
+target_phys_addr_t omap_l4_attach(struct omap_target_agent_s *ta,
+                                         int region, MemoryRegion *mr);
 target_phys_addr_t omap_l4_region_base(struct omap_target_agent_s *ta,
                                        int region);
-uint32_t omap_l4_size(struct omap_target_agent_s *ta, int region);
-int l4_register_io_memory(CPUReadMemoryFunc * const *mem_read,
-                CPUWriteMemoryFunc * const *mem_write, void *opaque);
+target_phys_addr_t omap_l4_region_size(struct omap_target_agent_s *ta,
+                                       int region);
 
 /* OMAP2 SDRAM controller */
 struct omap_sdrc_s;
-struct omap_sdrc_s *omap_sdrc_init(target_phys_addr_t base);
+struct omap_sdrc_s *omap_sdrc_init(MemoryRegion *sysmem,
+                                   target_phys_addr_t base);
 void omap_sdrc_reset(struct omap_sdrc_s *s);
 
 /* OMAP2 general purpose memory controller */
@@ -562,9 +564,11 @@ enum omap_dma_model {
 
 struct soc_dma_s;
 struct soc_dma_s *omap_dma_init(target_phys_addr_t base, qemu_irq *irqs,
+                MemoryRegion *sysmem,
                 qemu_irq lcd_irq, struct omap_mpu_state_s *mpu, omap_clk clk,
                 enum omap_dma_model model);
 struct soc_dma_s *omap_dma4_init(target_phys_addr_t base, qemu_irq *irqs,
+                MemoryRegion *sysmem,
                 struct omap_mpu_state_s *mpu, int fifo,
                 int chans, omap_clk iclk, omap_clk fclk);
 struct soc_dma_s *omap3_dma4_init(struct omap_target_agent_s *ta,
@@ -922,8 +926,11 @@ void omap_tap_init(struct omap_target_agent_s *ta,
 /* omap_lcdc.c */
 struct omap_lcd_panel_s;
 void omap_lcdc_reset(struct omap_lcd_panel_s *s);
-struct omap_lcd_panel_s *omap_lcdc_init(target_phys_addr_t base, qemu_irq irq,
-                struct omap_dma_lcd_channel_s *dma, omap_clk clk);
+struct omap_lcd_panel_s *omap_lcdc_init(MemoryRegion *sysmem,
+                                        target_phys_addr_t base,
+                                        qemu_irq irq,
+                                        struct omap_dma_lcd_channel_s *dma,
+                                        omap_clk clk);
 
 /* omap_dss.c */
 struct rfbi_chip_s {
@@ -940,6 +947,7 @@ void omap_digital_panel_attach(DeviceState *dev);
 /* omap_mmc.c */
 struct omap_mmc_s;
 struct omap_mmc_s *omap_mmc_init(target_phys_addr_t base,
+                MemoryRegion *sysmem,
                 BlockDriverState *bd,
                 qemu_irq irq, qemu_irq dma[], omap_clk clk);
 struct omap_mmc_s *omap2_mmc_init(struct omap_target_agent_s *ta,
@@ -1011,8 +1019,11 @@ struct omap_mpu_state_s {
     MemoryRegion clkm_iomem;
     MemoryRegion clkdsp_iomem;
     MemoryRegion mpui_io_iomem;
+    MemoryRegion tap_iomem;
     MemoryRegion imif_ram;
     MemoryRegion emiff_ram;
+    MemoryRegion sdram;
+    MemoryRegion sram;
 
     struct omap_dma_port_if_s {
         uint32_t (*read[3])(struct omap_mpu_state_s *s,
@@ -1123,11 +1134,13 @@ struct omap_mpu_state_s *omap310_mpu_init(MemoryRegion *system_memory,
                 const char *core);
 
 /* omap2.c */
-struct omap_mpu_state_s *omap2420_mpu_init(unsigned long sdram_size,
+struct omap_mpu_state_s *omap2420_mpu_init(MemoryRegion *sysmem,
+                unsigned long sdram_size,
                 const char *core);
 
 /* omap3.c */
-struct omap_mpu_state_s *omap3_mpu_init(int model,
+struct omap_mpu_state_s *omap3_mpu_init(MemoryRegion *sysmem,
+                                        int model,
                                         unsigned long sdram_size,
                                         CharDriverState *chr_uart1,
                                         CharDriverState *chr_uart2,
@@ -1163,13 +1176,13 @@ void omap_mpu_wakeup(void *opaque, int irq, int req);
                         __FUNCTION__, paddr)
 # define OMAP_BAD_REGV(paddr, value) \
         fprintf(stderr, "%s: Bad register " OMAP_FMT_plx " (value 0x%08x)\n", \
-                __FUNCTION__, paddr, value)
+                __FUNCTION__, paddr, (uint32_t)value)
 # define OMAP_RO_REG(paddr)		\
         fprintf(stderr, "%s: Read-only register " OMAP_FMT_plx "\n",	\
                         __FUNCTION__, paddr)
 # define OMAP_RO_REGV(paddr, value) \
         fprintf(stderr, "%s: Read-only register " OMAP_FMT_plx " (value 0x%08x)\n", \
-                __FUNCTION__, paddr, value)
+                __FUNCTION__, paddr, (uint32_t)value)
 
 /* OMAP-specific Linux bootloader tags for the ATAG_BOARD area
    (Board-specifc tags are not here)  */
@@ -1313,8 +1326,5 @@ inline static int debug_register_io_memory(CPUReadMemoryFunc * const *mem_read,
 }
 #  define cpu_register_io_memory	debug_register_io_memory
 # endif
-
-/* Define when we want to reduce the number of IO regions registered.  */
-/*# define L4_MUX_HACK*/
 
 #endif /* hw_omap_h */

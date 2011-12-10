@@ -24,7 +24,10 @@
 #include <signal.h>
 
 #include "cpu.h"
+
+#if !defined(CONFIG_USER_ONLY)
 #include "hw/sh_intc.h"
+#endif
 
 #if defined(CONFIG_USER_ONLY)
 
@@ -814,7 +817,7 @@ int cpu_sh4_is_cached(CPUSH4State * env, target_ulong addr)
     /*
      * TODO : Evaluate CCR and check if the cache is on or off.
      *        Now CCR is not in CPUSH4State, but in SH7750State.
-     *        When you move the ccr inot CPUSH4State, the code will be
+     *        When you move the ccr into CPUSH4State, the code will be
      *        as follows.
      */
 #if 0

@@ -128,6 +128,8 @@ struct omap_dss_panel_s {
 
 struct omap_dss_s {
     SysBusDevice busdev;
+    MemoryRegion iomem_diss1, iomem_disc1, iomem_rfbi1, iomem_venc1, iomem_im3;
+    MemoryRegion iomem_dsi;
     int32_t mpu_model;
     qemu_irq irq;
     qemu_irq drq;
@@ -778,10 +780,15 @@ static void omap_dss_reset(DeviceState *dev)
     omap_dss_interrupt_update(s);
 }
 
-static uint32_t omap_diss_read(void *opaque, target_phys_addr_t addr)
+static uint64_t omap_diss_read(void *opaque, target_phys_addr_t addr,
+                               unsigned size)
 {
     struct omap_dss_s *s = (struct omap_dss_s *) opaque;
     uint32_t x;
+
+    if (size != 4) {
+        return omap_badwidth_read32(opaque, addr);
+    }
 
     switch (addr) {
     case 0x00:	/* DSS_REVISIONNUMBER */
@@ -857,9 +864,13 @@ static uint32_t omap_diss_read(void *opaque, target_phys_addr_t addr)
 }
 
 static void omap_diss_write(void *opaque, target_phys_addr_t addr,
-                uint32_t value)
+                            uint64_t value, unsigned size)
 {
     struct omap_dss_s *s = (struct omap_dss_s *) opaque;
+
+    if (size != 4) {
+        return omap_badwidth_write32(opaque, addr, value);
+    }
 
     switch (addr) {
     case 0x00:	/* DSS_REVISIONNUMBER */
@@ -936,22 +947,21 @@ static void omap_diss_write(void *opaque, target_phys_addr_t addr,
     }
 }
 
-static CPUReadMemoryFunc * const omap_diss1_readfn[] = {
-    omap_badwidth_read32,
-    omap_badwidth_read32,
-    omap_diss_read,
+static const MemoryRegionOps omap_diss_ops = {
+    .read = omap_diss_read,
+    .write = omap_diss_write,
+    .endianness = DEVICE_NATIVE_ENDIAN,
 };
 
-static CPUWriteMemoryFunc * const omap_diss1_writefn[] = {
-    omap_badwidth_write32,
-    omap_badwidth_write32,
-    omap_diss_write,
-};
-
-static uint32_t omap_disc_read(void *opaque, target_phys_addr_t addr)
+static uint64_t omap_disc_read(void *opaque, target_phys_addr_t addr,
+                               unsigned size)
 {
     struct omap_dss_s *s = (struct omap_dss_s *) opaque;
     int n = 0;
+
+    if (size != 4) {
+        return omap_badwidth_read32(opaque, addr);
+    }
 
     switch (addr) {
     case 0x000:	/* DISPC_REVISION */
@@ -1187,10 +1197,14 @@ static uint32_t omap_disc_read(void *opaque, target_phys_addr_t addr)
 }
 
 static void omap_disc_write(void *opaque, target_phys_addr_t addr,
-                uint32_t value)
+                            uint64_t value, unsigned size)
 {
     struct omap_dss_s *s = (struct omap_dss_s *) opaque;
     uint32_t n = 0;
+
+    if (size != 4) {
+        return omap_badwidth_write32(opaque, addr, value);
+    }
 
     switch (addr) {
     case 0x000: /* DISPC_REVISION */
@@ -1512,21 +1526,20 @@ static void omap_disc_write(void *opaque, target_phys_addr_t addr,
     }
 }
 
-static CPUReadMemoryFunc * const omap_disc1_readfn[] = {
-    omap_badwidth_read32,
-    omap_badwidth_read32,
-    omap_disc_read,
+static const MemoryRegionOps omap_disc_ops = {
+    .read = omap_disc_read,
+    .write = omap_disc_write,
+    .endianness = DEVICE_NATIVE_ENDIAN,
 };
 
-static CPUWriteMemoryFunc * const omap_disc1_writefn[] = {
-    omap_badwidth_write32,
-    omap_badwidth_write32,
-    omap_disc_write,
-};
-
-static uint32_t omap_rfbi_read(void *opaque, target_phys_addr_t addr)
+static uint64_t omap_rfbi_read(void *opaque, target_phys_addr_t addr,
+                               unsigned size)
 {
     struct omap_dss_s *s = (struct omap_dss_s *) opaque;
+
+    if (size != 4) {
+        return omap_badwidth_read32(opaque, addr);
+    }
 
     switch (addr) {
     case 0x00:	/* RFBI_REVISION */
@@ -1608,9 +1621,13 @@ static uint32_t omap_rfbi_read(void *opaque, target_phys_addr_t addr)
 }
 
 static void omap_rfbi_write(void *opaque, target_phys_addr_t addr,
-                uint32_t value)
+                            uint64_t value, unsigned size)
 {
     struct omap_dss_s *s = (struct omap_dss_s *) opaque;
+
+    if (size != 4) {
+        return omap_badwidth_write32(opaque, addr, value);
+    }
 
     switch (addr) {
     case 0x10:	/* RFBI_SYSCONFIG */
@@ -1759,20 +1776,19 @@ static void omap_rfbi_write(void *opaque, target_phys_addr_t addr,
     }
 }
 
-static CPUReadMemoryFunc * const omap_rfbi1_readfn[] = {
-    omap_badwidth_read32,
-    omap_badwidth_read32,
-    omap_rfbi_read,
+static const MemoryRegionOps omap_rfbi_ops = {
+    .read = omap_rfbi_read,
+    .write = omap_rfbi_write,
+    .endianness = DEVICE_NATIVE_ENDIAN,
 };
 
-static CPUWriteMemoryFunc * const omap_rfbi1_writefn[] = {
-    omap_badwidth_write32,
-    omap_badwidth_write32,
-    omap_rfbi_write,
-};
-
-static uint32_t omap_venc_read(void *opaque, target_phys_addr_t addr)
+static uint64_t omap_venc_read(void *opaque, target_phys_addr_t addr,
+                               unsigned size)
 {
+    if (size != 4) {
+        return omap_badwidth_read32(opaque, addr);
+    }
+
     switch (addr) {
     case 0x00:	/* REV_ID */
         return 0x2;
@@ -1827,8 +1843,12 @@ static uint32_t omap_venc_read(void *opaque, target_phys_addr_t addr)
 }
 
 static void omap_venc_write(void *opaque, target_phys_addr_t addr,
-                uint32_t value)
+                            uint64_t value, unsigned size)
 {
+    if (size != 4) {
+        return omap_badwidth_write32(opaque, addr, size);
+    }
+
     switch (addr) {
     case 0x00: /* REV_ID */
     case 0x04: /* STATUS */
@@ -1882,20 +1902,19 @@ static void omap_venc_write(void *opaque, target_phys_addr_t addr,
     }
 }
 
-static CPUReadMemoryFunc * const omap_venc1_readfn[] = {
-    omap_badwidth_read32,
-    omap_badwidth_read32,
-    omap_venc_read,
+static const MemoryRegionOps omap_venc_ops = {
+    .read = omap_venc_read,
+    .write = omap_venc_write,
+    .endianness = DEVICE_NATIVE_ENDIAN,
 };
 
-static CPUWriteMemoryFunc * const omap_venc1_writefn[] = {
-    omap_badwidth_write32,
-    omap_badwidth_write32,
-    omap_venc_write,
-};
-
-static uint32_t omap_im3_read(void *opaque, target_phys_addr_t addr)
+static uint64_t omap_im3_read(void *opaque, target_phys_addr_t addr,
+                              unsigned size)
 {
+    if (size != 4) {
+        return omap_badwidth_read32(opaque, addr);
+    }
+
     switch (addr) {
     case 0x0a8:	/* SBIMERRLOGA */
     case 0x0b0:	/* SBIMERRLOG */
@@ -1916,8 +1935,12 @@ static uint32_t omap_im3_read(void *opaque, target_phys_addr_t addr)
 }
 
 static void omap_im3_write(void *opaque, target_phys_addr_t addr,
-                uint32_t value)
+                           uint64_t value, unsigned size)
 {
+    if (size != 4) {
+        return omap_badwidth_write32(opaque, addr, value);
+    }
+
     switch (addr) {
     case 0x0b0:	/* SBIMERRLOG */
     case 0x190:	/* SBIMSTATE */
@@ -1933,16 +1956,10 @@ static void omap_im3_write(void *opaque, target_phys_addr_t addr,
     }
 }
 
-static CPUReadMemoryFunc * const omap_im3_readfn[] = {
-    omap_badwidth_read32,
-    omap_badwidth_read32,
-    omap_im3_read,
-};
-
-static CPUWriteMemoryFunc * const omap_im3_writefn[] = {
-    omap_badwidth_write32,
-    omap_badwidth_write32,
-    omap_im3_write,
+static const MemoryRegionOps omap_im3_ops = {
+    .read = omap_im3_read,
+    .write = omap_im3_write,
+    .endianness = DEVICE_NATIVE_ENDIAN,
 };
 
 static void omap_dsi_push_rx_fifo(struct omap_dss_s *s, int ch, uint32_t value)
@@ -2445,16 +2462,20 @@ static void omap_dsi_write(void *opaque, target_phys_addr_t addr,
     }
 }
 
-static CPUReadMemoryFunc *omap_dsi_readfn[] = {
-    omap_badwidth_read32,
-    omap_badwidth_read32,
-    omap_dsi_read,
-};
-
-static CPUWriteMemoryFunc *omap_dsi_writefn[] = {
-    omap_badwidth_write32,
-    omap_badwidth_write32,
-    omap_dsi_write,
+static const MemoryRegionOps omap_dsi_ops = {
+    .old_mmio = {
+        .read = {
+            omap_badwidth_read32,
+            omap_badwidth_read32,
+            omap_dsi_read,
+        },
+        .write = {
+            omap_badwidth_write32,
+            omap_badwidth_write32,
+            omap_dsi_write,
+        },
+    },
+    .endianness = DEVICE_NATIVE_ENDIAN,
 };
 
 static int omap_dss_init(SysBusDevice *dev)
@@ -2462,30 +2483,27 @@ static int omap_dss_init(SysBusDevice *dev)
     struct omap_dss_s *s = FROM_SYSBUS(struct omap_dss_s, dev);
     sysbus_init_irq(dev, &s->irq);
     sysbus_init_irq(dev, &s->drq); /* linetrigger */
-    sysbus_init_mmio(dev, 0x400,
-                     cpu_register_io_memory(omap_diss1_readfn,
-                                            omap_diss1_writefn, s,
-                                            DEVICE_NATIVE_ENDIAN));
-    sysbus_init_mmio(dev, 0x400,
-                     cpu_register_io_memory(omap_disc1_readfn,
-                                            omap_disc1_writefn, s,
-                                            DEVICE_NATIVE_ENDIAN));
-    sysbus_init_mmio(dev, 0x400,
-                     cpu_register_io_memory(omap_rfbi1_readfn,
-                                            omap_rfbi1_writefn, s,
-                                            DEVICE_NATIVE_ENDIAN));
-    sysbus_init_mmio(dev, 0x400,
-                     cpu_register_io_memory(omap_venc1_readfn,
-                                            omap_venc1_writefn, s,
-                                            DEVICE_NATIVE_ENDIAN));
+
+    memory_region_init_io(&s->iomem_diss1, &omap_diss_ops, s,
+                          "omap.diss1", 0x400);
+    memory_region_init_io(&s->iomem_disc1, &omap_disc_ops, s,
+                          "omap.disc1", 0x400);
+    memory_region_init_io(&s->iomem_rfbi1, &omap_rfbi_ops, s,
+                          "omap.rfbi1", 0x400);
+    memory_region_init_io(&s->iomem_venc1, &omap_venc_ops, s,
+                          "omap.venc1", 0x400);
+    sysbus_init_mmio(dev, &s->iomem_diss1);
+    sysbus_init_mmio(dev, &s->iomem_disc1);
+    sysbus_init_mmio(dev, &s->iomem_rfbi1);
+    sysbus_init_mmio(dev, &s->iomem_venc1);
+
     if (s->mpu_model < omap2410) {
         hw_error("%s: unsupported cpu type\n", __FUNCTION__);
     } else if (s->mpu_model < omap3430) {
         s->dispc.rev = 0x20;
-        sysbus_init_mmio(dev, 0x1000,
-                         cpu_register_io_memory(omap_im3_readfn,
-                                                omap_im3_writefn, s,
-                                                DEVICE_NATIVE_ENDIAN));
+        memory_region_init_io(&s->iomem_im3, &omap_im3_ops, s,
+                              "omap.im3", 0x1000);
+        sysbus_init_mmio(dev, &s->iomem_im3);
     } else {
         s->dispc.rev = 0x30;
         s->dispc.lcdframer = qemu_new_timer_ns(vm_clock, omap_dss_framedone, s);
@@ -2494,10 +2512,9 @@ static int omap_dss_init(SysBusDevice *dev)
                                     omap_dss_linefn);
         s->dsi.xfer_timer = qemu_new_timer_ns(vm_clock, omap_dsi_transfer_stop,
                                            s);
-        sysbus_init_mmio(dev, 0x400,
-                         cpu_register_io_memory(omap_dsi_readfn,
-                                                omap_dsi_writefn, s,
-                                                DEVICE_NATIVE_ENDIAN));
+        memory_region_init_io(&s->iomem_dsi, &omap_dsi_ops, s,
+                              "omap.dsi", 0x400);
+        sysbus_init_mmio(dev, &s->iomem_dsi);
         sysbus_init_irq(dev, &s->dsi.drq[0]);
         sysbus_init_irq(dev, &s->dsi.drq[1]);
         sysbus_init_irq(dev, &s->dsi.drq[2]);

@@ -40,6 +40,7 @@
 
 typedef struct omap_mcspi_bus_s {
     SPIBus *bus;
+    MemoryRegion iomem;
     qemu_irq irq;
     int chnum;
     uint8_t revision;
@@ -275,11 +276,16 @@ static void omap_mcspi_bus_reset(OMAPSPIBusState *s)
     omap_mcspi_interrupt_update(s);
 }
 
-static uint32_t omap_mcspi_read(void *opaque, target_phys_addr_t addr)
+static uint64_t omap_mcspi_read(void *opaque, target_phys_addr_t addr,
+                                unsigned size)
 {
     OMAPSPIBusState *s = (OMAPSPIBusState *) opaque;
     int ch = 0;
     uint32_t ret;
+
+    if (size != 4) {
+        return omap_badwidth_read32(opaque, addr);
+    }
 
     switch (addr) {
     case 0x00:	/* MCSPI_REVISION */
@@ -401,11 +407,15 @@ static uint32_t omap_mcspi_read(void *opaque, target_phys_addr_t addr)
 }
 
 static void omap_mcspi_write(void *opaque, target_phys_addr_t addr,
-                             uint32_t value)
+                             uint64_t value, unsigned size)
 {
     OMAPSPIBusState *s = (OMAPSPIBusState *) opaque;
     uint32_t old;
     int ch = 0;
+
+    if (size != 4) {
+        return omap_badwidth_write32(opaque, addr, value);
+    }
 
     switch (addr) {
     case 0x00:	/* MCSPI_REVISION */
@@ -490,7 +500,7 @@ static void omap_mcspi_write(void *opaque, target_phys_addr_t addr,
                 TRACE("invalid TRM value (3)");
             }
                 if (((value >> 7) & 0x1f) < 3) {  /* WL */
-                TRACE("invalid WL value (%i)", (value >> 7) & 0x1f);
+                TRACE("invalid WL value (%" PRIx64 ")", (value >> 7) & 0x1f);
                 }
             if (IS_OMAP3_SPI(s) && ((value >> 23) & 1)) { /* SBE */
                 TRACE("start-bit mode is not supported");
@@ -567,16 +577,10 @@ static void omap_mcspi_write(void *opaque, target_phys_addr_t addr,
     }
 }
 
-static CPUReadMemoryFunc * const omap_mcspi_readfn[] = {
-    omap_badwidth_read32,
-    omap_badwidth_read32,
-    omap_mcspi_read,
-};
-
-static CPUWriteMemoryFunc * const omap_mcspi_writefn[] = {
-    omap_badwidth_write32,
-    omap_badwidth_write32,
-    omap_mcspi_write,
+static const MemoryRegionOps omap_mcspi_ops = {
+    .read = omap_mcspi_read,
+    .write = omap_mcspi_write,
+    .endianness = DEVICE_NATIVE_ENDIAN,
 };
 
 static void omap_mcspi_reset(DeviceState *qdev)
@@ -612,10 +616,9 @@ static int omap_mcspi_init(SysBusDevice *busdev)
             sysbus_init_irq(busdev, &bs->ch[j].txdrq);
             sysbus_init_irq(busdev, &bs->ch[j].rxdrq);
         }
-        sysbus_init_mmio(busdev, 0x1000,
-                         cpu_register_io_memory(omap_mcspi_readfn,
-                                                omap_mcspi_writefn, bs,
-                                                DEVICE_NATIVE_ENDIAN));
+        memory_region_init_io(&bs->iomem, &omap_mcspi_ops, bs, "omap.mcspi",
+                              0x1000);
+        sysbus_init_mmio(busdev, &bs->iomem);
     }
     return 0;
 }

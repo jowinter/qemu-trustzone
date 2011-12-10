@@ -1,6 +1,6 @@
 /*
  * Beagle board emulation. http://beagleboard.org/
- * 
+ *
  * Copyright (c) 2009 Nokia Corporation
  *
  * This program is free software; you can redistribute it and/or
@@ -30,6 +30,7 @@
 #include "flash.h"
 #include "sysbus.h"
 #include "blockdev.h"
+#include "exec-memory.h"
 
 #define BEAGLE_NAND_CS       0
 #define BEAGLE_SMC_CS        1
@@ -58,17 +59,18 @@ static void beagle_common_init(ram_addr_t ram_size,
                         const char *initrd_filename,
                         int cpu_model)
 {
+    MemoryRegion *sysmem = get_system_memory();
     struct beagle_s *s = (struct beagle_s *) g_malloc0(sizeof(*s));
     DriveInfo *dmtd = drive_get(IF_MTD, 0, 0);
     DriveInfo *dsd  = drive_get(IF_SD, 0, 0);
-    
+
     if (!dmtd && !dsd) {
         hw_error("%s: SD or NAND image required", __FUNCTION__);
     }
 #if MAX_SERIAL_PORTS < 1
 #error MAX_SERIAL_PORTS must be at least 1!
 #endif
-    s->cpu = omap3_mpu_init(cpu_model, ram_size,
+    s->cpu = omap3_mpu_init(sysmem, cpu_model, ram_size,
                             NULL, NULL, serial_hds[0], NULL);
 
     s->nand = nand_init(dmtd ? dmtd->bdrv : NULL, NAND_MFR_MICRON, 0xba);
