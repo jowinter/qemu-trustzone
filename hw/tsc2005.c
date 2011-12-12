@@ -434,7 +434,7 @@ static uint32_t tsc2005_txrx(SPIDevice *spidev, uint32_t value, int len)
 
 static void tsc2005_timer_tick(void *opaque)
 {
-	int pin_state;
+    int pin_state;
     TSC2005State *s = opaque;
 
     /* Timer ticked -- a set of conversions has been finished.  */
@@ -444,27 +444,27 @@ static void tsc2005_timer_tick(void *opaque)
         return;
     }
 
-	switch (s->pin_func) {
-		case 0:
-			pin_state = s->pressure || !s->dav;
-			break;
-		case 1:
-		case 3:
-		default:
-			pin_state = !s->dav;
-			break;
-		case 2:
-			pin_state = s->pressure;
+    switch (s->pin_func) {
+    case 0:
+        pin_state = s->pressure || !s->dav;
+        break;
+    case 1:
+    case 3:
+    default:
+        pin_state = !s->dav;
+        break;
+    case 2:
+        pin_state = s->pressure;
     }
-	s->busy = 0;
-	if (!s->dav) {
+    s->busy = 0;
+    if (!s->dav) {
         TRACE("report new conversions ready");
         s->dav |= mode_regs[s->function];
     }
     TRACE("pin_func=%d, pin_state=%d, pressure=%d, irq=%d, dav=0x%04x",
           s->pin_func, pin_state, s->pressure, s->irq, s->dav);
-	s->function = -1;
-	tsc2005_pin_update(s);
+    s->function = -1;
+    tsc2005_pin_update(s);
 
     if (pin_state != s->irq) {
         TRACE("changing IRQ state to %d", pin_state);
@@ -491,9 +491,8 @@ static void tsc2005_touchscreen_event(void *opaque,
      * signaling TS events immediately, but for now we simulate
      * the first conversion delay for sake of correctness.
      */
-    if (p != s->pressure) {
+    if (p != s->pressure)
         tsc2005_pin_update(s);
-    }
 }
 
 static void tsc2005_save(QEMUFile *f, void *opaque)
