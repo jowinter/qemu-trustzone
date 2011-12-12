@@ -427,9 +427,9 @@ static void mipid_reset(DeviceState *qdev)
 {
     struct mipid_s *s = FROM_SPI_DEVICE(struct mipid_s,
                                         SPI_DEVICE_FROM_QDEV(qdev));
-    
-    //if (!s->sleep)
-    //    fprintf(stderr, "%s: Display off\n", __FUNCTION__);
+    if (!s->sleep) {
+        TRACE_MIPID("display off");
+    }
 
     s->pm = 0;
     s->cmd = 0;
