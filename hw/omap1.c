@@ -1441,11 +1441,10 @@ struct omap_clkm_s {
     uint16_t dsp_rstct2;
 };
 
-/* MPU Clock/Reset/Power Mode Control */
 static uint64_t omap_clkm_read(void *opaque, target_phys_addr_t addr,
                                unsigned size)
 {
-    struct omap_mpu_state_s *s = opaque;
+    struct omap_mpu_state_s *s = (struct omap_mpu_state_s *) opaque;
 
     if (size != 2) {
         return omap_badwidth_read16(opaque, addr);
@@ -1485,10 +1484,10 @@ static uint64_t omap_clkm_read(void *opaque, target_phys_addr_t addr,
 }
 
 static inline void omap_clkm_ckctl_update(struct omap_mpu_state_s *s,
-                                          uint16_t diff, uint16_t value)
+                uint16_t diff, uint16_t value)
 {
     omap_clk clk;
-    
+
     if (diff & (1 << 14)) {				/* ARM_INTHCK_SEL */
         if (value & (1 << 14))
             /* Reserved */;
@@ -1532,7 +1531,7 @@ static inline void omap_clkm_ckctl_update(struct omap_mpu_state_s *s,
 }
 
 static inline void omap_clkm_idlect1_update(struct omap_mpu_state_s *s,
-                                            uint16_t diff, uint16_t value)
+                uint16_t diff, uint16_t value)
 {
     omap_clk clk;
 
@@ -1563,7 +1562,7 @@ static inline void omap_clkm_idlect1_update(struct omap_mpu_state_s *s,
 }
 
 static inline void omap_clkm_idlect2_update(struct omap_mpu_state_s *s,
-                                            uint16_t diff, uint16_t value)
+                uint16_t diff, uint16_t value)
 {
     omap_clk clk;
 
@@ -1586,7 +1585,7 @@ static inline void omap_clkm_idlect2_update(struct omap_mpu_state_s *s,
 }
 
 static inline void omap_clkm_ckout1_update(struct omap_mpu_state_s *s,
-                                           uint16_t diff, uint16_t value)
+                uint16_t diff, uint16_t value)
 {
     omap_clk clk;
 
@@ -1646,7 +1645,7 @@ static inline void omap_clkm_ckout1_update(struct omap_mpu_state_s *s,
 static void omap_clkm_write(void *opaque, target_phys_addr_t addr,
                             uint64_t value, unsigned size)
 {
-    struct omap_mpu_state_s *s = opaque;
+    struct omap_mpu_state_s *s = (struct omap_mpu_state_s *) opaque;
     uint16_t diff;
     omap_clk clk;
     static const char *clkschemename[8] = {
@@ -2089,9 +2088,9 @@ static void omap_mpuio_onoff(void *opaque, int line, int on)
 }
 
 static struct omap_mpuio_s *omap_mpuio_init(MemoryRegion *memory,
-                                            target_phys_addr_t base,
-                                            qemu_irq kbd_int, qemu_irq gpio_int,
-                                            qemu_irq wakeup, omap_clk clk)
+                target_phys_addr_t base,
+                qemu_irq kbd_int, qemu_irq gpio_int, qemu_irq wakeup,
+                omap_clk clk)
 {
     struct omap_mpuio_s *s = (struct omap_mpuio_s *)
             g_malloc0(sizeof(struct omap_mpuio_s));
