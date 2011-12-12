@@ -23,14 +23,6 @@
 #include "irq.h"
 #include "soc_dma.h"
 
-//#define OMAP_DMA_DEBUG
-
-#ifdef OMAP_DMA_DEBUG
-#define TRACE(fmt,...) printf("%s:" fmt "\n", __FUNCTION__, ##__VA_ARGS__)
-#else
-#define TRACE(...)
-#endif
-
 struct omap_dma_channel_s {
     /* transfer data */
     int burst[2];
@@ -293,7 +285,6 @@ static int omap_dma_sgl_next(struct omap_dma_s *s,
     if (type < 1 || type > 3) {
         hw_error("%s: unknown descriptor type %d\n", __func__, type);
     }
-    TRACE("loading next descriptor at 0x%08x, type %d", ch->sgl.next, type);
     target_phys_addr_t addr = (target_phys_addr_t)ch->sgl.next;
     ch->sgl.ptr &= ~0xff;
     uint8_t data[4];
@@ -348,9 +339,7 @@ static int omap_dma_sgl_next(struct omap_dma_s *s,
         cpu_physical_memory_read(addr, data, 4);
         word = ldl_p(data);
         ch->interrupts = word >> 16;
-        TRACE("CICR = 0x%08x", ch->interrupts);
         ch->frames = word & 0xffff;
-        TRACE("CFN = %d", ch->frames);
         cpu_physical_memory_read(addr + 4, data, 4);
         word = ldl_p(data);
         ch->element_index[0] = (int16_t)(word >> 16);
@@ -490,8 +479,6 @@ static void omap_dma_end_of_block(struct omap_dma_s *s,
         }
     } else {
         int sgl_pause = (ch->sgl.ptr >> 7) & 1; /* PAUSE_LINK_LIST */
-        TRACE("end of block, transfermode=%d, pause=%d",
-              (ch->sgl.ptr >> 8) & 3, sgl_pause);
         if (((ch->sgl.ptr >> 8) & 3) != 1 || /* TRANSFER_MODE != linked list */
             !omap_dma_sgl_next(s, ch) ||     /* end of list */
             sgl_pause) {
@@ -520,7 +507,6 @@ static void omap_dma_transfer_generic(struct soc_dma_ch_s *dma)
     uint16_t status = ch->status;
 #endif
 
-    TRACE("frame %d", a->frame);
     do {
         /* Transfer a single element */
         /* FIXME: check the endianness */
@@ -1900,20 +1886,6 @@ static uint64_t omap_dma4_read(void *opaque, target_phys_addr_t addr,
     /* Per-channel registers */
     switch (addr) {
     case 0x00:	/* DMA4_CCR */
-        TRACE("CCR = 0x%08x",  (ch->buf_disable << 25) |
-              (ch->src_sync << 24) |
-              (ch->prefetch << 23) |
-              ((ch->sync & 0x60) << 14) |
-              (ch->bs << 18) |
-              (ch->transparent_copy << 17) |
-              (ch->constant_fill << 16) |
-              (ch->mode[1] << 14) |
-              (ch->mode[0] << 12) |
-              (0 << 10) | (0 << 9) |
-              (ch->suspend << 8) |
-              (ch->enable << 7) |
-              (ch->priority << 6) |
-              (ch->fs << 5) | (ch->sync & 0x1f));
         return (ch->buf_disable << 25) |
                 (ch->src_sync << 24) |
                 (ch->prefetch << 23) |
@@ -1936,7 +1908,6 @@ static uint64_t omap_dma4_read(void *opaque, target_phys_addr_t addr,
         return ch->interrupts;
 
     case 0x0c:	/* DMA4_CSR */
-        TRACE("CSR = 0x%04x", ch->cstatus);
         return ch->cstatus;
 
     case 0x10:	/* DMA4_CSDP */
@@ -1995,21 +1966,18 @@ static uint64_t omap_dma4_read(void *opaque, target_phys_addr_t addr,
 
     case 0x50: /* DMA4_CDP */
         if (cpu_is_omap3630(s->mpu)) {
-            TRACE("CDP = 0x%08x", ch->sgl.ptr);
             return ch->sgl.ptr;
         }
         break;
 
     case 0x54: /* DMA4_CNDP */
         if (cpu_is_omap3630(s->mpu)) {
-            TRACE("CNDP = 0x%08x", ch->sgl.next);
             return ch->sgl.next;
         }
         break;
 
     case 0x58: /* DMA4_CCDN */
         if (cpu_is_omap3630(s->mpu)) {
-            TRACE("CCDN = 0x%08x", ch->sgl.number);
             return ch->sgl.number;
         }
         break;
@@ -2048,15 +2016,11 @@ static void omap_dma4_write_ch(struct omap_dma_s *s,
         ch->sync = (value & 0x001f) | ((value >> 14) & 0x0060);
         /* XXX must be 0x01 for CamDMA */
 
-        TRACE("CCR=0x%08x, transfer mode = %d, fast = %d", value,
-              (ch->sgl.ptr >> 8) & 3, !!(ch->sgl.ptr & (1 << 10)));
         if (value & 0x0080) {
             if (((ch->sgl.ptr >> 8) & 3) != 1 || /* TRANSFER_MODE */
                 !(ch->sgl.ptr & (1 << 10)) ||    /* FAST */
                 omap_dma_sgl_next(s, ch)) {
                 omap_dma_enable_channel(s, ch);
-            } else {
-                TRACE("failed to enable dma channel");
             }
         } else {
             omap_dma_disable_channel(s, ch);
@@ -2076,12 +2040,10 @@ static void omap_dma4_write_ch(struct omap_dma_s *s,
         } else {
             ch->interrupts = value & 0x09be;
         }
-        TRACE("CICR = 0x%04x", ch->interrupts);
         break;
 
     case 0x0c:	/* DMA4_CSR */
         ch->cstatus &= ~value;
-        TRACE("CSR = 0x%04x --> 0x%04x", value, ch->cstatus);
         break;
 
     case 0x10:	/* DMA4_CSDP */
@@ -2110,15 +2072,11 @@ static void omap_dma4_write_ch(struct omap_dma_s *s,
     case 0x14:	/* DMA4_CCEN */
         ch->set_update = 1;
         ch->elements = value & 0xffffff;
-        TRACE("elements=%d, frames=%d, data=%d bytes",
-              ch->elements, ch->frames, ch->data_type);
         break;
 
     case 0x18:	/* DMA4_CFN */
         ch->frames = value & 0xffff;
         ch->set_update = 1;
-        TRACE("elements=%d, frames=%d, data=%d bytes",
-              ch->elements, ch->frames, ch->data_type);
         break;
 
     case 0x1c:	/* DMA4_CSSA */
@@ -2165,21 +2123,18 @@ static void omap_dma4_write_ch(struct omap_dma_s *s,
 
     case 0x50: /* DMA4_CDP */
         if (cpu_is_omap3630(s->mpu)) {
-            TRACE("CDP = 0x%08x", value);
             ch->sgl.ptr = value & 0x7ff;
         }
         break;
 
     case 0x54: /* DMA4_CNDP */
         if (cpu_is_omap3630(s->mpu)) {
-            TRACE("CNDP = 0x%08x", value);
             ch->sgl.next = value & ~3;
         }
         break;
 
     case 0x58: /* DMA4_CCDN */
         if (cpu_is_omap3630(s->mpu)) {
-            TRACE("CCDN = 0x%08x", value);
             ch->sgl.number = value & 0xffff;
         }
         break;
