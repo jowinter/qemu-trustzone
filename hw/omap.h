@@ -1057,6 +1057,7 @@ struct omap_mpu_state_s {
     struct omap_pwl_s *pwl;
     struct omap_pwt_s *pwt;
     DeviceState *i2c;
+
     struct omap_rtc_s *rtc;
 
     struct omap_mcbsp_s *mcbsp2;
