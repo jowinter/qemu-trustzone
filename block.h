@@ -21,8 +21,8 @@ typedef struct QEMUSnapshotInfo {
     char id_str[128]; /* unique snapshot id */
     /* the following fields are informative. They are not needed for
        the consistency of the snapshot */
-    char name[256]; /* user choosen name */
-    uint32_t vm_state_size; /* VM state info size */
+    char name[256]; /* user chosen name */
+    uint64_t vm_state_size; /* VM state info size */
     uint32_t date_sec; /* UTC date of the snapshot */
     uint32_t date_nsec;
     uint64_t vm_clock_nsec; /* VM clock relative to boot */

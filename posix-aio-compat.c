@@ -128,8 +128,8 @@ static ssize_t handle_aiocb_ioctl(struct qemu_paiocb *aiocb)
         return -errno;
 
     /*
-     * This looks weird, but the aio code only consideres a request
-     * successful if it has written the number full number of bytes.
+     * This looks weird, but the aio code only considers a request
+     * successful if it has written the full number of bytes.
      *
      * Now we overload aio_nbytes as aio_ioctl_cmd for the ioctl command,
      * so in fact we return the ioctl command here to make posix_aio_read()
@@ -611,8 +611,6 @@ BlockDriverAIOCB *paio_submit(BlockDriverState *bs, int fd,
     struct qemu_paiocb *acb;
 
     acb = qemu_aio_get(&raw_aio_pool, bs, cb, opaque);
-    if (!acb)
-        return NULL;
     acb->aio_type = type;
     acb->aio_fildes = fd;
 
@@ -638,8 +636,6 @@ BlockDriverAIOCB *paio_ioctl(BlockDriverState *bs, int fd,
     struct qemu_paiocb *acb;
 
     acb = qemu_aio_get(&raw_aio_pool, bs, cb, opaque);
-    if (!acb)
-        return NULL;
     acb->aio_type = QEMU_AIO_IOCTL;
     acb->aio_fildes = fd;
     acb->aio_offset = 0;

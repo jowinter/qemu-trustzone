@@ -1595,7 +1595,7 @@ static QEMUMachine n810_machine = {
 #define TRACE_LIS302DL(...)
 #endif
 
-static uint32_t ssi_read(void *opaque, target_phys_addr_t addr)
+static uint64_t ssi_read(void *opaque, target_phys_addr_t addr, unsigned size)
 {
     switch (addr) {
         case 0x00: /* REVISION */
@@ -1609,21 +1609,16 @@ static uint32_t ssi_read(void *opaque, target_phys_addr_t addr)
     return 0;
 }
 
-static void ssi_write(void *opaque, target_phys_addr_t addr, uint32_t value)
+static void ssi_write(void *opaque, target_phys_addr_t addr, uint64_t value,
+                      unsigned size)
 {
     //printf("%s: addr=" OMAP_FMT_plx ", value=0x%08x\n", __FUNCTION__, addr, value);
 }
 
-static CPUReadMemoryFunc *ssi_read_func[] = {
-    ssi_read,
-    ssi_read,
-    ssi_read,
-};
-
-static CPUWriteMemoryFunc *ssi_write_func[] = {
-    ssi_write,
-    ssi_write,
-    ssi_write,
+static const MemoryRegionOps ssi_ops = {
+    .read = ssi_read,
+    .write = ssi_write,
+    .endianness = DEVICE_NATIVE_ENDIAN,
 };
 
 typedef struct LIS302DLState_s {
@@ -2492,6 +2487,7 @@ static void n900_init(ram_addr_t ram_size,
                       const char *cpu_model)
 {
     MemoryRegion *sysmem = get_system_memory();
+    MemoryRegion *ssi_iomem = g_new(MemoryRegion, 1);
     struct n900_s *s = g_malloc0(sizeof(*s));
     DriveInfo *dmtd = drive_get(IF_MTD, 0, 0);
     DriveInfo *dsd  = drive_get(IF_SD, 0, 0);
@@ -2544,11 +2540,8 @@ static void n900_init(ram_addr_t ram_size,
         //qemu_irq_raise(omap2_gpio_in_get(s->cpu->gpif, N900_SDCOVER_GPIO));
     }
 
-    cpu_register_physical_memory(0x48058000, 0x3c00,
-                                 cpu_register_io_memory(ssi_read_func,
-                                                        ssi_write_func,
-                                                        0,
-                                                        DEVICE_NATIVE_ENDIAN));
+    memory_region_init_io(ssi_iomem, &ssi_ops, 0, "n900_ssi", 0x3c00);
+    memory_region_add_subregion(sysmem, 0x48058000, ssi_iomem);
 
     s->twl4030 = twl4030_init(omap_i2c_bus(s->cpu->i2c, 0),
                               qdev_get_gpio_in(s->cpu->ih[0],

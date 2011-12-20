@@ -205,7 +205,7 @@ typedef struct CirrusVGAState {
     bool linear_vram;  /* vga.vram mapped over cirrus_linear_io */
     MemoryRegion low_mem_container; /* container for 0xa0000-0xc0000 */
     MemoryRegion low_mem;           /* always mapped, overridden by: */
-    MemoryRegion *cirrus_bank[2];   /*   aliases at 0xa0000-0xb0000  */
+    MemoryRegion cirrus_bank[2];    /*   aliases at 0xa0000-0xb0000  */
     uint32_t cirrus_addr_mask;
     uint32_t linear_mmio_mask;
     uint8_t cirrus_shadow_gr0;
@@ -783,7 +783,7 @@ static void cirrus_bitblt_cputovideo_next(CirrusVGAState * s)
                 s->cirrus_srccounter -= s->cirrus_blt_srcpitch;
                 if (s->cirrus_srccounter <= 0)
                     goto the_end;
-                /* more bytes than needed can be transfered because of
+                /* more bytes than needed can be transferred because of
                    word alignment, so we keep them for the next line */
                 /* XXX: keep alignment to speed up transfer */
                 end_ptr = s->cirrus_bltbuf + s->cirrus_blt_srcpitch;
@@ -2363,40 +2363,16 @@ static const MemoryRegionOps cirrus_linear_bitblt_io_ops = {
     },
 };
 
-static void unmap_bank(CirrusVGAState *s, unsigned bank)
-{
-    if (s->cirrus_bank[bank]) {
-        memory_region_del_subregion(&s->low_mem_container,
-                                    s->cirrus_bank[bank]);
-        memory_region_destroy(s->cirrus_bank[bank]);
-        g_free(s->cirrus_bank[bank]);
-        s->cirrus_bank[bank] = NULL;
-    }
-}
-
 static void map_linear_vram_bank(CirrusVGAState *s, unsigned bank)
 {
-    MemoryRegion *mr;
-    static const char *names[] = { "vga.bank0", "vga.bank1" };
-
-    if (!(s->cirrus_srcptr != s->cirrus_srcptr_end)
+    MemoryRegion *mr = &s->cirrus_bank[bank];
+    bool enabled = !(s->cirrus_srcptr != s->cirrus_srcptr_end)
         && !((s->vga.sr[0x07] & 0x01) == 0)
         && !((s->vga.gr[0x0B] & 0x14) == 0x14)
-        && !(s->vga.gr[0x0B] & 0x02)) {
+        && !(s->vga.gr[0x0B] & 0x02);
 
-        mr = g_malloc(sizeof(*mr));
-        memory_region_init_alias(mr, names[bank], &s->vga.vram,
-                                 s->cirrus_bank_base[bank], 0x8000);
-        memory_region_add_subregion_overlap(
-            &s->low_mem_container,
-            0x8000 * bank,
-            mr,
-            1);
-        unmap_bank(s, bank);
-        s->cirrus_bank[bank] = mr;
-    } else {
-        unmap_bank(s, bank);
-    }
+    memory_region_set_enabled(mr, enabled);
+    memory_region_set_alias_offset(mr, s->cirrus_bank_base[bank]);
 }
 
 static void map_linear_vram(CirrusVGAState *s)
@@ -2415,8 +2391,8 @@ static void unmap_linear_vram(CirrusVGAState *s)
         s->linear_vram = false;
         memory_region_del_subregion(&s->pci_bar, &s->vga.vram);
     }
-    unmap_bank(s, 0);
-    unmap_bank(s, 1);
+    memory_region_set_enabled(&s->cirrus_bank[0], false);
+    memory_region_set_enabled(&s->cirrus_bank[1], false);
 }
 
 /* Compute the memory access functions */
@@ -2856,6 +2832,14 @@ static void cirrus_init_common(CirrusVGAState * s, int device_id, int is_pci,
     memory_region_init_io(&s->low_mem, &cirrus_vga_mem_ops, s,
                           "cirrus-low-memory", 0x20000);
     memory_region_add_subregion(&s->low_mem_container, 0, &s->low_mem);
+    for (i = 0; i < 2; ++i) {
+        static const char *names[] = { "vga.bank0", "vga.bank1" };
+        MemoryRegion *bank = &s->cirrus_bank[i];
+        memory_region_init_alias(bank, names[i], &s->vga.vram, 0, 0x8000);
+        memory_region_set_enabled(bank, false);
+        memory_region_add_subregion_overlap(&s->low_mem_container, i * 0x8000,
+                                            bank, 1);
+    }
     memory_region_add_subregion_overlap(system_memory,
                                         isa_mem_base + 0x000a0000,
                                         &s->low_mem_container,
@@ -2899,7 +2883,7 @@ static void cirrus_init_common(CirrusVGAState * s, int device_id, int is_pci,
  *
  ***************************************/
 
-void isa_cirrus_vga_init(MemoryRegion *system_memory)
+DeviceState *isa_cirrus_vga_init(MemoryRegion *system_memory)
 {
     CirrusVGAState *s;
 
@@ -2913,6 +2897,8 @@ void isa_cirrus_vga_init(MemoryRegion *system_memory)
     vmstate_register(NULL, 0, &vmstate_cirrus_vga, s);
     rom_add_vga(VGABIOS_CIRRUS_FILENAME);
     /* XXX ISA-LFB support */
+    /* FIXME not qdev yet */
+    return NULL;
 }
 
 /***************************************
@@ -2955,9 +2941,9 @@ static int pci_cirrus_vga_initfn(PCIDevice *dev)
      return 0;
 }
 
-void pci_cirrus_vga_init(PCIBus *bus)
+DeviceState *pci_cirrus_vga_init(PCIBus *bus)
 {
-    pci_create_simple(bus, -1, "cirrus-vga");
+    return &pci_create_simple(bus, -1, "cirrus-vga")->qdev;
 }
 
 static PCIDeviceInfo cirrus_vga_info = {

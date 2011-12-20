@@ -30,6 +30,7 @@
 #include "qemu-char.h"
 #include "flash.h"
 #include "blockdev.h"
+#include "exec-memory.h"
 
 //#define OMAP3_BOOT_DEBUG
 
@@ -875,12 +876,14 @@ void omap3_boot_rom_init(struct omap_mpu_state_s *s)
 {
     const uint8_t rom_version[4] = { 0x00, 0x14, 0x00, 0x00 }; /* v. 14.00 */
 
-    if (!s->bootrom_base) {
-        s->bootrom_base = qemu_ram_alloc(NULL, "omap3_boot_rom",
-                                         OMAP3XXX_BOOTROM_SIZE);
-        cpu_register_physical_memory(OMAP3_Q1_BASE + 0x14000,
-                                     OMAP3XXX_BOOTROM_SIZE,
-                                     s->bootrom_base | IO_MEM_ROM);
+    if (!s->bootrom_initialized) {
+        s->bootrom_initialized = 1;
+        memory_region_init_ram(&s->bootrom, NULL, "omap3_boot_rom",
+                               OMAP3XXX_BOOTROM_SIZE);
+        memory_region_set_readonly(&s->bootrom, true);
+        memory_region_add_subregion(get_system_memory(),
+                                    OMAP3_Q1_BASE + 0x14000,
+                                    &s->bootrom);
         cpu_physical_memory_write_rom(OMAP3_Q1_BASE + 0x14000,
                                       omap3_boot_rom,
                                       sizeof(omap3_boot_rom));
@@ -899,7 +902,7 @@ void omap3_boot_rom_emu(struct omap_mpu_state_s *s)
     int result = 0;
     
     /* only emulate the boot rom if it was initialized earlier */
-    if (!s->bootrom_base) {
+    if (!s->bootrom_initialized) {
         return;
     }
     

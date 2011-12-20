@@ -1113,7 +1113,9 @@ struct omap_mpu_state_s {
     DeviceState *dss;
 
     struct omap_eac_s *eac;
-    
+    MemoryRegion bootrom;
+    int bootrom_initialized;
+
     /* OMAP3-only */
     struct omap3_prm_s *omap3_prm;
     struct omap3_cm_s *omap3_cm;

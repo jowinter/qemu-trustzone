@@ -595,6 +595,7 @@ static CPUWriteMemoryFunc *omap3_l3pm_writefn[] = {
 };
 
 struct omap3_l3_s {
+    MemoryRegion iomem;
     target_phys_addr_t base;
     int region_count;
     void *region[0];
@@ -613,13 +614,17 @@ static int omap3_l3_findregion(struct omap3_l3_s *l3, target_phys_addr_t addr)
     return -1;
 }
 
-static uint32_t omap3_l3_read(void *opaque, target_phys_addr_t addr, int size)
+static uint64_t omap3_l3_read(void *opaque, target_phys_addr_t addr,
+                              unsigned size)
 {
     struct omap3_l3_s *s = (struct omap3_l3_s *)opaque;
     int i = omap3_l3_findregion(s, addr);
     if (i < 0) {
         hw_error("%s: unknown region addr " OMAP_FMT_plx, __FUNCTION__, addr);
     }
+    /* Convert (1,2,4) to (0,1,2) */
+    // FIXME better to have the ia/ta/pm provide newstyle read/write fns
+    size >>= 1;
     switch (omap3_l3_region[i].type) {
         case L3TYPE_IA:
             return omap3_l3ia_readfn[size](s->region[i], addr);
@@ -638,13 +643,16 @@ static uint32_t omap3_l3_read(void *opaque, target_phys_addr_t addr, int size)
 }
 
 static void omap3_l3_write(void *opaque, target_phys_addr_t addr,
-                           uint32_t value, int size)
+                           uint64_t value, unsigned size)
 {
     struct omap3_l3_s *s = (struct omap3_l3_s *)opaque;
     int i = omap3_l3_findregion(s, addr);
     if (i < 0) {
         hw_error("%s: unknown region addr" OMAP_FMT_plx, __FUNCTION__, addr);
     }
+    /* Convert (1,2,4) to (0,1,2) */
+    // FIXME better to have the ia/ta/pm provide newstyle read/write fns
+    size >>= 1;
     switch (omap3_l3_region[i].type) {
         case L3TYPE_IA:
             omap3_l3ia_writefn[size](s->region[i], addr, value);
@@ -665,52 +673,14 @@ static void omap3_l3_write(void *opaque, target_phys_addr_t addr,
     }
 }
 
-static uint32_t omap3_l3_read8(void *opaque, target_phys_addr_t addr)
-{
-    return omap3_l3_read(opaque, addr, 0);
-}
-
-static uint32_t omap3_l3_read16(void *opaque, target_phys_addr_t addr)
-{
-    return omap3_l3_read(opaque, addr, 1);
-}
-
-static uint32_t omap3_l3_read32(void *opaque, target_phys_addr_t addr)
-{
-    return omap3_l3_read(opaque, addr, 2);
-}
-
-static void omap3_l3_write8(void *opaque, target_phys_addr_t addr,
-                            uint32_t value)
-{
-    omap3_l3_write(opaque, addr, value, 0);
-}
-
-static void omap3_l3_write16(void *opaque, target_phys_addr_t addr,
-                             uint32_t value)
-{
-    omap3_l3_write(opaque, addr, value, 1);
-}
-
-static void omap3_l3_write32(void *opaque, target_phys_addr_t addr,
-                             uint32_t value)
-{
-    omap3_l3_write(opaque, addr, value, 2);
-}
-
-static CPUReadMemoryFunc *omap3_l3_readfn[] = {
-    omap3_l3_read8,
-    omap3_l3_read16,
-    omap3_l3_read32,
+static const MemoryRegionOps omap3_l3_ops = {
+    .read = omap3_l3_read,
+    .write = omap3_l3_write,
+    .endianness = DEVICE_NATIVE_ENDIAN,
 };
 
-static CPUWriteMemoryFunc *omap3_l3_writefn[] = {
-    omap3_l3_write8,
-    omap3_l3_write16,
-    omap3_l3_write32,
-};
-
-static struct omap3_l3_s *omap3_l3_init(target_phys_addr_t base)
+static struct omap3_l3_s *omap3_l3_init(MemoryRegion *sysmem,
+                                        target_phys_addr_t base)
 {
     const int n = sizeof(omap3_l3_region) / sizeof(struct omap3_l3_region_s);
     struct omap3_l3_s *bus = g_malloc0(sizeof(*bus) + n * sizeof(void *));
@@ -739,12 +709,10 @@ static struct omap3_l3_s *omap3_l3_init(target_phys_addr_t base)
         }
         base += omap3_l3_region[i].size;
     }
-    
-    cpu_register_physical_memory(base, 0x01000000,
-                                 cpu_register_io_memory(omap3_l3_readfn,
-                                                        omap3_l3_writefn,
-                                                        bus,
-                                                        DEVICE_NATIVE_ENDIAN));
+
+    memory_region_init_io(&bus->iomem, &omap3_l3_ops, bus, "omap3_l3",
+                          0x01000000);
+    memory_region_add_subregion(sysmem, base, &bus->iomem);
     return bus;
 }
 
@@ -3726,6 +3694,7 @@ static struct omap3_scm_s *omap3_scm_init(struct omap_target_agent_s *ta,
 struct omap3_sms_s
 {
     struct omap_mpu_state_s *mpu;
+    MemoryRegion iomem;
 
     uint32 sms_sysconfig;
     uint32 sms_sysstatus;
@@ -3748,7 +3717,8 @@ struct omap3_sms_s
     uint32 sms_rot_physical_ba[12];
 };
 
-static uint32_t omap3_sms_read32(void *opaque, target_phys_addr_t addr)
+static uint64_t omap3_sms_read(void *opaque, target_phys_addr_t addr,
+                                 unsigned size)
 {
     struct omap3_sms_s *s = (struct omap3_sms_s *) opaque;
 
@@ -3869,8 +3839,8 @@ static uint32_t omap3_sms_read32(void *opaque, target_phys_addr_t addr)
     return 0;
 }
 
-static void omap3_sms_write32(void *opaque, target_phys_addr_t addr,
-                              uint32_t value)
+static void omap3_sms_write(void *opaque, target_phys_addr_t addr,
+                            uint64_t value, unsigned size)
 {
     struct omap3_sms_s *s = (struct omap3_sms_s *) opaque;
     //int i;
@@ -4009,16 +3979,11 @@ static void omap3_sms_write32(void *opaque, target_phys_addr_t addr,
     }
 }
 
-static CPUReadMemoryFunc *omap3_sms_readfn[] = {
-    omap_badwidth_read32,
-    omap_badwidth_read32,
-    omap3_sms_read32,
-};
-
-static CPUWriteMemoryFunc *omap3_sms_writefn[] = {
-    omap_badwidth_write32,
-    omap_badwidth_write32,
-    omap3_sms_write32,
+static const MemoryRegionOps omap3_sms_ops = {
+    .read = omap3_sms_read,
+    .write = omap3_sms_write,
+    .endianness = DEVICE_NATIVE_ENDIAN,
+    .valid.min_access_size = 4,
 };
 
 static void omap3_sms_reset(struct omap3_sms_s *s)
@@ -4034,20 +3999,17 @@ static void omap3_sms_reset(struct omap3_sms_s *s)
 	s->sms_pow_ctrl = 0x80;
 }
 
-static struct omap3_sms_s *omap3_sms_init(struct omap_mpu_state_s *mpu)
+static struct omap3_sms_s *omap3_sms_init(MemoryRegion *sysmem,
+                                          struct omap_mpu_state_s *mpu)
 {
-    int iomemtype;
     struct omap3_sms_s *s = g_malloc0(sizeof(*s));
 
     s->mpu = mpu;
 
     omap3_sms_reset(s);
-    
-    iomemtype = cpu_register_io_memory(omap3_sms_readfn,
-                                       omap3_sms_writefn, s,
-                                       DEVICE_NATIVE_ENDIAN);
-    cpu_register_physical_memory(0x6c000000, 0x10000, iomemtype);
 
+    memory_region_init_io(&s->iomem, &omap3_sms_ops, s, "omap3_sms", 0x10000);
+    memory_region_add_subregion(sysmem, 0x6c000000, &s->iomem);
     return s;
 }
 
@@ -4095,7 +4057,6 @@ struct omap_mpu_state_s *omap3_mpu_init(MemoryRegion *sysmem,
                                         CharDriverState *chr_uart4)
 {
     struct omap_mpu_state_s *s = g_malloc0(sizeof(*s));
-    ram_addr_t sram_base, q2_base;
     qemu_irq *cpu_irq;
     qemu_irq drqs[4];
     int i;
@@ -4116,12 +4077,10 @@ struct omap_mpu_state_s *omap3_mpu_init(MemoryRegion *sysmem,
     omap_clk_init(s);
 
     /* Memory-mapped stuff */
-    q2_base = qemu_ram_alloc(NULL, "omap3_dram", s->sdram_size);
-    cpu_register_physical_memory(OMAP3_Q2_BASE, s->sdram_size,
-                                 q2_base | IO_MEM_RAM);
-    sram_base = qemu_ram_alloc(NULL, "omap3_sram", s->sram_size);
-    cpu_register_physical_memory(OMAP3_SRAM_BASE, s->sram_size,
-                                 sram_base | IO_MEM_RAM);
+    memory_region_init_ram(&s->sdram, NULL, "omap3_dram", s->sdram_size);
+    memory_region_add_subregion(sysmem, OMAP3_Q2_BASE, &s->sdram);
+    memory_region_init_ram(&s->sram, NULL, "omap3_sram", s->sram_size);
+    memory_region_add_subregion(sysmem, OMAP3_SRAM_BASE, &s->sram);
 
     s->l4 = omap_l4_init(sysmem, OMAP3_L4_BASE, L4A_COUNT, L4ID_COUNT);
 
@@ -4143,9 +4102,9 @@ struct omap_mpu_state_s *omap3_mpu_init(MemoryRegion *sysmem,
                              omap_findclk(s, "omap3_sdma_fclk"),
                              omap_findclk(s, "omap3_sdma_iclk"));
     s->port->addr_valid = omap3_validate_addr;
-    soc_dma_port_add_mem(s->dma, qemu_get_ram_ptr(q2_base),
+    soc_dma_port_add_mem(s->dma, memory_region_get_ram_ptr(&s->sdram),
                          OMAP2_Q2_BASE, s->sdram_size);
-    soc_dma_port_add_mem(s->dma, qemu_get_ram_ptr(sram_base),
+    soc_dma_port_add_mem(s->dma, memory_region_get_ram_ptr(&s->sram),
                          OMAP2_SRAM_BASE, s->sram_size);
 
     s->omap3_cm = omap3_cm_init(omap3_l4ta_init(s->l4, L4A_CM),
@@ -4162,10 +4121,10 @@ struct omap_mpu_state_s *omap3_mpu_init(MemoryRegion *sysmem,
                                           omap_findclk(s, "omap3_wkup_l4_iclk"),
                                           s);
 
-    s->omap3_l3 = omap3_l3_init(OMAP3_L3_BASE);
+    s->omap3_l3 = omap3_l3_init(sysmem, OMAP3_L3_BASE);
     s->omap3_scm = omap3_scm_init(omap3_l4ta_init(s->l4, L4A_SCM), s);
 
-    s->omap3_sms = omap3_sms_init(s);
+    s->omap3_sms = omap3_sms_init(sysmem, s);
 
     s->gptimer[0] = omap_gp_timer_init(omap3_l4ta_init(s->l4, L4A_GPTIMER1),
                                        qdev_get_gpio_in(s->ih[0],

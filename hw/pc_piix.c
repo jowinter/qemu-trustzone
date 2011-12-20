@@ -99,6 +99,7 @@ static void pc_init1(MemoryRegion *system_memory,
     MemoryRegion *ram_memory;
     MemoryRegion *pci_memory;
     MemoryRegion *rom_memory;
+    DeviceState *dev;
 
     pc_cpus_init(cpu_model);
 
@@ -168,7 +169,10 @@ static void pc_init1(MemoryRegion *system_memory,
 
     pc_register_ferr_irq(gsi[13]);
 
-    pc_vga_init(pci_enabled? pci_bus: NULL);
+    dev = pc_vga_init(pci_enabled? pci_bus: NULL);
+    if (dev) {
+        qdev_property_add_child(qdev_get_root(), "vga", dev, NULL);
+    }
 
     if (xen_enabled()) {
         pci_create_simple(pci_bus, -1, "xen-platform");
@@ -204,6 +208,17 @@ static void pc_init1(MemoryRegion *system_memory,
             idebus[i] = qdev_get_child_bus(&dev->qdev, "ide.0");
         }
     }
+
+    /* FIXME there's some major spaghetti here.  Somehow we create the devices
+     * on the PIIX before we actually create it.  We create the PIIX3 deep in
+     * the recess of the i440fx creation too and then lose the DeviceState.
+     *
+     * For now, let's "fix" this by making judicious use of paths.  This is not
+     * generally the right way to do this.
+     */
+
+    qdev_property_add_child(qdev_resolve_path("/i440fx/piix3", NULL),
+                            "rtc", (DeviceState *)rtc_state, NULL);
 
     audio_init(gsi, pci_enabled ? pci_bus : NULL);
 
@@ -306,6 +321,14 @@ static QEMUMachine pc_machine_v1_0 = {
     .is_default = 1,
 };
 
+static QEMUMachine pc_machine_v0_15 = {
+    .name = "pc-0.15",
+    .desc = "Standard PC",
+    .init = pc_init_pci,
+    .max_cpus = 255,
+    .is_default = 1,
+};
+
 static QEMUMachine pc_machine_v0_14 = {
     .name = "pc-0.14",
     .desc = "Standard PC",
@@ -320,6 +343,22 @@ static QEMUMachine pc_machine_v0_14 = {
             .driver   = "qxl-vga",
             .property = "revision",
             .value    = stringify(2),
+        },{
+            .driver   = "virtio-blk-pci",
+            .property = "event_idx",
+            .value    = "off",
+        },{
+            .driver   = "virtio-serial-pci",
+            .property = "event_idx",
+            .value    = "off",
+        },{
+            .driver   = "virtio-net-pci",
+            .property = "event_idx",
+            .value    = "off",
+        },{
+            .driver   = "virtio-balloon-pci",
+            .property = "event_idx",
+            .value    = "off",
         },
         { /* end of list */ }
     },
@@ -357,6 +396,10 @@ static QEMUMachine pc_machine_v0_13 = {
             .value    = "off",
         },{
             .driver   = "virtio-net-pci",
+            .property = "event_idx",
+            .value    = "off",
+        },{
+            .driver   = "virtio-balloon-pci",
             .property = "event_idx",
             .value    = "off",
         },{
@@ -404,6 +447,10 @@ static QEMUMachine pc_machine_v0_12 = {
             .value    = "off",
         },{
             .driver   = "virtio-net-pci",
+            .property = "event_idx",
+            .value    = "off",
+        },{
+            .driver   = "virtio-balloon-pci",
             .property = "event_idx",
             .value    = "off",
         },{
@@ -459,6 +506,10 @@ static QEMUMachine pc_machine_v0_11 = {
             .value    = "off",
         },{
             .driver   = "virtio-net-pci",
+            .property = "event_idx",
+            .value    = "off",
+        },{
+            .driver   = "virtio-balloon-pci",
             .property = "event_idx",
             .value    = "off",
         },{
@@ -529,6 +580,10 @@ static QEMUMachine pc_machine_v0_10 = {
             .property = "event_idx",
             .value    = "off",
         },{
+            .driver   = "virtio-balloon-pci",
+            .property = "event_idx",
+            .value    = "off",
+        },{
             .driver   = "AC97",
             .property = "use_broken_id",
             .value    = stringify(1),
@@ -557,6 +612,7 @@ static QEMUMachine xenfv_machine = {
 static void pc_machine_init(void)
 {
     qemu_register_machine(&pc_machine_v1_0);
+    qemu_register_machine(&pc_machine_v0_15);
     qemu_register_machine(&pc_machine_v0_14);
     qemu_register_machine(&pc_machine_v0_13);
     qemu_register_machine(&pc_machine_v0_12);

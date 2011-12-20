@@ -123,6 +123,7 @@ struct MemoryRegion {
     bool terminates;
     bool readable;
     bool readonly; /* For RAM regions */
+    bool enabled;
     MemoryRegion *alias;
     target_phys_addr_t alias_offset;
     unsigned priority;
@@ -149,7 +150,7 @@ struct MemoryRegionPortio {
 /**
  * memory_region_init: Initialize a memory region
  *
- * The region typically acts as a container for other memory regions.  Us
+ * The region typically acts as a container for other memory regions.  Use
  * memory_region_add_subregion() to add subregions.
  *
  * @mr: the #MemoryRegion to be initialized
@@ -162,7 +163,7 @@ void memory_region_init(MemoryRegion *mr,
 /**
  * memory_region_init_io: Initialize an I/O memory region.
  *
- * Accesses into the region will be cause the callbacks in @ops to be called.
+ * Accesses into the region will cause the callbacks in @ops to be called.
  * if @size is nonzero, subregions will be clipped to @size.
  *
  * @mr: the #MemoryRegion to be initialized.
@@ -180,7 +181,7 @@ void memory_region_init_io(MemoryRegion *mr,
 
 /**
  * memory_region_init_ram:  Initialize RAM memory region.  Accesses into the
- *                          region will be modify memory directly.
+ *                          region will modify memory directly.
  *
  * @mr: the #MemoryRegion to be initialized.
  * @dev: a device associated with the region; may be %NULL.
@@ -196,7 +197,7 @@ void memory_region_init_ram(MemoryRegion *mr,
 
 /**
  * memory_region_init_ram:  Initialize RAM memory region from a user-provided.
- *                          pointer.  Accesses into the region will be modify
+ *                          pointer.  Accesses into the region will modify
  *                          memory directly.
  *
  * @mr: the #MemoryRegion to be initialized.
@@ -250,7 +251,7 @@ void memory_region_init_rom_device(MemoryRegion *mr,
                                    uint64_t size);
 
 /**
- * memory_region_destroy: Destroy a memory region and relaim all resources.
+ * memory_region_destroy: Destroy a memory region and reclaim all resources.
  *
  * @mr: the region to be destroyed.  May not currently be a subregion
  *      (see memory_region_add_subregion()) or referenced in an alias
@@ -417,7 +418,7 @@ void memory_region_clear_coalescing(MemoryRegion *mr);
  *
  * Marks a word in an IO region (initialized with memory_region_init_io())
  * as a trigger for an eventfd event.  The I/O callback will not be called.
- * The caller must be prepared to handle failure (hat is, take the required
+ * The caller must be prepared to handle failure (that is, take the required
  * action if the callback _is_ called).
  *
  * @mr: the memory region being updated.
@@ -435,10 +436,10 @@ void memory_region_add_eventfd(MemoryRegion *mr,
                                int fd);
 
 /**
- * memory_region_del_eventfd: Cancel and eventfd.
+ * memory_region_del_eventfd: Cancel an eventfd.
  *
- * Cancels an eventfd trigger request by a previous memory_region_add_eventfd()
- * call.
+ * Cancels an eventfd trigger requested by a previous
+ * memory_region_add_eventfd() call.
  *
  * @mr: the memory region being updated.
  * @addr: the address within @mr that is to be monitored
@@ -454,9 +455,9 @@ void memory_region_del_eventfd(MemoryRegion *mr,
                                uint64_t data,
                                int fd);
 /**
- * memory_region_add_subregion: Add a sub-region to a container.
+ * memory_region_add_subregion: Add a subregion to a container.
  *
- * Adds a sub-region at @offset.  The sub-region may not overlap with other
+ * Adds a subregion at @offset.  The subregion may not overlap with other
  * subregions (except for those explicitly marked as overlapping).  A region
  * may only be added once as a subregion (unless removed with
  * memory_region_del_subregion()); use memory_region_init_alias() if you
@@ -471,9 +472,9 @@ void memory_region_add_subregion(MemoryRegion *mr,
                                  target_phys_addr_t offset,
                                  MemoryRegion *subregion);
 /**
- * memory_region_add_subregion: Add a sub-region to a container, with overlap.
+ * memory_region_add_subregion: Add a subregion to a container, with overlap.
  *
- * Adds a sub-region at @offset.  The sub-region may overlap with other
+ * Adds a subregion at @offset.  The subregion may overlap with other
  * subregions.  Conflicts are resolved by having a higher @priority hide a
  * lower @priority. Subregions without priority are taken as @priority 0.
  * A region may only be added once as a subregion (unless removed with
@@ -501,11 +502,55 @@ void memory_region_add_subregion_overlap(MemoryRegion *mr,
 void memory_region_del_subregion(MemoryRegion *mr,
                                  MemoryRegion *subregion);
 
-/* Start a transaction; changes will be accumulated and made visible only
- * when the transaction ends.
+/*
+ * memory_region_set_enabled: dynamically enable or disable a region
+ *
+ * Enables or disables a memory region.  A disabled memory region
+ * ignores all accesses to itself and its subregions.  It does not
+ * obscure sibling subregions with lower priority - it simply behaves as
+ * if it was removed from the hierarchy.
+ *
+ * Regions default to being enabled.
+ *
+ * @mr: the region to be updated
+ * @enabled: whether to enable or disable the region
+ */
+void memory_region_set_enabled(MemoryRegion *mr, bool enabled);
+
+/*
+ * memory_region_set_address: dynamically update the address of a region
+ *
+ * Dynamically updates the address of a region, relative to its parent.
+ * May be used on regions are currently part of a memory hierarchy.
+ *
+ * @mr: the region to be updated
+ * @addr: new address, relative to parent region
+ */
+void memory_region_set_address(MemoryRegion *mr, target_phys_addr_t addr);
+
+/*
+ * memory_region_set_alias_offset: dynamically update a memory alias's offset
+ *
+ * Dynamically updates the offset into the target region that an alias points
+ * to, as if the fourth argument to memory_region_init_alias() has changed.
+ *
+ * @mr: the #MemoryRegion to be updated; should be an alias.
+ * @offset: the new offset into the target memory region
+ */
+void memory_region_set_alias_offset(MemoryRegion *mr,
+                                    target_phys_addr_t offset);
+
+/**
+ * memory_region_transaction_begin: Start a transaction.
+ *
+ * During a transaction, changes will be accumulated and made visible
+ * only when the transaction ends (is commited).
  */
 void memory_region_transaction_begin(void);
-/* Commit a transaction and make changes visible to the guest.
+
+/**
+ * memory_region_transaction_commit: Commit a transaction and make changes
+ *                                   visible to the guest.
  */
 void memory_region_transaction_commit(void);
 

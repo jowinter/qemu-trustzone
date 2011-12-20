@@ -1492,29 +1492,21 @@ static void version(void)
 
 static void help(int exitcode)
 {
-    const char *options_help =
-#define DEF(option, opt_arg, opt_enum, opt_help, arch_mask)     \
-        opt_help
-#define DEFHEADING(text) stringify(text) "\n"
-#include "qemu-options.def"
-#undef DEF
-#undef DEFHEADING
-#undef GEN_DOCS
-        ;
     version();
-    printf("usage: %s [options] [disk_image]\n"
-           "\n"
-           "'disk_image' is a raw hard disk image for IDE hard disk 0\n"
-           "\n"
-           "%s\n"
-           "During emulation, the following keys are useful:\n"
+    printf("usage: %s [options] [disk_image]\n\n"
+           "'disk_image' is a raw hard disk image for IDE hard disk 0\n\n",
+            error_get_progname());
+
+#define QEMU_OPTIONS_GENERATE_HELP
+#include "qemu-options-wrapper.h"
+
+    printf("\nDuring emulation, the following keys are useful:\n"
            "ctrl-alt-f      toggle full screen\n"
            "ctrl-alt-n      switch to virtual console 'n'\n"
            "ctrl-alt        toggle mouse and keyboard grab\n"
            "\n"
-           "When using -nographic, press 'ctrl-a h' to get some help.\n",
-           "qemu",
-           options_help);
+           "When using -nographic, press 'ctrl-a h' to get some help.\n");
+
     exit(exitcode);
 }
 
@@ -1529,13 +1521,8 @@ typedef struct QEMUOption {
 
 static const QEMUOption qemu_options[] = {
     { "h", 0, QEMU_OPTION_h, QEMU_ARCH_ALL },
-#define DEF(option, opt_arg, opt_enum, opt_help, arch_mask)     \
-    { option, opt_arg, opt_enum, arch_mask },
-#define DEFHEADING(text)
-#include "qemu-options.def"
-#undef DEF
-#undef DEFHEADING
-#undef GEN_DOCS
+#define QEMU_OPTIONS_GENERATE_OPTIONS
+#include "qemu-options-wrapper.h"
     { NULL },
 };
 static void select_vgahw (const char *p)

@@ -92,14 +92,6 @@ tci-dis.o: QEMU_CFLAGS += -I$(SRC_PATH)/tcg -I$(SRC_PATH)/tcg/tci
 
 $(libobj-y): $(GENERATED_HEADERS)
 
-# libqemu
-
-translate.o: translate.c cpu.h
-
-translate-all.o: translate-all.c cpu.h
-
-tcg/tcg.o: cpu.h
-
 # HELPER_CFLAGS is used for all the code compiled with static register
 # variables
 op_helper.o ldst_helper.o user-exec.o: QEMU_CFLAGS += $(HELPER_CFLAGS)
@@ -364,9 +356,6 @@ obj-arm-y += mst_fpga.o mainstone.o
 obj-arm-y += z2.o
 obj-arm-y += musicpal.o bitbang_i2c.o marvell_88w8618_audio.o
 obj-arm-y += framebuffer.o
-obj-arm-y += syborg.o syborg_fb.o syborg_interrupt.o syborg_keyboard.o
-obj-arm-y += syborg_serial.o syborg_timer.o syborg_pointer.o syborg_rtc.o
-obj-arm-y += syborg_virtio.o
 obj-arm-y += vexpress.o
 obj-arm-y += strongarm.o
 obj-arm-y += collie.o

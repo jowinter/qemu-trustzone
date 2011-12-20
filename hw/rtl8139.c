@@ -991,13 +991,13 @@ static ssize_t rtl8139_do_receive(VLANClientState *nc, const uint8_t *buf, size_
 
         uint32_t val, rxdw0,rxdw1,rxbufLO,rxbufHI;
 
-        pci_dma_read(&s->dev, cplus_rx_ring_desc, (uint8_t *)&val, 4);
+        pci_dma_read(&s->dev, cplus_rx_ring_desc, &val, 4);
         rxdw0 = le32_to_cpu(val);
-        pci_dma_read(&s->dev, cplus_rx_ring_desc+4, (uint8_t *)&val, 4);
+        pci_dma_read(&s->dev, cplus_rx_ring_desc+4, &val, 4);
         rxdw1 = le32_to_cpu(val);
-        pci_dma_read(&s->dev, cplus_rx_ring_desc+8, (uint8_t *)&val, 4);
+        pci_dma_read(&s->dev, cplus_rx_ring_desc+8, &val, 4);
         rxbufLO = le32_to_cpu(val);
-        pci_dma_read(&s->dev, cplus_rx_ring_desc+12, (uint8_t *)&val, 4);
+        pci_dma_read(&s->dev, cplus_rx_ring_desc+12, &val, 4);
         rxbufHI = le32_to_cpu(val);
 
         DPRINTF("+++ C+ mode RX descriptor %d %08x %08x %08x %08x\n",
@@ -2662,7 +2662,7 @@ static void rtl8139_IntrStatus_write(RTL8139State *s, uint32_t val)
      * Computing if we miss an interrupt here is not that correct but
      * considered that we should have had already an interrupt
      * and probably emulated is slower is better to assume this resetting was
-     * done before testing on previous rtl8139_update_irq lead to IRQ loosing
+     * done before testing on previous rtl8139_update_irq lead to IRQ losing
      */
     rtl8139_set_next_tctr_time(s, qemu_get_clock_ns(vm_clock));
     rtl8139_update_irq(s);
