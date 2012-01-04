@@ -81,7 +81,6 @@ struct PCII440FXState {
     PAMMemoryRegion pam_regions[13];
     MemoryRegion smram_region;
     uint8_t smm_enabled;
-    PIIX3State *piix3;
 };
 
 
@@ -253,7 +252,7 @@ static int i440fx_initfn(PCIDevice *dev)
 static PCIBus *i440fx_common_init(const char *device_name,
                                   PCII440FXState **pi440fx_state,
                                   int *piix3_devfn,
-                                  qemu_irq *pic,
+                                  ISABus **isa_bus, qemu_irq *pic,
                                   MemoryRegion *address_space_mem,
                                   MemoryRegion *address_space_io,
                                   ram_addr_t ram_size,
@@ -319,8 +318,8 @@ static PCIBus *i440fx_common_init(const char *device_name,
     }
     qdev_property_add_child(dev, "piix3", &piix3->dev.qdev, NULL);
     piix3->pic = pic;
-
-    (*pi440fx_state)->piix3 = piix3;
+    *isa_bus = DO_UPCAST(ISABus, qbus,
+                         qdev_get_child_bus(&piix3->dev.qdev, "isa.0"));
 
     *piix3_devfn = piix3->dev.devfn;
 
@@ -335,7 +334,7 @@ static PCIBus *i440fx_common_init(const char *device_name,
 }
 
 PCIBus *i440fx_init(PCII440FXState **pi440fx_state, int *piix3_devfn,
-                    qemu_irq *pic,
+                    ISABus **isa_bus, qemu_irq *pic,
                     MemoryRegion *address_space_mem,
                     MemoryRegion *address_space_io,
                     ram_addr_t ram_size,
@@ -348,7 +347,7 @@ PCIBus *i440fx_init(PCII440FXState **pi440fx_state, int *piix3_devfn,
 {
     PCIBus *b;
 
-    b = i440fx_common_init("i440FX", pi440fx_state, piix3_devfn, pic,
+    b = i440fx_common_init("i440FX", pi440fx_state, piix3_devfn, isa_bus, pic,
                            address_space_mem, address_space_io, ram_size,
                            pci_hole_start, pci_hole_size,
                            pci_hole64_size, pci_hole64_size,

@@ -1573,3 +1573,9 @@ int do_change_qdev(Monitor *mon, const char *device, const char *target,
     }
     return dev->info->change(dev, target, arg);
 }
+
+void qdev_machine_init(void)
+{
+    qdev_get_peripheral_anon();
+    qdev_get_peripheral();
+}

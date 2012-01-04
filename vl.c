@@ -2176,7 +2176,12 @@ int main(int argc, char **argv, char **envp)
 
     g_mem_set_vtable(&mem_trace);
     if (!g_thread_supported()) {
+#if !GLIB_CHECK_VERSION(2, 31, 0)
         g_thread_init(NULL);
+#else
+        fprintf(stderr, "glib threading failed to initialize.\n");
+        exit(1);
+#endif
     }
 
     runstate_init();
@@ -3300,7 +3305,7 @@ int main(int argc, char **argv, char **envp)
          * real machines which also use this scheme.
          */
         if (i == nb_numa_nodes) {
-            for (i = 0; i < smp_cpus; i++) {
+            for (i = 0; i < max_cpus; i++) {
                 node_cpumask[i % nb_numa_nodes] |= 1 << i;
             }
         }
@@ -3334,6 +3339,8 @@ int main(int argc, char **argv, char **envp)
         qdev_prop_register_global_list(machine->compat_props);
     }
     qemu_add_globals();
+
+    qdev_machine_init();
 
     machine->init(ram_size, boot_devices,
                   kernel_filename, kernel_cmdline, initrd_filename, cpu_model);

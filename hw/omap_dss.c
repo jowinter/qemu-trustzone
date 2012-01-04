@@ -461,7 +461,7 @@ static void omap_dsi_transfer_start(struct omap_dss_s *s, int ch)
     }
 }
 
-static void omap_dss_panel_layer_update(DisplayState *ds,
+static void omap_dss_panel_layer_update(DisplayState *ds, MemoryRegion *mr,
                                         uint32_t panel_width,
                                         uint32_t panel_height,
                                         uint32_t posx,
@@ -497,7 +497,7 @@ static void omap_dss_panel_layer_update(DisplayState *ds,
     uint32_t copy_height = ((*posy) + height) > panel_height
                            ? (panel_height - (*posy)) : height;
     uint32_t linesize = ds_get_linesize(ds);
-    framebuffer_update_display(ds, addr, copy_width, copy_height,
+    framebuffer_update_display(ds, mr, addr, copy_width, copy_height,
                                (format < 3)
                                ? (width >> (3 - format))
                                : (width * omap_lcd_Bpp[format]),
@@ -506,7 +506,8 @@ static void omap_dss_panel_layer_update(DisplayState *ds,
                                posy, endy);
 }
 
-static void omap_dss_panel_update_display(struct omap_dss_panel_s *s, int lcd)
+static void omap_dss_panel_update_display(struct omap_dss_panel_s *s,
+                                          MemoryRegion *mr, int lcd)
 {
     if (s->invalidate) {
         if (s->shadow.width != ds_get_width(s->ds) 
@@ -530,7 +531,8 @@ static void omap_dss_panel_update_display(struct omap_dss_panel_s *s, int lcd)
                                      * sizeof(uint32_t));
         }
         first_row = s->shadow.gfx.posy;
-        omap_dss_panel_layer_update(s->ds, s->shadow.width, s->shadow.height,
+        omap_dss_panel_layer_update(s->ds, mr,
+                                    s->shadow.width, s->shadow.height,
                                     s->shadow.gfx.posx, &first_row, &last_row,
                                     s->shadow.gfx.nx, s->shadow.gfx.ny,
                                     s->shadow.gfx.attr, s->shadow.gfx.addr[0],
@@ -553,7 +555,7 @@ static void omap_lcd_panel_update_display(void *opaque)
         || (s->lcd.shadow.control & (1 << 11))) { /* STALLMODE */
         return;
     }
-    omap_dss_panel_update_display(&s->lcd, 1);
+    omap_dss_panel_update_display(&s->lcd, sysbus_address_space(&s->busdev), 1);
     omap_dss_framedone(s);
 }
 
@@ -569,7 +571,7 @@ static void omap_dig_panel_update_display(void *opaque)
     if (!s->dig.ds || !(s->dig.shadow.control & 2)) { /* DIGITALENABLE */
         return;
     }
-    omap_dss_panel_update_display(&s->dig, 0);
+    omap_dss_panel_update_display(&s->dig, sysbus_address_space(&s->busdev), 0);
     omap_dss_framedone(s);
 }
 

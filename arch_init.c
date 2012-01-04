@@ -41,6 +41,7 @@
 #include "net.h"
 #include "gdbstub.h"
 #include "hw/smbios.h"
+#include "exec-memory.h"
 
 #ifdef TARGET_SPARC
 int graphic_width = 1024;
@@ -263,10 +264,7 @@ int ram_save_live(Monitor *mon, QEMUFile *f, int stage, void *opaque)
         return 0;
     }
 
-    if (cpu_physical_sync_dirty_bitmap(0, TARGET_PHYS_ADDR_MAX) != 0) {
-        qemu_file_set_error(f, -EINVAL);
-        return -EINVAL;
-    }
+    memory_global_sync_dirty_bitmap(get_system_memory());
 
     if (stage == 1) {
         RAMBlock *block;
@@ -473,7 +471,7 @@ struct soundhw {
     int enabled;
     int isa;
     union {
-        int (*init_isa) (qemu_irq *pic);
+        int (*init_isa) (ISABus *bus);
         int (*init_pci) (PCIBus *bus);
     } init;
 };
@@ -628,15 +626,15 @@ void select_soundhw(const char *optarg)
     }
 }
 
-void audio_init(qemu_irq *isa_pic, PCIBus *pci_bus)
+void audio_init(ISABus *isa_bus, PCIBus *pci_bus)
 {
     struct soundhw *c;
 
     for (c = soundhw; c->name; ++c) {
         if (c->enabled) {
             if (c->isa) {
-                if (isa_pic) {
-                    c->init.init_isa(isa_pic);
+                if (isa_bus) {
+                    c->init.init_isa(isa_bus);
                 }
             } else {
                 if (pci_bus) {
@@ -650,7 +648,7 @@ void audio_init(qemu_irq *isa_pic, PCIBus *pci_bus)
 void select_soundhw(const char *optarg)
 {
 }
-void audio_init(qemu_irq *isa_pic, PCIBus *pci_bus)
+void audio_init(ISABus *isa_bus, PCIBus *pci_bus)
 {
 }
 #endif
