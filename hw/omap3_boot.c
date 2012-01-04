@@ -878,7 +878,7 @@ void omap3_boot_rom_init(struct omap_mpu_state_s *s)
 
     if (!s->bootrom_initialized) {
         s->bootrom_initialized = 1;
-        memory_region_init_ram(&s->bootrom, NULL, "omap3_boot_rom",
+        memory_region_init_ram(&s->bootrom, "omap3_boot_rom",
                                OMAP3XXX_BOOTROM_SIZE);
         memory_region_set_readonly(&s->bootrom, true);
         memory_region_add_subregion(get_system_memory(),

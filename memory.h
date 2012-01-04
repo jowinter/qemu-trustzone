@@ -116,15 +116,16 @@ struct MemoryRegion {
     Int128 size;
     target_phys_addr_t addr;
     target_phys_addr_t offset;
-    bool backend_registered;
     void (*destructor)(MemoryRegion *mr);
     ram_addr_t ram_addr;
     IORange iorange;
+    bool subpage;
     bool terminates;
     bool readable;
     bool ram;
     bool readonly; /* For RAM regions */
     bool enabled;
+    bool rom_device;
     MemoryRegion *alias;
     target_phys_addr_t alias_offset;
     unsigned priority;
@@ -224,14 +225,10 @@ void memory_region_init_io(MemoryRegion *mr,
  *                          region will modify memory directly.
  *
  * @mr: the #MemoryRegion to be initialized.
- * @dev: a device associated with the region; may be %NULL.
- * @name: the name of the region; the pair (@dev, @name) must be globally
- *        unique.  The name is part of the save/restore ABI and so cannot be
- *        changed.
+ * @name: the name of the region.
  * @size: size of the region.
  */
 void memory_region_init_ram(MemoryRegion *mr,
-                            DeviceState *dev, /* FIXME: layering violation */
                             const char *name,
                             uint64_t size);
 
@@ -241,15 +238,11 @@ void memory_region_init_ram(MemoryRegion *mr,
  *                          memory directly.
  *
  * @mr: the #MemoryRegion to be initialized.
- * @dev: a device associated with the region; may be %NULL.
- * @name: the name of the region; the pair (@dev, @name) must be globally
- *        unique.  The name is part of the save/restore ABI and so cannot be
- *        changed.
+ * @name: the name of the region.
  * @size: size of the region.
  * @ptr: memory to be mapped; must contain at least @size bytes.
  */
 void memory_region_init_ram_ptr(MemoryRegion *mr,
-                                DeviceState *dev, /* FIXME: layering violation */
                                 const char *name,
                                 uint64_t size,
                                 void *ptr);
@@ -277,16 +270,12 @@ void memory_region_init_alias(MemoryRegion *mr,
  *
  * @mr: the #MemoryRegion to be initialized.
  * @ops: callbacks for write access handling.
- * @dev: a device associated with the region; may be %NULL.
- * @name: the name of the region; the pair (@dev, @name) must be globally
- *        unique.  The name is part of the save/restore ABI and so cannot be
- *        changed.
+ * @name: the name of the region.
  * @size: size of the region.
  */
 void memory_region_init_rom_device(MemoryRegion *mr,
                                    const MemoryRegionOps *ops,
                                    void *opaque,
-                                   DeviceState *dev, /* FIXME: layering violation */
                                    const char *name,
                                    uint64_t size);
 
@@ -314,6 +303,15 @@ uint64_t memory_region_size(MemoryRegion *mr);
  * @mr: the memory region being queried
  */
 bool memory_region_is_ram(MemoryRegion *mr);
+
+/**
+ * memory_region_name: get a memory region's name
+ *
+ * Returns the string that was used to initialize the memory region.
+ *
+ * @mr: the memory region being queried
+ */
+const char *memory_region_name(MemoryRegion *mr);
 
 /**
  * memory_region_is_logging: return whether a memory region is logging writes

@@ -49,6 +49,7 @@ void qemu_put_ram_ptr(void *addr);
 /* This should not be used by devices.  */
 int qemu_ram_addr_from_host(void *ptr, ram_addr_t *ram_addr);
 ram_addr_t qemu_ram_addr_from_host_nofail(void *ptr);
+void qemu_ram_set_idstr(ram_addr_t addr, const char *name, DeviceState *dev);
 
 void cpu_physical_memory_rw(target_phys_addr_t addr, uint8_t *buf,
                             int len, int is_write);
@@ -106,17 +107,10 @@ void stq_phys(target_phys_addr_t addr, uint64_t val);
 void cpu_physical_memory_write_rom(target_phys_addr_t addr,
                                    const uint8_t *buf, int len);
 
-#define IO_MEM_SHIFT       3
-
-#define IO_MEM_RAM         (0 << IO_MEM_SHIFT) /* hardcoded offset */
-#define IO_MEM_ROM         (1 << IO_MEM_SHIFT) /* hardcoded offset */
-#define IO_MEM_UNASSIGNED  (2 << IO_MEM_SHIFT)
-#define IO_MEM_NOTDIRTY    (3 << IO_MEM_SHIFT)
-#define IO_MEM_SUBPAGE_RAM (4 << IO_MEM_SHIFT)
-
-/* Acts like a ROM when read and like a device when written.  */
-#define IO_MEM_ROMD        (1)
-#define IO_MEM_SUBPAGE     (2)
+extern struct MemoryRegion io_mem_ram;
+extern struct MemoryRegion io_mem_rom;
+extern struct MemoryRegion io_mem_unassigned;
+extern struct MemoryRegion io_mem_notdirty;
 
 #endif
 
