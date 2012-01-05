@@ -12,6 +12,18 @@ here. For full change detail consult the git history:
 Bug numbers refer to Launchpad qemu-linaro bugs, eg:
 https://bugs.launchpad.net/qemu-linaro/+bug/703094
 
+version 2012.01:
+ - Fixes #883133: we no longer assert on startup when running on
+   ARM systems with brk address space randomization enabled
+ - Fixes #870990: compiling on ARM systems for Thumb2 with
+   --enable-debug now works
+ - Fixes #903239: usermode emulation now includes support for
+   various previously missing *xattr syscalls
+ - Fixes #905697: trying to enable the prefetch engine in the
+   OMAP GPMC model might trigger an assertion failure
+ - We now have a (dummy) model of the L2x0/PL310 L2 cache
+   controller (thanks to Rob Herring and Mark Langsdorf)
+
 version 2011.12:
  - There are no Linaro-specific changes of note in this release
 
