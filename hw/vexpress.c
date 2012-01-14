@@ -26,6 +26,9 @@
 #include "sysemu.h"
 #include "boards.h"
 #include "exec-memory.h"
+#include "blockdev.h"
+#include "ide.h"
+#include "flash.h"
 
 #define SMP_BOOT_ADDR 0xe0000000
 
@@ -34,6 +37,37 @@
 static struct arm_boot_info vexpress_binfo = {
     .smp_loader_start = SMP_BOOT_ADDR,
 };
+
+static void vexpress_register_flash(target_phys_addr_t addr, const char *name,
+				    unsigned long flash_size,
+				    DriveInfo *dinfo)
+{
+  unsigned long bdev_size;
+
+  /* Skip the flashes if no image has been given */
+  if (dinfo) {
+    /*
+     * TODO: Properly handle flash interleaving of the two Am29LV256M devices we
+     * currently register a single 32M (or 64M) device ...
+     */
+    bdev_size = bdrv_getlength(dinfo->bdrv);
+
+    if (bdev_size != 8*1024*1024 && bdev_size != 16*1024*1024 &&
+	bdev_size != 32*1024*1024 && bdev_size != 64*1024*1024) {
+      fprintf(stderr, "Invalid flash image size for '%s'\n", name);
+      exit(1);
+    }
+
+    /* Adjust to block device size */
+    flash_size = bdev_size;
+  }
+
+  pflash_cfi02_register(addr, NULL, name, flash_size,
+                        dinfo? dinfo->bdrv : NULL, 0x10000,
+                        (flash_size + 0xFFFF) >> 16, 1, 4,
+                        0x0090, 0x227E, 0x2212, 0x2201,
+                        0x555, 0x2AA, 0);
+}
 
 static void vexpress_a9_init(ram_addr_t ram_size,
                      const char *boot_device,
@@ -156,6 +190,9 @@ static void vexpress_a9_init(ram_addr_t ram_size,
     sysbus_create_simple("pl031", 0x10017000, pic[4]); /* RTC */
 
     /* 0x1001a000 Compact Flash */
+    mmio_ide_init(0x1001a000, 0x1001a100, sysmem, NULL, 2,
+                  drive_get(IF_IDE, 0, 0),
+                  drive_get(IF_IDE, 0, 1));
 
     /* 0x1001f000 PL111 CLCD (motherboard) */
 
@@ -179,7 +216,11 @@ static void vexpress_a9_init(ram_addr_t ram_size,
     /* 0x1e00a000 PL310 L2 Cache Controller */
 
     /* CS0: NOR0 flash          : 0x40000000 .. 0x44000000 */
+    vexpress_register_flash(0x40000000, "vexpress.nor0", 0x04000000, drive_get(IF_PFLASH, 0, 0));
+
     /* CS4: NOR1 flash          : 0x44000000 .. 0x48000000 */
+    vexpress_register_flash(0x44000000, "vexpress.nor1", 0x04000000, drive_get(IF_PFLASH, 0, 1));
+
     /* CS2: SRAM                : 0x48000000 .. 0x4a000000 */
     sram_size = 0x2000000;
     memory_region_init_ram(sram, "vexpress.sram", sram_size);
