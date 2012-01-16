@@ -61,6 +61,9 @@ typedef struct DisasContext {
     int thumb;
 #if !defined(CONFIG_USER_ONLY)
     int user;
+    /* TrustZone security status and active MMU mode */
+    int secure;
+    int mmu;
 #endif
     int vfp_enabled;
     int vec_len;
@@ -69,10 +72,20 @@ typedef struct DisasContext {
 
 static uint32_t gen_opc_condexec_bits[OPC_BUF_SIZE];
 
+
+/* TrustZone emulation */
+#define IS_SECURE(s)        (s->secure)
+#define KERNEL_MMU_INDEX(s) (s->secure? MMU_KERNEL_IDX : MMU_NS_KERNEL_IDX)
+#define USER_MMU_INDEX(s)   (s->secure? MMU_USER_IDX   : MMU_NS_USER_IDX)
+
 #if defined(CONFIG_USER_ONLY)
-#define IS_USER(s) 1
+/* User-mode only */
+#define IS_USER(s)   1
+#define MMU_INDEX(s) 1
 #else
-#define IS_USER(s) (s->user)
+/* System emulation */
+#define IS_USER(s)   (s->user)
+#define MMU_INDEX(s) (s->mmu)
 #endif
 
 /* These instructions trap after executing, so defer them until after the
@@ -102,6 +115,13 @@ static TCGv_i64 cpu_F0d, cpu_F1d;
 static const char *regnames[] =
     { "r0", "r1", "r2", "r3", "r4", "r5", "r6", "r7",
       "r8", "r9", "r10", "r11", "r12", "r13", "r14", "pc" };
+
+static const char *const mmu_mode_names[NB_MMU_MODES] = {
+    "secure/kernel",
+    "secure/user",
+    "normal/kernel",
+    "normal/user"
+};
 
 /* initialize TCG globals.  */
 void arm_translate_init(void)
@@ -1065,17 +1085,17 @@ VFP_GEN_FIX(ulto)
 static inline void gen_vfp_ld(DisasContext *s, int dp, TCGv addr)
 {
     if (dp)
-        tcg_gen_qemu_ld64(cpu_F0d, addr, IS_USER(s));
+        tcg_gen_qemu_ld64(cpu_F0d, addr, MMU_INDEX(s));
     else
-        tcg_gen_qemu_ld32u(cpu_F0s, addr, IS_USER(s));
+        tcg_gen_qemu_ld32u(cpu_F0s, addr, MMU_INDEX(s));
 }
 
 static inline void gen_vfp_st(DisasContext *s, int dp, TCGv addr)
 {
     if (dp)
-        tcg_gen_qemu_st64(cpu_F0d, addr, IS_USER(s));
+        tcg_gen_qemu_st64(cpu_F0d, addr, MMU_INDEX(s));
     else
-        tcg_gen_qemu_st32(cpu_F0s, addr, IS_USER(s));
+        tcg_gen_qemu_st32(cpu_F0s, addr, MMU_INDEX(s));
 }
 
 static inline long
@@ -1411,22 +1431,22 @@ static int disas_iwmmxt_insn(CPUState *env, DisasContext *s, uint32_t insn)
         if (insn & ARM_CP_RW_BIT) {
             if ((insn >> 28) == 0xf) {			/* WLDRW wCx */
                 tmp = tcg_temp_new_i32();
-                tcg_gen_qemu_ld32u(tmp, addr, IS_USER(s));
+                tcg_gen_qemu_ld32u(tmp, addr, MMU_INDEX(s));
                 iwmmxt_store_creg(wrd, tmp);
             } else {
                 i = 1;
                 if (insn & (1 << 8)) {
                     if (insn & (1 << 22)) {		/* WLDRD */
-                        tcg_gen_qemu_ld64(cpu_M0, addr, IS_USER(s));
+                        tcg_gen_qemu_ld64(cpu_M0, addr, MMU_INDEX(s));
                         i = 0;
                     } else {				/* WLDRW wRd */
-                        tmp = gen_ld32(addr, IS_USER(s));
+                        tmp = gen_ld32(addr, MMU_INDEX(s));
                     }
                 } else {
                     if (insn & (1 << 22)) {		/* WLDRH */
-                        tmp = gen_ld16u(addr, IS_USER(s));
+                        tmp = gen_ld16u(addr, MMU_INDEX(s));
                     } else {				/* WLDRB */
-                        tmp = gen_ld8u(addr, IS_USER(s));
+                        tmp = gen_ld8u(addr, MMU_INDEX(s));
                     }
                 }
                 if (i) {
@@ -1438,25 +1458,25 @@ static int disas_iwmmxt_insn(CPUState *env, DisasContext *s, uint32_t insn)
         } else {
             if ((insn >> 28) == 0xf) {			/* WSTRW wCx */
                 tmp = iwmmxt_load_creg(wrd);
-                gen_st32(tmp, addr, IS_USER(s));
+                gen_st32(tmp, addr, MMU_INDEX(s));
             } else {
                 gen_op_iwmmxt_movq_M0_wRn(wrd);
                 tmp = tcg_temp_new_i32();
                 if (insn & (1 << 8)) {
                     if (insn & (1 << 22)) {		/* WSTRD */
                         tcg_temp_free_i32(tmp);
-                        tcg_gen_qemu_st64(cpu_M0, addr, IS_USER(s));
+                        tcg_gen_qemu_st64(cpu_M0, addr, MMU_INDEX(s));
                     } else {				/* WSTRW wRd */
                         tcg_gen_trunc_i64_i32(tmp, cpu_M0);
-                        gen_st32(tmp, addr, IS_USER(s));
+                        gen_st32(tmp, addr, MMU_INDEX(s));
                     }
                 } else {
                     if (insn & (1 << 22)) {		/* WSTRH */
                         tcg_gen_trunc_i64_i32(tmp, cpu_M0);
-                        gen_st16(tmp, addr, IS_USER(s));
+                        gen_st16(tmp, addr, MMU_INDEX(s));
                     } else {				/* WSTRB */
                         tcg_gen_trunc_i64_i32(tmp, cpu_M0);
-                        gen_st8(tmp, addr, IS_USER(s));
+                        gen_st8(tmp, addr, MMU_INDEX(s));
                     }
                 }
             }
@@ -2737,15 +2757,15 @@ static TCGv gen_load_and_replicate(DisasContext *s, TCGv addr, int size)
     TCGv tmp;
     switch (size) {
     case 0:
-        tmp = gen_ld8u(addr, IS_USER(s));
+        tmp = gen_ld8u(addr, MMU_INDEX(s));
         gen_neon_dup_u8(tmp, 0);
         break;
     case 1:
-        tmp = gen_ld16u(addr, IS_USER(s));
+        tmp = gen_ld16u(addr, MMU_INDEX(s));
         gen_neon_dup_low16(tmp);
         break;
     case 2:
-        tmp = gen_ld32(addr, IS_USER(s));
+        tmp = gen_ld32(addr, MMU_INDEX(s));
         break;
     default: /* Avoid compiler warnings.  */
         abort();
@@ -4018,31 +4038,31 @@ static int disas_neon_ls_insn(CPUState * env, DisasContext *s, uint32_t insn)
             }
             if (size == 3) {
                 if (load) {
-                    tmp64 = gen_ld64(addr, IS_USER(s));
+                    tmp64 = gen_ld64(addr, MMU_INDEX(s));
                     neon_store_reg64(tmp64, rd);
                     tcg_temp_free_i64(tmp64);
                 } else {
                     tmp64 = tcg_temp_new_i64();
                     neon_load_reg64(tmp64, rd);
-                    gen_st64(tmp64, addr, IS_USER(s));
+                    gen_st64(tmp64, addr, MMU_INDEX(s));
                 }
                 tcg_gen_addi_i32(addr, addr, stride);
             } else {
                 for (pass = 0; pass < 2; pass++) {
                     if (size == 2) {
                         if (load) {
-                            tmp = gen_ld32(addr, IS_USER(s));
+                            tmp = gen_ld32(addr, MMU_INDEX(s));
                             neon_store_reg(rd, pass, tmp);
                         } else {
                             tmp = neon_load_reg(rd, pass);
-                            gen_st32(tmp, addr, IS_USER(s));
+                            gen_st32(tmp, addr, MMU_INDEX(s));
                         }
                         tcg_gen_addi_i32(addr, addr, stride);
                     } else if (size == 1) {
                         if (load) {
-                            tmp = gen_ld16u(addr, IS_USER(s));
+                            tmp = gen_ld16u(addr, MMU_INDEX(s));
                             tcg_gen_addi_i32(addr, addr, stride);
-                            tmp2 = gen_ld16u(addr, IS_USER(s));
+                            tmp2 = gen_ld16u(addr, MMU_INDEX(s));
                             tcg_gen_addi_i32(addr, addr, stride);
                             tcg_gen_shli_i32(tmp2, tmp2, 16);
                             tcg_gen_or_i32(tmp, tmp, tmp2);
@@ -4052,16 +4072,16 @@ static int disas_neon_ls_insn(CPUState * env, DisasContext *s, uint32_t insn)
                             tmp = neon_load_reg(rd, pass);
                             tmp2 = tcg_temp_new_i32();
                             tcg_gen_shri_i32(tmp2, tmp, 16);
-                            gen_st16(tmp, addr, IS_USER(s));
+                            gen_st16(tmp, addr, MMU_INDEX(s));
                             tcg_gen_addi_i32(addr, addr, stride);
-                            gen_st16(tmp2, addr, IS_USER(s));
+                            gen_st16(tmp2, addr, MMU_INDEX(s));
                             tcg_gen_addi_i32(addr, addr, stride);
                         }
                     } else /* size == 0 */ {
                         if (load) {
                             TCGV_UNUSED(tmp2);
                             for (n = 0; n < 4; n++) {
-                                tmp = gen_ld8u(addr, IS_USER(s));
+                                tmp = gen_ld8u(addr, MMU_INDEX(s));
                                 tcg_gen_addi_i32(addr, addr, stride);
                                 if (n == 0) {
                                     tmp2 = tmp;
@@ -4081,7 +4101,7 @@ static int disas_neon_ls_insn(CPUState * env, DisasContext *s, uint32_t insn)
                                 } else {
                                     tcg_gen_shri_i32(tmp, tmp2, n * 8);
                                 }
-                                gen_st8(tmp, addr, IS_USER(s));
+                                gen_st8(tmp, addr, MMU_INDEX(s));
                                 tcg_gen_addi_i32(addr, addr, stride);
                             }
                             tcg_temp_free_i32(tmp2);
@@ -4203,13 +4223,13 @@ static int disas_neon_ls_insn(CPUState * env, DisasContext *s, uint32_t insn)
                 if (load) {
                     switch (size) {
                     case 0:
-                        tmp = gen_ld8u(addr, IS_USER(s));
+                        tmp = gen_ld8u(addr, MMU_INDEX(s));
                         break;
                     case 1:
-                        tmp = gen_ld16u(addr, IS_USER(s));
+                        tmp = gen_ld16u(addr, MMU_INDEX(s));
                         break;
                     case 2:
-                        tmp = gen_ld32(addr, IS_USER(s));
+                        tmp = gen_ld32(addr, MMU_INDEX(s));
                         break;
                     default: /* Avoid compiler warnings.  */
                         abort();
@@ -4226,13 +4246,13 @@ static int disas_neon_ls_insn(CPUState * env, DisasContext *s, uint32_t insn)
                         tcg_gen_shri_i32(tmp, tmp, shift);
                     switch (size) {
                     case 0:
-                        gen_st8(tmp, addr, IS_USER(s));
+                        gen_st8(tmp, addr, MMU_INDEX(s));
                         break;
                     case 1:
-                        gen_st16(tmp, addr, IS_USER(s));
+                        gen_st16(tmp, addr, MMU_INDEX(s));
                         break;
                     case 2:
-                        gen_st32(tmp, addr, IS_USER(s));
+                        gen_st32(tmp, addr, MMU_INDEX(s));
                         break;
                     }
                 }
@@ -6595,14 +6615,14 @@ static void gen_load_exclusive(DisasContext *s, int rt, int rt2,
 
     switch (size) {
     case 0:
-        tmp = gen_ld8u(addr, IS_USER(s));
+        tmp = gen_ld8u(addr, MMU_INDEX(s));
         break;
     case 1:
-        tmp = gen_ld16u(addr, IS_USER(s));
+        tmp = gen_ld16u(addr, MMU_INDEX(s));
         break;
     case 2:
     case 3:
-        tmp = gen_ld32(addr, IS_USER(s));
+        tmp = gen_ld32(addr, MMU_INDEX(s));
         break;
     default:
         abort();
@@ -6612,7 +6632,7 @@ static void gen_load_exclusive(DisasContext *s, int rt, int rt2,
     if (size == 3) {
         TCGv tmp2 = tcg_temp_new_i32();
         tcg_gen_addi_i32(tmp2, addr, 4);
-        tmp = gen_ld32(tmp2, IS_USER(s));
+        tmp = gen_ld32(tmp2, MMU_INDEX(s));
         tcg_temp_free_i32(tmp2);
         tcg_gen_mov_i32(cpu_exclusive_high, tmp);
         store_reg(s, rt2, tmp);
@@ -6653,14 +6673,14 @@ static void gen_store_exclusive(DisasContext *s, int rd, int rt, int rt2,
     tcg_gen_brcond_i32(TCG_COND_NE, addr, cpu_exclusive_addr, fail_label);
     switch (size) {
     case 0:
-        tmp = gen_ld8u(addr, IS_USER(s));
+        tmp = gen_ld8u(addr, MMU_INDEX(s));
         break;
     case 1:
-        tmp = gen_ld16u(addr, IS_USER(s));
+        tmp = gen_ld16u(addr, MMU_INDEX(s));
         break;
     case 2:
     case 3:
-        tmp = gen_ld32(addr, IS_USER(s));
+        tmp = gen_ld32(addr, MMU_INDEX(s));
         break;
     default:
         abort();
@@ -6670,7 +6690,7 @@ static void gen_store_exclusive(DisasContext *s, int rd, int rt, int rt2,
     if (size == 3) {
         TCGv tmp2 = tcg_temp_new_i32();
         tcg_gen_addi_i32(tmp2, addr, 4);
-        tmp = gen_ld32(tmp2, IS_USER(s));
+        tmp = gen_ld32(tmp2, MMU_INDEX(s));
         tcg_temp_free_i32(tmp2);
         tcg_gen_brcond_i32(TCG_COND_NE, tmp, cpu_exclusive_high, fail_label);
         tcg_temp_free_i32(tmp);
@@ -6678,14 +6698,14 @@ static void gen_store_exclusive(DisasContext *s, int rd, int rt, int rt2,
     tmp = load_reg(s, rt);
     switch (size) {
     case 0:
-        gen_st8(tmp, addr, IS_USER(s));
+        gen_st8(tmp, addr, MMU_INDEX(s));
         break;
     case 1:
-        gen_st16(tmp, addr, IS_USER(s));
+        gen_st16(tmp, addr, MMU_INDEX(s));
         break;
     case 2:
     case 3:
-        gen_st32(tmp, addr, IS_USER(s));
+        gen_st32(tmp, addr, MMU_INDEX(s));
         break;
     default:
         abort();
@@ -6693,7 +6713,7 @@ static void gen_store_exclusive(DisasContext *s, int rd, int rt, int rt2,
     if (size == 3) {
         tcg_gen_addi_i32(addr, addr, 4);
         tmp = load_reg(s, rt2);
-        gen_st32(tmp, addr, IS_USER(s));
+        gen_st32(tmp, addr, MMU_INDEX(s));
     }
     tcg_gen_movi_i32(cpu_R[rd], 0);
     tcg_gen_br(done_label);
@@ -6816,10 +6836,10 @@ static void disas_arm_insn(CPUState * env, DisasContext *s)
             if (offset)
                 tcg_gen_addi_i32(addr, addr, offset);
             tmp = load_reg(s, 14);
-            gen_st32(tmp, addr, 0);
+            gen_st32(tmp, addr, KERNEL_MMU_INDEX(s));
             tmp = load_cpu_field(spsr);
             tcg_gen_addi_i32(addr, addr, 4);
-            gen_st32(tmp, addr, 0);
+            gen_st32(tmp, addr, KERNEL_MMU_INDEX(s));
             if (insn & (1 << 21)) {
                 /* Base writeback.  */
                 switch (i) {
@@ -6858,9 +6878,9 @@ static void disas_arm_insn(CPUState * env, DisasContext *s)
             if (offset)
                 tcg_gen_addi_i32(addr, addr, offset);
             /* Load PC into tmp and CPSR into tmp2.  */
-            tmp = gen_ld32(addr, 0);
+            tmp = gen_ld32(addr, KERNEL_MMU_INDEX(s));
             tcg_gen_addi_i32(addr, addr, 4);
-            tmp2 = gen_ld32(addr, 0);
+            tmp2 = gen_ld32(addr, KERNEL_MMU_INDEX(s));
             if (insn & (1 << 21)) {
                 /* Base writeback.  */
                 switch (i) {
@@ -7441,11 +7461,11 @@ static void disas_arm_insn(CPUState * env, DisasContext *s)
                         addr = load_reg(s, rn);
                         tmp = load_reg(s, rm);
                         if (insn & (1 << 22)) {
-                            tmp2 = gen_ld8u(addr, IS_USER(s));
-                            gen_st8(tmp, addr, IS_USER(s));
+                            tmp2 = gen_ld8u(addr, MMU_INDEX(s));
+                            gen_st8(tmp, addr, MMU_INDEX(s));
                         } else {
-                            tmp2 = gen_ld32(addr, IS_USER(s));
-                            gen_st32(tmp, addr, IS_USER(s));
+                            tmp2 = gen_ld32(addr, MMU_INDEX(s));
+                            gen_st32(tmp, addr, MMU_INDEX(s));
                         }
                         tcg_temp_free_i32(addr);
                         store_reg(s, rd, tmp2);
@@ -7465,14 +7485,14 @@ static void disas_arm_insn(CPUState * env, DisasContext *s)
                     /* load */
                     switch(sh) {
                     case 1:
-                        tmp = gen_ld16u(addr, IS_USER(s));
+                        tmp = gen_ld16u(addr, MMU_INDEX(s));
                         break;
                     case 2:
-                        tmp = gen_ld8s(addr, IS_USER(s));
+                        tmp = gen_ld8s(addr, MMU_INDEX(s));
                         break;
                     default:
                     case 3:
-                        tmp = gen_ld16s(addr, IS_USER(s));
+                        tmp = gen_ld16s(addr, MMU_INDEX(s));
                         break;
                     }
                     load = 1;
@@ -7482,17 +7502,17 @@ static void disas_arm_insn(CPUState * env, DisasContext *s)
                     if (sh & 1) {
                         /* store */
                         tmp = load_reg(s, rd);
-                        gen_st32(tmp, addr, IS_USER(s));
+                        gen_st32(tmp, addr, MMU_INDEX(s));
                         tcg_gen_addi_i32(addr, addr, 4);
                         tmp = load_reg(s, rd + 1);
-                        gen_st32(tmp, addr, IS_USER(s));
+                        gen_st32(tmp, addr, MMU_INDEX(s));
                         load = 0;
                     } else {
                         /* load */
-                        tmp = gen_ld32(addr, IS_USER(s));
+                        tmp = gen_ld32(addr, MMU_INDEX(s));
                         store_reg(s, rd, tmp);
                         tcg_gen_addi_i32(addr, addr, 4);
-                        tmp = gen_ld32(addr, IS_USER(s));
+                        tmp = gen_ld32(addr, MMU_INDEX(s));
                         rd++;
                         load = 1;
                     }
@@ -7500,7 +7520,7 @@ static void disas_arm_insn(CPUState * env, DisasContext *s)
                 } else {
                     /* store */
                     tmp = load_reg(s, rd);
-                    gen_st16(tmp, addr, IS_USER(s));
+                    gen_st16(tmp, addr, MMU_INDEX(s));
                     load = 0;
                 }
                 /* Perform base writeback before the loaded value to
@@ -7825,7 +7845,8 @@ static void disas_arm_insn(CPUState * env, DisasContext *s)
             rn = (insn >> 16) & 0xf;
             rd = (insn >> 12) & 0xf;
             tmp2 = load_reg(s, rn);
-            i = (IS_USER(s) || (insn & 0x01200000) == 0x00200000);
+            i = (IS_USER(s) || (insn & 0x01200000) == 0x00200000)?
+              USER_MMU_INDEX(s) : KERNEL_MMU_INDEX(s);
             if (insn & (1 << 24))
                 gen_add_data_offset(s, insn, tmp2);
             if (insn & (1 << 20)) {
@@ -7905,7 +7926,7 @@ static void disas_arm_insn(CPUState * env, DisasContext *s)
                     if (insn & (1 << i)) {
                         if (insn & (1 << 20)) {
                             /* load */
-                            tmp = gen_ld32(addr, IS_USER(s));
+                            tmp = gen_ld32(addr, MMU_INDEX(s));
                             if (user) {
                                 tmp2 = tcg_const_i32(i);
                                 gen_helper_set_user_reg(tmp2, tmp);
@@ -7932,7 +7953,7 @@ static void disas_arm_insn(CPUState * env, DisasContext *s)
                             } else {
                                 tmp = load_reg(s, i);
                             }
-                            gen_st32(tmp, addr, IS_USER(s));
+                            gen_st32(tmp, addr, MMU_INDEX(s));
                         }
                         j++;
                         /* no need to add after the last transfer */
@@ -8187,18 +8208,18 @@ static int disas_thumb2_insn(CPUState *env, DisasContext *s, uint16_t insn_hw1)
                 }
                 if (insn & (1 << 20)) {
                     /* ldrd */
-                    tmp = gen_ld32(addr, IS_USER(s));
+                    tmp = gen_ld32(addr, MMU_INDEX(s));
                     store_reg(s, rs, tmp);
                     tcg_gen_addi_i32(addr, addr, 4);
-                    tmp = gen_ld32(addr, IS_USER(s));
+                    tmp = gen_ld32(addr, MMU_INDEX(s));
                     store_reg(s, rd, tmp);
                 } else {
                     /* strd */
                     tmp = load_reg(s, rs);
-                    gen_st32(tmp, addr, IS_USER(s));
+                    gen_st32(tmp, addr, MMU_INDEX(s));
                     tcg_gen_addi_i32(addr, addr, 4);
                     tmp = load_reg(s, rd);
-                    gen_st32(tmp, addr, IS_USER(s));
+                    gen_st32(tmp, addr, MMU_INDEX(s));
                 }
                 if (insn & (1 << 21)) {
                     /* Base writeback.  */
@@ -8234,10 +8255,10 @@ static int disas_thumb2_insn(CPUState *env, DisasContext *s, uint16_t insn_hw1)
                     /* tbh */
                     tcg_gen_add_i32(addr, addr, tmp);
                     tcg_temp_free_i32(tmp);
-                    tmp = gen_ld16u(addr, IS_USER(s));
+                    tmp = gen_ld16u(addr, MMU_INDEX(s));
                 } else { /* tbb */
                     tcg_temp_free_i32(tmp);
-                    tmp = gen_ld8u(addr, IS_USER(s));
+                    tmp = gen_ld8u(addr, MMU_INDEX(s));
                 }
                 tcg_temp_free_i32(addr);
                 tcg_gen_shli_i32(tmp, tmp, 1);
@@ -8271,9 +8292,9 @@ static int disas_thumb2_insn(CPUState *env, DisasContext *s, uint16_t insn_hw1)
                     if ((insn & (1 << 24)) == 0)
                         tcg_gen_addi_i32(addr, addr, -8);
                     /* Load PC into tmp and CPSR into tmp2.  */
-                    tmp = gen_ld32(addr, 0);
+                    tmp = gen_ld32(addr, KERNEL_MMU_INDEX(s));
                     tcg_gen_addi_i32(addr, addr, 4);
-                    tmp2 = gen_ld32(addr, 0);
+                    tmp2 = gen_ld32(addr, KERNEL_MMU_INDEX(s));
                     if (insn & (1 << 21)) {
                         /* Base writeback.  */
                         if (insn & (1 << 24)) {
@@ -8297,11 +8318,11 @@ static int disas_thumb2_insn(CPUState *env, DisasContext *s, uint16_t insn_hw1)
                         tcg_gen_addi_i32(addr, addr, -8);
                     }
                     tmp = load_reg(s, 14);
-                    gen_st32(tmp, addr, 0);
+                    gen_st32(tmp, addr, KERNEL_MMU_INDEX(s));
                     tcg_gen_addi_i32(addr, addr, 4);
                     tmp = tcg_temp_new_i32();
                     gen_helper_cpsr_read(tmp);
-                    gen_st32(tmp, addr, 0);
+                    gen_st32(tmp, addr, KERNEL_MMU_INDEX(s));
                     if (insn & (1 << 21)) {
                         if ((insn & (1 << 24)) == 0) {
                             tcg_gen_addi_i32(addr, addr, -4);
@@ -8335,7 +8356,7 @@ static int disas_thumb2_insn(CPUState *env, DisasContext *s, uint16_t insn_hw1)
                         continue;
                     if (insn & (1 << 20)) {
                         /* Load.  */
-                        tmp = gen_ld32(addr, IS_USER(s));
+                        tmp = gen_ld32(addr, MMU_INDEX(s));
                         if (i == 15) {
                             gen_bx(s, tmp);
                         } else if (i == rn) {
@@ -8347,7 +8368,7 @@ static int disas_thumb2_insn(CPUState *env, DisasContext *s, uint16_t insn_hw1)
                     } else {
                         /* Store.  */
                         tmp = load_reg(s, i);
-                        gen_st32(tmp, addr, IS_USER(s));
+                        gen_st32(tmp, addr, MMU_INDEX(s));
                     }
                     tcg_gen_addi_i32(addr, addr, 4);
                 }
@@ -9018,6 +9039,7 @@ static int disas_thumb2_insn(CPUState *env, DisasContext *s, uint16_t insn_hw1)
         int postinc = 0;
         int writeback = 0;
         int user;
+        int mmu;
         if ((insn & 0x01100000) == 0x01000000) {
             if (disas_neon_ls_insn(env, s, insn))
                 goto illegal_op;
@@ -9062,6 +9084,7 @@ static int disas_thumb2_insn(CPUState *env, DisasContext *s, uint16_t insn_hw1)
             }
         }
         user = IS_USER(s);
+        mmu = MMU_INDEX(s);
         if (rn == 15) {
             addr = tcg_temp_new_i32();
             /* PC relative.  */
@@ -9123,11 +9146,11 @@ static int disas_thumb2_insn(CPUState *env, DisasContext *s, uint16_t insn_hw1)
         if (insn & (1 << 20)) {
             /* Load.  */
             switch (op) {
-            case 0: tmp = gen_ld8u(addr, user); break;
-            case 4: tmp = gen_ld8s(addr, user); break;
-            case 1: tmp = gen_ld16u(addr, user); break;
-            case 5: tmp = gen_ld16s(addr, user); break;
-            case 2: tmp = gen_ld32(addr, user); break;
+            case 0: tmp = gen_ld8u(addr, mmu); break;
+            case 4: tmp = gen_ld8s(addr, mmu); break;
+            case 1: tmp = gen_ld16u(addr, mmu); break;
+            case 5: tmp = gen_ld16s(addr, mmu); break;
+            case 2: tmp = gen_ld32(addr, mmu); break;
             default:
                 tcg_temp_free_i32(addr);
                 goto illegal_op;
@@ -9141,9 +9164,9 @@ static int disas_thumb2_insn(CPUState *env, DisasContext *s, uint16_t insn_hw1)
             /* Store.  */
             tmp = load_reg(s, rs);
             switch (op) {
-            case 0: gen_st8(tmp, addr, user); break;
-            case 1: gen_st16(tmp, addr, user); break;
-            case 2: gen_st32(tmp, addr, user); break;
+            case 0: gen_st8(tmp, addr, mmu); break;
+            case 1: gen_st16(tmp, addr, mmu); break;
+            case 2: gen_st32(tmp, addr, mmu); break;
             default:
                 tcg_temp_free_i32(addr);
                 goto illegal_op;
@@ -9276,7 +9299,7 @@ static void disas_thumb_insn(CPUState *env, DisasContext *s)
             val &= ~(uint32_t)2;
             addr = tcg_temp_new_i32();
             tcg_gen_movi_i32(addr, val);
-            tmp = gen_ld32(addr, IS_USER(s));
+            tmp = gen_ld32(addr, MMU_INDEX(s));
             tcg_temp_free_i32(addr);
             store_reg(s, rd, tmp);
             break;
@@ -9474,28 +9497,28 @@ static void disas_thumb_insn(CPUState *env, DisasContext *s)
 
         switch (op) {
         case 0: /* str */
-            gen_st32(tmp, addr, IS_USER(s));
+            gen_st32(tmp, addr, MMU_INDEX(s));
             break;
         case 1: /* strh */
-            gen_st16(tmp, addr, IS_USER(s));
+            gen_st16(tmp, addr, MMU_INDEX(s));
             break;
         case 2: /* strb */
-            gen_st8(tmp, addr, IS_USER(s));
+            gen_st8(tmp, addr, MMU_INDEX(s));
             break;
         case 3: /* ldrsb */
-            tmp = gen_ld8s(addr, IS_USER(s));
+            tmp = gen_ld8s(addr, MMU_INDEX(s));
             break;
         case 4: /* ldr */
-            tmp = gen_ld32(addr, IS_USER(s));
+            tmp = gen_ld32(addr, MMU_INDEX(s));
             break;
         case 5: /* ldrh */
-            tmp = gen_ld16u(addr, IS_USER(s));
+            tmp = gen_ld16u(addr, MMU_INDEX(s));
             break;
         case 6: /* ldrb */
-            tmp = gen_ld8u(addr, IS_USER(s));
+            tmp = gen_ld8u(addr, MMU_INDEX(s));
             break;
         case 7: /* ldrsh */
-            tmp = gen_ld16s(addr, IS_USER(s));
+            tmp = gen_ld16s(addr, MMU_INDEX(s));
             break;
         }
         if (op >= 3) /* load */
@@ -9513,12 +9536,12 @@ static void disas_thumb_insn(CPUState *env, DisasContext *s)
 
         if (insn & (1 << 11)) {
             /* load */
-            tmp = gen_ld32(addr, IS_USER(s));
+            tmp = gen_ld32(addr, MMU_INDEX(s));
             store_reg(s, rd, tmp);
         } else {
             /* store */
             tmp = load_reg(s, rd);
-            gen_st32(tmp, addr, IS_USER(s));
+            gen_st32(tmp, addr, MMU_INDEX(s));
         }
         tcg_temp_free_i32(addr);
         break;
@@ -9533,12 +9556,12 @@ static void disas_thumb_insn(CPUState *env, DisasContext *s)
 
         if (insn & (1 << 11)) {
             /* load */
-            tmp = gen_ld8u(addr, IS_USER(s));
+            tmp = gen_ld8u(addr, MMU_INDEX(s));
             store_reg(s, rd, tmp);
         } else {
             /* store */
             tmp = load_reg(s, rd);
-            gen_st8(tmp, addr, IS_USER(s));
+            gen_st8(tmp, addr, MMU_INDEX(s));
         }
         tcg_temp_free_i32(addr);
         break;
@@ -9553,12 +9576,12 @@ static void disas_thumb_insn(CPUState *env, DisasContext *s)
 
         if (insn & (1 << 11)) {
             /* load */
-            tmp = gen_ld16u(addr, IS_USER(s));
+            tmp = gen_ld16u(addr, MMU_INDEX(s));
             store_reg(s, rd, tmp);
         } else {
             /* store */
             tmp = load_reg(s, rd);
-            gen_st16(tmp, addr, IS_USER(s));
+            gen_st16(tmp, addr, MMU_INDEX(s));
         }
         tcg_temp_free_i32(addr);
         break;
@@ -9572,12 +9595,12 @@ static void disas_thumb_insn(CPUState *env, DisasContext *s)
 
         if (insn & (1 << 11)) {
             /* load */
-            tmp = gen_ld32(addr, IS_USER(s));
+            tmp = gen_ld32(addr, MMU_INDEX(s));
             store_reg(s, rd, tmp);
         } else {
             /* store */
             tmp = load_reg(s, rd);
-            gen_st32(tmp, addr, IS_USER(s));
+            gen_st32(tmp, addr, MMU_INDEX(s));
         }
         tcg_temp_free_i32(addr);
         break;
@@ -9643,12 +9666,12 @@ static void disas_thumb_insn(CPUState *env, DisasContext *s)
                 if (insn & (1 << i)) {
                     if (insn & (1 << 11)) {
                         /* pop */
-                        tmp = gen_ld32(addr, IS_USER(s));
+                        tmp = gen_ld32(addr, MMU_INDEX(s));
                         store_reg(s, i, tmp);
                     } else {
                         /* push */
                         tmp = load_reg(s, i);
-                        gen_st32(tmp, addr, IS_USER(s));
+                        gen_st32(tmp, addr, MMU_INDEX(s));
                     }
                     /* advance to the next address.  */
                     tcg_gen_addi_i32(addr, addr, 4);
@@ -9658,13 +9681,13 @@ static void disas_thumb_insn(CPUState *env, DisasContext *s)
             if (insn & (1 << 8)) {
                 if (insn & (1 << 11)) {
                     /* pop pc */
-                    tmp = gen_ld32(addr, IS_USER(s));
+                    tmp = gen_ld32(addr, MMU_INDEX(s));
                     /* don't set the pc until the rest of the instruction
                        has completed */
                 } else {
                     /* push lr */
                     tmp = load_reg(s, 14);
-                    gen_st32(tmp, addr, IS_USER(s));
+                    gen_st32(tmp, addr, MMU_INDEX(s));
                 }
                 tcg_gen_addi_i32(addr, addr, 4);
             }
@@ -9770,7 +9793,7 @@ static void disas_thumb_insn(CPUState *env, DisasContext *s)
             if (insn & (1 << i)) {
                 if (insn & (1 << 11)) {
                     /* load */
-                    tmp = gen_ld32(addr, IS_USER(s));
+                    tmp = gen_ld32(addr, MMU_INDEX(s));
                     if (i == rn) {
                         loaded_var = tmp;
                     } else {
@@ -9779,7 +9802,7 @@ static void disas_thumb_insn(CPUState *env, DisasContext *s)
                 } else {
                     /* store */
                     tmp = load_reg(s, i);
-                    gen_st32(tmp, addr, IS_USER(s));
+                    gen_st32(tmp, addr, MMU_INDEX(s));
                 }
                 /* advance to the next address */
                 tcg_gen_addi_i32(addr, addr, 4);
@@ -9880,6 +9903,8 @@ static inline void gen_intermediate_code_internal(CPUState *env,
     dc->condexec_cond = ARM_TBFLAG_CONDEXEC(tb->flags) >> 4;
 #if !defined(CONFIG_USER_ONLY)
     dc->user = (ARM_TBFLAG_PRIV(tb->flags) == 0);
+    dc->secure = arm_is_secure(env, 1);
+    dc->mmu = cpu_mmu_index(env);
 #endif
     dc->vfp_enabled = ARM_TBFLAG_VFPEN(tb->flags);
     dc->vec_len = ARM_TBFLAG_VECLEN(tb->flags);
@@ -10116,6 +10141,7 @@ done_generating:
     if (qemu_loglevel_mask(CPU_LOG_TB_IN_ASM)) {
         qemu_log("----------------\n");
         qemu_log("IN: %s\n", lookup_symbol(pc_start));
+        qemu_log("MMU: %s\n", mmu_mode_names[MMU_INDEX(dc)]);
         log_target_disas(pc_start, dc->pc - pc_start, dc->thumb);
         qemu_log("\n");
     }
@@ -10146,6 +10172,13 @@ static const char *cpu_mode_names[16] = {
   "???", "???", "???", "und", "???", "???", "???", "sys"
 };
 
+static const char *const mmu_modes_names[NB_MMU_MODES] = {
+    "secure/kernel",
+    "secure/user",
+    "normal/kernel",
+    "normal/user"
+};
+
 void cpu_dump_state(CPUState *env, FILE *f, fprintf_function cpu_fprintf,
                     int flags)
 {
@@ -10173,13 +10206,14 @@ void cpu_dump_state(CPUState *env, FILE *f, fprintf_function cpu_fprintf,
             cpu_fprintf(f, " ");
     }
     psr = cpsr_read(env);
-    cpu_fprintf(f, "PSR=%08x %c%c%c%c %c %s%d\n",
+    cpu_fprintf(f, "PSR=%08x %c%c%c%c %c %s %s%d\n",
                 psr,
                 psr & (1 << 31) ? 'N' : '-',
                 psr & (1 << 30) ? 'Z' : '-',
                 psr & (1 << 29) ? 'C' : '-',
                 psr & (1 << 28) ? 'V' : '-',
                 psr & CPSR_T ? 'T' : 'A',
+                mmu_mode_names[cpu_mmu_index(env)],
                 cpu_mode_names[psr & 0xf], (psr & 0x10) ? 32 : 26);
 
 #if 0

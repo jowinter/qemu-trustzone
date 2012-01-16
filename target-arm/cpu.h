@@ -69,7 +69,8 @@ typedef uint32_t ARMReadCPFunc(void *opaque, int cp_info,
 
 struct arm_boot_info;
 
-#define NB_MMU_MODES 2
+/* ARM emulation with security extensions (TrustZone) */
+#define NB_MMU_MODES 4
 
 /* We currently assume float and double are IEEE single and double
    precision respectively.
@@ -495,10 +496,23 @@ void cpu_arm_set_cp_io(CPUARMState *env, int cpnum,
 /* MMU modes definitions */
 #define MMU_MODE0_SUFFIX _kernel
 #define MMU_MODE1_SUFFIX _user
-#define MMU_USER_IDX 1
+#define MMU_MODE2_SUFFIX _ns_kernel
+#define MMU_MODE3_SUFFIX _ns_user
+
+#define MMU_KERNEL_IDX    0  /* Secure world kernel-space */
+#define MMU_USER_IDX      1  /* Secure world user-space   */
+#define MMU_NS_KERNEL_IDX 2  /* Normal world kernel-space */
+#define MMU_NS_USER_IDX   3  /* Normal world user-space   */
+
 static inline int cpu_mmu_index (CPUState *env)
 {
-    return (env->uncached_cpsr & CPSR_M) == ARM_CPU_MODE_USR ? 1 : 0;
+    int is_user = (env->uncached_cpsr & CPSR_M) == ARM_CPU_MODE_USR;
+
+    if (arm_is_secure(env, 1)) {
+        return is_user? MMU_USER_IDX : MMU_KERNEL_IDX;
+    } else {
+        return is_user? MMU_NS_USER_IDX : MMU_NS_KERNEL_IDX;
+    }
 }
 
 #if defined(CONFIG_USER_ONLY)
