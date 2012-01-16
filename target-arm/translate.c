@@ -139,7 +139,11 @@ static inline TCGv load_cpu_offset(int offset)
     return tmp;
 }
 
-#define load_cpu_field(name) load_cpu_offset(offsetof(CPUState, name))
+#define offsetof_cpu_field(name,type) \
+    (offsetof(CPUState, name) + type_check(type, typeof_field(CPUState, name)))
+
+#define load_cpu_field(name) \
+    load_cpu_offset(offsetof_cpu_field(name, uint32_t))
 
 static inline void store_cpu_offset(TCGv var, int offset)
 {
@@ -148,7 +152,7 @@ static inline void store_cpu_offset(TCGv var, int offset)
 }
 
 #define store_cpu_field(var, name) \
-    store_cpu_offset(var, offsetof(CPUState, name))
+    store_cpu_offset(var, offsetof_cpu_field(name, uint32_t))
 
 /* Set a variable to the value of a CPU register.  */
 static void load_reg_var(DisasContext *s, TCGv var, int reg)
