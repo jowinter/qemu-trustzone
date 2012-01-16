@@ -337,7 +337,7 @@ enum arm_cpu_mode {
   ARM_CPU_MODE_FIQ = 0x11,
   ARM_CPU_MODE_IRQ = 0x12,
   ARM_CPU_MODE_SVC = 0x13,
-  ARM_CPU_MODE_SMC = 0x16,
+  ARM_CPU_MODE_MON = 0x16,
   ARM_CPU_MODE_ABT = 0x17,
   ARM_CPU_MODE_UND = 0x1b,
   ARM_CPU_MODE_SYS = 0x1f
@@ -396,6 +396,36 @@ static inline int arm_feature(CPUARMState *env, int feature)
 
 void arm_cpu_list(FILE *f, fprintf_function cpu_fprintf);
 void arm_dump_features(CPUState *env, FILE *f, fprintf_function cpu_fprintf);
+
+/* Security extensions (TrustZone) */
+
+/* Secure Configuration Register (SCR) */
+#define SCR_NS  (1 << 0)
+#define SCR_IRQ (1 << 1)
+#define SCR_FIQ (1 << 2)
+#define SCR_EA  (1 << 3)
+#define SCR_FW  (1 << 4)
+#define SCR_AW  (1 << 5)
+#define SCR_nET (1 << 6)
+#define SCR_UNIMP_MASK 0xFFFFFFC0 /* Unimplemented bits in SCR */
+
+/**
+ * arm_is_secure(): Tests if CPU core is currently in a secure state.
+ *
+ * The core is in a secure state if at least
+ * one of the following statements is true:
+ *
+ * a.) Security extensions are _NOT_ implemented
+ * b.) Bit 0 (SCR_NS) of the secure configuration register is cleared
+ * c.) The core currently executes in secure monitor mode and
+ *     the mon_is_secure parameter is non-zero.
+ */
+static inline int arm_is_secure(CPUARMState *env, int mon_is_secure)
+{
+    return !arm_feature(env, ARM_FEATURE_TRUSTZONE) ||
+        !(env->cp15.c1_secfg & SCR_NS) ||
+        (mon_is_secure && (env->uncached_cpsr & CPSR_M) == ARM_CPU_MODE_MON);
+}
 
 /* Interface between CPU and Interrupt controller.  */
 void armv7m_nvic_set_pending(void *opaque, int irq);
