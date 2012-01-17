@@ -137,7 +137,7 @@ static void omap3_hsusb_otg_write(int access,
     else switch (addr) {
         case 0x400: /* OTG_REVISION */
         case 0x408: /* OTG_SYSSTATUS */
-            OMAP_RO_REGV(addr, value);
+            OMAP_RO_REG(addr);
             break;
         case 0x404: /* OTG_SYSCONFIG */
             TRACE("OTG_SYSCONFIG = 0x%08x", value);
@@ -161,7 +161,7 @@ static void omap3_hsusb_otg_write(int access,
             omap3_hsusb_otg_stdby_update(s);
             break;
         default:
-            OMAP_BAD_REGV(addr, value);
+            OMAP_BAD_REG(addr);
             break;
     }
 }
@@ -317,7 +317,7 @@ static void omap3_hsusb_host_write(void *opaque, target_phys_addr_t addr,
     switch (addr) {
         case 0x00: /* UHH_REVISION */
         case 0x14: /* UHH_SYSSTATUS */
-            OMAP_RO_REGV(addr, value);
+            OMAP_RO_REG(addr);
             break;
         case 0x10: /* UHH_SYSCONFIG */
             s->uhh_sysconfig = value & 0x311d;
@@ -332,7 +332,7 @@ static void omap3_hsusb_host_write(void *opaque, target_phys_addr_t addr,
             s->uhh_debug_csr = value & 0xf00ff;
             break;
         default:
-            OMAP_BAD_REGV(addr, value);
+            OMAP_BAD_REG(addr);
             break;
     }
 }
@@ -427,13 +427,13 @@ static void omap3_hsusb_tll_write(void *opaque, target_phys_addr_t addr,
     switch (addr) {
         case 0x00: /* USBTLL_REVISION */
         case 0x14: /* USBTLL_SYSSTATUS */
-            OMAP_RO_REGV(addr, value);
+            OMAP_RO_REG(addr);
             break;
         case 0x10: /* USBTLL_SYSCONFIG */
             s->tll_sysconfig = value & 0xFFFFFEE0;;
             break;
         default:
-            OMAP_BAD_REGV(addr, value);
+            OMAP_BAD_REG(addr);
             break;
     }
 }

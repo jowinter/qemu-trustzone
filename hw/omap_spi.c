@@ -568,11 +568,11 @@ static void omap_mcspi_write(void *opaque, target_phys_addr_t addr,
                 omap_mcspi_fifo_reset(s);
             }
         } else
-            OMAP_BAD_REGV(addr, value);
+            OMAP_BAD_REG(addr);
         break;
 
     default:
-        OMAP_BAD_REGV(addr, value);
+        OMAP_BAD_REG(addr);
         return;
     }
 }

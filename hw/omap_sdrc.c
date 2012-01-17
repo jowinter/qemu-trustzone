@@ -173,7 +173,7 @@ static void omap_sdrc_write(void *opaque, target_phys_addr_t addr,
     case 0x48: /* SDRC_ERR_ADDR */
     case 0x64: /* SDRC_DLLA_STATUS */
     case 0x6c: /* SDRC_DLLB_STATUS */
-        OMAP_RO_REGV(addr, value);
+        OMAP_RO_REG(addr);
         break;
 
     case 0x10: /* SDRC_SYSCONFIG */
@@ -194,7 +194,7 @@ static void omap_sdrc_write(void *opaque, target_phys_addr_t addr,
         break;
 
     case 0x4c: /* SDRC_ERR_TYPE */
-        OMAP_BAD_REGV(addr, value);
+        OMAP_BAD_REG(addr);
         break;
 
     case 0x60: /* SDRC_DLLA_CTRL */
@@ -203,7 +203,7 @@ static void omap_sdrc_write(void *opaque, target_phys_addr_t addr,
 
     case 0x68: /* SDRC_DLLB_CTRL */
         /* silently ignore */
-        /*OMAP_BAD_REGV(addr, value);*/
+        /*OMAP_BAD_REG(addr);*/
         break;
 
     case 0x70: /* SDRC_POWER_REG */
@@ -254,7 +254,7 @@ static void omap_sdrc_write(void *opaque, target_phys_addr_t addr,
                 /* SDRC_ACTIM_CTRLA_0 */
                 s->cs[0].actim_ctrla = value & 0xffffffdf;
             } else {
-                OMAP_BAD_REGV(addr + 0x30, value);
+                OMAP_BAD_REG(addr + 0x30);
             }
             break;
         case 0x20:
@@ -262,7 +262,7 @@ static void omap_sdrc_write(void *opaque, target_phys_addr_t addr,
                 /* SDRC_ACTIM_CTRLB_0 */
                 s->cs[0].actim_ctrlb = value & 0x000377ff;
             } else {
-                OMAP_BAD_REGV(addr + 0x30, value);
+                OMAP_BAD_REG(addr + 0x30);
             }
             break;
         case 0x24: /* SDRC_RFR_CTRL_x */
@@ -272,13 +272,13 @@ static void omap_sdrc_write(void *opaque, target_phys_addr_t addr,
             s->cs[cs].manual = value & 0xffff000f;
             break;
         default:
-            OMAP_BAD_REGV(addr + cs * 0x30, value);
+            OMAP_BAD_REG(addr + cs * 0x30);
             break;
         }
         break;
 
     default:
-        OMAP_BAD_REGV(addr, value);
+        OMAP_BAD_REG(addr);
         break;
     }
 }
