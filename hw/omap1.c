@@ -1425,22 +1425,6 @@ static struct dpll_ctl_s  *omap_dpll_init(MemoryRegion *memory,
 }
 
 /* MPU Clock/Reset/Power Mode Control */
-struct omap_clkm_s {
-    int cold_start;
-    int clocking_scheme;
-    uint16_t arm_ckctl;
-    uint16_t arm_idlect1;
-    uint16_t arm_idlect2;
-    uint16_t arm_ewupct;
-    uint16_t arm_rstct1;
-    uint16_t arm_rstct2;
-    uint16_t arm_ckout1;
-    int dpll1_mode;
-    uint16_t dsp_idlect1;
-    uint16_t dsp_idlect2;
-    uint16_t dsp_rstct2;
-};
-
 static uint64_t omap_clkm_read(void *opaque, target_phys_addr_t addr,
                                unsigned size)
 {
@@ -1452,28 +1436,28 @@ static uint64_t omap_clkm_read(void *opaque, target_phys_addr_t addr,
 
     switch (addr) {
     case 0x00:	/* ARM_CKCTL */
-        return s->clkm->arm_ckctl;
+        return s->clkm.arm_ckctl;
 
     case 0x04:	/* ARM_IDLECT1 */
-        return s->clkm->arm_idlect1;
+        return s->clkm.arm_idlect1;
 
     case 0x08:	/* ARM_IDLECT2 */
-        return s->clkm->arm_idlect2;
+        return s->clkm.arm_idlect2;
 
     case 0x0c:	/* ARM_EWUPCT */
-        return s->clkm->arm_ewupct;
+        return s->clkm.arm_ewupct;
 
     case 0x10:	/* ARM_RSTCT1 */
-        return s->clkm->arm_rstct1;
+        return s->clkm.arm_rstct1;
 
     case 0x14:	/* ARM_RSTCT2 */
-        return s->clkm->arm_rstct2;
+        return s->clkm.arm_rstct2;
 
     case 0x18:	/* ARM_SYSST */
-        return (s->clkm->clocking_scheme << 11) | s->clkm->cold_start;
+        return (s->clkm.clocking_scheme << 11) | s->clkm.cold_start;
 
     case 0x1c:	/* ARM_CKOUT1 */
-        return s->clkm->arm_ckout1;
+        return s->clkm.arm_ckout1;
 
     case 0x20:	/* ARM_CKOUT2 */
         break;
@@ -1659,33 +1643,33 @@ static void omap_clkm_write(void *opaque, target_phys_addr_t addr,
 
     switch (addr) {
     case 0x00:	/* ARM_CKCTL */
-        diff = s->clkm->arm_ckctl ^ value;
-        s->clkm->arm_ckctl = value & 0x7fff;
+        diff = s->clkm.arm_ckctl ^ value;
+        s->clkm.arm_ckctl = value & 0x7fff;
         omap_clkm_ckctl_update(s, diff, value);
         return;
 
     case 0x04:	/* ARM_IDLECT1 */
-        diff = s->clkm->arm_idlect1 ^ value;
-        s->clkm->arm_idlect1 = value & 0x0fff;
+        diff = s->clkm.arm_idlect1 ^ value;
+        s->clkm.arm_idlect1 = value & 0x0fff;
         omap_clkm_idlect1_update(s, diff, value);
         return;
 
     case 0x08:	/* ARM_IDLECT2 */
-        diff = s->clkm->arm_idlect2 ^ value;
-        s->clkm->arm_idlect2 = value & 0x07ff;
+        diff = s->clkm.arm_idlect2 ^ value;
+        s->clkm.arm_idlect2 = value & 0x07ff;
         omap_clkm_idlect2_update(s, diff, value);
         return;
 
     case 0x0c:	/* ARM_EWUPCT */
-        s->clkm->arm_ewupct = value & 0x003f;
+        s->clkm.arm_ewupct = value & 0x003f;
         return;
 
     case 0x10:	/* ARM_RSTCT1 */
-        diff = s->clkm->arm_rstct1 ^ value;
-        s->clkm->arm_rstct1 = value & 0x0007;
+        diff = s->clkm.arm_rstct1 ^ value;
+        s->clkm.arm_rstct1 = value & 0x0007;
         if (value & 9) {
             qemu_system_reset_request();
-            s->clkm->cold_start = 0xa;
+            s->clkm.cold_start = 0xa;
         }
         if (diff & ~value & 4) {				/* DSP_RST */
             omap_mpui_reset(s);
@@ -1699,21 +1683,21 @@ static void omap_clkm_write(void *opaque, target_phys_addr_t addr,
         return;
 
     case 0x14:	/* ARM_RSTCT2 */
-        s->clkm->arm_rstct2 = value & 0x0001;
+        s->clkm.arm_rstct2 = value & 0x0001;
         return;
 
     case 0x18:	/* ARM_SYSST */
-        if ((s->clkm->clocking_scheme ^ (value >> 11)) & 7) {
-            s->clkm->clocking_scheme = (value >> 11) & 7;
+        if ((s->clkm.clocking_scheme ^ (value >> 11)) & 7) {
+            s->clkm.clocking_scheme = (value >> 11) & 7;
             printf("%s: clocking scheme set to %s\n", __FUNCTION__,
-                            clkschemename[s->clkm->clocking_scheme]);
+                            clkschemename[s->clkm.clocking_scheme]);
         }
-        s->clkm->cold_start &= value & 0x3f;
+        s->clkm.cold_start &= value & 0x3f;
         return;
 
     case 0x1c:	/* ARM_CKOUT1 */
-        diff = s->clkm->arm_ckout1 ^ value;
-        s->clkm->arm_ckout1 = value & 0x003f;
+        diff = s->clkm.arm_ckout1 ^ value;
+        s->clkm.arm_ckout1 = value & 0x003f;
         omap_clkm_ckout1_update(s, diff, value);
         return;
 
@@ -1740,16 +1724,16 @@ static uint64_t omap_clkdsp_read(void *opaque, target_phys_addr_t addr,
 
     switch (addr) {
     case 0x04:	/* DSP_IDLECT1 */
-        return s->clkm->dsp_idlect1;
+        return s->clkm.dsp_idlect1;
 
     case 0x08:	/* DSP_IDLECT2 */
-        return s->clkm->dsp_idlect2;
+        return s->clkm.dsp_idlect2;
 
     case 0x14:	/* DSP_RSTCT2 */
-        return s->clkm->dsp_rstct2;
+        return s->clkm.dsp_rstct2;
 
     case 0x18:	/* DSP_SYSST */
-        return (s->clkm->clocking_scheme << 11) | s->clkm->cold_start |
+        return (s->clkm.clocking_scheme << 11) | s->clkm.cold_start |
                 (s->env->halted << 6);	/* Quite useless... */
     }
 
@@ -1785,23 +1769,23 @@ static void omap_clkdsp_write(void *opaque, target_phys_addr_t addr,
 
     switch (addr) {
     case 0x04:	/* DSP_IDLECT1 */
-        diff = s->clkm->dsp_idlect1 ^ value;
-        s->clkm->dsp_idlect1 = value & 0x01f7;
+        diff = s->clkm.dsp_idlect1 ^ value;
+        s->clkm.dsp_idlect1 = value & 0x01f7;
         omap_clkdsp_idlect1_update(s, diff, value);
         break;
 
     case 0x08:	/* DSP_IDLECT2 */
-        s->clkm->dsp_idlect2 = value & 0x0037;
-        diff = s->clkm->dsp_idlect1 ^ value;
+        s->clkm.dsp_idlect2 = value & 0x0037;
+        diff = s->clkm.dsp_idlect1 ^ value;
         omap_clkdsp_idlect2_update(s, diff, value);
         break;
 
     case 0x14:	/* DSP_RSTCT2 */
-        s->clkm->dsp_rstct2 = value & 0x0001;
+        s->clkm.dsp_rstct2 = value & 0x0001;
         break;
 
     case 0x18:	/* DSP_SYSST */
-        s->clkm->cold_start &= value & 0x3f;
+        s->clkm.cold_start &= value & 0x3f;
         break;
 
     default:
@@ -1818,24 +1802,24 @@ static const MemoryRegionOps omap_clkdsp_ops = {
 static void omap_clkm_reset(struct omap_mpu_state_s *s)
 {
     if (s->wdt && s->wdt->reset)
-        s->clkm->cold_start = 0x6;
-    s->clkm->clocking_scheme = 0;
+        s->clkm.cold_start = 0x6;
+    s->clkm.clocking_scheme = 0;
     omap_clkm_ckctl_update(s, ~0, 0x3000);
-    s->clkm->arm_ckctl = 0x3000;
-    omap_clkm_idlect1_update(s, s->clkm->arm_idlect1 ^ 0x0400, 0x0400);
-    s->clkm->arm_idlect1 = 0x0400;
-    omap_clkm_idlect2_update(s, s->clkm->arm_idlect2 ^ 0x0100, 0x0100);
-    s->clkm->arm_idlect2 = 0x0100;
-    s->clkm->arm_ewupct = 0x003f;
-    s->clkm->arm_rstct1 = 0x0000;
-    s->clkm->arm_rstct2 = 0x0000;
-    s->clkm->arm_ckout1 = 0x0015;
-    s->clkm->dpll1_mode = 0x2002;
-    omap_clkdsp_idlect1_update(s, s->clkm->dsp_idlect1 ^ 0x0040, 0x0040);
-    s->clkm->dsp_idlect1 = 0x0040;
+    s->clkm.arm_ckctl = 0x3000;
+    omap_clkm_idlect1_update(s, s->clkm.arm_idlect1 ^ 0x0400, 0x0400);
+    s->clkm.arm_idlect1 = 0x0400;
+    omap_clkm_idlect2_update(s, s->clkm.arm_idlect2 ^ 0x0100, 0x0100);
+    s->clkm.arm_idlect2 = 0x0100;
+    s->clkm.arm_ewupct = 0x003f;
+    s->clkm.arm_rstct1 = 0x0000;
+    s->clkm.arm_rstct2 = 0x0000;
+    s->clkm.arm_ckout1 = 0x0015;
+    s->clkm.dpll1_mode = 0x2002;
+    omap_clkdsp_idlect1_update(s, s->clkm.dsp_idlect1 ^ 0x0040, 0x0040);
+    s->clkm.dsp_idlect1 = 0x0040;
     omap_clkdsp_idlect2_update(s, ~0, 0x0000);
-    s->clkm->dsp_idlect2 = 0x0000;
-    s->clkm->dsp_rstct2 = 0x0000;
+    s->clkm.dsp_idlect2 = 0x0000;
+    s->clkm.dsp_rstct2 = 0x0000;
 }
 
 static void omap_clkm_init(MemoryRegion *memory, target_phys_addr_t mpu_base,
@@ -1846,12 +1830,11 @@ static void omap_clkm_init(MemoryRegion *memory, target_phys_addr_t mpu_base,
     memory_region_init_io(&s->clkdsp_iomem, &omap_clkdsp_ops, s,
                           "omap-clkdsp", 0x1000);
 
-    s->clkm = g_malloc0(sizeof(*(s->clkm)));
-    s->clkm->arm_idlect1 = 0x03ff;
-    s->clkm->arm_idlect2 = 0x0100;
-    s->clkm->dsp_idlect1 = 0x0002;
+    s->clkm.arm_idlect1 = 0x03ff;
+    s->clkm.arm_idlect2 = 0x0100;
+    s->clkm.dsp_idlect1 = 0x0002;
     omap_clkm_reset(s);
-    s->clkm->cold_start = 0x3a;
+    s->clkm.cold_start = 0x3a;
 
     memory_region_add_subregion(memory, mpu_base, &s->clkm_iomem);
     memory_region_add_subregion(memory, dsp_base, &s->clkdsp_iomem);
