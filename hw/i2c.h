@@ -93,4 +93,14 @@ void *twl5031_init(i2c_bus *bus, qemu_irq irq1, qemu_irq irq2,
 void twl4030_set_powerbutton_state(void *opaque, int pressed);
 void twl4030_madc_attach(void *opaque, twl4030_madc_callback cb);
 
+extern const VMStateDescription vmstate_i2c_slave;
+
+#define VMSTATE_I2C_SLAVE(_field, _state) {                          \
+    .name       = (stringify(_field)),                               \
+    .size       = sizeof(i2c_slave),                                 \
+    .vmsd       = &vmstate_i2c_slave,                                \
+    .flags      = VMS_STRUCT,                                        \
+    .offset     = vmstate_offset_value(_state, _field, i2c_slave),   \
+}
+
 #endif

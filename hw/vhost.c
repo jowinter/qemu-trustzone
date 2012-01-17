@@ -8,6 +8,9 @@
  *
  * This work is licensed under the terms of the GNU GPL, version 2.  See
  * the COPYING file in the top-level directory.
+ *
+ * Contributions after 2012-01-13 are licensed under the terms of the
+ * GNU GPL, version 2 or (at your option) any later version.
  */
 
 #include <sys/ioctl.h>
@@ -15,6 +18,7 @@
 #include "hw/hw.h"
 #include "range.h"
 #include <linux/vhost.h>
+#include "exec-memory.h"
 
 static void vhost_dev_sync_region(struct vhost_dev *dev,
                                   MemoryRegionSection *section,
@@ -365,10 +369,6 @@ static void vhost_set_memory(MemoryListener *listener,
     int r;
     void *ram;
 
-    if (!memory_region_is_ram(section->mr)) {
-        return;
-    }
-
     dev->mem = g_realloc(dev->mem, s);
 
     if (log_dirty) {
@@ -378,7 +378,7 @@ static void vhost_set_memory(MemoryListener *listener,
     assert(size);
 
     /* Optimize no-change case. At least cirrus_vga does this a lot at this time. */
-    ram = memory_region_get_ram_ptr(section->mr);
+    ram = memory_region_get_ram_ptr(section->mr) + section->offset_within_region;
     if (add) {
         if (!vhost_dev_cmp_memory(dev, start_addr, size, (uintptr_t)ram)) {
             /* Region exists with same address. Nothing to do. */
@@ -430,11 +430,21 @@ static void vhost_set_memory(MemoryListener *listener,
     }
 }
 
+static bool vhost_section(MemoryRegionSection *section)
+{
+    return section->address_space == get_system_memory()
+        && memory_region_is_ram(section->mr);
+}
+
 static void vhost_region_add(MemoryListener *listener,
                              MemoryRegionSection *section)
 {
     struct vhost_dev *dev = container_of(listener, struct vhost_dev,
                                          memory_listener);
+
+    if (!vhost_section(section)) {
+        return;
+    }
 
     ++dev->n_mem_sections;
     dev->mem_sections = g_renew(MemoryRegionSection, dev->mem_sections,
@@ -450,13 +460,17 @@ static void vhost_region_del(MemoryListener *listener,
                                          memory_listener);
     int i;
 
+    if (!vhost_section(section)) {
+        return;
+    }
+
     vhost_set_memory(listener, section, false);
     for (i = 0; i < dev->n_mem_sections; ++i) {
         if (dev->mem_sections[i].offset_within_address_space
             == section->offset_within_address_space) {
             --dev->n_mem_sections;
             memmove(&dev->mem_sections[i], &dev->mem_sections[i+1],
-                    dev->n_mem_sections - i);
+                    (dev->n_mem_sections - i) * sizeof(*dev->mem_sections));
             break;
         }
     }

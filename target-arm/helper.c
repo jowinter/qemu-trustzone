@@ -142,14 +142,7 @@ static void cpu_reset_model_id(CPUARMState *env, uint32_t id)
         env->cp15.c1_sys = 0x00c50078;
         break;
     case ARM_CPUID_CORTEXA8_R2:
-        set_feature(env, ARM_FEATURE_V4T);
-        set_feature(env, ARM_FEATURE_V5);
-        set_feature(env, ARM_FEATURE_V6);
-        set_feature(env, ARM_FEATURE_V6K);
         set_feature(env, ARM_FEATURE_V7);
-        set_feature(env, ARM_FEATURE_AUXCR);
-        set_feature(env, ARM_FEATURE_THUMB2);
-        set_feature(env, ARM_FEATURE_VFP);
         set_feature(env, ARM_FEATURE_VFP3);
         set_feature(env, ARM_FEATURE_NEON);
         set_feature(env, ARM_FEATURE_THUMB2EE);
@@ -495,6 +488,26 @@ void cpu_arm_close(CPUARMState *env)
     g_free(env);
 }
 
+static int bad_mode_switch(CPUState *env, int mode)
+{
+    /* Return true if it is not valid for us to switch to
+     * this CPU mode (ie all the UNPREDICTABLE cases in
+     * the ARM ARM CPSRWriteByInstr pseudocode).
+     */
+    switch (mode) {
+    case ARM_CPU_MODE_USR:
+    case ARM_CPU_MODE_SYS:
+    case ARM_CPU_MODE_SVC:
+    case ARM_CPU_MODE_ABT:
+    case ARM_CPU_MODE_UND:
+    case ARM_CPU_MODE_IRQ:
+    case ARM_CPU_MODE_FIQ:
+        return 0;
+    default:
+        return 1;
+    }
+}
+
 uint32_t cpsr_read(CPUARMState *env)
 {
     int ZF;
@@ -531,7 +544,15 @@ void cpsr_write(CPUARMState *env, uint32_t val, uint32_t mask)
     }
 
     if ((env->uncached_cpsr ^ val) & mask & CPSR_M) {
-        switch_mode(env, val & CPSR_M);
+        if (bad_mode_switch(env, val & CPSR_M)) {
+            /* Attempt to switch to an invalid mode: this is UNPREDICTABLE.
+             * We choose to ignore the attempt and leave the CPSR M field
+             * untouched.
+             */
+            mask &= ~CPSR_M;
+        } else {
+            switch_mode(env, val & CPSR_M);
+        }
     }
     mask &= ~CACHED_CPSR_BITS;
     env->uncached_cpsr = (env->uncached_cpsr & ~mask) | (val & mask);
@@ -660,7 +681,7 @@ uint32_t HELPER(get_r13_banked)(CPUState *env, uint32_t mode)
 extern int semihosting_enabled;
 
 /* Map CPU modes onto saved register banks.  */
-static inline int bank_number (int mode)
+static inline int bank_number(CPUState *env, int mode)
 {
     switch (mode) {
     case ARM_CPU_MODE_USR:
@@ -679,7 +700,7 @@ static inline int bank_number (int mode)
     case ARM_CPU_MODE_SMC:
         return 6;
     }
-    cpu_abort(cpu_single_env, "Bad mode %x\n", mode);
+    cpu_abort(env, "Bad mode %x\n", mode);
     return -1;
 }
 
@@ -700,12 +721,12 @@ void switch_mode(CPUState *env, int mode)
         memcpy (env->regs + 8, env->fiq_regs, 5 * sizeof(uint32_t));
     }
 
-    i = bank_number(old_mode);
+    i = bank_number(env, old_mode);
     env->banked_r13[i] = env->regs[13];
     env->banked_r14[i] = env->regs[14];
     env->banked_spsr[i] = env->spsr;
 
-    i = bank_number(mode);
+    i = bank_number(env, mode);
     env->regs[13] = env->banked_r13[i];
     env->regs[14] = env->banked_r14[i];
     env->spsr = env->banked_spsr[i];
@@ -934,7 +955,7 @@ void do_interrupt(CPUARMState *env)
             return;
         }
         if ((env->uncached_cpsr & CPSR_M) == ARM_CPU_MODE_SMC) {
-            env->cp15.c1_secfg &= ~1;
+            env->cp15.c1_scr &= ~1;
         }
         offset = env->thumb ? 2 : 0;
         new_mode = ARM_CPU_MODE_SMC;
@@ -1471,17 +1492,17 @@ void HELPER(set_cp15)(CPUState *env, uint32_t insn, uint32_t val)
                 goto bad_reg;
             switch (op2) {
             case 0: /* Secure configuration register. */
-                if (env->cp15.c1_secfg & 1)
+                if (env->cp15.c1_scr & 1)
                     goto bad_reg;
-                env->cp15.c1_secfg = val;
+                env->cp15.c1_scr = val;
                 break;
             case 1: /* Secure debug enable register. */
-                if (env->cp15.c1_secfg & 1)
+                if (env->cp15.c1_scr & 1)
                     goto bad_reg;
                 env->cp15.c1_sedbg = val;
                 break;
             case 2: /* Nonsecure access control register. */
-                if (env->cp15.c1_secfg & 1)
+                if (env->cp15.c1_scr & 1)
                     goto bad_reg;
                 env->cp15.c1_nseac = val;
                 break;
@@ -1770,7 +1791,7 @@ void HELPER(set_cp15)(CPUState *env, uint32_t insn, uint32_t val)
                 if (!arm_feature(env, ARM_FEATURE_TRUSTZONE)) {
                     goto bad_reg;
                 }
-                if (!(env->cp15.c1_secfg & 1)) {
+                if (!(env->cp15.c1_scr & 1)) {
                     env->cp15.c12_mvbar = val & ~0x1f;
                 }
                 break;
@@ -1838,6 +1859,20 @@ void HELPER(set_cp15)(CPUState *env, uint32_t insn, uint32_t val)
                 break;
             default:
                 goto bad_reg;
+            }
+        }
+        if (ARM_CPUID(env) == ARM_CPUID_CORTEXA9) {
+            switch (crm) {
+            case 0:
+                if ((op1 == 0) && (op2 == 0)) {
+                    env->cp15.c15_power_control = val;
+                } else if ((op1 == 0) && (op2 == 1)) {
+                    env->cp15.c15_diagnostic = val;
+                } else if ((op1 == 0) && (op2 == 2)) {
+                    env->cp15.c15_power_diagnostic = val;
+                }
+            default:
+                break;
             }
         }
         break;
@@ -1984,11 +2019,11 @@ uint32_t HELPER(get_cp15)(CPUState *env, uint32_t insn)
                 goto bad_reg;
             switch (op2) {
             case 0: /* Secure configuration register. */
-                if (env->cp15.c1_secfg & 1)
+                if (env->cp15.c1_scr & 1)
                     goto bad_reg;
-                return env->cp15.c1_secfg;
+                return env->cp15.c1_scr;
             case 1: /* Secure debug enable register. */
-                if (env->cp15.c1_secfg & 1)
+                if (env->cp15.c1_scr & 1)
                     goto bad_reg;
                 return env->cp15.c1_sedbg;
             case 2: /* Nonsecure access control register. */
@@ -2228,6 +2263,40 @@ uint32_t HELPER(get_cp15)(CPUState *env, uint32_t insn)
              * 0x200 << ($rn & 0xfff), when MMU is off.  */
             goto bad_reg;
         }
+        if (ARM_CPUID(env) == ARM_CPUID_CORTEXA9) {
+            switch (crm) {
+            case 0:
+                if ((op1 == 4) && (op2 == 0)) {
+                    /* The config_base_address should hold the value of
+                     * the peripheral base. ARM should get this from a CPU
+                     * object property, but that support isn't available in
+                     * December 2011. Default to 0 for now and board models
+                     * that care can set it by a private hook */
+                    return env->cp15.c15_config_base_address;
+                } else if ((op1 == 0) && (op2 == 0)) {
+                    /* power_control should be set to maximum latency. Again,
+                       default to 0 and set by private hook */
+                    return env->cp15.c15_power_control;
+                } else if ((op1 == 0) && (op2 == 1)) {
+                    return env->cp15.c15_diagnostic;
+                } else if ((op1 == 0) && (op2 == 2)) {
+                    return env->cp15.c15_power_diagnostic;
+                }
+                break;
+            case 1: /* NEON Busy */
+                return 0;
+            case 5: /* tlb lockdown */
+            case 6:
+            case 7:
+                if ((op1 == 5) && (op2 == 2)) {
+                    return 0;
+                }
+                break;
+            default:
+                break;
+            }
+            goto bad_reg;
+        }
         return 0;
     }
 bad_reg:
@@ -2242,7 +2311,7 @@ void HELPER(set_r13_banked)(CPUState *env, uint32_t mode, uint32_t val)
     if ((env->uncached_cpsr & CPSR_M) == mode) {
         env->regs[13] = val;
     } else {
-        env->banked_r13[bank_number(mode)] = val;
+        env->banked_r13[bank_number(env, mode)] = val;
     }
 }
 
@@ -2251,7 +2320,7 @@ uint32_t HELPER(get_r13_banked)(CPUState *env, uint32_t mode)
     if ((env->uncached_cpsr & CPSR_M) == mode) {
         return env->regs[13];
     } else {
-        return env->banked_r13[bank_number(mode)];
+        return env->banked_r13[bank_number(env, mode)];
     }
 }
 

@@ -1652,18 +1652,10 @@ static void _decode_opc(DisasContext * ctx)
 	}
 	return;
     case 0x00a3:		/* ocbp @Rn */
-	{
-	    TCGv dummy = tcg_temp_new();
-	    tcg_gen_qemu_ld32s(dummy, REG(B11_8), ctx->memidx);
-	    tcg_temp_free(dummy);
-	}
-	return;
     case 0x00b3:		/* ocbwb @Rn */
-	{
-	    TCGv dummy = tcg_temp_new();
-	    tcg_gen_qemu_ld32s(dummy, REG(B11_8), ctx->memidx);
-	    tcg_temp_free(dummy);
-	}
+        /* These instructions are supposed to do nothing in case of
+           a cache miss. Given that we only partially emulate caches
+           it is safe to simply ignore them. */
 	return;
     case 0x0083:		/* pref @Rn */
 	return;
@@ -1864,8 +1856,8 @@ static void _decode_opc(DisasContext * ctx)
         CHECK_FPU_ENABLED
         if ((ctx->fpscr & FPSCR_PR) == 0) {
             TCGv m, n;
-            m = tcg_const_i32((ctx->opcode >> 16) & 3);
-            n = tcg_const_i32((ctx->opcode >> 18) & 3);
+            m = tcg_const_i32((ctx->opcode >> 8) & 3);
+            n = tcg_const_i32((ctx->opcode >> 10) & 3);
             gen_helper_fipr(m, n);
             tcg_temp_free(m);
             tcg_temp_free(n);
@@ -1877,7 +1869,7 @@ static void _decode_opc(DisasContext * ctx)
         if ((ctx->opcode & 0x0300) == 0x0100 &&
             (ctx->fpscr & FPSCR_PR) == 0) {
             TCGv n;
-            n = tcg_const_i32((ctx->opcode >> 18) & 3);
+            n = tcg_const_i32((ctx->opcode >> 10) & 3);
             gen_helper_ftrv(n);
             tcg_temp_free(n);
             return;

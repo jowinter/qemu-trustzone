@@ -176,7 +176,6 @@ mixemu="no"
 aix="no"
 blobs="yes"
 pkgversion=""
-check_utests=""
 pie=""
 zero_malloc=""
 trace_backend="nop"
@@ -307,8 +306,11 @@ else
   cpu=`uname -m`
 fi
 
+ARCH=
+# Normalise host CPU name and set ARCH.
+# Note that this case should only have supported host CPUs, not guests.
 case "$cpu" in
-  alpha|cris|ia64|lm32|m68k|microblaze|ppc|ppc64|sparc64|unicore32)
+  ia64|ppc|ppc64|s390|s390x|sparc64)
     cpu="$cpu"
   ;;
   i386|i486|i586|i686|i86pc|BePC)
@@ -326,20 +328,17 @@ case "$cpu" in
   mips*)
     cpu="mips"
   ;;
-  s390)
-    cpu="s390"
-  ;;
-  s390x)
-    cpu="s390x"
-  ;;
   sparc|sun4[cdmuv])
     cpu="sparc"
   ;;
   *)
-    echo "Unsupported CPU = $cpu"
-    exit 1
+    # This will result in either an error or falling back to TCI later
+    ARCH=unknown
   ;;
 esac
+if test -z "$ARCH"; then
+  ARCH="$cpu"
+fi
 
 # OS specific
 if check_define __linux__ ; then
@@ -746,10 +745,6 @@ for opt do
   ;;
   --enable-fdt) fdt="yes"
   ;;
-  --disable-check-utests) check_utests="no"
-  ;;
-  --enable-check-utests) check_utests="yes"
-  ;;
   --disable-nptl) nptl="no"
   ;;
   --enable-nptl) nptl="yes"
@@ -1027,8 +1022,6 @@ echo "  --disable-curl           disable curl connectivity"
 echo "  --enable-curl            enable curl connectivity"
 echo "  --disable-fdt            disable fdt device tree"
 echo "  --enable-fdt             enable fdt device tree"
-echo "  --disable-check-utests   disable check unit-tests"
-echo "  --enable-check-utests    enable check unit-tests"
 echo "  --disable-bluez          disable bluez stack connectivity"
 echo "  --enable-bluez           enable bluez stack connectivity"
 echo "  --disable-slirp          disable SLIRP userspace network connectivity"
@@ -1093,6 +1086,18 @@ echo "NOTE: The object files are built at the place where configure is launched"
 exit 1
 fi
 
+# Now we have handled --enable-tcg-interpreter and know we're not just
+# printing the help message, bail out if the host CPU isn't supported.
+if test "$ARCH" = "unknown"; then
+    if test "$tcg_interpreter" = "yes" ; then
+        echo "Unsupported CPU = $cpu, will use TCG with TCI (experimental)"
+        ARCH=tci
+    else
+        echo "Unsupported CPU = $cpu, try --enable-tcg-interpreter"
+        exit 1
+    fi
+fi
+
 # check that the C compiler works.
 cat > $TMPC <<EOF
 int main(void) { return 0; }
@@ -1113,7 +1118,7 @@ cat > $TMPC << EOF
 int main(void) { return 0; }
 EOF
 for flag in $gcc_flags; do
-    if compile_prog "$flag -Werror" "" ; then
+    if compile_prog "-Werror $flag" "" ; then
 	QEMU_CFLAGS="$QEMU_CFLAGS $flag"
     fi
 done
@@ -1198,13 +1203,9 @@ if test "$solaris" = "yes" ; then
   fi
 fi
 
-if test "$guest_agent" != "no" ; then
-  if has $python; then
-    :
-  else
-    echo "Python not found. Use --python=/path/to/python"
-    exit 1
-  fi
+if ! has $python; then
+  echo "Python not found. Use --python=/path/to/python"
+  exit 1
 fi
 
 if test -z "$target_list" ; then
@@ -1928,26 +1929,6 @@ EOF
 fi # test "$curl"
 
 ##########################################
-# check framework probe
-
-if test "$check_utests" != "no" ; then
-  cat > $TMPC << EOF
-#include <check.h>
-int main(void) { suite_create("qemu test"); return 0; }
-EOF
-  check_libs=`$pkg_config --libs check 2>/dev/null`
-  if compile_prog "" $check_libs ; then
-    check_utests=yes
-    libs_tools="$check_libs $libs_tools"
-  else
-    if test "$check_utests" = "yes" ; then
-      feature_not_found "check"
-    fi
-    check_utests=no
-  fi
-fi # test "$check_utests"
-
-##########################################
 # bluez support probe
 if test "$bluez" != "no" ; then
   cat > $TMPC << EOF
@@ -1977,6 +1958,22 @@ if $pkg_config --modversion gthread-2.0 > /dev/null 2>&1 ; then
 else
     echo "glib-2.0 required to compile QEMU"
     exit 1
+fi
+
+##########################################
+# libcap probe
+
+if test "$cap" != "no" ; then
+  cat > $TMPC <<EOF
+#include <stdio.h>
+#include <sys/capability.h>
+int main(void) { cap_t caps; caps = cap_init(); }
+EOF
+  if compile_prog "" "-lcap" ; then
+    cap=yes
+  else
+    cap=no
+  fi
 fi
 
 ##########################################
@@ -2780,16 +2777,14 @@ confdir=$sysconfdir$confsuffix
 tools=
 if test "$softmmu" = yes ; then
   tools="qemu-img\$(EXESUF) qemu-io\$(EXESUF) $tools"
+  if [ "$cap" = "yes" -a "$linux" = "yes" ] ; then
+      tools="$tools fsdev/virtfs-proxy-helper\$(EXESUF)"
+  fi
   if [ "$linux" = "yes" -o "$bsd" = "yes" -o "$solaris" = "yes" ] ; then
       tools="qemu-nbd\$(EXESUF) $tools"
     if [ "$guest_agent" = "yes" ]; then
       tools="qemu-ga\$(EXESUF) $tools"
     fi
-    if [ "$check_utests" = "yes" ]; then
-      checks="check-qint check-qstring check-qdict check-qlist"
-      checks="check-qfloat check-qjson $checks"
-    fi
-    test_progs="$checks test-coroutine test-qmp-output-visitor test-qmp-input-visitor"
   fi
 fi
 
@@ -2843,7 +2838,6 @@ fi
 echo "SDL support       $sdl"
 echo "curses support    $curses"
 echo "curl support      $curl"
-echo "check support     $check_utests"
 echo "mingw32 support   $mingw32"
 echo "Audio drivers     $audio_drv_list"
 echo "Extra audio cards $audio_card_list"
@@ -2916,20 +2910,6 @@ echo "sysconfdir=$sysconfdir" >> $config_host_mak
 echo "docdir=$docdir" >> $config_host_mak
 echo "confdir=$confdir" >> $config_host_mak
 
-case "$cpu" in
-  i386|x86_64|alpha|arm|cris|hppa|ia64|lm32|m68k|microblaze|mips|mips64|ppc|ppc64|s390|s390x|sparc|sparc64|unicore32)
-    ARCH=$cpu
-  ;;
-  *)
-    if test "$tcg_interpreter" = "yes" ; then
-        echo "Unsupported CPU = $cpu, will use TCG with TCI (experimental)"
-        ARCH=tci
-    else
-        echo "Unsupported CPU = $cpu, try --enable-tcg-interpreter"
-        exit 1
-    fi
-  ;;
-esac
 echo "ARCH=$ARCH" >> $config_host_mak
 if test "$debug_tcg" = "yes" ; then
   echo "CONFIG_DEBUG_TCG=y" >> $config_host_mak
@@ -3275,7 +3255,6 @@ if test "$trace_default" = "yes"; then
 fi
 
 echo "TOOLS=$tools" >> $config_host_mak
-echo "CHECKS=$test_progs" >> $config_host_mak
 echo "ROMS=$roms" >> $config_host_mak
 echo "MAKE=$make" >> $config_host_mak
 echo "INSTALL=$install" >> $config_host_mak
@@ -3411,7 +3390,6 @@ echo "# Automatically generated by configure - do not modify" > $config_target_m
 bflt="no"
 target_nptl="no"
 interp_prefix1=`echo "$interp_prefix" | sed "s/%M/$target_arch2/g"`
-echo "CONFIG_QEMU_INTERP_PREFIX=\"$interp_prefix1\"" >> $config_target_mak
 gdb_xml_files=""
 target_short_alignment=2
 target_int_alignment=4
@@ -3617,6 +3595,7 @@ if test "$target_softmmu" = "yes" ; then
 fi
 if test "$target_user_only" = "yes" ; then
   echo "CONFIG_USER_ONLY=y" >> $config_target_mak
+  echo "CONFIG_QEMU_INTERP_PREFIX=\"$interp_prefix1\"" >> $config_target_mak
 fi
 if test "$target_linux_user" = "yes" ; then
   echo "CONFIG_LINUX_USER=y" >> $config_target_mak
@@ -3812,14 +3791,14 @@ echo "QEMU_INCLUDES+=$includes" >> $config_target_mak
 done # for target in $targets
 
 # build tree in object directory in case the source is not in the current directory
-DIRS="tests tests/cris slirp audio block net pc-bios/optionrom"
+DIRS="tests tests/tcg tests/tcg/cris slirp audio block net pc-bios/optionrom"
 DIRS="$DIRS pc-bios/spapr-rtas"
 DIRS="$DIRS roms/seabios roms/vgabios"
 DIRS="$DIRS fsdev ui"
 DIRS="$DIRS qapi qapi-generated"
 DIRS="$DIRS qga trace"
-FILES="Makefile tests/Makefile qdict-test-data.txt"
-FILES="$FILES tests/cris/Makefile tests/cris/.gdbinit"
+FILES="Makefile tests/tcg/Makefile qdict-test-data.txt"
+FILES="$FILES tests/tcg/cris/Makefile tests/tcg/cris/.gdbinit"
 FILES="$FILES pc-bios/optionrom/Makefile pc-bios/keymaps"
 FILES="$FILES pc-bios/spapr-rtas/Makefile"
 FILES="$FILES roms/seabios/Makefile roms/vgabios/Makefile"
