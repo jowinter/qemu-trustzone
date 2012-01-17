@@ -1169,9 +1169,9 @@ void omap3_boot_rom_init(struct omap_mpu_state_s *s);
 void omap3_boot_rom_emu(struct omap_mpu_state_s *s);
 
 # if TARGET_PHYS_ADDR_BITS == 32
-#  define OMAP_FMT_plx "0x%08x"
+#  define OMAP_FMT_plx "%#08x"
 # elif TARGET_PHYS_ADDR_BITS == 64
-#  define OMAP_FMT_plx "0x%08" PRIx64
+#  define OMAP_FMT_plx "%#08" PRIx64
 # else
 #  error TARGET_PHYS_ADDR_BITS undefined
 # endif
