@@ -390,6 +390,7 @@ enum arm_features {
     ARM_FEATURE_VAPA, /* cp15 VA to PA lookups */
     ARM_FEATURE_ARM_DIV, /* divide supported in ARM encoding */
     ARM_FEATURE_VFP4, /* VFPv4 (implies that NEON is v2) */
+    ARM_FEATURE_GENERICTIMER,
     ARM_FEATURE_TRUSTZONE, /* TrustZone Security Extensions. */
 };
 
@@ -443,6 +444,7 @@ void cpu_arm_set_cp_io(CPUARMState *env, int cpnum,
 #define ARM_CPUID_CORTEXA8_R2 0x412fc083
 #define ARM_CPUID_CORTEXA9    0x410fc090
 #define ARM_CPUID_CORTEXM3    0x410fc231
+#define ARM_CPUID_CORTEXA15   0x412fc0f1
 #define ARM_CPUID_ANY         0xffffffff
 
 #if defined(CONFIG_USER_ONLY)
