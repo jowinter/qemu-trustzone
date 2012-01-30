@@ -149,7 +149,7 @@ typedef void DBoardInitFn(const VEDBoardInfo *daughterboard,
 
 struct VEDBoardInfo {
     const target_phys_addr_t *motherboard_map;
-    const target_phys_addr_t loader_start;
+    target_phys_addr_t loader_start;
     const target_phys_addr_t gic_cpu_if_addr;
     DBoardInitFn *init;
 };

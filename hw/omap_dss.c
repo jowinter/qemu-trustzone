@@ -2525,12 +2525,18 @@ static int omap_dss_init(SysBusDevice *dev)
     return 0;
 }
 
-static SysBusDeviceInfo omap_dss_info = {
-    .init = omap_dss_init,
-    .qdev.name = "omap_dss",
-    .qdev.size = sizeof(struct omap_dss_s),
-    .qdev.reset = omap_dss_reset,
-    .qdev.props = (Property[]) {
+static void omap_dss_class_init(ObjectClass *klass, void *data)
+{
+    SysBusDeviceClass *k = SYS_BUS_DEVICE_CLASS(klass);
+    k->init = omap_dss_init;
+}
+
+static DeviceInfo omap_dss_info = {
+    .name = "omap_dss",
+    .size = sizeof(struct omap_dss_s),
+    .reset = omap_dss_reset,
+    .class_init = omap_dss_class_init,
+    .props = (Property[]) {
         DEFINE_PROP_INT32("mpu_model", struct omap_dss_s, mpu_model, 0),
         DEFINE_PROP_END_OF_LIST()
     }

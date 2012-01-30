@@ -71,7 +71,7 @@ PCIBus *pci_grackle_init(uint32_t base, qemu_irq *pic,
     SysBusDevice *s;
     GrackleState *d;
 
-    dev = qdev_create(NULL, "grackle");
+    dev = qdev_create(NULL, "grackle-pcihost");
     qdev_init_nofail(dev);
     s = sysbus_from_qdev(dev);
     d = FROM_SYSBUS(GrackleState, s);
@@ -121,21 +121,42 @@ static int grackle_pci_host_init(PCIDevice *d)
     return 0;
 }
 
-static PCIDeviceInfo grackle_pci_host_info = {
-    .qdev.name = "grackle",
-    .qdev.size = sizeof(PCIDevice),
-    .init      = grackle_pci_host_init,
-    .vendor_id = PCI_VENDOR_ID_MOTOROLA,
-    .device_id = PCI_DEVICE_ID_MOTOROLA_MPC106,
-    .revision  = 0x00,
-    .class_id  = PCI_CLASS_BRIDGE_HOST,
+static void grackle_pci_class_init(ObjectClass *klass, void *data)
+{
+    PCIDeviceClass *k = PCI_DEVICE_CLASS(klass);
+
+    k->init      = grackle_pci_host_init;
+    k->vendor_id = PCI_VENDOR_ID_MOTOROLA;
+    k->device_id = PCI_DEVICE_ID_MOTOROLA_MPC106;
+    k->revision  = 0x00;
+    k->class_id  = PCI_CLASS_BRIDGE_HOST;
+}
+
+static DeviceInfo grackle_pci_info = {
+    .name = "grackle",
+    .size = sizeof(PCIDevice),
+    .no_user = 1,
+    .class_init = grackle_pci_class_init,
+};
+
+static void pci_grackle_class_init(ObjectClass *klass, void *data)
+{
+    SysBusDeviceClass *k = SYS_BUS_DEVICE_CLASS(klass);
+
+    k->init = pci_grackle_init_device;
+}
+
+static DeviceInfo grackle_pci_host_info = {
+    .name = "grackle-pcihost",
+    .size = sizeof(GrackleState),
+    .no_user = 1,
+    .class_init = pci_grackle_class_init,
 };
 
 static void grackle_register_devices(void)
 {
-    sysbus_register_dev("grackle", sizeof(GrackleState),
-                        pci_grackle_init_device);
-    pci_qdev_register(&grackle_pci_host_info);
+    sysbus_qdev_register(&grackle_pci_host_info);
+    pci_qdev_register(&grackle_pci_info);
 }
 
 device_init(grackle_register_devices)

@@ -67,12 +67,18 @@ static int a15mp_priv_init(SysBusDevice *dev)
     return 0;
 }
 
-static SysBusDeviceInfo a15mp_priv_info = {
-    .init = a15mp_priv_init,
-    .qdev.name  = "a15mpcore_priv",
-    .qdev.size  = sizeof(A15MPPrivState),
+static void a15mp_priv_class_init(ObjectClass *klass, void *data)
+{
+    SysBusDeviceClass *k = SYS_BUS_DEVICE_CLASS(klass);
+    k->init = a15mp_priv_init;
+}
+
+static DeviceInfo a15mp_priv_info = {
+    .name  = "a15mpcore_priv",
+    .size  = sizeof(A15MPPrivState),
+    .class_init = a15mp_priv_class_init,
     /* We currently have no savable state outside the common GIC state */
-    .qdev.props = (Property[]) {
+    .props = (Property[]) {
         DEFINE_PROP_UINT32("num-cpu", A15MPPrivState, num_cpu, 1),
         /* The Cortex-A15MP may have anything from 0 to 224 external interrupt
          * IRQ lines (with another 32 internal). We default to 64+32, which

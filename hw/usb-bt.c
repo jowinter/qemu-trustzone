@@ -28,7 +28,6 @@ struct USBBtState {
     USBDevice dev;
     struct HCIInfo *hci;
 
-    int altsetting;
     int config;
 
 #define CFIFO_LEN_MASK	255
@@ -362,7 +361,6 @@ static void usb_bt_handle_reset(USBDevice *dev)
     s->outcmd.len = 0;
     s->outacl.len = 0;
     s->outsco.len = 0;
-    s->altsetting = 0;
 }
 
 static int usb_bt_handle_control(USBDevice *dev, USBPacket *p,
@@ -401,26 +399,6 @@ static int usb_bt_handle_control(USBDevice *dev, USBPacket *p,
     case InterfaceOutRequest | USB_REQ_SET_FEATURE:
     case EndpointOutRequest | USB_REQ_SET_FEATURE:
         goto fail;
-        break;
-    case InterfaceRequest | USB_REQ_GET_INTERFACE:
-        if (value != 0 || (index & ~1) || length != 1)
-            goto fail;
-        if (index == 1)
-            data[0] = s->altsetting;
-        else
-            data[0] = 0;
-        ret = 1;
-        break;
-    case InterfaceOutRequest | USB_REQ_SET_INTERFACE:
-        if ((index & ~1) || length != 0 ||
-                        (index == 1 && (value < 0 || value > 4)) ||
-                        (index == 0 && value != 0)) {
-            printf("%s: Wrong SET_INTERFACE request (%i, %i)\n",
-                            __FUNCTION__, index, value);
-            goto fail;
-        }
-        s->altsetting = value;
-        ret = 0;
         break;
     case ((USB_DIR_OUT | USB_TYPE_CLASS | USB_RECIP_DEVICE) << 8):
         if (s->config)
@@ -549,22 +527,29 @@ static const VMStateDescription vmstate_usb_bt = {
     .unmigratable = 1,
 };
 
-static struct USBDeviceInfo bt_info = {
-    .product_desc   = "QEMU BT dongle",
-    .qdev.name      = "usb-bt-dongle",
-    .qdev.size      = sizeof(struct USBBtState),
-    .qdev.vmsd      = &vmstate_usb_bt,
-    .usb_desc       = &desc_bluetooth,
-    .init           = usb_bt_initfn,
-    .handle_packet  = usb_generic_handle_packet,
-    .handle_reset   = usb_bt_handle_reset,
-    .handle_control = usb_bt_handle_control,
-    .handle_data    = usb_bt_handle_data,
-    .handle_destroy = usb_bt_handle_destroy,
+static void usb_bt_class_initfn(ObjectClass *klass, void *data)
+{
+    USBDeviceClass *uc = USB_DEVICE_CLASS(klass);
+
+    uc->init           = usb_bt_initfn;
+    uc->product_desc   = "QEMU BT dongle";
+    uc->usb_desc       = &desc_bluetooth;
+    uc->handle_packet  = usb_generic_handle_packet;
+    uc->handle_reset   = usb_bt_handle_reset;
+    uc->handle_control = usb_bt_handle_control;
+    uc->handle_data    = usb_bt_handle_data;
+    uc->handle_destroy = usb_bt_handle_destroy;
+}
+
+static struct DeviceInfo bt_info = {
+    .name      = "usb-bt-dongle",
+    .size      = sizeof(struct USBBtState),
+    .vmsd      = &vmstate_usb_bt,
+    .class_init= usb_bt_class_initfn,
 };
 
 static void usb_bt_register_devices(void)
 {
-    usb_qdev_register(&bt_info);
+    usb_qdev_register(&bt_info, NULL, NULL);
 }
 device_init(usb_bt_register_devices)

@@ -6,6 +6,7 @@
 #include "qerror.h"
 #include "qdict.h"
 #include "block.h"
+#include "readline.h"
 
 extern Monitor *cur_mon;
 extern Monitor *default_mon;
@@ -35,6 +36,8 @@ typedef enum MonitorEvent {
     QEVENT_SPICE_CONNECTED,
     QEVENT_SPICE_INITIALIZED,
     QEVENT_SPICE_DISCONNECTED,
+    QEVENT_BLOCK_JOB_COMPLETED,
+    QEVENT_BLOCK_JOB_CANCELLED,
     QEVENT_MAX,
 } MonitorEvent;
 
@@ -66,6 +69,10 @@ int monitor_get_cpu_index(void);
 typedef void (MonitorCompletion)(void *opaque, QObject *ret_data);
 
 void monitor_set_error(Monitor *mon, QError *qerror);
+void monitor_read_command(Monitor *mon, int show_prompt);
+ReadLineState *monitor_get_rs(Monitor *mon);
+int monitor_read_password(Monitor *mon, ReadLineFunc *readline_func,
+                          void *opaque);
 
 int qmp_qom_set(Monitor *mon, const QDict *qdict, QObject **ret);
 

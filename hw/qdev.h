@@ -6,6 +6,7 @@
 #include "qemu-char.h"
 #include "qemu-option.h"
 #include "qapi/qapi-visit-core.h"
+#include "qemu/object.h"
 
 typedef struct Property Property;
 
@@ -66,14 +67,26 @@ typedef struct DeviceProperty
     QTAILQ_ENTRY(DeviceProperty) node;
 } DeviceProperty;
 
+#define TYPE_DEVICE "device"
+#define DEVICE(obj) OBJECT_CHECK(DeviceState, (obj), TYPE_DEVICE)
+#define DEVICE_CLASS(klass) OBJECT_CLASS_CHECK(DeviceClass, (klass), TYPE_DEVICE)
+#define DEVICE_GET_CLASS(obj) OBJECT_GET_CLASS(DeviceClass, (obj), TYPE_DEVICE)
+
+typedef struct DeviceClass {
+    ObjectClass parent_class;
+    DeviceInfo *info;
+    void (*reset)(DeviceState *dev);
+} DeviceClass;
+
 /* This structure should not be accessed directly.  We declare it here
    so that it can be embedded in individual device state structures.  */
 struct DeviceState {
+    Object parent_obj;
+
     const char *id;
     enum DevState state;
     QemuOpts *opts;
     int hotplugged;
-    DeviceInfo *info;
     BusState *parent_bus;
     int num_gpio_out;
     qemu_irq *gpio_out;
@@ -179,6 +192,7 @@ typedef struct GlobalProperty {
 
 DeviceState *qdev_create(BusState *bus, const char *name);
 DeviceState *qdev_try_create(BusState *bus, const char *name);
+bool qdev_exists(const char *name);
 int qdev_device_help(QemuOpts *opts);
 DeviceState *qdev_device_add(QemuOpts *opts);
 int qdev_init(DeviceState *dev) QEMU_WARN_UNUSED_RESULT;
@@ -220,6 +234,11 @@ struct DeviceInfo {
     /* device state */
     const VMStateDescription *vmsd;
 
+    /**
+     * See #TypeInfo::class_init()
+     */
+    void (*class_init)(ObjectClass *klass, void *data);
+
     /* Private to qdev / bus.  */
     qdev_initfn init;
     qdev_event unplug;
@@ -230,6 +249,7 @@ struct DeviceInfo {
 extern DeviceInfo *device_info_list;
 
 void qdev_register(DeviceInfo *info);
+void qdev_register_subclass(DeviceInfo *info, const char *parent);
 
 /* Register device properties.  */
 /* GPIO inputs also double as IRQ sinks.  */
@@ -274,8 +294,8 @@ void do_info_qtree(Monitor *mon);
 void do_info_qdm(Monitor *mon);
 int do_device_add(Monitor *mon, const QDict *qdict, QObject **ret_data);
 int do_device_del(Monitor *mon, const QDict *qdict, QObject **ret_data);
-int do_change_qdev(Monitor *mon, const char *device, const char *target,
-                   const char *arg);
+void qmp_change_qdev(const char *device, const char *target,
+                     bool has_arg, const char *arg, Error **errp);
 
 /*** qdev-properties.c ***/
 
@@ -383,9 +403,19 @@ void qdev_prop_set_globals(DeviceState *dev);
 void error_set_from_qdev_prop_error(Error **errp, int ret, DeviceState *dev,
                                     Property *prop, const char *value);
 
+DeviceInfo *qdev_get_info(DeviceState *dev);
+
 static inline const char *qdev_fw_name(DeviceState *dev)
 {
-    return dev->info->fw_name ? : dev->info->alias ? : dev->info->name;
+    DeviceInfo *info = qdev_get_info(dev);
+
+    if (info->fw_name) {
+        return info->fw_name;
+    } else if (info->alias) {
+        return info->alias;
+    }
+
+    return object_get_typename(OBJECT(dev));
 }
 
 char *qdev_get_fw_dev_path(DeviceState *dev);
@@ -628,5 +658,12 @@ char *qdev_get_type(DeviceState *dev, Error **errp);
  * support for composition is added.
  */
 void qdev_machine_init(void);
+
+/**
+ * @device_reset
+ *
+ * Reset a single device (by calling the reset method).
+ */
+void device_reset(DeviceState *dev);
 
 #endif

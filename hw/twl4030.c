@@ -57,7 +57,7 @@ typedef void (*twl4030_write_func)(TWL4030NodeState *s,
                                    uint8_t addr, uint8_t value);
 
 struct TWL4030NodeState {
-    i2c_slave i2c;
+    I2CSlave i2c;
     int firstbyte;
     uint8_t reg;
 
@@ -1586,7 +1586,7 @@ static void twl4030_node_init(TWL4030NodeState *s,
     twl4030_node_reset(s, reset_values);
 }
 
-static int twl4030_48_init(i2c_slave *i2c)
+static int twl4030_48_init(I2CSlave *i2c)
 {
     twl4030_node_init(FROM_I2C_SLAVE(TWL4030NodeState, i2c),
                       twl4030_48_read, twl4030_48_write,
@@ -1594,7 +1594,7 @@ static int twl4030_48_init(i2c_slave *i2c)
     return 0;
 }
 
-static int twl4030_49_init(i2c_slave *i2c)
+static int twl4030_49_init(I2CSlave *i2c)
 {
     twl4030_node_init(FROM_I2C_SLAVE(TWL4030NodeState, i2c),
                       twl4030_49_read, twl4030_49_write,
@@ -1602,7 +1602,7 @@ static int twl4030_49_init(i2c_slave *i2c)
     return 0;
 }
 
-static int twl4030_4a_init(i2c_slave *i2c)
+static int twl4030_4a_init(I2CSlave *i2c)
 {
     TWL4030NodeState *s = FROM_I2C_SLAVE(TWL4030NodeState, i2c);
     twl4030_node_init(s,
@@ -1612,7 +1612,7 @@ static int twl4030_4a_init(i2c_slave *i2c)
     return 0;
 }
 
-static int twl4030_4b_init(i2c_slave *i2c)
+static int twl4030_4b_init(I2CSlave *i2c)
 {
     twl4030_node_init(FROM_I2C_SLAVE(TWL4030NodeState, i2c),
                       twl4030_4b_read, twl4030_4b_write,
@@ -1620,7 +1620,7 @@ static int twl4030_4b_init(i2c_slave *i2c)
     return 0;
 }
 
-static void twl4030_event(i2c_slave *i2c, enum i2c_event event)
+static void twl4030_event(I2CSlave *i2c, enum i2c_event event)
 {
     if (event == I2C_START_SEND) {
         TWL4030NodeState *s = FROM_I2C_SLAVE(TWL4030NodeState, i2c);
@@ -1628,13 +1628,13 @@ static void twl4030_event(i2c_slave *i2c, enum i2c_event event)
     }
 }
 
-static int twl4030_rx(i2c_slave *i2c)
+static int twl4030_rx(I2CSlave *i2c)
 {
     TWL4030NodeState *s = FROM_I2C_SLAVE(TWL4030NodeState, i2c);
     return s->read_func(s, s->reg++);
 }
 
-static int twl4030_tx(i2c_slave *i2c, uint8_t data)
+static int twl4030_tx(I2CSlave *i2c, uint8_t data)
 {
     TWL4030NodeState *s = FROM_I2C_SLAVE(TWL4030NodeState, i2c);
     if (s->firstbyte) {
@@ -1667,38 +1667,61 @@ static void twl4030_reset(void *opaque)
     /* TODO: indicate correct reset reason */
 }
 
-static I2CSlaveInfo twl4030_info[4] = {
+static void twl4030_48_class_init(ObjectClass *klass, void *data)
+{
+    I2CSlaveClass *k = I2C_SLAVE_CLASS(klass);
+    k->init = twl4030_48_init;
+    k->event = twl4030_event;
+    k->recv = twl4030_rx;
+    k->send = twl4030_tx;
+}
+
+static void twl4030_49_class_init(ObjectClass *klass, void *data)
+{
+    I2CSlaveClass *k = I2C_SLAVE_CLASS(klass);
+    k->init = twl4030_49_init;
+    k->event = twl4030_event;
+    k->recv = twl4030_rx;
+    k->send = twl4030_tx;
+}
+
+static void twl4030_4a_class_init(ObjectClass *klass, void *data)
+{
+    I2CSlaveClass *k = I2C_SLAVE_CLASS(klass);
+    k->init = twl4030_4a_init;
+    k->event = twl4030_event;
+    k->recv = twl4030_rx;
+    k->send = twl4030_tx;
+}
+static void twl4030_4b_class_init(ObjectClass *klass, void *data)
+{
+    I2CSlaveClass *k = I2C_SLAVE_CLASS(klass);
+    k->init = twl4030_4b_init;
+    k->event = twl4030_event;
+    k->recv = twl4030_rx;
+    k->send = twl4030_tx;
+}
+
+static DeviceInfo twl4030_info[4] = {
     {
-        .qdev.name = "twl4030_48",
-        .qdev.size = sizeof(TWL4030NodeState),
-        .init = twl4030_48_init,
-        .event = twl4030_event,
-        .recv = twl4030_rx,
-        .send = twl4030_tx
+        .name = "twl4030_48",
+        .size = sizeof(TWL4030NodeState),
+        .class_init = twl4030_48_class_init,
     },
     {
-        .qdev.name = "twl4030_49",
-        .qdev.size = sizeof(TWL4030NodeState),
-        .init = twl4030_49_init,
-        .event = twl4030_event,
-        .recv = twl4030_rx,
-        .send = twl4030_tx
+        .name = "twl4030_49",
+        .size = sizeof(TWL4030NodeState),
+        .class_init = twl4030_49_class_init,
     },
     {
-        .qdev.name = "twl4030_4a",
-        .qdev.size = sizeof(TWL4030NodeState),
-        .init = twl4030_4a_init,
-        .event = twl4030_event,
-        .recv = twl4030_rx,
-        .send = twl4030_tx
+        .name = "twl4030_4a",
+        .size = sizeof(TWL4030NodeState),
+        .class_init = twl4030_4a_class_init,
     },
     {
-        .qdev.name = "twl4030_4b",
-        .qdev.size = sizeof(TWL4030NodeState),
-        .init = twl4030_4b_init,
-        .event = twl4030_event,
-        .recv = twl4030_rx,
-        .send = twl4030_tx
+        .name = "twl4030_4b",
+        .size = sizeof(TWL4030NodeState),
+        .class_init = twl4030_4b_class_init,
     },
 };
 
@@ -1718,7 +1741,7 @@ void *twl4030_init(i2c_bus *bus, qemu_irq irq1, qemu_irq irq2,
 
     int i;
     for (i = 0; i < 4; i++) {
-        DeviceState *ds = i2c_create_slave(bus, twl4030_info[i].qdev.name,
+        DeviceState *ds = i2c_create_slave(bus, twl4030_info[i].name,
                                            0x48 + i);
         s->i2c[i] = FROM_I2C_SLAVE(TWL4030NodeState, I2C_SLAVE_FROM_QDEV(ds));
         s->i2c[i]->twl4030 = s;
@@ -1771,7 +1794,7 @@ void twl4030_madc_attach(void *opaque, twl4030_madc_callback cb)
 
 static void twl4030_register_devices(void)
 {
-    I2CSlaveInfo *p = twl4030_info;
+    DeviceInfo *p = twl4030_info;
     int i;
     for (i = 0; i < 4; p++, i++) {
         i2c_register_slave(p);

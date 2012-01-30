@@ -325,12 +325,18 @@ static int omap_uart_init(SysBusDevice *busdev)
     return 0;
 }
 
-static SysBusDeviceInfo omap_uart_info = {
-    .init = omap_uart_init,
-    .qdev.name = "omap_uart",
-    .qdev.size = sizeof(struct omap_uart_s),
-    .qdev.reset = omap_uart_reset,
-    .qdev.props = (Property[]) {
+static void omap_uart_class_init(ObjectClass *klass, void *data)
+{
+    SysBusDeviceClass *k = SYS_BUS_DEVICE_CLASS(klass);
+    k->init = omap_uart_init;
+}
+
+static DeviceInfo omap_uart_info = {
+    .name = "omap_uart",
+    .size = sizeof(struct omap_uart_s),
+    .reset = omap_uart_reset,
+    .class_init = omap_uart_class_init,
+    .props = (Property[]) {
         DEFINE_PROP_UINT32("mmio_size", struct omap_uart_s, mmio_size, 0x400),
         DEFINE_PROP_UINT32("baudrate", struct omap_uart_s, baudrate, 0),
         DEFINE_PROP_CHR("chardev", struct omap_uart_s, chr),

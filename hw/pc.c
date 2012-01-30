@@ -36,9 +36,10 @@
 #include "elf.h"
 #include "multiboot.h"
 #include "mc146818rtc.h"
-#include "msix.h"
+#include "msi.h"
 #include "sysbus.h"
 #include "sysemu.h"
+#include "kvm.h"
 #include "blockdev.h"
 #include "ui/qemu-spice.h"
 #include "memory.h"
@@ -496,13 +497,19 @@ static int port92_initfn(ISADevice *dev)
     return 0;
 }
 
-static ISADeviceInfo port92_info = {
-    .qdev.name     = "port92",
-    .qdev.size     = sizeof(Port92State),
-    .qdev.vmsd     = &vmstate_port92_isa,
-    .qdev.no_user  = 1,
-    .qdev.reset    = port92_reset,
-    .init          = port92_initfn,
+static void port92_class_initfn(ObjectClass *klass, void *data)
+{
+    ISADeviceClass *ic = ISA_DEVICE_CLASS(klass);
+    ic->init = port92_initfn;
+}
+
+static DeviceInfo port92_info = {
+    .name     = "port92",
+    .size     = sizeof(Port92State),
+    .vmsd     = &vmstate_port92_isa,
+    .no_user  = 1,
+    .reset    = port92_reset,
+    .class_init          = port92_class_initfn,
 };
 
 static void port92_register(void)
@@ -609,7 +616,7 @@ static void *bochs_bios_init(void)
     fw_cfg_add_i64(fw_cfg, FW_CFG_RAM_SIZE, (uint64_t)ram_size);
     fw_cfg_add_bytes(fw_cfg, FW_CFG_ACPI_TABLES, (uint8_t *)acpi_tables,
                      acpi_tables_len);
-    fw_cfg_add_bytes(fw_cfg, FW_CFG_IRQ0_OVERRIDE, &irq0override, 1);
+    fw_cfg_add_i32(fw_cfg, FW_CFG_IRQ0_OVERRIDE, kvm_allows_irq0_override());
 
     smbios_table = smbios_get_table(&smbios_len);
     if (smbios_table)
@@ -878,25 +885,30 @@ DeviceState *cpu_get_current_apic(void)
 static DeviceState *apic_init(void *env, uint8_t apic_id)
 {
     DeviceState *dev;
-    SysBusDevice *d;
     static int apic_mapped;
 
-    dev = qdev_create(NULL, "apic");
+    if (kvm_enabled() && kvm_irqchip_in_kernel()) {
+        dev = qdev_create(NULL, "kvm-apic");
+    } else {
+        dev = qdev_create(NULL, "apic");
+    }
     qdev_prop_set_uint8(dev, "id", apic_id);
     qdev_prop_set_ptr(dev, "cpu_env", env);
     qdev_init_nofail(dev);
-    d = sysbus_from_qdev(dev);
 
     /* XXX: mapping more APICs at the same memory location */
     if (apic_mapped == 0) {
         /* NOTE: the APIC is directly connected to the CPU - it is not
            on the global memory bus. */
         /* XXX: what if the base changes? */
-        sysbus_mmio_map(d, 0, MSI_ADDR_BASE);
+        sysbus_mmio_map(sysbus_from_qdev(dev), 0, MSI_ADDR_BASE);
         apic_mapped = 1;
     }
 
-    msix_supported = 1;
+    /* KVM does not support MSI yet. */
+    if (!kvm_enabled() || !kvm_irqchip_in_kernel()) {
+        msi_supported = true;
+    }
 
     return dev;
 }
@@ -1080,16 +1092,11 @@ DeviceState *pc_vga_init(ISABus *isa_bus, PCIBus *pci_bus)
         if (pci_bus) {
             dev = pci_cirrus_vga_init(pci_bus);
         } else {
-            dev = isa_cirrus_vga_init(get_system_memory());
+            dev = &isa_create_simple(isa_bus, "isa-cirrus-vga")->qdev;
         }
     } else if (vmsvga_enabled) {
         if (pci_bus) {
             dev = pci_vmsvga_init(pci_bus);
-            if (!dev) {
-                fprintf(stderr, "Warning: vmware_vga not available,"
-                        " using standard VGA instead\n");
-                dev = pci_vga_init(pci_bus);
-            }
         } else {
             fprintf(stderr, "%s: vmware_vga: no PCI bus\n", __FUNCTION__);
         }

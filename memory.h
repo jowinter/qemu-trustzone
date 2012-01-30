@@ -126,6 +126,7 @@ struct MemoryRegion {
     bool readonly; /* For RAM regions */
     bool enabled;
     bool rom_device;
+    bool warning_printed; /* For reservations */
     MemoryRegion *alias;
     target_phys_addr_t alias_offset;
     unsigned priority;
@@ -280,6 +281,21 @@ void memory_region_init_rom_device(MemoryRegion *mr,
                                    uint64_t size);
 
 /**
+ * memory_region_init_reservation: Initialize a memory region that reserves
+ *                                 I/O space.
+ *
+ * A reservation region primariy serves debugging purposes.  It claims I/O
+ * space that is not supposed to be handled by QEMU itself.  Any access via
+ * the memory API will cause an abort().
+ *
+ * @mr: the #MemoryRegion to be initialized
+ * @name: used for debugging; not visible to the user or ABI
+ * @size: size of the region.
+ */
+void memory_region_init_reservation(MemoryRegion *mr,
+                                    const char *name,
+                                    uint64_t size);
+/**
  * memory_region_destroy: Destroy a memory region and reclaim all resources.
  *
  * @mr: the region to be destroyed.  May not currently be a subregion
@@ -380,14 +396,17 @@ bool memory_region_get_dirty(MemoryRegion *mr, target_phys_addr_t addr,
                              unsigned client);
 
 /**
- * memory_region_set_dirty: Mark a page as dirty in a memory region.
+ * memory_region_set_dirty: Mark a range of bytes as dirty in a memory region.
  *
- * Marks a page as dirty, after it has been dirtied outside guest code.
+ * Marks a range of bytes as dirty, after it has been dirtied outside
+ * guest code.
  *
- * @mr: the memory region being queried.
+ * @mr: the memory region being dirtied.
  * @addr: the address (relative to the start of the region) being dirtied.
+ * @size: size of the range being dirtied.
  */
-void memory_region_set_dirty(MemoryRegion *mr, target_phys_addr_t addr);
+void memory_region_set_dirty(MemoryRegion *mr, target_phys_addr_t addr,
+                             target_phys_addr_t size);
 
 /**
  * memory_region_sync_dirty_bitmap: Synchronize a region's dirty bitmap with

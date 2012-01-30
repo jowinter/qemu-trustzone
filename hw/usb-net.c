@@ -71,9 +71,6 @@ enum usbstring_idx {
 #define USB_CDC_UNION_TYPE		0x06	/* union_desc */
 #define USB_CDC_ETHERNET_TYPE		0x0f	/* ether_desc */
 
-#define USB_DT_CS_INTERFACE		0x24
-#define USB_DT_CS_ENDPOINT		0x25
-
 #define USB_CDC_SEND_ENCAPSULATED_COMMAND	0x00
 #define USB_CDC_GET_ENCAPSULATED_RESPONSE	0x01
 #define USB_CDC_REQ_SET_LINE_CODING		0x20
@@ -1098,17 +1095,6 @@ static int usb_net_handle_control(USBDevice *dev, USBPacket *p,
 #endif
         break;
 
-    case DeviceRequest | USB_REQ_GET_INTERFACE:
-    case InterfaceRequest | USB_REQ_GET_INTERFACE:
-        data[0] = 0;
-        ret = 1;
-        break;
-
-    case DeviceOutRequest | USB_REQ_SET_INTERFACE:
-    case InterfaceOutRequest | USB_REQ_SET_INTERFACE:
-        ret = 0;
-        break;
-
     default:
     fail:
         fprintf(stderr, "usbnet: failed control transaction: "
@@ -1351,7 +1337,7 @@ static int usb_net_initfn(USBDevice *dev)
 
     qemu_macaddr_default_if_unset(&s->conf.macaddr);
     s->nic = qemu_new_nic(&net_usbnet_info, &s->conf,
-                          s->dev.qdev.info->name, s->dev.qdev.id, s);
+                          object_get_typename(OBJECT(s)), s->dev.qdev.id, s);
     qemu_format_nic_info_str(&s->nic->nc, s->conf.macaddr.a);
     snprintf(s->usbstring_mac, sizeof(s->usbstring_mac),
              "%02x%02x%02x%02x%02x%02x",
@@ -1399,29 +1385,34 @@ static const VMStateDescription vmstate_usb_net = {
     .unmigratable = 1,
 };
 
-static struct USBDeviceInfo net_info = {
-    .product_desc   = "QEMU USB Network Interface",
-    .qdev.name      = "usb-net",
-    .qdev.fw_name    = "network",
-    .qdev.size      = sizeof(USBNetState),
-    .qdev.vmsd      = &vmstate_usb_net,
-    .usb_desc       = &desc_net,
-    .init           = usb_net_initfn,
-    .handle_packet  = usb_generic_handle_packet,
-    .handle_reset   = usb_net_handle_reset,
-    .handle_control = usb_net_handle_control,
-    .handle_data    = usb_net_handle_data,
-    .handle_destroy = usb_net_handle_destroy,
-    .usbdevice_name = "net",
-    .usbdevice_init = usb_net_init,
-    .qdev.props     = (Property[]) {
+static void usb_net_class_initfn(ObjectClass *klass, void *data)
+{
+    USBDeviceClass *uc = USB_DEVICE_CLASS(klass);
+
+    uc->init           = usb_net_initfn;
+    uc->product_desc   = "QEMU USB Network Interface";
+    uc->usb_desc       = &desc_net;
+    uc->handle_packet  = usb_generic_handle_packet;
+    uc->handle_reset   = usb_net_handle_reset;
+    uc->handle_control = usb_net_handle_control;
+    uc->handle_data    = usb_net_handle_data;
+    uc->handle_destroy = usb_net_handle_destroy;
+}
+
+static struct DeviceInfo net_info = {
+    .name      = "usb-net",
+    .fw_name   = "network",
+    .size      = sizeof(USBNetState),
+    .vmsd      = &vmstate_usb_net,
+    .class_init= usb_net_class_initfn,
+    .props     = (Property[]) {
         DEFINE_NIC_PROPERTIES(USBNetState, conf),
         DEFINE_PROP_END_OF_LIST(),
-    }
+    },
 };
 
 static void usb_net_register_devices(void)
 {
-    usb_qdev_register(&net_info);
+    usb_qdev_register(&net_info, "net", usb_net_init);
 }
 device_init(usb_net_register_devices)

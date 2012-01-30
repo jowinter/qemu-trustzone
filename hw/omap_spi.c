@@ -632,12 +632,18 @@ SPIBus *omap_mcspi_bus(DeviceState *qdev, int bus_number)
     hw_error("%s: invalid bus number %d\n", __FUNCTION__, bus_number);
 }
 
-static SysBusDeviceInfo omap_mcspi_info = {
-    .init = omap_mcspi_init,
-    .qdev.name = "omap_mcspi",
-    .qdev.size = sizeof(OMAPSPIState),
-    .qdev.reset = omap_mcspi_reset,
-    .qdev.props = (Property[]) {
+static void omap_mcspi_class_init(ObjectClass *klass, void *data)
+{
+    SysBusDeviceClass *k = SYS_BUS_DEVICE_CLASS(klass);
+    k->init = omap_mcspi_init;
+}
+
+static DeviceInfo omap_mcspi_info = {
+    .name = "omap_mcspi",
+    .size = sizeof(OMAPSPIState),
+    .reset = omap_mcspi_reset,
+    .class_init = omap_mcspi_class_init,
+    .props = (Property[]) {
         DEFINE_PROP_INT32("mpu_model", OMAPSPIState, mpu_model, 0),
         DEFINE_PROP_END_OF_LIST()
     }

@@ -1622,7 +1622,7 @@ static const MemoryRegionOps ssi_ops = {
 };
 
 typedef struct LIS302DLState_s {
-    i2c_slave i2c;
+    I2CSlave i2c;
     int firstbyte;
     uint8_t reg;
 
@@ -1809,7 +1809,7 @@ static void lis302dl_reset(DeviceState *ds)
     lis302dl_interrupt_update(s);
 }
 
-static void lis302dl_event(i2c_slave *i2c, enum i2c_event event)
+static void lis302dl_event(I2CSlave *i2c, enum i2c_event event)
 {
     LIS302DLState *s = FROM_I2C_SLAVE(LIS302DLState, i2c);
     if (event == I2C_START_SEND)
@@ -1866,7 +1866,7 @@ static uint8_t lis302dl_readcoord(LIS302DLState *s, int coord)
     return (uint8_t)v;
 }
 
-static int lis302dl_rx(i2c_slave *i2c)
+static int lis302dl_rx(I2CSlave *i2c)
 {
     LIS302DLState *s = FROM_I2C_SLAVE(LIS302DLState, i2c);
     int value = -1;
@@ -1980,7 +1980,7 @@ static int lis302dl_rx(i2c_slave *i2c)
     return value;
 }
 
-static int lis302dl_tx(i2c_slave *i2c, uint8_t data)
+static int lis302dl_tx(I2CSlave *i2c, uint8_t data)
 {
     LIS302DLState *s = FROM_I2C_SLAVE(LIS302DLState, i2c);
     if (s->firstbyte) {
@@ -2057,7 +2057,7 @@ static int lis302dl_tx(i2c_slave *i2c, uint8_t data)
     return 1;
 }
 
-static int lis302dl_init(i2c_slave *i2c)
+static int lis302dl_init(I2CSlave *i2c)
 {
     LIS302DLState *s = FROM_I2C_SLAVE(LIS302DLState, i2c);
     s->axis_max = 58;
@@ -2066,25 +2066,31 @@ static int lis302dl_init(i2c_slave *i2c)
     return 0;
 }
 
-static I2CSlaveInfo lis302dl_info = {
-    .qdev.name = "lis302dl",
-    .qdev.size = sizeof(LIS302DLState),
-    .qdev.reset = lis302dl_reset,
-    .qdev.change = lis302dl_change,
-    .qdev.props = (Property[]) {
+static void lis302dl_class_init(ObjectClass *klass, void *data)
+{
+    I2CSlaveClass *k = I2C_SLAVE_CLASS(klass);
+    k->init = lis302dl_init;
+    k->event = lis302dl_event;
+    k->recv = lis302dl_rx;
+    k->send = lis302dl_tx;
+}
+
+static DeviceInfo lis302dl_info = {
+    .name = "lis302dl",
+    .size = sizeof(LIS302DLState),
+    .reset = lis302dl_reset,
+    .change = lis302dl_change,
+    .class_init = lis302dl_class_init,
+    .props = (Property[]) {
         DEFINE_PROP_INT32("x", LIS302DLState, x, 0),
         DEFINE_PROP_INT32("y", LIS302DLState, y, 0),
         DEFINE_PROP_INT32("z", LIS302DLState, z, 0),
         DEFINE_PROP_END_OF_LIST(),
     },
-    .init = lis302dl_init,
-    .event = lis302dl_event,
-    .recv = lis302dl_rx,
-    .send = lis302dl_tx
 };
 
 typedef struct BQ2415XState_s {
-    i2c_slave i2c;
+    I2CSlave i2c;
     int firstbyte;
     uint8 reg;
     
@@ -2108,14 +2114,14 @@ static void bq2415x_reset(DeviceState *ds)
     s->tcc = 0xa1; // 89
 }
 
-static void bq2415x_event(i2c_slave *i2c, enum i2c_event event)
+static void bq2415x_event(I2CSlave *i2c, enum i2c_event event)
 {
     BQ2415XState *s = FROM_I2C_SLAVE(BQ2415XState, i2c);
     if (event == I2C_START_SEND)
         s->firstbyte = 1;
 }
 
-static int bq2415x_rx(i2c_slave *i2c)
+static int bq2415x_rx(I2CSlave *i2c)
 {
     BQ2415XState *s = FROM_I2C_SLAVE(BQ2415XState, i2c);
     int value = -1;
@@ -2150,7 +2156,7 @@ static int bq2415x_rx(i2c_slave *i2c)
     return value;
 }
 
-static int bq2415x_tx(i2c_slave *i2c, uint8_t data)
+static int bq2415x_tx(I2CSlave *i2c, uint8_t data)
 {
     BQ2415XState *s = FROM_I2C_SLAVE(BQ2415XState, i2c);
     if (s->firstbyte) {
@@ -2184,27 +2190,33 @@ static int bq2415x_tx(i2c_slave *i2c, uint8_t data)
     return 1;
 }
 
-static int bq2415x_init(i2c_slave *i2c)
+static int bq2415x_init(I2CSlave *i2c)
 {
     return 0;
 }
 
-static I2CSlaveInfo bq2415x_info = {
-    .qdev.name = "bq2415x",
-    .qdev.size = sizeof(BQ2415XState),
-    .qdev.reset = bq2415x_reset,
-    .qdev.props = (Property[]) {
+static void bq2415x_class_init(ObjectClass *klass, void *data)
+{
+    I2CSlaveClass *k = I2C_SLAVE_CLASS(klass);
+    k->init = bq2415x_init;
+    k->event = bq2415x_event;
+    k->recv = bq2415x_rx;
+    k->send = bq2415x_tx;
+}
+
+static DeviceInfo bq2415x_info = {
+    .name = "bq2415x",
+    .size = sizeof(BQ2415XState),
+    .reset = bq2415x_reset,
+    .class_init = bq2415x_class_init,
+    .props = (Property[]) {
         DEFINE_PROP_UINT8("id", BQ2415XState, id, 0x49),
         DEFINE_PROP_END_OF_LIST(),
     },
-    .init = bq2415x_init,
-    .event = bq2415x_event,
-    .recv = bq2415x_rx,
-    .send = bq2415x_tx
 };
 
 typedef struct tpa6130_s {
-    i2c_slave i2c;
+    I2CSlave i2c;
     int firstbyte;
     int reg;
     uint8_t data[3];
@@ -2218,14 +2230,14 @@ static void tpa6130_reset(DeviceState *ds)
     memset(s->data, 0, sizeof(s->data));
 }
 
-static void tpa6130_event(i2c_slave *i2c, enum i2c_event event)
+static void tpa6130_event(I2CSlave *i2c, enum i2c_event event)
 {
     TPA6130State *s = FROM_I2C_SLAVE(TPA6130State, i2c);
     if (event == I2C_START_SEND)
         s->firstbyte = 1;
 }
 
-static int tpa6130_rx(i2c_slave *i2c)
+static int tpa6130_rx(I2CSlave *i2c)
 {
     TPA6130State *s = FROM_I2C_SLAVE(TPA6130State, i2c);
     int value = 0;
@@ -2246,7 +2258,7 @@ static int tpa6130_rx(i2c_slave *i2c)
     return value;
 }
 
-static int tpa6130_tx(i2c_slave *i2c, uint8_t data)
+static int tpa6130_tx(I2CSlave *i2c, uint8_t data)
 {
     TPA6130State *s = FROM_I2C_SLAVE(TPA6130State, i2c);
     if (s->firstbyte) {
@@ -2277,20 +2289,26 @@ static void tpa6130_irq(void *opaque, int n, int level)
     }
 }
 
-static int tpa6130_init(i2c_slave *i2c)
+static int tpa6130_init(I2CSlave *i2c)
 {
     qdev_init_gpio_in(&i2c->qdev, tpa6130_irq, 1);
     return 0;
 }
 
-static I2CSlaveInfo tpa6130_info = {
-    .qdev.name = "tpa6130",
-    .qdev.size = sizeof(TPA6130State),
-    .qdev.reset = tpa6130_reset,
-    .init = tpa6130_init,
-    .event = tpa6130_event,
-    .recv = tpa6130_rx,
-    .send = tpa6130_tx
+static void tpa6130_class_init(ObjectClass *klass, void *data)
+{
+    I2CSlaveClass *k = I2C_SLAVE_CLASS(klass);
+    k->init = tpa6130_init;
+    k->event = tpa6130_event;
+    k->recv = tpa6130_rx;
+    k->send = tpa6130_tx;
+}
+
+static DeviceInfo tpa6130_info = {
+    .name = "tpa6130",
+    .size = sizeof(TPA6130State),
+    .reset = tpa6130_reset,
+    .class_init = tpa6130_class_init,
 };
 
 struct n900_s {

@@ -218,7 +218,7 @@ static void build_edid_blob(const edid_data *edid, uint8_t *blob)
 /* A simple I2C slave which just returns the contents of its EDID blob. */
 
 typedef struct I2CDDCState_s {
-    i2c_slave i2c;
+    I2CSlave i2c;
     int firstbyte;
     uint8_t reg;
     uint8_t edid_blob[128];
@@ -231,7 +231,7 @@ static void i2c_ddc_reset(DeviceState *ds)
     s->reg = 0;
 }
 
-static void i2c_ddc_event(i2c_slave *i2c, enum i2c_event event)
+static void i2c_ddc_event(I2CSlave *i2c, enum i2c_event event)
 {
     I2CDDCState *s = FROM_I2C_SLAVE(I2CDDCState, i2c);
     if (event == I2C_START_SEND) {
@@ -239,7 +239,7 @@ static void i2c_ddc_event(i2c_slave *i2c, enum i2c_event event)
     }
 }
 
-static int i2c_ddc_rx(i2c_slave *i2c)
+static int i2c_ddc_rx(I2CSlave *i2c)
 {
     I2CDDCState *s = FROM_I2C_SLAVE(I2CDDCState, i2c);
     int value;
@@ -252,7 +252,7 @@ static int i2c_ddc_rx(i2c_slave *i2c)
     return value;
 }
 
-static int i2c_ddc_tx(i2c_slave *i2c, uint8_t data)
+static int i2c_ddc_tx(I2CSlave *i2c, uint8_t data)
 {
     I2CDDCState *s = FROM_I2C_SLAVE(I2CDDCState, i2c);
     if (s->firstbyte) {
@@ -266,22 +266,28 @@ static int i2c_ddc_tx(i2c_slave *i2c, uint8_t data)
     return 1;
 }
 
-static int i2c_ddc_init(i2c_slave *i2c)
+static int i2c_ddc_init(I2CSlave *i2c)
 {
     I2CDDCState *s = FROM_I2C_SLAVE(I2CDDCState, i2c);
     build_edid_blob(&lcd_edid, s->edid_blob);
     return 0;
 }
 
-static I2CSlaveInfo i2c_ddc_info = {
-    .qdev.name = "i2c-ddc",
-    .qdev.size = sizeof(I2CDDCState),
-    .qdev.reset = i2c_ddc_reset,
+static void i2c_ddc_class_init(ObjectClass *klass, void *data)
+{
+    I2CSlaveClass *k = I2C_SLAVE_CLASS(klass);
+    k->init = i2c_ddc_init;
+    k->event = i2c_ddc_event;
+    k->recv = i2c_ddc_rx;
+    k->send = i2c_ddc_tx;
+}
+
+static DeviceInfo i2c_ddc_info = {
+    .name = "i2c-ddc",
+    .size = sizeof(I2CDDCState),
+    .reset = i2c_ddc_reset,
     // XXX vmstate?
-    .init = i2c_ddc_init,
-    .event = i2c_ddc_event,
-    .recv = i2c_ddc_rx,
-    .send = i2c_ddc_tx
+    .class_init = i2c_ddc_class_init,
 };
 
 static void ddc_register_devices(void)

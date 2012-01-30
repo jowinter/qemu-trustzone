@@ -61,21 +61,13 @@ static void tcx24_screen_dump(void *opaque, const char *filename);
 
 static void tcx_set_dirty(TCXState *s)
 {
-    unsigned int i;
-
-    for (i = 0; i < MAXX * MAXY; i += TARGET_PAGE_SIZE) {
-        memory_region_set_dirty(&s->vram_mem, i);
-    }
+    memory_region_set_dirty(&s->vram_mem, 0, MAXX * MAXY);
 }
 
 static void tcx24_set_dirty(TCXState *s)
 {
-    unsigned int i;
-
-    for (i = 0; i < MAXX * MAXY * 4; i += TARGET_PAGE_SIZE) {
-        memory_region_set_dirty(&s->vram_mem, s->vram24_offset + i);
-        memory_region_set_dirty(&s->vram_mem, s->cplane_offset + i);
-    }
+    memory_region_set_dirty(&s->vram_mem, s->vram24_offset, MAXX * MAXY * 4);
+    memory_region_set_dirty(&s->vram_mem, s->cplane_offset, MAXX * MAXY * 4);
 }
 
 static void update_palette_entries(TCXState *s, int start, int end)
@@ -646,20 +638,29 @@ static void tcx24_screen_dump(void *opaque, const char *filename)
     return;
 }
 
-static SysBusDeviceInfo tcx_info = {
-    .init = tcx_init1,
-    .qdev.name  = "SUNW,tcx",
-    .qdev.size  = sizeof(TCXState),
-    .qdev.reset = tcx_reset,
-    .qdev.vmsd  = &vmstate_tcx,
-    .qdev.props = (Property[]) {
-        DEFINE_PROP_TADDR("addr",      TCXState, addr,      -1),
-        DEFINE_PROP_HEX32("vram_size", TCXState, vram_size, -1),
-        DEFINE_PROP_UINT16("width",    TCXState, width,     -1),
-        DEFINE_PROP_UINT16("height",   TCXState, height,    -1),
-        DEFINE_PROP_UINT16("depth",    TCXState, depth,     -1),
-        DEFINE_PROP_END_OF_LIST(),
-    }
+static Property tcx_properties[] = {
+    DEFINE_PROP_TADDR("addr",      TCXState, addr,      -1),
+    DEFINE_PROP_HEX32("vram_size", TCXState, vram_size, -1),
+    DEFINE_PROP_UINT16("width",    TCXState, width,     -1),
+    DEFINE_PROP_UINT16("height",   TCXState, height,    -1),
+    DEFINE_PROP_UINT16("depth",    TCXState, depth,     -1),
+    DEFINE_PROP_END_OF_LIST(),
+};
+
+static void tcx_class_init(ObjectClass *klass, void *data)
+{
+    SysBusDeviceClass *k = SYS_BUS_DEVICE_CLASS(klass);
+
+    k->init = tcx_init1;
+}
+
+static DeviceInfo tcx_info = {
+    .name = "SUNW,tcx",
+    .size = sizeof(TCXState),
+    .reset = tcx_reset,
+    .vmsd = &vmstate_tcx,
+    .props = tcx_properties,
+    .class_init = tcx_class_init,
 };
 
 static void tcx_register_devices(void)

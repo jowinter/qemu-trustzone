@@ -218,7 +218,6 @@ int no_reboot = 0;
 int no_shutdown = 0;
 int cursor_hide = 1;
 int graphic_rotate = 0;
-uint8_t irq0override = 1;
 const char *watchdog;
 QEMUOptionRom option_rom[MAX_OPTION_ROMS];
 int nb_option_roms;
@@ -271,7 +270,6 @@ static int default_serial = 1;
 static int default_parallel = 1;
 static int default_virtcon = 1;
 static int default_monitor = 1;
-static int default_vga = 1;
 static int default_floppy = 1;
 static int default_cdrom = 1;
 static int default_sdcard = 1;
@@ -290,11 +288,6 @@ static struct {
     { .driver = "virtio-serial-pci",    .flag = &default_virtcon   },
     { .driver = "virtio-serial-s390",   .flag = &default_virtcon   },
     { .driver = "virtio-serial",        .flag = &default_virtcon   },
-    { .driver = "VGA",                  .flag = &default_vga       },
-    { .driver = "cirrus-vga",           .flag = &default_vga       },
-    { .driver = "vmware-svga",          .flag = &default_vga       },
-    { .driver = "isa-vga",              .flag = &default_vga       },
-    { .driver = "qxl-vga",              .flag = &default_vga       },
 };
 
 static void res_free(void)
@@ -1525,18 +1518,48 @@ static const QEMUOption qemu_options[] = {
 #include "qemu-options-wrapper.h"
     { NULL },
 };
+
+static bool vga_available(void)
+{
+    return qdev_exists("VGA") || qdev_exists("isa-vga");
+}
+
+static bool cirrus_vga_available(void)
+{
+    return qdev_exists("cirrus-vga") || qdev_exists("isa-cirrus-vga");
+}
+
+static bool vmware_vga_available(void)
+{
+    return qdev_exists("vmware-svga");
+}
+
 static void select_vgahw (const char *p)
 {
     const char *opts;
 
-    default_vga = 0;
     vga_interface_type = VGA_NONE;
     if (strstart(p, "std", &opts)) {
-        vga_interface_type = VGA_STD;
+        if (vga_available()) {
+            vga_interface_type = VGA_STD;
+        } else {
+            fprintf(stderr, "Error: standard VGA not available\n");
+            exit(0);
+        }
     } else if (strstart(p, "cirrus", &opts)) {
-        vga_interface_type = VGA_CIRRUS;
+        if (cirrus_vga_available()) {
+            vga_interface_type = VGA_CIRRUS;
+        } else {
+            fprintf(stderr, "Error: Cirrus VGA not available\n");
+            exit(0);
+        }
     } else if (strstart(p, "vmware", &opts)) {
-        vga_interface_type = VGA_VMWARE;
+        if (vmware_vga_available()) {
+            vga_interface_type = VGA_VMWARE;
+        } else {
+            fprintf(stderr, "Error: VMWare SVGA not available\n");
+            exit(0);
+        }
     } else if (strstart(p, "xenfb", &opts)) {
         vga_interface_type = VGA_XENFB;
     } else if (strstart(p, "qxl", &opts)) {
@@ -2155,6 +2178,7 @@ int main(int argc, char **argv, char **envp)
     const char *loadvm = NULL;
     QEMUMachine *machine;
     const char *cpu_model;
+    const char *vga_model = NULL;
     const char *pid_file = NULL;
     const char *incoming = NULL;
 #ifdef CONFIG_VNC
@@ -2581,7 +2605,7 @@ int main(int argc, char **argv, char **envp)
                 rtc_utc = 0;
                 break;
             case QEMU_OPTION_vga:
-                select_vgahw (optarg);
+                vga_model = optarg;
                 break;
             case QEMU_OPTION_g:
                 {
@@ -2978,11 +3002,11 @@ int main(int argc, char **argv, char **envp)
                 default_parallel = 0;
                 default_virtcon = 0;
                 default_monitor = 0;
-                default_vga = 0;
                 default_net = 0;
                 default_floppy = 0;
                 default_cdrom = 0;
                 default_sdcard = 0;
+                vga_model = "none";
                 break;
             case QEMU_OPTION_xen_domid:
                 if (!(xen_available())) {
@@ -3140,9 +3164,6 @@ int main(int argc, char **argv, char **envp)
     if (!machine->use_virtcon) {
         default_virtcon = 0;
     }
-    if (machine->no_vga) {
-        default_vga = 0;
-    }
     if (machine->no_floppy) {
         default_floppy = 0;
     }
@@ -3178,8 +3199,6 @@ int main(int argc, char **argv, char **envp)
         if (default_virtcon)
             add_device_config(DEV_VIRTCON, "vc:80Cx24C");
     }
-    if (default_vga)
-        vga_interface_type = VGA_CIRRUS;
 
     socket_init();
 
@@ -3329,6 +3348,15 @@ int main(int argc, char **argv, char **envp)
         exit(1);
 
     module_call_init(MODULE_INIT_DEVICE);
+
+    /* must be after qdev registration but before machine init */
+    if (vga_model) {
+        select_vgahw(vga_model);
+    } else if (cirrus_vga_available()) {
+        select_vgahw("cirrus");
+    } else {
+        select_vgahw("none");
+    }
 
     if (qemu_opts_foreach(qemu_find_opts("device"), device_help_func, NULL, 0) != 0)
         exit(0);

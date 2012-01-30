@@ -95,8 +95,8 @@ static int do_token_setup(USBDevice *s, USBPacket *p)
     index   = (s->setup_buf[5] << 8) | s->setup_buf[4];
 
     if (s->setup_buf[0] & USB_DIR_IN) {
-        ret = s->info->handle_control(s, p, request, value, index,
-                                      s->setup_len, s->data_buf);
+        ret = usb_device_handle_control(s, p, request, value, index,
+                                        s->setup_len, s->data_buf);
         if (ret == USB_RET_ASYNC) {
              s->setup_state = SETUP_STATE_SETUP;
              return USB_RET_ASYNC;
@@ -129,7 +129,7 @@ static int do_token_in(USBDevice *s, USBPacket *p)
     int ret = 0;
 
     if (p->devep != 0)
-        return s->info->handle_data(s, p);
+        return usb_device_handle_data(s, p);
 
     request = (s->setup_buf[0] << 8) | s->setup_buf[1];
     value   = (s->setup_buf[3] << 8) | s->setup_buf[2];
@@ -138,8 +138,8 @@ static int do_token_in(USBDevice *s, USBPacket *p)
     switch(s->setup_state) {
     case SETUP_STATE_ACK:
         if (!(s->setup_buf[0] & USB_DIR_IN)) {
-            ret = s->info->handle_control(s, p, request, value, index,
-                                          s->setup_len, s->data_buf);
+            ret = usb_device_handle_control(s, p, request, value, index,
+                                            s->setup_len, s->data_buf);
             if (ret == USB_RET_ASYNC) {
                 return USB_RET_ASYNC;
             }
@@ -176,7 +176,7 @@ static int do_token_in(USBDevice *s, USBPacket *p)
 static int do_token_out(USBDevice *s, USBPacket *p)
 {
     if (p->devep != 0)
-        return s->info->handle_data(s, p);
+        return usb_device_handle_data(s, p);
 
     switch(s->setup_state) {
     case SETUP_STATE_ACK:
@@ -220,9 +220,7 @@ int usb_generic_handle_packet(USBDevice *s, USBPacket *p)
     switch(p->pid) {
     case USB_MSG_ATTACH:
         s->state = USB_STATE_ATTACHED;
-        if (s->info->handle_attach) {
-            s->info->handle_attach(s);
-        }
+        usb_device_handle_attach(s);
         return 0;
 
     case USB_MSG_DETACH:
@@ -233,9 +231,7 @@ int usb_generic_handle_packet(USBDevice *s, USBPacket *p)
         s->remote_wakeup = 0;
         s->addr = 0;
         s->state = USB_STATE_DEFAULT;
-        if (s->info->handle_reset) {
-            s->info->handle_reset(s);
-        }
+        usb_device_handle_reset(s);
         return 0;
     }
 
@@ -326,10 +322,10 @@ int usb_handle_packet(USBDevice *dev, USBPacket *p)
     int ret;
 
     assert(p->owner == NULL);
-    ret = dev->info->handle_packet(dev, p);
+    ret = usb_device_handle_packet(dev, p);
     if (ret == USB_RET_ASYNC) {
         if (p->owner == NULL) {
-            p->owner = dev;
+            p->owner = usb_ep_get(dev, p->pid, p->devep);
         } else {
             /* We'll end up here when usb_handle_packet is called
              * recursively due to a hub being in the chain.  Nothing
@@ -357,7 +353,7 @@ void usb_packet_complete(USBDevice *dev, USBPacket *p)
 void usb_cancel_packet(USBPacket * p)
 {
     assert(p->owner != NULL);
-    p->owner->info->cancel_packet(p->owner, p);
+    usb_device_cancel_packet(p->owner->dev, p);
     p->owner = NULL;
 }
 
@@ -413,4 +409,125 @@ void usb_packet_skip(USBPacket *p, size_t bytes)
 void usb_packet_cleanup(USBPacket *p)
 {
     qemu_iovec_destroy(&p->iov);
+}
+
+void usb_ep_init(USBDevice *dev)
+{
+    int ep;
+
+    dev->ep_ctl.type = USB_ENDPOINT_XFER_CONTROL;
+    dev->ep_ctl.ifnum = 0;
+    dev->ep_ctl.dev = dev;
+    for (ep = 0; ep < USB_MAX_ENDPOINTS; ep++) {
+        dev->ep_in[ep].type = USB_ENDPOINT_XFER_INVALID;
+        dev->ep_out[ep].type = USB_ENDPOINT_XFER_INVALID;
+        dev->ep_in[ep].ifnum = 0;
+        dev->ep_out[ep].ifnum = 0;
+        dev->ep_in[ep].dev = dev;
+        dev->ep_out[ep].dev = dev;
+    }
+}
+
+void usb_ep_dump(USBDevice *dev)
+{
+    static const char *tname[] = {
+        [USB_ENDPOINT_XFER_CONTROL] = "control",
+        [USB_ENDPOINT_XFER_ISOC]    = "isoc",
+        [USB_ENDPOINT_XFER_BULK]    = "bulk",
+        [USB_ENDPOINT_XFER_INT]     = "int",
+    };
+    int ifnum, ep, first;
+
+    fprintf(stderr, "Device \"%s\", config %d\n",
+            dev->product_desc, dev->configuration);
+    for (ifnum = 0; ifnum < 16; ifnum++) {
+        first = 1;
+        for (ep = 0; ep < USB_MAX_ENDPOINTS; ep++) {
+            if (dev->ep_in[ep].type != USB_ENDPOINT_XFER_INVALID &&
+                dev->ep_in[ep].ifnum == ifnum) {
+                if (first) {
+                    first = 0;
+                    fprintf(stderr, "  Interface %d, alternative %d\n",
+                            ifnum, dev->altsetting[ifnum]);
+                }
+                fprintf(stderr, "    Endpoint %d, IN, %s, %d max\n", ep,
+                        tname[dev->ep_in[ep].type],
+                        dev->ep_in[ep].max_packet_size);
+            }
+            if (dev->ep_out[ep].type != USB_ENDPOINT_XFER_INVALID &&
+                dev->ep_out[ep].ifnum == ifnum) {
+                if (first) {
+                    first = 0;
+                    fprintf(stderr, "  Interface %d, alternative %d\n",
+                            ifnum, dev->altsetting[ifnum]);
+                }
+                fprintf(stderr, "    Endpoint %d, OUT, %s, %d max\n", ep,
+                        tname[dev->ep_out[ep].type],
+                        dev->ep_out[ep].max_packet_size);
+            }
+        }
+    }
+    fprintf(stderr, "--\n");
+}
+
+struct USBEndpoint *usb_ep_get(USBDevice *dev, int pid, int ep)
+{
+    struct USBEndpoint *eps = pid == USB_TOKEN_IN ? dev->ep_in : dev->ep_out;
+    if (ep == 0) {
+        return &dev->ep_ctl;
+    }
+    assert(pid == USB_TOKEN_IN || pid == USB_TOKEN_OUT);
+    assert(ep > 0 && ep <= USB_MAX_ENDPOINTS);
+    return eps + ep - 1;
+}
+
+uint8_t usb_ep_get_type(USBDevice *dev, int pid, int ep)
+{
+    struct USBEndpoint *uep = usb_ep_get(dev, pid, ep);
+    return uep->type;
+}
+
+void usb_ep_set_type(USBDevice *dev, int pid, int ep, uint8_t type)
+{
+    struct USBEndpoint *uep = usb_ep_get(dev, pid, ep);
+    uep->type = type;
+}
+
+uint8_t usb_ep_get_ifnum(USBDevice *dev, int pid, int ep)
+{
+    struct USBEndpoint *uep = usb_ep_get(dev, pid, ep);
+    return uep->ifnum;
+}
+
+void usb_ep_set_ifnum(USBDevice *dev, int pid, int ep, uint8_t ifnum)
+{
+    struct USBEndpoint *uep = usb_ep_get(dev, pid, ep);
+    uep->ifnum = ifnum;
+}
+
+void usb_ep_set_max_packet_size(USBDevice *dev, int pid, int ep,
+                                uint16_t raw)
+{
+    struct USBEndpoint *uep = usb_ep_get(dev, pid, ep);
+    int size, microframes;
+
+    size = raw & 0x7ff;
+    switch ((raw >> 11) & 3) {
+    case 1:
+        microframes = 2;
+        break;
+    case 2:
+        microframes = 3;
+        break;
+    default:
+        microframes = 1;
+        break;
+    }
+    uep->max_packet_size = size * microframes;
+}
+
+int usb_ep_get_max_packet_size(USBDevice *dev, int pid, int ep)
+{
+    struct USBEndpoint *uep = usb_ep_get(dev, pid, ep);
+    return uep->max_packet_size;
 }

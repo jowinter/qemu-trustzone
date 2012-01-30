@@ -76,18 +76,35 @@ static inline int cpu_physical_memory_set_dirty_flags(ram_addr_t addr,
     return ram_list.phys_dirty[addr >> TARGET_PAGE_BITS] |= dirty_flags;
 }
 
+static inline void cpu_physical_memory_set_dirty_range(ram_addr_t start,
+                                                       ram_addr_t length,
+                                                       int dirty_flags)
+{
+    uint8_t *p;
+    ram_addr_t addr, end;
+
+    end = TARGET_PAGE_ALIGN(start + length);
+    start &= TARGET_PAGE_MASK;
+    p = ram_list.phys_dirty + (start >> TARGET_PAGE_BITS);
+    for (addr = start; addr < end; addr += TARGET_PAGE_SIZE) {
+        *p++ |= dirty_flags;
+    }
+}
+
 static inline void cpu_physical_memory_mask_dirty_range(ram_addr_t start,
-                                                        int length,
+                                                        ram_addr_t length,
                                                         int dirty_flags)
 {
-    int i, mask, len;
+    int mask;
     uint8_t *p;
+    ram_addr_t addr, end;
 
-    len = length >> TARGET_PAGE_BITS;
+    end = TARGET_PAGE_ALIGN(start + length);
+    start &= TARGET_PAGE_MASK;
     mask = ~dirty_flags;
     p = ram_list.phys_dirty + (start >> TARGET_PAGE_BITS);
-    for (i = 0; i < len; i++) {
-        p[i] &= mask;
+    for (addr = start; addr < end; addr += TARGET_PAGE_SIZE) {
+        *p++ &= mask;
     }
 }
 

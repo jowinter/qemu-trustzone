@@ -200,8 +200,8 @@ static void cpu_reset_model_id(CPUARMState *env, uint32_t id)
         set_feature(env, ARM_FEATURE_THUMB2EE);
         set_feature(env, ARM_FEATURE_ARM_DIV);
         set_feature(env, ARM_FEATURE_V7MP);
+        set_feature(env, ARM_FEATURE_GENERIC_TIMER);
         set_feature(env, ARM_FEATURE_TRUSTZONE);
-        set_feature(env, ARM_FEATURE_GENERICTIMER);
         env->vfp.xregs[ARM_VFP_FPSID] = 0x410430f0;
         env->vfp.xregs[ARM_VFP_MVFR0] = 0x10110222;
         env->vfp.xregs[ARM_VFP_MVFR1] = 0x11111111;
@@ -311,6 +311,7 @@ static void cpu_reset_model_id(CPUARMState *env, uint32_t id)
 void cpu_reset(CPUARMState *env)
 {
     uint32_t id;
+    uint32_t tmp = 0;
 
     if (qemu_loglevel_mask(CPU_LOG_RESET)) {
         qemu_log("CPU Reset (CPU %d)\n", env->cpu_index);
@@ -318,9 +319,11 @@ void cpu_reset(CPUARMState *env)
     }
 
     id = env->cp15.c0_cpuid;
+    tmp = env->cp15.c15_config_base_address;
     memset(env, 0, offsetof(CPUARMState, breakpoints));
     if (id)
         cpu_reset_model_id(env, id);
+    env->cp15.c15_config_base_address = tmp;
 #if defined (CONFIG_USER_ONLY)
     env->uncached_cpsr = ARM_CPU_MODE_USR;
     /* For user mode we must enable access to coprocessors */
@@ -470,7 +473,7 @@ static const struct arm_cpu_t arm_cpu_names[] = {
     { ARM_CPUID_CORTEXA8, "cortex-a8"},
     { ARM_CPUID_CORTEXA8_R2, "cortex-a8-r2"},
     { ARM_CPUID_CORTEXA9, "cortex-a9"},
-    { ARM_CPUID_CORTEXA15, "cortex-a15"},
+    { ARM_CPUID_CORTEXA15, "cortex-a15" },
     { ARM_CPUID_TI925T, "ti925t" },
     { ARM_CPUID_PXA250, "pxa250" },
     { ARM_CPUID_SA1100,    "sa1100" },
@@ -1680,18 +1683,17 @@ void HELPER(set_cp15)(CPUState *env, uint32_t insn, uint32_t val)
         break;
     case 8: /* MMU TLB control.  */
         switch (op2) {
-        case 0: /* Invalidate all.  */
-            tlb_flush(env, 0);
+        case 0: /* Invalidate all (TLBIALL) */
+            tlb_flush(env, 1);
             break;
-        case 1: /* Invalidate single TLB entry.  */
+        case 1: /* Invalidate single TLB entry by MVA and ASID (TLBIMVA) */
             tlb_flush_page(env, val & TARGET_PAGE_MASK);
             break;
-        case 2: /* Invalidate on ASID.  */
+        case 2: /* Invalidate by ASID (TLBIASID) */
             tlb_flush(env, val == 0);
             break;
-        case 3: /* Invalidate single entry on MVA.  */
-            /* ??? This is like case 1, but ignores ASID.  */
-            tlb_flush(env, 1);
+        case 3: /* Invalidate single entry by MVA, all ASIDs (TLBIMVAA) */
+            tlb_flush_page(env, val & TARGET_PAGE_MASK);
             break;
         default:
             goto bad_reg;
@@ -1854,7 +1856,7 @@ void HELPER(set_cp15)(CPUState *env, uint32_t insn, uint32_t val)
         }
         break;
     case 14: /* Generic timer */
-        if (arm_feature(env, ARM_FEATURE_GENERICTIMER)) {
+        if (arm_feature(env, ARM_FEATURE_GENERIC_TIMER)) {
             /* Dummy implementation: RAZ/WI for all */
             break;
         }
@@ -2285,7 +2287,7 @@ uint32_t HELPER(get_cp15)(CPUState *env, uint32_t insn)
             goto bad_reg;
         }
     case 14: /* Generic timer */
-        if (arm_feature(env, ARM_FEATURE_GENERICTIMER)) {
+        if (arm_feature(env, ARM_FEATURE_GENERIC_TIMER)) {
             /* Dummy implementation: RAZ/WI for all */
             return 0;
         }
@@ -2942,7 +2944,7 @@ DO_VFP_cmp(d, float64)
     float##fsz HELPER(name)(uint32_t x, void *fpstp) \
 { \
     float_status *fpst = fpstp; \
-    return sign##int32_to_##float##fsz(x, fpst); \
+    return sign##int32_to_##float##fsz((sign##int32_t)x, fpst); \
 }
 
 #define CONV_FTOI(name, fsz, sign, round) \

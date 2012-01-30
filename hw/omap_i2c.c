@@ -774,12 +774,18 @@ static void omap_i2c_reset(DeviceState *dev)
     }
 }
 
-static SysBusDeviceInfo omap_i2c_info = {
-    .init = omap_i2c_init,
-    .qdev.name = "omap_i2c",
-    .qdev.size = sizeof(OMAPI2CState),
-    .qdev.reset = omap_i2c_reset,
-    .qdev.props = (Property[]) {
+static void omap_i2c_class_init(ObjectClass *klass, void *data)
+{
+    SysBusDeviceClass *k = SYS_BUS_DEVICE_CLASS(klass);
+    k->init = omap_i2c_init;
+}
+
+static DeviceInfo omap_i2c_info = {
+    .name = "omap_i2c",
+    .size = sizeof(OMAPI2CState),
+    .reset = omap_i2c_reset,
+    .class_init = omap_i2c_class_init,
+    .props = (Property[]) {
         DEFINE_PROP_INT32("mpu_model", OMAPI2CState, mpu_model, 0),
         DEFINE_PROP_END_OF_LIST()
     }

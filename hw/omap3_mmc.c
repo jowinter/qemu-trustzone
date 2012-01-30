@@ -763,11 +763,17 @@ static int omap3_mmc_init(SysBusDevice *dev)
     return 0;
 }
 
-static SysBusDeviceInfo omap3_mmc_info = {
-    .init = omap3_mmc_init,
-    .qdev.name = "omap3_mmc",
-    .qdev.size = sizeof(struct omap3_mmc_s),
-    .qdev.reset = omap3_mmc_reset
+static void omap3_mmc_class_init(ObjectClass *klass, void *data)
+{
+    SysBusDeviceClass *k = SYS_BUS_DEVICE_CLASS(klass);
+    k->init = omap3_mmc_init;
+}
+
+static DeviceInfo omap3_mmc_info = {
+    .name = "omap3_mmc",
+    .size = sizeof(struct omap3_mmc_s),
+    .reset = omap3_mmc_reset,
+    .class_init = omap3_mmc_class_init,
 };
 
 static void omap3_mmc_register_device(void)
