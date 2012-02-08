@@ -12,6 +12,13 @@ here. For full change detail consult the git history:
 Bug numbers refer to Launchpad qemu-linaro bugs, eg:
 https://bugs.launchpad.net/qemu-linaro/+bug/703094
 
+version 2012.02:
+ - Fixes #926102: prctl(PR_SET_NAME, ...) not supported.  Fixes
+   usermode qemu running some perl scripts (as of perl 5.14).
+ - Fixes #913925: cpsie f instruction not reflected in FAULTMASK
+   (M profile)
+ - Simplified Cortex-A15 CPU definition, which can boot Linux.
+
 version 2012.01:
  - Fixes #883133: we no longer assert on startup when running on
    ARM systems with brk address space randomization enabled
