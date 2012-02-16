@@ -649,17 +649,29 @@ static int omap3_mmc_raw_boot(BlockDriverState *bs,
     struct omap3_boot_s *boot;
     uint32_t i = 0;
     int result = 0;
-    
-    if (bdrv_pread(bs, 0, sector, 0x200) == 0x200) {
+    /* We try to load an image from sectors 0 and 256 */
+    uint32_t boot_sectors[] = { 0, 256 };
+    int idx;
+
+    for (idx = 0; !result && idx < ARRAY_SIZE(boot_sectors); idx++) {
+        i = boot_sectors[idx];
+        if (bdrv_pread(bs, i * 0x200, sector, 0x200) != 0x200) {
+            TRACE("error trying to read sector %u on boot device", i);
+            continue;
+        }
+
         boot = omap3_boot_init(mpu, mmc1, sector, 0x200);
-        if (boot->state == confighdr) { /* CH must be present for raw boot */
+        if (boot->state == confighdr) {
+            /* CH must be present for raw boot */
             while (omap3_boot_block(sector, 0x200, boot)) {
-                if (bdrv_pread(bs, ++i, sector, 0x200) != 0x200) {
+                i++;
+                if (bdrv_pread(bs, i * 0x200, sector, 0x200) != 0x200) {
                     TRACE("error trying to read sector %u on boot device", i);
                     break;
                 }
             }
         }
+
         result = (boot->state == done);
         free(boot);
     }
