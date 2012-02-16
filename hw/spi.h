@@ -22,22 +22,30 @@
 #include "hw.h"
 #include "qdev.h"
 
-typedef struct spi_device_s SPIDevice;
-typedef struct spi_bus_s SPIBus;
+typedef struct SPIDevice SPIDevice;
+typedef struct SPIBus SPIBus;
+
+#define TYPE_SPI_DEVICE "spi-device"
+#define SPI_DEVICE(obj) \
+    OBJECT_CHECK(SPIDevice, (obj), TYPE_SPI_DEVICE)
+#define SPI_DEVICE_CLASS(klass) \
+    OBJECT_CLASS_CHECK(SPIDeviceClass, (klass), TYPE_SPI_DEVICE)
+#define SPI_DEVICE_GET_CLASS(obj) \
+    OBJECT_GET_CLASS(SPIDeviceClass, (obj), TYPE_SPI_DEVICE)
 
 typedef int (*spi_device_initfn)(SPIDevice *dev);
 typedef uint32_t (*spi_txrx_cb)(SPIDevice *dev, uint32_t, int);
 
-typedef struct {
-    DeviceInfo qdev;
+typedef struct SPIDeviceClass {
+    DeviceClass parent_class;
+
     spi_device_initfn init;
     spi_txrx_cb txrx;
-} SPIDeviceInfo;
+} SPIDeviceClass;
 
-struct spi_device_s {
+struct SPIDevice {
     DeviceState qdev;
-    SPIDeviceInfo *info;
-    
+
     /* internal fields used by SPI code */
     uint8_t channel;
 };
@@ -48,7 +56,6 @@ uint32_t spi_txrx(SPIBus *bus, int channel, uint32_t data, int len);
 #define SPI_DEVICE_FROM_QDEV(dev) DO_UPCAST(SPIDevice, qdev, dev)
 #define FROM_SPI_DEVICE(type, dev) DO_UPCAST(type, spi, dev)
 
-void spi_register_device(SPIDeviceInfo *info);
 DeviceState *spi_create_device(SPIBus *bus, const char *name, int ch);
 DeviceState *spi_create_device_noinit(SPIBus *bus, const char *name, int ch);
 

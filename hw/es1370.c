@@ -914,7 +914,7 @@ static const MemoryRegionPortio es1370_portio[] = {
     { 0, 0x40 * 4, 1, .read = es1370_readb, },
     { 0, 0x40 * 2, 2, .read = es1370_readw, },
     { 0, 0x40, 4, .read = es1370_readl, },
-    PORTIO_END_OF_LIST()
+    PORTIO_END_OF_LIST ()
 };
 
 static const MemoryRegionOps es1370_io_ops = {
@@ -928,12 +928,12 @@ static const VMStateDescription vmstate_es1370_channel = {
     .minimum_version_id = 2,
     .minimum_version_id_old = 2,
     .fields      = (VMStateField []) {
-        VMSTATE_UINT32(shift, struct chan),
-        VMSTATE_UINT32(leftover, struct chan),
-        VMSTATE_UINT32(scount, struct chan),
-        VMSTATE_UINT32(frame_addr, struct chan),
-        VMSTATE_UINT32(frame_cnt, struct chan),
-        VMSTATE_END_OF_LIST()
+        VMSTATE_UINT32 (shift, struct chan),
+        VMSTATE_UINT32 (leftover, struct chan),
+        VMSTATE_UINT32 (scount, struct chan),
+        VMSTATE_UINT32 (frame_addr, struct chan),
+        VMSTATE_UINT32 (frame_cnt, struct chan),
+        VMSTATE_END_OF_LIST ()
     }
 };
 
@@ -973,15 +973,15 @@ static const VMStateDescription vmstate_es1370 = {
     .minimum_version_id_old = 2,
     .post_load = es1370_post_load,
     .fields      = (VMStateField []) {
-        VMSTATE_PCI_DEVICE(dev, ES1370State),
-        VMSTATE_STRUCT_ARRAY(chan, ES1370State, NB_CHANNELS, 2,
-                             vmstate_es1370_channel, struct chan),
-        VMSTATE_UINT32(ctl, ES1370State),
-        VMSTATE_UINT32(status, ES1370State),
-        VMSTATE_UINT32(mempage, ES1370State),
-        VMSTATE_UINT32(codec, ES1370State),
-        VMSTATE_UINT32(sctl, ES1370State),
-        VMSTATE_END_OF_LIST()
+        VMSTATE_PCI_DEVICE (dev, ES1370State),
+        VMSTATE_STRUCT_ARRAY (chan, ES1370State, NB_CHANNELS, 2,
+                              vmstate_es1370_channel, struct chan),
+        VMSTATE_UINT32 (ctl, ES1370State),
+        VMSTATE_UINT32 (status, ES1370State),
+        VMSTATE_UINT32 (mempage, ES1370State),
+        VMSTATE_UINT32 (codec, ES1370State),
+        VMSTATE_UINT32 (sctl, ES1370State),
+        VMSTATE_END_OF_LIST ()
     }
 };
 
@@ -1017,7 +1017,7 @@ static int es1370_initfn (PCIDevice *dev)
     return 0;
 }
 
-static int es1370_exitfn(PCIDevice *dev)
+static int es1370_exitfn (PCIDevice *dev)
 {
     ES1370State *s = DO_UPCAST (ES1370State, dev, dev);
 
@@ -1031,9 +1031,10 @@ int es1370_init (PCIBus *bus)
     return 0;
 }
 
-static void es1370_class_init(ObjectClass *klass, void *data)
+static void es1370_class_init (ObjectClass *klass, void *data)
 {
-    PCIDeviceClass *k = PCI_DEVICE_CLASS(klass);
+    DeviceClass *dc = DEVICE_CLASS (klass);
+    PCIDeviceClass *k = PCI_DEVICE_CLASS (klass);
 
     k->init = es1370_initfn;
     k->exit = es1370_exitfn;
@@ -1042,19 +1043,21 @@ static void es1370_class_init(ObjectClass *klass, void *data)
     k->class_id = PCI_CLASS_MULTIMEDIA_AUDIO;
     k->subsystem_vendor_id = 0x4942;
     k->subsystem_id = 0x4c4c;
+    dc->desc = "ENSONIQ AudioPCI ES1370";
+    dc->vmsd = &vmstate_es1370;
 }
 
-static DeviceInfo es1370_info = {
-    .name = "ES1370",
-    .desc = "ENSONIQ AudioPCI ES1370",
-    .size = sizeof (ES1370State),
-    .vmsd = &vmstate_es1370,
-    .class_init = es1370_class_init,
+static TypeInfo es1370_info = {
+    .name          = "ES1370",
+    .parent        = TYPE_PCI_DEVICE,
+    .instance_size = sizeof (ES1370State),
+    .class_init    = es1370_class_init,
 };
 
-static void es1370_register (void)
+static void es1370_register_types (void)
 {
-    pci_qdev_register (&es1370_info);
+    type_register_static (&es1370_info);
 }
-device_init (es1370_register);
+
+type_init (es1370_register_types)
 

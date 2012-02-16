@@ -9,7 +9,6 @@
 
 #include "sysbus.h"
 #include "ssi.h"
-#include "primecell.h"
 
 //#define DEBUG_PL022 1
 
@@ -292,15 +291,16 @@ static void pl022_class_init(ObjectClass *klass, void *data)
     sdc->init = pl022_init;
 }
 
-static DeviceInfo pl022_info = {
-    .name = "pl022",
-    .size = sizeof(pl022_state),
-    .class_init = pl022_class_init,
+static TypeInfo pl022_info = {
+    .name          = "pl022",
+    .parent        = TYPE_SYS_BUS_DEVICE,
+    .instance_size = sizeof(pl022_state),
+    .class_init    = pl022_class_init,
 };
 
-static void pl022_register_devices(void)
+static void pl022_register_types(void)
 {
-    sysbus_qdev_register(&pl022_info);
+    type_register_static(&pl022_info);
 }
 
-device_init(pl022_register_devices)
+type_init(pl022_register_types)

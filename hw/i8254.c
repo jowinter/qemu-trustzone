@@ -535,28 +535,33 @@ static int pit_initfn(ISADevice *dev)
     return 0;
 }
 
-static void pit_class_initfn(ObjectClass *klass, void *data)
-{
-    ISADeviceClass *ic = ISA_DEVICE_CLASS(klass);
-    ic->init = pit_initfn;
-}
-
-static DeviceInfo pit_info = {
-    .name     = "isa-pit",
-    .size     = sizeof(PITState),
-    .vmsd     = &vmstate_pit,
-    .reset    = pit_reset,
-    .no_user  = 1,
-    .class_init          = pit_class_initfn,
-    .props = (Property[]) {
-        DEFINE_PROP_UINT32("irq", PITState, irq,  -1),
-        DEFINE_PROP_HEX32("iobase", PITState, iobase,  -1),
-        DEFINE_PROP_END_OF_LIST(),
-    },
+static Property pit_properties[] = {
+    DEFINE_PROP_UINT32("irq", PITState, irq,  -1),
+    DEFINE_PROP_HEX32("iobase", PITState, iobase,  -1),
+    DEFINE_PROP_END_OF_LIST(),
 };
 
-static void pit_register(void)
+static void pit_class_initfn(ObjectClass *klass, void *data)
 {
-    isa_qdev_register(&pit_info);
+    DeviceClass *dc = DEVICE_CLASS(klass);
+    ISADeviceClass *ic = ISA_DEVICE_CLASS(klass);
+    ic->init = pit_initfn;
+    dc->no_user = 1;
+    dc->reset = pit_reset;
+    dc->vmsd = &vmstate_pit;
+    dc->props = pit_properties;
 }
-device_init(pit_register)
+
+static TypeInfo pit_info = {
+    .name          = "isa-pit",
+    .parent        = TYPE_ISA_DEVICE,
+    .instance_size = sizeof(PITState),
+    .class_init    = pit_class_initfn,
+};
+
+static void pit_register_types(void)
+{
+    type_register_static(&pit_info);
+}
+
+type_init(pit_register_types)

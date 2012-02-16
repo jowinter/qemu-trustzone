@@ -2525,26 +2525,30 @@ static int omap_dss_init(SysBusDevice *dev)
     return 0;
 }
 
-static void omap_dss_class_init(ObjectClass *klass, void *data)
-{
-    SysBusDeviceClass *k = SYS_BUS_DEVICE_CLASS(klass);
-    k->init = omap_dss_init;
-}
-
-static DeviceInfo omap_dss_info = {
-    .name = "omap_dss",
-    .size = sizeof(struct omap_dss_s),
-    .reset = omap_dss_reset,
-    .class_init = omap_dss_class_init,
-    .props = (Property[]) {
-        DEFINE_PROP_INT32("mpu_model", struct omap_dss_s, mpu_model, 0),
-        DEFINE_PROP_END_OF_LIST()
-    }
+static Property omap_dss_properties[] = {
+    DEFINE_PROP_INT32("mpu_model", struct omap_dss_s, mpu_model, 0),
+    DEFINE_PROP_END_OF_LIST()
 };
 
-static void omap_dss_register_device(void)
+static void omap_dss_class_init(ObjectClass *klass, void *data)
 {
-    sysbus_register_withprop(&omap_dss_info);
+    DeviceClass *dc = DEVICE_CLASS(klass);
+    SysBusDeviceClass *k = SYS_BUS_DEVICE_CLASS(klass);
+    k->init = omap_dss_init;
+    dc->reset = omap_dss_reset;
+    dc->props = omap_dss_properties;
+}
+
+static TypeInfo omap_dss_info = {
+    .name = "omap_dss",
+    .parent = TYPE_SYS_BUS_DEVICE,
+    .instance_size = sizeof(struct omap_dss_s),
+    .class_init = omap_dss_class_init,
+};
+
+static void omap_dss_register_types(void)
+{
+    type_register_static(&omap_dss_info);
 }
 
 void omap_rfbi_attach(DeviceState *dev, int cs,
@@ -2594,4 +2598,4 @@ void omap_digital_panel_attach(DeviceState *dev)
     }
 }
 
-device_init(omap_dss_register_device)
+type_init(omap_dss_register_types)

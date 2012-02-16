@@ -325,28 +325,32 @@ static int omap_uart_init(SysBusDevice *busdev)
     return 0;
 }
 
-static void omap_uart_class_init(ObjectClass *klass, void *data)
-{
-    SysBusDeviceClass *k = SYS_BUS_DEVICE_CLASS(klass);
-    k->init = omap_uart_init;
-}
-
-static DeviceInfo omap_uart_info = {
-    .name = "omap_uart",
-    .size = sizeof(struct omap_uart_s),
-    .reset = omap_uart_reset,
-    .class_init = omap_uart_class_init,
-    .props = (Property[]) {
-        DEFINE_PROP_UINT32("mmio_size", struct omap_uart_s, mmio_size, 0x400),
-        DEFINE_PROP_UINT32("baudrate", struct omap_uart_s, baudrate, 0),
-        DEFINE_PROP_CHR("chardev", struct omap_uart_s, chr),
-        DEFINE_PROP_END_OF_LIST()
-    }
+static Property omap_uart_properties[] = {
+    DEFINE_PROP_UINT32("mmio_size", struct omap_uart_s, mmio_size, 0x400),
+    DEFINE_PROP_UINT32("baudrate", struct omap_uart_s, baudrate, 0),
+    DEFINE_PROP_CHR("chardev", struct omap_uart_s, chr),
+    DEFINE_PROP_END_OF_LIST()
 };
 
-static void omap_uart_register_device(void)
+static void omap_uart_class_init(ObjectClass *klass, void *data)
 {
-    sysbus_register_withprop(&omap_uart_info);
+    DeviceClass *dc = DEVICE_CLASS(klass);
+    SysBusDeviceClass *k = SYS_BUS_DEVICE_CLASS(klass);
+    k->init = omap_uart_init;
+    dc->props = omap_uart_properties;
+    dc->reset = omap_uart_reset;
+}
+
+static TypeInfo omap_uart_info = {
+    .name = "omap_uart",
+    .parent = TYPE_SYS_BUS_DEVICE,
+    .instance_size = sizeof(struct omap_uart_s),
+    .class_init = omap_uart_class_init,
+};
+
+static void omap_uart_register_types(void)
+{
+    type_register_static(&omap_uart_info);
 }
 
 void omap_uart_attach(DeviceState *qdev, CharDriverState *chr,
@@ -358,4 +362,4 @@ void omap_uart_attach(DeviceState *qdev, CharDriverState *chr,
     serial_change_char_driver(s->serial, s->chr);
 }
 
-device_init(omap_uart_register_device)
+type_init(omap_uart_register_types)

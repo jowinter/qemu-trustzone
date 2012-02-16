@@ -798,17 +798,28 @@ static int mipid_init(SPIDevice *spidev)
     return 0;
 }
 
-static SPIDeviceInfo mipid_info = {
-    .init = mipid_init,
-    .txrx = mipid_txrx,
-    .qdev.name = "lcd_mipid",
-    .qdev.size = sizeof(struct mipid_s),
-    .qdev.reset = mipid_reset,
-    .qdev.props = (Property[]) {
-        DEFINE_PROP_UINT32("id", struct mipid_s, id, 0),
-        DEFINE_PROP_UINT8("n900", struct mipid_s, n900, 0),
-        DEFINE_PROP_END_OF_LIST()
-    }
+static Property mipid_properties[] = {
+    DEFINE_PROP_UINT32("id", struct mipid_s, id, 0),
+    DEFINE_PROP_UINT8("n900", struct mipid_s, n900, 0),
+    DEFINE_PROP_END_OF_LIST()
+};
+
+static void mipid_class_init(ObjectClass *klass, void *data)
+{
+    DeviceClass *dc = DEVICE_CLASS(klass);
+    SPIDeviceClass *k = SPI_DEVICE_CLASS(klass);
+
+    k->init = mipid_init;
+    k->txrx = mipid_txrx;
+    dc->reset = mipid_reset;
+    dc->props = mipid_properties;
+}
+
+static TypeInfo mipid_info = {
+    .name = "lcd_mipid",
+    .parent = TYPE_SPI_DEVICE,
+    .instance_size = sizeof(struct mipid_s),
+    .class_init = mipid_class_init,
 };
 
 static void n8x0_spi_setup(struct n800_s *s)
@@ -1762,28 +1773,6 @@ static void lis302dl_step(void *opaque, int axis, int high, int activate)
     }
 }
 
-static int lis302dl_change(DeviceState *dev, const char *target,
-                           const char *arg)
-{
-    LIS302DLState *s = (LIS302DLState *)dev;
-    int axis;
-    if (!strcmp(target, "x")) {
-        axis = 0;
-    } else if (!strcmp(target, "y")) {
-        axis = 1;
-    } else if (!strcmp(target, "z")) {
-        axis = 2;
-    } else {
-        return -1;
-    }
-    int value = 0;
-    if (sscanf(arg, "%d", &value) != 1) {
-        return -1;
-    }
-    lis302dl_trigger(s, axis, value);
-    return 0;
-}
-
 static void lis302dl_reset(DeviceState *ds)
 {
     LIS302DLState *s = FROM_I2C_SLAVE(LIS302DLState, I2C_SLAVE_FROM_QDEV(ds));
@@ -2066,27 +2055,35 @@ static int lis302dl_init(I2CSlave *i2c)
     return 0;
 }
 
+/* TODO: ideally x, y, z should be runtime modifiable properties,
+ * which can be set by calling
+ *     lis302dl_trigger(s, axis, value);
+ * where axis is 0,1,2 for x,y,z
+ */
+static Property lis302dl_properties[] = {
+    DEFINE_PROP_INT32("x", LIS302DLState, x, 0),
+    DEFINE_PROP_INT32("y", LIS302DLState, y, 0),
+    DEFINE_PROP_INT32("z", LIS302DLState, z, 0),
+    DEFINE_PROP_END_OF_LIST(),
+};
+
 static void lis302dl_class_init(ObjectClass *klass, void *data)
 {
+    DeviceClass *dc = DEVICE_CLASS(klass);
     I2CSlaveClass *k = I2C_SLAVE_CLASS(klass);
     k->init = lis302dl_init;
     k->event = lis302dl_event;
     k->recv = lis302dl_rx;
     k->send = lis302dl_tx;
+    dc->props = lis302dl_properties;
+    dc->reset = lis302dl_reset;
 }
 
-static DeviceInfo lis302dl_info = {
+static TypeInfo lis302dl_info = {
     .name = "lis302dl",
-    .size = sizeof(LIS302DLState),
-    .reset = lis302dl_reset,
-    .change = lis302dl_change,
+    .parent = TYPE_I2C_SLAVE,
+    .instance_size = sizeof(LIS302DLState),
     .class_init = lis302dl_class_init,
-    .props = (Property[]) {
-        DEFINE_PROP_INT32("x", LIS302DLState, x, 0),
-        DEFINE_PROP_INT32("y", LIS302DLState, y, 0),
-        DEFINE_PROP_INT32("z", LIS302DLState, z, 0),
-        DEFINE_PROP_END_OF_LIST(),
-    },
 };
 
 typedef struct BQ2415XState_s {
@@ -2195,24 +2192,28 @@ static int bq2415x_init(I2CSlave *i2c)
     return 0;
 }
 
+static Property bq2415x_properties[] = {
+    DEFINE_PROP_UINT8("id", BQ2415XState, id, 0x49),
+    DEFINE_PROP_END_OF_LIST(),
+};
+
 static void bq2415x_class_init(ObjectClass *klass, void *data)
 {
+    DeviceClass *dc = DEVICE_CLASS(klass);
     I2CSlaveClass *k = I2C_SLAVE_CLASS(klass);
     k->init = bq2415x_init;
     k->event = bq2415x_event;
     k->recv = bq2415x_rx;
     k->send = bq2415x_tx;
+    dc->props = bq2415x_properties;
+    dc->reset = bq2415x_reset;
 }
 
-static DeviceInfo bq2415x_info = {
+static TypeInfo bq2415x_info = {
     .name = "bq2415x",
-    .size = sizeof(BQ2415XState),
-    .reset = bq2415x_reset,
+    .parent = TYPE_I2C_SLAVE,
+    .instance_size = sizeof(BQ2415XState),
     .class_init = bq2415x_class_init,
-    .props = (Property[]) {
-        DEFINE_PROP_UINT8("id", BQ2415XState, id, 0x49),
-        DEFINE_PROP_END_OF_LIST(),
-    },
 };
 
 typedef struct tpa6130_s {
@@ -2297,17 +2298,19 @@ static int tpa6130_init(I2CSlave *i2c)
 
 static void tpa6130_class_init(ObjectClass *klass, void *data)
 {
+    DeviceClass *dc = DEVICE_CLASS(klass);
     I2CSlaveClass *k = I2C_SLAVE_CLASS(klass);
     k->init = tpa6130_init;
     k->event = tpa6130_event;
     k->recv = tpa6130_rx;
     k->send = tpa6130_tx;
+    dc->reset = tpa6130_reset;
 }
 
-static DeviceInfo tpa6130_info = {
+static TypeInfo tpa6130_info = {
     .name = "tpa6130",
-    .size = sizeof(TPA6130State),
-    .reset = tpa6130_reset,
+    .parent = TYPE_I2C_SLAVE,
+    .instance_size = sizeof(TPA6130State),
     .class_init = tpa6130_class_init,
 };
 
@@ -2609,12 +2612,12 @@ static QEMUMachine n900_machine = {
     .init = n900_init,
 };
 
-static void nseries_register_devices(void)
+static void nseries_register_types(void)
 {
-    i2c_register_slave(&bq2415x_info);
-    i2c_register_slave(&tpa6130_info);
-    i2c_register_slave(&lis302dl_info);
-    spi_register_device(&mipid_info);
+    type_register_static(&bq2415x_info);
+    type_register_static(&tpa6130_info);
+    type_register_static(&lis302dl_info);
+    type_register_static(&mipid_info);
 }
 
 static void nseries_machine_init(void)
@@ -2624,5 +2627,5 @@ static void nseries_machine_init(void)
     qemu_register_machine(&n900_machine);
 }
 
-device_init(nseries_register_devices);
+type_init(nseries_register_types);
 machine_init(nseries_machine_init);

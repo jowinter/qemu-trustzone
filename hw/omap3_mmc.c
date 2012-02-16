@@ -765,20 +765,22 @@ static int omap3_mmc_init(SysBusDevice *dev)
 
 static void omap3_mmc_class_init(ObjectClass *klass, void *data)
 {
+    DeviceClass *dc = DEVICE_CLASS(klass);
     SysBusDeviceClass *k = SYS_BUS_DEVICE_CLASS(klass);
     k->init = omap3_mmc_init;
+    dc->reset = omap3_mmc_reset;
 }
 
-static DeviceInfo omap3_mmc_info = {
+static TypeInfo omap3_mmc_info = {
     .name = "omap3_mmc",
-    .size = sizeof(struct omap3_mmc_s),
-    .reset = omap3_mmc_reset,
+    .parent = TYPE_SYS_BUS_DEVICE,
+    .instance_size = sizeof(struct omap3_mmc_s),
     .class_init = omap3_mmc_class_init,
 };
 
-static void omap3_mmc_register_device(void)
+static void omap3_mmc_register_types(void)
 {
-    sysbus_register_withprop(&omap3_mmc_info);
+    type_register_static(&omap3_mmc_info);
 }
 
 void omap3_mmc_attach(DeviceState *dev, BlockDriverState *bs,
@@ -792,4 +794,4 @@ void omap3_mmc_attach(DeviceState *dev, BlockDriverState *bs,
     s->card = sd_init(bs, is_spi, is_mmc);
 }
 
-device_init(omap3_mmc_register_device)
+type_init(omap3_mmc_register_types)

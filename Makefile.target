@@ -29,10 +29,17 @@ ifdef CONFIG_USER_ONLY
 QEMU_PROG=qemu-$(TARGET_ARCH2)
 else
 # system emulator name
+ifneq (,$(findstring -mwindows,$(LIBS)))
+# Terminate program name with a 'w' because the linker builds a windows executable.
+QEMU_PROGW=qemu-system-$(TARGET_ARCH2)w$(EXESUF)
+endif # windows executable
 QEMU_PROG=qemu-system-$(TARGET_ARCH2)$(EXESUF)
 endif
 
 PROGS=$(QEMU_PROG)
+ifdef QEMU_PROGW
+PROGS+=$(QEMU_PROGW)
+endif
 STPFILES=
 
 ifndef CONFIG_HAIKU
@@ -208,7 +215,6 @@ QEMU_CFLAGS += $(VNC_TLS_CFLAGS)
 QEMU_CFLAGS += $(VNC_SASL_CFLAGS)
 QEMU_CFLAGS += $(VNC_JPEG_CFLAGS)
 QEMU_CFLAGS += $(VNC_PNG_CFLAGS)
-QEMU_CFLAGS += $(GLIB_CFLAGS)
 
 # xen support
 obj-$(CONFIG_XEN) += xen-all.o xen_machine_pv.o xen_domainbuild.o xen-mapcache.o
@@ -338,6 +344,9 @@ obj-arm-y = integratorcp.o versatilepb.o arm_pic.o arm_timer.o
 obj-arm-y += arm_boot.o pl011.o pl031.o pl050.o pl080.o pl110.o pl181.o pl190.o
 obj-arm-y += versatile_pci.o
 obj-arm-y += realview_gic.o realview.o arm_sysctl.o arm11mpcore.o a9mpcore.o
+obj-arm-y += exynos4210_gic.o exynos4210_combiner.o exynos4210.o
+obj-arm-y += exynos4_boards.o exynos4210_uart.o exynos4210_pwm.o
+obj-arm-y += exynos4210_pmu.o exynos4210_mct.o exynos4210_fimd.o
 obj-arm-y += arm_l2x0.o
 obj-arm-y += arm_mptimer.o a15mpcore.o
 obj-arm-y += armv7m.o armv7m_nvic.o stellaris.o pl022.o stellaris_enet.o
@@ -409,9 +418,16 @@ endif # CONFIG_LINUX_USER
 
 obj-$(CONFIG_GDBSTUB_XML) += gdbstub-xml.o
 
+ifdef QEMU_PROGW
+# The linker builds a windows executable. Make also a console executable.
+$(QEMU_PROGW): $(obj-y) $(obj-$(TARGET_BASE_ARCH)-y)
+	$(call LINK,$^)
+$(QEMU_PROG): $(QEMU_PROGW)
+	$(call quiet-command,$(OBJCOPY) --subsystem console $(QEMU_PROGW) $(QEMU_PROG),"  GEN   $(TARGET_DIR)$(QEMU_PROG)")
+else
 $(QEMU_PROG): $(obj-y) $(obj-$(TARGET_BASE_ARCH)-y)
 	$(call LINK,$^)
-
+endif
 
 gdbstub-xml.c: $(TARGET_XML_FILES) $(SRC_PATH)/scripts/feature_to_c.sh
 	$(call quiet-command,rm -f $@ && $(SHELL) $(SRC_PATH)/scripts/feature_to_c.sh $@ $(TARGET_XML_FILES),"  GEN   $(TARGET_DIR)$@")

@@ -275,24 +275,26 @@ static int i2c_ddc_init(I2CSlave *i2c)
 
 static void i2c_ddc_class_init(ObjectClass *klass, void *data)
 {
+    DeviceClass *dc = DEVICE_CLASS(klass);
     I2CSlaveClass *k = I2C_SLAVE_CLASS(klass);
     k->init = i2c_ddc_init;
     k->event = i2c_ddc_event;
     k->recv = i2c_ddc_rx;
     k->send = i2c_ddc_tx;
+    dc->reset = i2c_ddc_reset;
+    // XXX vmstate?
 }
 
-static DeviceInfo i2c_ddc_info = {
+static TypeInfo i2c_ddc_info = {
     .name = "i2c-ddc",
-    .size = sizeof(I2CDDCState),
-    .reset = i2c_ddc_reset,
-    // XXX vmstate?
+    .parent = TYPE_I2C_SLAVE,
+    .instance_size = sizeof(I2CDDCState),
     .class_init = i2c_ddc_class_init,
 };
 
-static void ddc_register_devices(void)
+static void ddc_register_types(void)
 {
-    i2c_register_slave(&i2c_ddc_info);
+    type_register_static(&i2c_ddc_info);
 }
 
-device_init(ddc_register_devices);
+type_init(ddc_register_types);

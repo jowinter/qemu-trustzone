@@ -48,6 +48,10 @@ static const QErrorStringTable qerror_table[] = {
         .desc      = "Could not add client",
     },
     {
+        .error_fmt = QERR_AMBIGUOUS_PATH,
+        .desc      = "Path '%(path)' does not uniquely identify a %(object)"
+    },
+    {
         .error_fmt = QERR_BAD_BUS_FOR_DEVICE,
         .desc      = "Device '%(device)' can't go on a %(bad_bus_type) bus",
     },
@@ -161,7 +165,7 @@ static const QErrorStringTable qerror_table[] = {
     },
     {
         .error_fmt = QERR_INVALID_PARAMETER_TYPE,
-        .desc      = "Invalid parameter type, expected: %(expected)",
+        .desc      = "Invalid parameter type for '%(name)', expected: %(expected)",
     },
     {
         .error_fmt = QERR_INVALID_PARAMETER_VALUE,
@@ -565,6 +569,14 @@ void qerror_report_err(Error *err)
     } else {
         qerror_print(qerr);
         QDECREF(qerr);
+    }
+}
+
+void assert_no_error(Error *err)
+{
+    if (err) {
+        qerror_report_err(err);
+        abort();
     }
 }
 

@@ -101,6 +101,7 @@ typedef struct RTCState {
     QEMUTimer *second_timer;
     QEMUTimer *second_timer2;
     Notifier clock_reset_notifier;
+    LostTickPolicy lost_tick_policy;
 } RTCState;
 
 static void rtc_set_time(RTCState *s);
@@ -183,7 +184,7 @@ static void rtc_periodic_timer(void *opaque)
     if (s->cmos_data[RTC_REG_B] & REG_B_PIE) {
         s->cmos_data[RTC_REG_C] |= REG_C_IRQF;
 #ifdef TARGET_I386
-        if(rtc_td_hack) {
+        if (s->lost_tick_policy == LOST_TICK_SLEW) {
             if (s->irq_reinject_on_ack_count >= RTC_REINJECT_ON_ACK_COUNT)
                 s->irq_reinject_on_ack_count = 0;		
             apic_reset_irq_delivered();
@@ -544,7 +545,7 @@ static int rtc_post_load(void *opaque, int version_id)
     RTCState *s = opaque;
 
     if (version_id >= 2) {
-        if (rtc_td_hack) {
+        if (s->lost_tick_policy == LOST_TICK_SLEW) {
             rtc_coalesced_timer_update(s);
         }
     }
@@ -589,7 +590,7 @@ static void rtc_notify_clock_reset(Notifier *notifier, void *data)
     qemu_mod_timer(s->second_timer2, s->next_second_time);
     rtc_timer_update(s, now);
 #ifdef TARGET_I386
-    if (rtc_td_hack) {
+    if (s->lost_tick_policy == LOST_TICK_SLEW) {
         rtc_coalesced_timer_update(s);
     }
 #endif
@@ -605,8 +606,9 @@ static void rtc_reset(void *opaque)
     qemu_irq_lower(s->irq);
 
 #ifdef TARGET_I386
-    if (rtc_td_hack)
-	    s->irq_coalesced = 0;
+    if (s->lost_tick_policy == LOST_TICK_SLEW) {
+        s->irq_coalesced = 0;
+    }
 #endif
 }
 
@@ -626,10 +628,10 @@ static void visit_type_int32(Visitor *v, int *value, const char *name, Error **e
     visit_type_int(v, &val, name, errp);
 }
 
-static void rtc_get_date(DeviceState *dev, Visitor *v, void *opaque,
+static void rtc_get_date(Object *obj, Visitor *v, void *opaque,
                          const char *name, Error **errp)
 {
-    ISADevice *isa = ISA_DEVICE(dev);
+    ISADevice *isa = ISA_DEVICE(obj);
     RTCState *s = DO_UPCAST(RTCState, dev, isa);
 
     visit_start_struct(v, NULL, "struct tm", name, 0, errp);
@@ -654,12 +656,20 @@ static int rtc_initfn(ISADevice *dev)
 
     rtc_set_date_from_host(dev);
 
-    s->periodic_timer = qemu_new_timer_ns(rtc_clock, rtc_periodic_timer, s);
 #ifdef TARGET_I386
-    if (rtc_td_hack)
+    switch (s->lost_tick_policy) {
+    case LOST_TICK_SLEW:
         s->coalesced_timer =
             qemu_new_timer_ns(rtc_clock, rtc_coalesced_timer, s);
+        break;
+    case LOST_TICK_DISCARD:
+        break;
+    default:
+        return -EINVAL;
+    }
 #endif
+
+    s->periodic_timer = qemu_new_timer_ns(rtc_clock, rtc_periodic_timer, s);
     s->second_timer = qemu_new_timer_ns(rtc_clock, rtc_update_second, s);
     s->second_timer2 = qemu_new_timer_ns(rtc_clock, rtc_update_second2, s);
 
@@ -676,8 +686,8 @@ static int rtc_initfn(ISADevice *dev)
     qdev_set_legacy_instance_id(&dev->qdev, base, 2);
     qemu_register_reset(rtc_reset, s);
 
-    qdev_property_add(&s->dev.qdev, "date", "struct tm",
-                      rtc_get_date, NULL, NULL, s, NULL);
+    object_property_add(OBJECT(s), "date", "struct tm",
+                        rtc_get_date, NULL, NULL, s, NULL);
 
     return 0;
 }
@@ -699,26 +709,33 @@ ISADevice *rtc_init(ISABus *bus, int base_year, qemu_irq intercept_irq)
     return dev;
 }
 
-static void rtc_class_initfn(ObjectClass *klass, void *data)
-{
-    ISADeviceClass *ic = ISA_DEVICE_CLASS(klass);
-    ic->init = rtc_initfn;
-}
-
-static DeviceInfo mc146818rtc_info = {
-    .name     = "mc146818rtc",
-    .size     = sizeof(RTCState),
-    .no_user  = 1,
-    .vmsd     = &vmstate_rtc,
-    .class_init          = rtc_class_initfn,
-    .props    = (Property[]) {
-        DEFINE_PROP_INT32("base_year", RTCState, base_year, 1980),
-        DEFINE_PROP_END_OF_LIST(),
-    }
+static Property mc146818rtc_properties[] = {
+    DEFINE_PROP_INT32("base_year", RTCState, base_year, 1980),
+    DEFINE_PROP_LOSTTICKPOLICY("lost_tick_policy", RTCState,
+                               lost_tick_policy, LOST_TICK_DISCARD),
+    DEFINE_PROP_END_OF_LIST(),
 };
 
-static void mc146818rtc_register(void)
+static void rtc_class_initfn(ObjectClass *klass, void *data)
 {
-    isa_qdev_register(&mc146818rtc_info);
+    DeviceClass *dc = DEVICE_CLASS(klass);
+    ISADeviceClass *ic = ISA_DEVICE_CLASS(klass);
+    ic->init = rtc_initfn;
+    dc->no_user = 1;
+    dc->vmsd = &vmstate_rtc;
+    dc->props = mc146818rtc_properties;
 }
-device_init(mc146818rtc_register)
+
+static TypeInfo mc146818rtc_info = {
+    .name          = "mc146818rtc",
+    .parent        = TYPE_ISA_DEVICE,
+    .instance_size = sizeof(RTCState),
+    .class_init    = rtc_class_initfn,
+};
+
+static void mc146818rtc_register_types(void)
+{
+    type_register_static(&mc146818rtc_info);
+}
+
+type_init(mc146818rtc_register_types)

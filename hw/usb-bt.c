@@ -423,7 +423,7 @@ static int usb_bt_handle_data(USBDevice *dev, USBPacket *p)
 
     switch (p->pid) {
     case USB_TOKEN_IN:
-        switch (p->devep & 0xf) {
+        switch (p->ep->nr) {
         case USB_EVT_EP:
             ret = usb_bt_fifo_dequeue(&s->evt, p);
             break;
@@ -442,7 +442,7 @@ static int usb_bt_handle_data(USBDevice *dev, USBPacket *p)
         break;
 
     case USB_TOKEN_OUT:
-        switch (p->devep & 0xf) {
+        switch (p->ep->nr) {
         case USB_ACL_EP:
             usb_bt_fifo_out_enqueue(s, &s->outacl, s->hci->acl_send,
                             usb_bt_hci_acl_complete, p);
@@ -529,27 +529,29 @@ static const VMStateDescription vmstate_usb_bt = {
 
 static void usb_bt_class_initfn(ObjectClass *klass, void *data)
 {
+    DeviceClass *dc = DEVICE_CLASS(klass);
     USBDeviceClass *uc = USB_DEVICE_CLASS(klass);
 
     uc->init           = usb_bt_initfn;
     uc->product_desc   = "QEMU BT dongle";
     uc->usb_desc       = &desc_bluetooth;
-    uc->handle_packet  = usb_generic_handle_packet;
     uc->handle_reset   = usb_bt_handle_reset;
     uc->handle_control = usb_bt_handle_control;
     uc->handle_data    = usb_bt_handle_data;
     uc->handle_destroy = usb_bt_handle_destroy;
+    dc->vmsd = &vmstate_usb_bt;
 }
 
-static struct DeviceInfo bt_info = {
-    .name      = "usb-bt-dongle",
-    .size      = sizeof(struct USBBtState),
-    .vmsd      = &vmstate_usb_bt,
-    .class_init= usb_bt_class_initfn,
+static TypeInfo bt_info = {
+    .name          = "usb-bt-dongle",
+    .parent        = TYPE_USB_DEVICE,
+    .instance_size = sizeof(struct USBBtState),
+    .class_init    = usb_bt_class_initfn,
 };
 
-static void usb_bt_register_devices(void)
+static void usb_bt_register_types(void)
 {
-    usb_qdev_register(&bt_info, NULL, NULL);
+    type_register_static(&bt_info);
 }
-device_init(usb_bt_register_devices)
+
+type_init(usb_bt_register_types)

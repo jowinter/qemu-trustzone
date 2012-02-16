@@ -1136,10 +1136,11 @@ void memory_region_set_log(MemoryRegion *mr, bool log, unsigned client)
 }
 
 bool memory_region_get_dirty(MemoryRegion *mr, target_phys_addr_t addr,
-                             unsigned client)
+                             target_phys_addr_t size, unsigned client)
 {
     assert(mr->terminates);
-    return cpu_physical_memory_get_dirty(mr->ram_addr + addr, 1 << client);
+    return cpu_physical_memory_get_dirty(mr->ram_addr + addr, size,
+                                         1 << client);
 }
 
 void memory_region_set_dirty(MemoryRegion *mr, target_phys_addr_t addr,
@@ -1608,23 +1609,31 @@ static void mtree_print_mr(fprintf_function mon_printf, void *f,
             ml->printed = false;
             QTAILQ_INSERT_TAIL(alias_print_queue, ml, queue);
         }
-        mon_printf(f, TARGET_FMT_plx "-" TARGET_FMT_plx " (prio %d): alias %s @%s "
-                   TARGET_FMT_plx "-" TARGET_FMT_plx "\n",
+        mon_printf(f, TARGET_FMT_plx "-" TARGET_FMT_plx
+                   " (prio %d, %c%c): alias %s @%s " TARGET_FMT_plx
+                   "-" TARGET_FMT_plx "\n",
                    base + mr->addr,
                    base + mr->addr
                    + (target_phys_addr_t)int128_get64(mr->size) - 1,
                    mr->priority,
+                   mr->readable ? 'R' : '-',
+                   !mr->readonly && !(mr->rom_device && mr->readable) ? 'W'
+                                                                      : '-',
                    mr->name,
                    mr->alias->name,
                    mr->alias_offset,
                    mr->alias_offset
                    + (target_phys_addr_t)int128_get64(mr->size) - 1);
     } else {
-        mon_printf(f, TARGET_FMT_plx "-" TARGET_FMT_plx " (prio %d): %s\n",
+        mon_printf(f,
+                   TARGET_FMT_plx "-" TARGET_FMT_plx " (prio %d, %c%c): %s\n",
                    base + mr->addr,
                    base + mr->addr
                    + (target_phys_addr_t)int128_get64(mr->size) - 1,
                    mr->priority,
+                   mr->readable ? 'R' : '-',
+                   !mr->readonly && !(mr->rom_device && mr->readable) ? 'W'
+                                                                      : '-',
                    mr->name);
     }
 

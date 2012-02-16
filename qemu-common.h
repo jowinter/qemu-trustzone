@@ -250,6 +250,14 @@ typedef struct QEMUSGList QEMUSGList;
 
 typedef uint64_t pcibus_t;
 
+typedef enum LostTickPolicy {
+    LOST_TICK_DISCARD,
+    LOST_TICK_DELAY,
+    LOST_TICK_MERGE,
+    LOST_TICK_SLEW,
+    LOST_TICK_MAX
+} LostTickPolicy;
+
 void tcg_exec_init(unsigned long tb_size);
 bool tcg_enabled(void);
 
@@ -326,6 +334,8 @@ void qemu_iovec_from_buffer(QEMUIOVector *qiov, const void *buf, size_t count);
 void qemu_iovec_memset(QEMUIOVector *qiov, int c, size_t count);
 void qemu_iovec_memset_skip(QEMUIOVector *qiov, int c, size_t count,
                             size_t skip);
+
+bool buffer_is_zero(const void *buf, size_t len);
 
 void qemu_progress_init(int enabled, float min_skip);
 void qemu_progress_end(void);

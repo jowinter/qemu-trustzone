@@ -89,15 +89,16 @@ static void realview_i2c_class_init(ObjectClass *klass, void *data)
     k->init = realview_i2c_init;
 }
 
-static DeviceInfo realview_i2c_info = {
-    .name = "realview_i2c",
-    .size = sizeof(RealViewI2CState),
-    .class_init = realview_i2c_class_init,
+static TypeInfo realview_i2c_info = {
+    .name          = "realview_i2c",
+    .parent        = TYPE_SYS_BUS_DEVICE,
+    .instance_size = sizeof(RealViewI2CState),
+    .class_init    = realview_i2c_class_init,
 };
 
-static void realview_register_devices(void)
+static void realview_register_types(void)
 {
-    sysbus_register_withprop(&realview_i2c_info);
+    type_register_static(&realview_i2c_info);
 }
 
 /* Board init.  */
@@ -216,8 +217,8 @@ static void realview_init(ram_addr_t ram_size,
     sys_id = is_pb ? 0x01780500 : 0xc1400400;
     sysctl = qdev_create(NULL, "realview_sysctl");
     qdev_prop_set_uint32(sysctl, "sys_id", sys_id);
-    qdev_init_nofail(sysctl);
     qdev_prop_set_uint32(sysctl, "proc_id", proc_id);
+    qdev_init_nofail(sysctl);
     sysbus_mmio_map(sysbus_from_qdev(sysctl), 0, 0x10000000);
 
     if (is_mpcore) {
@@ -492,4 +493,4 @@ static void realview_machine_init(void)
 }
 
 machine_init(realview_machine_init);
-device_init(realview_register_devices)
+type_init(realview_register_types)

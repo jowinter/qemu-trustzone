@@ -306,7 +306,7 @@ static int usb_wacom_handle_data(USBDevice *dev, USBPacket *p)
 
     switch (p->pid) {
     case USB_TOKEN_IN:
-        if (p->devep == 1) {
+        if (p->ep->nr == 1) {
             if (!(s->changed || s->idle))
                 return USB_RET_NAK;
             s->changed = 0;
@@ -349,30 +349,33 @@ static const VMStateDescription vmstate_usb_wacom = {
     .unmigratable = 1,
 };
 
-static void usb_wacom_class_init(ObjectClass *class, void *data)
+static void usb_wacom_class_init(ObjectClass *klass, void *data)
 {
-    USBDeviceClass *uc = USB_DEVICE_CLASS(class);
+    DeviceClass *dc = DEVICE_CLASS(klass);
+    USBDeviceClass *uc = USB_DEVICE_CLASS(klass);
 
     uc->product_desc   = "QEMU PenPartner Tablet";
     uc->usb_desc       = &desc_wacom;
     uc->init           = usb_wacom_initfn;
-    uc->handle_packet  = usb_generic_handle_packet;
     uc->handle_reset   = usb_wacom_handle_reset;
     uc->handle_control = usb_wacom_handle_control;
     uc->handle_data    = usb_wacom_handle_data;
     uc->handle_destroy = usb_wacom_handle_destroy;
+    dc->desc = "QEMU PenPartner Tablet";
+    dc->vmsd = &vmstate_usb_wacom;
 }
 
-static struct DeviceInfo wacom_info = {
-    .name      = "usb-wacom-tablet",
-    .desc      = "QEMU PenPartner Tablet",
-    .size      = sizeof(USBWacomState),
-    .vmsd      = &vmstate_usb_wacom,
-    .class_init= usb_wacom_class_init,
+static TypeInfo wacom_info = {
+    .name          = "usb-wacom-tablet",
+    .parent        = TYPE_USB_DEVICE,
+    .instance_size = sizeof(USBWacomState),
+    .class_init    = usb_wacom_class_init,
 };
 
-static void usb_wacom_register_devices(void)
+static void usb_wacom_register_types(void)
 {
-    usb_qdev_register(&wacom_info, "wacom-tablet", NULL);
+    type_register_static(&wacom_info);
+    usb_legacy_register("usb-wacom-tablet", "wacom-tablet", NULL);
 }
-device_init(usb_wacom_register_devices)
+
+type_init(usb_wacom_register_types)

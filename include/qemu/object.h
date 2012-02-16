@@ -17,6 +17,10 @@
 #include <glib.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include "qemu-queue.h"
+
+struct Visitor;
+struct Error;
 
 struct TypeImpl;
 typedef struct TypeImpl *Type;
@@ -51,6 +55,9 @@ typedef struct InterfaceInfo InterfaceInfo;
  *
  * #define TYPE_MY_DEVICE "my-device"
  *
+ * // No new virtual functions: we can reuse the typedef for the
+ * // superclass.
+ * typedef DeviceClass MyDeviceClass;
  * typedef struct MyDevice
  * {
  *     DeviceState parent;
@@ -64,12 +71,12 @@ typedef struct InterfaceInfo InterfaceInfo;
  *     .instance_size = sizeof(MyDevice),
  * };
  *
- * static void my_device_module_init(void)
+ * static void my_device_register_types(void)
  * {
  *     type_register_static(&my_device_info);
  * }
  *
- * device_init(my_device_module_init);
+ * type_init(my_device_register_types)
  *   </programlisting>
  * </example>
  *
@@ -84,8 +91,21 @@ typedef struct InterfaceInfo InterfaceInfo;
  *
  * Using object_new(), a new #Object derivative will be instantiated.  You can
  * cast an #Object to a subclass (or base-class) type using
- * object_dynamic_cast().  You typically want to define a macro wrapper around
- * object_dynamic_cast_assert() to make it easier to convert to a specific type.
+ * object_dynamic_cast().  You typically want to define macro wrappers around
+ * OBJECT_CHECK() and OBJECT_CLASS_CHECK() to make it easier to convert to a
+ * specific type:
+ *
+ * <example>
+ *   <title>Typecasting macros</title>
+ *   <programlisting>
+ *    #define MY_DEVICE_GET_CLASS(obj) \
+ *       OBJECT_GET_CLASS(MyDeviceClass, obj, TYPE_MY_DEVICE)
+ *    #define MY_DEVICE_CLASS(klass) \
+ *       OBJECT_CLASS_CHECK(MyDeviceClass, klass, TYPE_MY_DEVICE)
+ *    #define MY_DEVICE(obj) \
+ *       OBJECT_CHECK(MyDevice, obj, TYPE_MY_DEVICE)
+ *   </programlisting>
+ * </example>
  *
  * # Class Initialization #
  *
@@ -104,7 +124,61 @@ typedef struct InterfaceInfo InterfaceInfo;
  *
  * Once all of the parent classes have been initialized, #TypeInfo::class_init
  * is called to let the class being instantiated provide default initialize for
- * it's virtual functions.
+ * it's virtual functions.  Here is how the above example might be modified
+ * to introduce an overridden virtual function:
+ *
+ * <example>
+ *   <title>Overriding a virtual function</title>
+ *   <programlisting>
+ * #include "qdev.h"
+ *
+ * void my_device_class_init(ObjectClass *klass, void *class_data)
+ * {
+ *     DeviceClass *dc = DEVICE_CLASS(klass);
+ *     dc->reset = my_device_reset;
+ * }
+ *
+ * static TypeInfo my_device_info = {
+ *     .name = TYPE_MY_DEVICE,
+ *     .parent = TYPE_DEVICE,
+ *     .instance_size = sizeof(MyDevice),
+ *     .class_init = my_device_class_init,
+ * };
+ *   </programlisting>
+ * </example>
+ *
+ * Introducing new virtual functions requires a class to define its own
+ * struct and to add a .class_size member to the TypeInfo.  Each function
+ * will also have a wrapper to call it easily:
+ *
+ * <example>
+ *   <title>Defining an abstract class</title>
+ *   <programlisting>
+ * #include "qdev.h"
+ *
+ * typedef struct MyDeviceClass
+ * {
+ *     DeviceClass parent;
+ *
+ *     void (*frobnicate) (MyDevice *obj);
+ * } MyDeviceClass;
+ *
+ * static TypeInfo my_device_info = {
+ *     .name = TYPE_MY_DEVICE,
+ *     .parent = TYPE_DEVICE,
+ *     .instance_size = sizeof(MyDevice),
+ *     .abstract = true, // or set a default in my_device_class_init
+ *     .class_size = sizeof(MyDeviceClass),
+ * };
+ *
+ * void my_device_frobnicate(MyDevice *obj)
+ * {
+ *     MyDeviceClass *klass = MY_DEVICE_GET_CLASS(obj);
+ *
+ *     klass->frobnicate(obj);
+ * }
+ *   </programlisting>
+ * </example>
  *
  * # Interfaces #
  *
@@ -113,6 +187,47 @@ typedef struct InterfaceInfo InterfaceInfo;
  * their classes and never carry any state.  You can dynamically cast an object
  * to one of its #Interface types and vice versa.
  */
+
+
+/**
+ * ObjectPropertyAccessor:
+ * @obj: the object that owns the property
+ * @v: the visitor that contains the property data
+ * @opaque: the object property opaque
+ * @name: the name of the property
+ * @errp: a pointer to an Error that is filled if getting/setting fails.
+ *
+ * Called when trying to get/set a property.
+ */
+typedef void (ObjectPropertyAccessor)(Object *obj,
+                                      struct Visitor *v,
+                                      void *opaque,
+                                      const char *name,
+                                      struct Error **errp);
+
+/**
+ * ObjectPropertyRelease:
+ * @obj: the object that owns the property
+ * @name: the name of the property
+ * @opaque: the opaque registered with the property
+ *
+ * Called when a property is removed from a object.
+ */
+typedef void (ObjectPropertyRelease)(Object *obj,
+                                     const char *name,
+                                     void *opaque);
+
+typedef struct ObjectProperty
+{
+    gchar *name;
+    gchar *type;
+    ObjectPropertyAccessor *get;
+    ObjectPropertyAccessor *set;
+    ObjectPropertyRelease *release;
+    void *opaque;
+
+    QTAILQ_ENTRY(ObjectProperty) node;
+} ObjectProperty;
 
 /**
  * ObjectClass:
@@ -145,8 +260,10 @@ struct Object
 {
     /*< private >*/
     ObjectClass *class;
-
     GSList *interfaces;
+    QTAILQ_HEAD(, ObjectProperty) properties;
+    uint32_t ref;
+    Object *parent;
 };
 
 /**
@@ -212,6 +329,16 @@ struct TypeInfo
     ((Object *)(obj))
 
 /**
+ * OBJECT_CLASS:
+ * @class: A derivative of #ObjectClas.
+ *
+ * Converts a class to an #ObjectClass.  Since all objects are #Objects,
+ * this function will always succeed.
+ */
+#define OBJECT_CLASS(class) \
+    ((ObjectClass *)(class))
+
+/**
  * OBJECT_CHECK:
  * @type: The C type to use for the return value.
  * @obj: A derivative of @type to cast.
@@ -225,7 +352,7 @@ struct TypeInfo
  * generated.
  */
 #define OBJECT_CHECK(type, obj, name) \
-    ((type *)object_dynamic_cast_assert((Object *)(obj), (name)))
+    ((type *)object_dynamic_cast_assert(OBJECT(obj), (name)))
 
 /**
  * OBJECT_CLASS_CHECK:
@@ -233,11 +360,12 @@ struct TypeInfo
  * @obj: A derivative of @type to cast.
  * @name: the QOM typename of @class.
  *
- * A type safe version of @object_check_class.  This macro is typically wrapped
- * by each type to perform type safe casts of a class to a specific class type.
+ * A type safe version of @object_class_dynamic_cast_assert.  This macro is
+ * typically wrapped by each type to perform type safe casts of a class to a
+ * specific class type.
  */
 #define OBJECT_CLASS_CHECK(class, obj, name) \
-    ((class *)object_class_dynamic_cast_assert((ObjectClass *)(obj), (name)))
+    ((class *)object_class_dynamic_cast_assert(OBJECT_CLASS(obj), (name)))
 
 /**
  * OBJECT_GET_CLASS:
@@ -251,9 +379,6 @@ struct TypeInfo
  */
 #define OBJECT_GET_CLASS(class, obj, name) \
     OBJECT_CLASS_CHECK(class, object_get_class(OBJECT(obj)), name)
-
-#define OBJECT_CLASS(class) \
-    ((ObjectClass *)(class))
 
 /**
  * InterfaceClass:
@@ -396,6 +521,8 @@ const char *object_get_typename(Object *obj);
  */
 Type type_register_static(const TypeInfo *info);
 
+#define type_register_static_alias(info, name) do { } while (0)
+
 /**
  * type_register:
  * @info: The #TypeInfo of the new type
@@ -431,6 +558,298 @@ const char *object_class_get_name(ObjectClass *klass);
 ObjectClass *object_class_by_name(const char *typename);
 
 void object_class_foreach(void (*fn)(ObjectClass *klass, void *opaque),
+                          const char *implements_type, bool include_abstract,
                           void *opaque);
+/**
+ * object_ref:
+ * @obj: the object
+ *
+ * Increase the reference count of a object.  A object cannot be freed as long
+ * as its reference count is greater than zero.
+ */
+void object_ref(Object *obj);
+
+/**
+ * qdef_unref:
+ * @obj: the object
+ *
+ * Decrease the reference count of a object.  A object cannot be freed as long
+ * as its reference count is greater than zero.
+ */
+void object_unref(Object *obj);
+
+/**
+ * object_property_add:
+ * @obj: the object to add a property to
+ * @name: the name of the property.  This can contain any character except for
+ *  a forward slash.  In general, you should use hyphens '-' instead of
+ *  underscores '_' when naming properties.
+ * @type: the type name of the property.  This namespace is pretty loosely
+ *   defined.  Sub namespaces are constructed by using a prefix and then
+ *   to angle brackets.  For instance, the type 'virtio-net-pci' in the
+ *   'link' namespace would be 'link<virtio-net-pci>'.
+ * @get: The getter to be called to read a property.  If this is NULL, then
+ *   the property cannot be read.
+ * @set: the setter to be called to write a property.  If this is NULL,
+ *   then the property cannot be written.
+ * @release: called when the property is removed from the object.  This is
+ *   meant to allow a property to free its opaque upon object
+ *   destruction.  This may be NULL.
+ * @opaque: an opaque pointer to pass to the callbacks for the property
+ * @errp: returns an error if this function fails
+ */
+void object_property_add(Object *obj, const char *name, const char *type,
+                         ObjectPropertyAccessor *get,
+                         ObjectPropertyAccessor *set,
+                         ObjectPropertyRelease *release,
+                         void *opaque, struct Error **errp);
+
+void object_property_del(Object *obj, const char *name, struct Error **errp);
+
+void object_unparent(Object *obj);
+
+/**
+ * object_property_get:
+ * @obj: the object
+ * @v: the visitor that will receive the property value.  This should be an
+ *   Output visitor and the data will be written with @name as the name.
+ * @name: the name of the property
+ * @errp: returns an error if this function fails
+ *
+ * Reads a property from a object.
+ */
+void object_property_get(Object *obj, struct Visitor *v, const char *name,
+                         struct Error **errp);
+
+/**
+ * object_property_set_str:
+ * @value: the value to be written to the property
+ * @name: the name of the property
+ * @errp: returns an error if this function fails
+ *
+ * Writes a string value to a property.
+ */
+void object_property_set_str(Object *obj, const char *value,
+                             const char *name, struct Error **errp);
+
+/**
+ * object_property_get_str:
+ * @obj: the object
+ * @name: the name of the property
+ * @errp: returns an error if this function fails
+ *
+ * Returns: the value of the property, converted to a C string, or NULL if
+ * an error occurs (including when the property value is not a string).
+ * The caller should free the string.
+ */
+char *object_property_get_str(Object *obj, const char *name,
+                              struct Error **errp);
+
+/**
+ * object_property_set_link:
+ * @value: the value to be written to the property
+ * @name: the name of the property
+ * @errp: returns an error if this function fails
+ *
+ * Writes an object's canonical path to a property.
+ */
+void object_property_set_link(Object *obj, Object *value,
+                              const char *name, struct Error **errp);
+
+/**
+ * object_property_get_link:
+ * @obj: the object
+ * @name: the name of the property
+ * @errp: returns an error if this function fails
+ *
+ * Returns: the value of the property, resolved from a path to an Object,
+ * or NULL if an error occurs (including when the property value is not a
+ * string or not a valid object path).
+ */
+Object *object_property_get_link(Object *obj, const char *name,
+                                 struct Error **errp);
+
+/**
+ * object_property_set_bool:
+ * @value: the value to be written to the property
+ * @name: the name of the property
+ * @errp: returns an error if this function fails
+ *
+ * Writes a bool value to a property.
+ */
+void object_property_set_bool(Object *obj, bool value,
+                              const char *name, struct Error **errp);
+
+/**
+ * object_property_get_bool:
+ * @obj: the object
+ * @name: the name of the property
+ * @errp: returns an error if this function fails
+ *
+ * Returns: the value of the property, converted to a boolean, or NULL if
+ * an error occurs (including when the property value is not a bool).
+ */
+bool object_property_get_bool(Object *obj, const char *name,
+                              struct Error **errp);
+
+/**
+ * object_property_set_int:
+ * @value: the value to be written to the property
+ * @name: the name of the property
+ * @errp: returns an error if this function fails
+ *
+ * Writes an integer value to a property.
+ */
+void object_property_set_int(Object *obj, int64_t value,
+                             const char *name, struct Error **errp);
+
+/**
+ * object_property_get_int:
+ * @obj: the object
+ * @name: the name of the property
+ * @errp: returns an error if this function fails
+ *
+ * Returns: the value of the property, converted to an integer, or NULL if
+ * an error occurs (including when the property value is not an integer).
+ */
+int64_t object_property_get_int(Object *obj, const char *name,
+                                struct Error **errp);
+
+/**
+ * object_property_set:
+ * @obj: the object
+ * @v: the visitor that will be used to write the property value.  This should
+ *   be an Input visitor and the data will be first read with @name as the
+ *   name and then written as the property value.
+ * @name: the name of the property
+ * @errp: returns an error if this function fails
+ *
+ * Writes a property to a object.
+ */
+void object_property_set(Object *obj, struct Visitor *v, const char *name,
+                         struct Error **errp);
+
+/**
+ * @object_property_get_type:
+ * @obj: the object
+ * @name: the name of the property
+ * @errp: returns an error if this function fails
+ *
+ * Returns:  The type name of the property.
+ */
+const char *object_property_get_type(Object *obj, const char *name,
+                                     struct Error **errp);
+
+/**
+ * object_get_root:
+ *
+ * Returns: the root object of the composition tree
+ */
+Object *object_get_root(void);
+
+/**
+ * object_get_canonical_path:
+ *
+ * Returns: The canonical path for a object.  This is the path within the
+ * composition tree starting from the root.
+ */
+gchar *object_get_canonical_path(Object *obj);
+
+/**
+ * object_resolve_path:
+ * @path: the path to resolve
+ * @ambiguous: returns true if the path resolution failed because of an
+ *   ambiguous match
+ *
+ * There are two types of supported paths--absolute paths and partial paths.
+ * 
+ * Absolute paths are derived from the root object and can follow child<> or
+ * link<> properties.  Since they can follow link<> properties, they can be
+ * arbitrarily long.  Absolute paths look like absolute filenames and are
+ * prefixed with a leading slash.
+ * 
+ * Partial paths look like relative filenames.  They do not begin with a
+ * prefix.  The matching rules for partial paths are subtle but designed to make
+ * specifying objects easy.  At each level of the composition tree, the partial
+ * path is matched as an absolute path.  The first match is not returned.  At
+ * least two matches are searched for.  A successful result is only returned if
+ * only one match is found.  If more than one match is found, a flag is
+ * returned to indicate that the match was ambiguous.
+ *
+ * Returns: The matched object or NULL on path lookup failure.
+ */
+Object *object_resolve_path(const char *path, bool *ambiguous);
+
+/**
+ * object_resolve_path_type:
+ * @path: the path to resolve
+ * @typename: the type to look for.
+ * @ambiguous: returns true if the path resolution failed because of an
+ *   ambiguous match
+ *
+ * This is similar to object_resolve_path.  However, when looking for a
+ * partial path only matches that implement the given type are considered.
+ * This restricts the search and avoids spuriously flagging matches as
+ * ambiguous.
+ *
+ * For both partial and absolute paths, the return value goes through
+ * a dynamic cast to @typename.  This is important if either the link,
+ * or the typename itself are of interface types.
+ *
+ * Returns: The matched object or NULL on path lookup failure.
+ */
+Object *object_resolve_path_type(const char *path, const char *typename,
+                                 bool *ambiguous);
+
+/**
+ * object_property_add_child:
+ * @obj: the object to add a property to
+ * @name: the name of the property
+ * @child: the child object
+ * @errp: if an error occurs, a pointer to an area to store the area
+ *
+ * Child properties form the composition tree.  All objects need to be a child
+ * of another object.  Objects can only be a child of one object.
+ *
+ * There is no way for a child to determine what its parent is.  It is not
+ * a bidirectional relationship.  This is by design.
+ */
+void object_property_add_child(Object *obj, const char *name,
+                               Object *child, struct Error **errp);
+
+/**
+ * object_property_add_link:
+ * @obj: the object to add a property to
+ * @name: the name of the property
+ * @type: the qobj type of the link
+ * @child: a pointer to where the link object reference is stored
+ * @errp: if an error occurs, a pointer to an area to store the area
+ *
+ * Links establish relationships between objects.  Links are unidirectional
+ * although two links can be combined to form a bidirectional relationship
+ * between objects.
+ *
+ * Links form the graph in the object model.
+ */
+void object_property_add_link(Object *obj, const char *name,
+                              const char *type, Object **child,
+                              struct Error **errp);
+
+/**
+ * object_property_add_str:
+ * @obj: the object to add a property to
+ * @name: the name of the property
+ * @get: the getter or NULL if the property is write-only.  This function must
+ *   return a string to be freed by g_free().
+ * @set: the setter or NULL if the property is read-only
+ * @errp: if an error occurs, a pointer to an area to store the error
+ *
+ * Add a string property using getters/setters.  This function will add a
+ * property of type 'string'.
+ */
+void object_property_add_str(Object *obj, const char *name,
+                             char *(*get)(Object *, struct Error **),
+                             void (*set)(Object *, const char *, struct Error **),
+                             struct Error **errp);
 
 #endif

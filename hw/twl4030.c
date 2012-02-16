@@ -1702,25 +1702,29 @@ static void twl4030_4b_class_init(ObjectClass *klass, void *data)
     k->send = twl4030_tx;
 }
 
-static DeviceInfo twl4030_info[4] = {
+static TypeInfo twl4030_info[] = {
     {
         .name = "twl4030_48",
-        .size = sizeof(TWL4030NodeState),
+        .parent = TYPE_I2C_SLAVE,
+        .instance_size = sizeof(TWL4030NodeState),
         .class_init = twl4030_48_class_init,
     },
     {
         .name = "twl4030_49",
-        .size = sizeof(TWL4030NodeState),
+        .parent = TYPE_I2C_SLAVE,
+        .instance_size = sizeof(TWL4030NodeState),
         .class_init = twl4030_49_class_init,
     },
     {
         .name = "twl4030_4a",
-        .size = sizeof(TWL4030NodeState),
+        .parent = TYPE_I2C_SLAVE,
+        .instance_size = sizeof(TWL4030NodeState),
         .class_init = twl4030_4a_class_init,
     },
     {
         .name = "twl4030_4b",
-        .size = sizeof(TWL4030NodeState),
+        .parent = TYPE_I2C_SLAVE,
+        .instance_size = sizeof(TWL4030NodeState),
         .class_init = twl4030_4b_class_init,
     },
 };
@@ -1735,12 +1739,12 @@ void *twl4030_init(i2c_bus *bus, qemu_irq irq1, qemu_irq irq2,
     s->key_cfg = 0;
     s->key_tst = 0;
     s->keymap = keymap;
-    
+
     s->alarm_timer = qemu_new_timer_ns(vm_clock, twl4030_alarm, s);
     s->periodic_timer = qemu_new_timer_ns(vm_clock, twl4030_periodic, s);
 
     int i;
-    for (i = 0; i < 4; i++) {
+    for (i = 0; i < ARRAY_SIZE(twl4030_info); i++) {
         DeviceState *ds = i2c_create_slave(bus, twl4030_info[i].name,
                                            0x48 + i);
         s->i2c[i] = FROM_I2C_SLAVE(TWL4030NodeState, I2C_SLAVE_FROM_QDEV(ds));
@@ -1792,13 +1796,13 @@ void twl4030_madc_attach(void *opaque, twl4030_madc_callback cb)
     s->madc_cb = cb;
 }
 
-static void twl4030_register_devices(void)
+static void twl4030_register_types(void)
 {
-    DeviceInfo *p = twl4030_info;
+    TypeInfo *p = twl4030_info;
     int i;
-    for (i = 0; i < 4; p++, i++) {
-        i2c_register_slave(p);
+    for (i = 0; i < ARRAY_SIZE(twl4030_info); p++, i++) {
+        type_register_static(p);
     }
 }
 
-device_init(twl4030_register_devices);
+type_init(twl4030_register_types);

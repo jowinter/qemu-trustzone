@@ -188,6 +188,7 @@ static void apic_reset_common(DeviceState *d)
 static int apic_load_old(QEMUFile *f, void *opaque, int version_id)
 {
     APICCommonState *s = opaque;
+    APICCommonClass *info = APIC_COMMON_GET_CLASS(s);
     int i;
 
     if (version_id > 2) {
@@ -220,7 +221,11 @@ static int apic_load_old(QEMUFile *f, void *opaque, int version_id)
     s->next_time = qemu_get_be64(f);
 
     if (version_id >= 2) {
-        qemu_get_timer(f, s->timer);
+        s->timer_expiry = qemu_get_be64(f);
+    }
+
+    if (info->post_load) {
+        info->post_load(s);
     }
     return 0;
 }
@@ -295,7 +300,12 @@ static Property apic_properties_common[] = {
 static void apic_common_class_init(ObjectClass *klass, void *data)
 {
     SysBusDeviceClass *sc = SYS_BUS_DEVICE_CLASS(klass);
+    DeviceClass *dc = DEVICE_CLASS(klass);
 
+    dc->vmsd = &vmstate_apic_common;
+    dc->reset = apic_reset_common;
+    dc->no_user = 1;
+    dc->props = apic_properties_common;
     sc->init = apic_init_common;
 }
 
@@ -308,19 +318,9 @@ static TypeInfo apic_common_type = {
     .abstract = true,
 };
 
-void apic_qdev_register(DeviceInfo *info)
-{
-    info->size = sizeof(APICCommonState),
-    info->vmsd = &vmstate_apic_common;
-    info->reset = apic_reset_common;
-    info->no_user = 1;
-    info->props = apic_properties_common;
-    sysbus_qdev_register_subclass(info, TYPE_APIC_COMMON);
-}
-
-static void register_devices(void)
+static void register_types(void)
 {
     type_register_static(&apic_common_type);
 }
 
-device_init(register_devices);
+type_init(register_types)

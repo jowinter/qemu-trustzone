@@ -366,8 +366,8 @@ static void vexpress_common_init(const VEDBoardInfo *daughterboard,
 
     sysctl = qdev_create(NULL, "realview_sysctl");
     qdev_prop_set_uint32(sysctl, "sys_id", sys_id);
-    qdev_init_nofail(sysctl);
     qdev_prop_set_uint32(sysctl, "proc_id", proc_id);
+    qdev_init_nofail(sysctl);
     sysbus_mmio_map(sysbus_from_qdev(sysctl), 0, map[VE_SYSREGS]);
 
     /* VE_SP810: not modelled */

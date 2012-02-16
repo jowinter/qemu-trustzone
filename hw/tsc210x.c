@@ -1201,17 +1201,26 @@ static int tsc2301_init(SPIDevice *spidev)
     return 0;
 }
 
-static SPIDeviceInfo tsc2301_info = {
-    .init = tsc2301_init,
-    .txrx = tsc2301_txrx,
-    .qdev.name = "tsc2301",
-    .qdev.size = sizeof(TSC2301State),
-    .qdev.reset = tsc2301_reset,
+static void tsc2301_class_init(ObjectClass *klass, void *data)
+{
+    DeviceClass *dc = DEVICE_CLASS(klass);
+    SPIDeviceClass *k = SPI_DEVICE_CLASS(klass);
+
+    k->init = tsc2301_init;
+    k->txrx = tsc2301_txrx;
+    dc->reset = tsc2301_reset;
+}
+
+static TypeInfo tsc2301_info = {
+    .name = "tsc2301",
+    .parent = TYPE_SPI_DEVICE,
+    .instance_size = sizeof(TSC2301State),
+    .class_init = tsc2301_class_init,
 };
 
-static void tsc210x_register_devices(void)
+static void tsc210x_register_types(void)
 {
-    spi_register_device(&tsc2301_info);
+    type_register_static(&tsc2301_info);
 }
 
 I2SCodec *tsc210x_codec(uWireSlave *chip)
@@ -1322,4 +1331,4 @@ void tsc2301_key_event(DeviceState *qdev, int key, int down)
     tsc210x_key_event(&s->tsc210x.chip, key, down);
 }
 
-device_init(tsc210x_register_devices)
+type_init(tsc210x_register_types)

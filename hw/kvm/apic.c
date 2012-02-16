@@ -132,14 +132,16 @@ static void kvm_apic_class_init(ObjectClass *klass, void *data)
     k->external_nmi = kvm_apic_external_nmi;
 }
 
-static DeviceInfo kvm_apic_info = {
+static TypeInfo kvm_apic_info = {
     .name = "kvm-apic",
+    .parent = TYPE_APIC_COMMON,
+    .instance_size = sizeof(APICCommonState),
     .class_init = kvm_apic_class_init,
 };
 
-static void kvm_apic_register_device(void)
+static void kvm_apic_register_types(void)
 {
-    apic_qdev_register(&kvm_apic_info);
+    type_register_static(&kvm_apic_info);
 }
 
-device_init(kvm_apic_register_device)
+type_init(kvm_apic_register_types)

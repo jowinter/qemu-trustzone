@@ -29,7 +29,7 @@
         var = (var << 8) | (data & 0xff); \
     }
 
-struct dsi_host_s {
+struct DSIHost {
     BusState qbus;
     DSIDevice *device[4];
     dsi_te_trigger_cb te_trigger;
@@ -60,15 +60,16 @@ uint32_t dsi_short_write(DSIHost *host, uint32_t data)
 {
     DSIDevice *dev = host->device[(data >> 6) & 3];
     if (dev) {
+        DSIDeviceClass *dc = DSI_DEVICE_GET_CLASS(dev);
         uint16_t payload = data >> 8;
         switch (data & 0x3f) { /* id */
         case 0x05: /* short_write_0 */
-            dev->info->write(dev, payload & 0xff, 1);
+            dc->write(dev, payload & 0xff, 1);
             break;
         case 0x06: /* read */
-            return dev->info->read(dev, payload & 0xff, 1);
+            return dc->read(dev, payload & 0xff, 1);
         case 0x15: /* short_write_1 */
-            dev->info->write(dev, payload, 2);
+            dc->write(dev, payload, 2);
             break;
         case 0x37: /* set maximum return packet size */
             dev->max_return_size = data;
@@ -89,12 +90,13 @@ void dsi_long_write(DSIHost *host, uint32_t header, uint32_t payload,
 {
     DSIDevice *dev = host->device[(header >> 6) & 3];
     if (dev) {
+        DSIDeviceClass *dc = DSI_DEVICE_GET_CLASS(dev);
         switch (header & 0x3f) { /* id */
         case 0x09: /* null packet */
             /* ignore */
             break;
         case 0x39: /* long write */
-            dev->info->write(dev, payload, counter > 4 ? 4 : counter);
+            dc->write(dev, payload, counter > 4 ? 4 : counter);
             break;
         default:
             hw_error("%s: unknown/unimplemented DSI id (0x%02x)",
@@ -112,8 +114,9 @@ int dsi_blt(DSIHost *host, int vc, void *data, int width, int height,
     if (vc >= 0 && vc < 4) {
         DSIDevice *dev = host->device[vc];
         if (dev) {
-            return dev->info->blt(dev, data, width, height, col_pitch,
-                                  row_pitch, format);
+            DSIDeviceClass *dc = DSI_DEVICE_GET_CLASS(dev);
+            return dc->blt(dev, data, width, height,
+                           col_pitch, row_pitch, format);
         } else {
             DSI_ERROR_NODEVICE(vc);
         }
@@ -128,7 +131,8 @@ void dsi_bltdone(DSIHost *host, int vc)
     if (vc >=0 && vc < 4) {
         DSIDevice *dev = host->device[vc];
         if (dev) {
-            dev->info->bltdone(dev);
+            DSIDeviceClass *dc = DSI_DEVICE_GET_CLASS(dev);
+            dc->bltdone(dev);
         } else {
             DSI_ERROR_NODEVICE(vc);
         }
@@ -155,7 +159,7 @@ drawfn dsi_get_drawfn(const DSIDevice *dev, int format, int bpp)
 static void dsi_common_reset(DeviceState *dev)
 {
     DSICommonDevice *s = DSI_COMMON_DEVICE_FROM_QDEV(dev);
-    DSICommonDeviceInfo *i = DO_UPCAST(DSICommonDeviceInfo, dsi, s->dsi.info);
+    DSICommonDeviceClass *dcc = DSI_COMMON_DEVICE_GET_CLASS(dev);
     s->bs = bs_cmd;
     s->cmd = 0;
     s->powermode = 0x08;
@@ -170,8 +174,8 @@ static void dsi_common_reset(DeviceState *dev)
     s->ep = 0;
     s->cp = 0;
     s->te_mode = te_off;
-    if (i->reset) {
-        i->reset(s);
+    if (dcc->reset) {
+        dcc->reset(s);
     }
 }
 
@@ -179,7 +183,7 @@ static void dsi_common_write(DSIDevice *dev, uint32_t data, int len)
 {
     uint8_t x;
     DSICommonDevice *s = FROM_DSI_DEVICE(DSICommonDevice, dev);
-    DSICommonDeviceInfo *i = DO_UPCAST(DSICommonDeviceInfo, dsi, s->dsi.info);
+    DSICommonDeviceClass *dcc = DSI_COMMON_DEVICE_GET_CLASS(s);
     if  (s->bs == bs_cmd) {
         s->cmd = data & 0xff;
         data >>= 8;
@@ -189,30 +193,30 @@ static void dsi_common_write(DSIDevice *dev, uint32_t data, int len)
     case 0x10: /* enter sleep */
         x = s->powermode;
         s->powermode &= ~0x10;
-        if ((x ^ s->powermode) && i->powermode_changed) {
-            i->powermode_changed(s);
+        if ((x ^ s->powermode) && dcc->powermode_changed) {
+            dcc->powermode_changed(s);
         }
         break;
     case 0x11: /* exit sleep */
         x = s->powermode;
         s->powermode |= 0x10;
         s->dr ^= 0xe0;
-        if ((x ^ s->powermode) && i->powermode_changed) {
-            i->powermode_changed(s);
+        if ((x ^ s->powermode) && dcc->powermode_changed) {
+            dcc->powermode_changed(s);
         }
         break;
     case 0x28: /* display off */
         x = s->powermode;
         s->powermode &= ~0x04;
-        if ((x ^ s->powermode) && i->powermode_changed) {
-            i->powermode_changed(s);
+        if ((x ^ s->powermode) && dcc->powermode_changed) {
+            dcc->powermode_changed(s);
         }
         break;
     case 0x29: /* display on */
         x = s->powermode;
         s->powermode |= 0x04;
-        if ((x ^ s->powermode) && i->powermode_changed) {
-            i->powermode_changed(s);
+        if ((x ^ s->powermode) && dcc->powermode_changed) {
+            dcc->powermode_changed(s);
         }
         break;
     case 0x2a: /* set column address */
@@ -246,15 +250,15 @@ static void dsi_common_write(DSIDevice *dev, uint32_t data, int len)
     case 0x34: /* disable tear effect control */
         x = s->te_mode;
         s->te_mode = te_off;
-        if ((x ^ s->te_mode) && i->temode_changed) {
-            i->temode_changed(s);
+        if ((x ^ s->te_mode) && dcc->temode_changed) {
+            dcc->temode_changed(s);
         }
         break;
     case 0x35: /* enable tear effect control */
         x = s->te_mode;
         s->te_mode = (data & 0x01) ? te_hvsync : te_vsync;
-        if ((x ^ s->te_mode) && i->temode_changed) {
-            i->temode_changed(s);
+        if ((x ^ s->te_mode) && dcc->temode_changed) {
+            dcc->temode_changed(s);
         }
         break;
     case 0x36: /* set address mode */
@@ -299,12 +303,12 @@ static void dsi_common_write(DSIDevice *dev, uint32_t data, int len)
         }
         break;
     default:
-        if (i->write) {
+        if (dcc->write) {
             if (s->bs == bs_cmd) {
                 data = (data << 8) | s->cmd;
                 len++;
             }
-            i->write(s, data, len);
+            dcc->write(s, data, len);
         } else {
             hw_error("%s: unknown command 0x%02x\n", __FUNCTION__, s->cmd);
         }
@@ -315,7 +319,7 @@ static void dsi_common_write(DSIDevice *dev, uint32_t data, int len)
 static uint32_t dsi_common_read(DSIDevice *dev, uint32_t data, int len)
 {
     DSICommonDevice *s = FROM_DSI_DEVICE(DSICommonDevice, dev);
-    DSICommonDeviceInfo *i = DO_UPCAST(DSICommonDeviceInfo, dsi, dev->info);
+    DSICommonDeviceClass *dcc = DSI_COMMON_DEVICE_GET_CLASS(s);
     if (s->bs != bs_cmd) {
         hw_error("%s: previous WRITE command not completed", __FUNCTION__);
     }
@@ -328,8 +332,8 @@ static uint32_t dsi_common_read(DSIDevice *dev, uint32_t data, int len)
     case 0x0f: /* get diagnostic result */
         return DSI_MAKERETURNBYTE(s->dr);
     default:
-        if (i->read) {
-            return i->read(s, data, len);
+        if (dcc->read) {
+            return dcc->read(s, data, len);
         } else {
             hw_error("%s: unknown command 0x%02x\n", __FUNCTION__, s->cmd);
         }
@@ -338,28 +342,11 @@ static uint32_t dsi_common_read(DSIDevice *dev, uint32_t data, int len)
     return 0;
 }
 
-static int dsi_device_init(DeviceState *dev, DeviceInfo *base)
+static int dsi_device_init(DeviceState *dev)
 {
-    DSIDeviceInfo *info = container_of(base, DSIDeviceInfo, qdev);
     DSIDevice *dsi_dev = DSI_DEVICE_FROM_QDEV(dev);
-    dsi_dev->info = info;
-    return info->init(dsi_dev);
-}
-
-void dsi_register_device(DSIDeviceInfo *info)
-{
-    assert(info->qdev.size >= sizeof(DSIDevice));
-    info->qdev.init = dsi_device_init;
-    info->qdev.bus_info = &dsi_bus_info;
-    qdev_register(&info->qdev);
-}
-
-void dsi_register_common_device(DSICommonDeviceInfo *info)
-{
-    dsi_register_device(&info->dsi);
-    info->dsi.write = dsi_common_write;
-    info->dsi.read = dsi_common_read;
-    info->dsi.qdev.reset = dsi_common_reset;
+    DSIDeviceClass *dc = DSI_DEVICE_GET_CLASS(dsi_dev);
+    return dc->init(dsi_dev);
 }
 
 DeviceState *dsi_create_device_noinit(DSIHost *host, const char *name, int vc)
@@ -395,3 +382,45 @@ DeviceState *dsi_create_common_device(DSIHost *host, const char *name, int vc)
     qdev_init_nofail(dev);
     return dev;
 }
+
+static void dsi_device_class_init(ObjectClass *klass, void *data)
+{
+    DeviceClass *k = DEVICE_CLASS(klass);
+    k->init = dsi_device_init;
+    k->bus_info = &dsi_bus_info;
+}
+
+static void dsi_common_device_class_init(ObjectClass *klass, void *data)
+{
+    DeviceClass *k = DEVICE_CLASS(klass);
+    DSIDeviceClass *dc = DSI_DEVICE_CLASS(klass);
+    dc->write = dsi_common_write;
+    dc->read = dsi_common_read;
+    k->reset = dsi_common_reset;
+}
+
+static TypeInfo dsi_device_type_info = {
+    .name = TYPE_DSI_DEVICE,
+    .parent = TYPE_DEVICE,
+    .instance_size = sizeof(DSIDevice),
+    .abstract = true,
+    .class_size = sizeof(DSIDeviceClass),
+    .class_init = dsi_device_class_init,
+};
+
+static TypeInfo dsi_common_device_type_info = {
+    .name = TYPE_DSI_COMMON_DEVICE,
+    .parent = TYPE_DSI_DEVICE,
+    .instance_size = sizeof(DSICommonDevice),
+    .abstract = true,
+    .class_size = sizeof(DSICommonDeviceClass),
+    .class_init = dsi_common_device_class_init,
+};
+
+static void dsi_register_types(void)
+{
+    type_register_static(&dsi_device_type_info);
+    type_register_static(&dsi_common_device_type_info);
+}
+
+type_init(dsi_register_types)

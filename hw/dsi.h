@@ -26,9 +26,27 @@
 #define DSI_MAKERETURNWORD(w) ((((w) & 0xffff) << 8) | 0x22)
 #define DSI_MAKERETURNERROR(e) ((((e) & 0xffff) << 8) | 0x02)
 
-typedef struct dsi_device_s DSIDevice;
-typedef struct dsi_common_device_s DSICommonDevice;
-typedef struct dsi_host_s DSIHost;
+typedef struct DSIDevice DSIDevice;
+typedef struct DSICommonDevice DSICommonDevice;
+typedef struct DSIHost DSIHost;
+
+#define TYPE_DSI_DEVICE "dsi-device"
+#define DSI_DEVICE(obj) \
+    OBJECT_CHECK(DSIDevice, (obj), TYPE_DSI_DEVICE)
+#define DSI_DEVICE_CLASS(klass) \
+    OBJECT_CLASS_CHECK(DSIDeviceClass, (klass), TYPE_DSI_DEVICE)
+#define DSI_DEVICE_GET_CLASS(obj) \
+    OBJECT_GET_CLASS(DSIDeviceClass, (obj), TYPE_DSI_DEVICE)
+
+#define TYPE_DSI_COMMON_DEVICE "dsi-common-device"
+#define DSI_COMMON_DEVICE(obj) \
+    OBJECT_CHECK(DSICommonDevice, (obj), TYPE_DSI_COMMON_DEVICE)
+#define DSI_COMMON_DEVICE_CLASS(klass) \
+    OBJECT_CLASS_CHECK(DSICommonDeviceClass, (klass), TYPE_DSI_COMMON_DEVICE)
+#define DSI_COMMON_DEVICE_GET_CLASS(obj) \
+    OBJECT_GET_CLASS(DSICommonDeviceClass, (obj), TYPE_DSI_COMMON_DEVICE)
+
+
 
 /* device callbacks */
 typedef int (*dsi_device_initfn)(DSIDevice *dev);
@@ -53,34 +71,33 @@ typedef drawfn (*dsi_get_drawfn_cb)(const DeviceState *dev, int format,
                                     int bpp);
 
 typedef struct {
-    DeviceInfo qdev;
+    DeviceClass parent_class;
     dsi_device_initfn init;
     dsi_write_cb write;
     dsi_read_cb read;
     dsi_blt_cb blt;
     dsi_bltdone_cb bltdone;
-} DSIDeviceInfo;
+} DSIDeviceClass;
 
 typedef struct {
-    DSIDeviceInfo dsi;
+    DSIDeviceClass parent_class;
     dsi_common_write_cb write;
     dsi_common_read_cb read;
     dsi_common_device_resetfn reset;
     dsi_powermode_changed_cb powermode_changed;
     dsi_temode_changed_cb temode_changed;
-} DSICommonDeviceInfo;    
+} DSICommonDeviceClass;
 
-struct dsi_device_s {
+struct DSIDevice {
     DeviceState qdev;
-    DSIDeviceInfo *info;
-    
+
     /* internal fields used by DSI code */
     DSIHost *host;
     uint8_t vchannel;
     uint16_t max_return_size;
 };
 
-struct dsi_common_device_s {
+struct DSICommonDevice {
     DSIDevice dsi;
     enum { bs_cmd, bs_data } bs;
     uint8_t cmd;
@@ -122,8 +139,6 @@ drawfn dsi_get_drawfn(const DSIDevice *dev, int format, int bpp);
                                                    DSI_DEVICE_FROM_QDEV(dev))
 #define FROM_DSI_DEVICE(type, dev) DO_UPCAST(type, dsi, dev)
 
-void dsi_register_device(DSIDeviceInfo *info);
-void dsi_register_common_device(DSICommonDeviceInfo *info);
 DeviceState *dsi_create_device(DSIHost *host, const char *name, int vc);
 DeviceState *dsi_create_device_noinit(DSIHost *host, const char *name, int vc);
 DeviceState *dsi_create_common_device(DSIHost *host, const char *name, int vc);

@@ -96,8 +96,11 @@ static const VMStateDescription vmstate_ioapic_common = {
 static void ioapic_common_class_init(ObjectClass *klass, void *data)
 {
     SysBusDeviceClass *sc = SYS_BUS_DEVICE_CLASS(klass);
+    DeviceClass *dc = DEVICE_CLASS(klass);
 
     sc->init = ioapic_init_common;
+    dc->vmsd = &vmstate_ioapic_common;
+    dc->no_user = 1;
 }
 
 static TypeInfo ioapic_common_type = {
@@ -109,17 +112,9 @@ static TypeInfo ioapic_common_type = {
     .abstract = true,
 };
 
-void ioapic_qdev_register(DeviceInfo *info)
-{
-    info->vmsd = &vmstate_ioapic_common;
-    info->no_user = 1;
-    sysbus_qdev_register_subclass(info, TYPE_IOAPIC_COMMON);
-}
-
-static void register_devices(void)
+static void register_types(void)
 {
     type_register_static(&ioapic_common_type);
 }
 
-device_init(register_devices);
-
+type_init(register_types)

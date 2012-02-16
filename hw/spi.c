@@ -19,7 +19,7 @@
  */
 #include "spi.h"
 
-struct spi_bus_s {
+struct SPIBus {
     BusState qbus;
     int channels;
     SPIDevice **device;
@@ -45,33 +45,19 @@ SPIBus *spi_init_bus(DeviceState *parent, const char *name, int num_channels)
 uint32_t spi_txrx(SPIBus *bus, int channel, uint32_t data, int len)
 {
     SPIDevice *dev;
-    
+    SPIDeviceClass *sc;
+
     if (channel < bus->channels) {
         if ((dev = bus->device[channel])) {
-            if (dev->info->txrx) {
-                return dev->info->txrx(dev, data, len);
+            sc = SPI_DEVICE_GET_CLASS(dev);
+            if (sc->txrx) {
+                return sc->txrx(dev, data, len);
             }
         }
     } else {
         hw_error("%s: invalid channel %d\n", __FUNCTION__, channel);
     }
     return 0;
-}
-
-static int spi_device_init(DeviceState *qdev, DeviceInfo *base)
-{
-    SPIDeviceInfo *info = container_of(base, SPIDeviceInfo, qdev);
-    SPIDevice *dev = SPI_DEVICE_FROM_QDEV(qdev);
-    dev->info = info;
-    return info->init(dev);
-}
-
-void spi_register_device(SPIDeviceInfo *info)
-{
-    assert(info->qdev.size >= sizeof(SPIDevice));
-    info->qdev.init = spi_device_init;
-    info->qdev.bus_info = &spi_bus_info;
-    qdev_register(&info->qdev);
 }
 
 DeviceState *spi_create_device_noinit(SPIBus *bus, const char *name, int ch)
@@ -96,3 +82,33 @@ DeviceState *spi_create_device(SPIBus *bus, const char *name, int ch)
     qdev_init_nofail(dev);
     return dev;
 }
+
+static int spi_device_qdev_init(DeviceState *dev)
+{
+    SPIDevice *s = SPI_DEVICE_FROM_QDEV(dev);
+    SPIDeviceClass *sc = SPI_DEVICE_GET_CLASS(s);
+    return sc->init(s);
+}
+
+static void spi_device_class_init(ObjectClass *klass, void *data)
+{
+    DeviceClass *k = DEVICE_CLASS(klass);
+    k->init = spi_device_qdev_init;
+    k->bus_info = &spi_bus_info;
+}
+
+static TypeInfo spi_device_type_info = {
+    .name = TYPE_SPI_DEVICE,
+    .parent = TYPE_DEVICE,
+    .instance_size = sizeof(SPIDevice),
+    .abstract = true,
+    .class_size = sizeof(SPIDeviceClass),
+    .class_init = spi_device_class_init,
+};
+
+static void spi_device_register_types(void)
+{
+    type_register_static(&spi_device_type_info);
+}
+
+type_init(spi_device_register_types)

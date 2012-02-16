@@ -774,26 +774,30 @@ static void omap_i2c_reset(DeviceState *dev)
     }
 }
 
-static void omap_i2c_class_init(ObjectClass *klass, void *data)
-{
-    SysBusDeviceClass *k = SYS_BUS_DEVICE_CLASS(klass);
-    k->init = omap_i2c_init;
-}
-
-static DeviceInfo omap_i2c_info = {
-    .name = "omap_i2c",
-    .size = sizeof(OMAPI2CState),
-    .reset = omap_i2c_reset,
-    .class_init = omap_i2c_class_init,
-    .props = (Property[]) {
-        DEFINE_PROP_INT32("mpu_model", OMAPI2CState, mpu_model, 0),
-        DEFINE_PROP_END_OF_LIST()
-    }
+static Property omap_i2c_properties[] = {
+    DEFINE_PROP_INT32("mpu_model", OMAPI2CState, mpu_model, 0),
+    DEFINE_PROP_END_OF_LIST(),
 };
 
-static void omap_i2c_register_devices(void)
+static void omap_i2c_class_init(ObjectClass *klass, void *data)
 {
-    sysbus_register_withprop(&omap_i2c_info);
+    DeviceClass *dc = DEVICE_CLASS(klass);
+    SysBusDeviceClass *k = SYS_BUS_DEVICE_CLASS(klass);
+    k->init = omap_i2c_init;
+    dc->props = omap_i2c_properties;
+    dc->reset = omap_i2c_reset;
+}
+
+static TypeInfo omap_i2c_info = {
+    .name = "omap_i2c",
+    .parent = TYPE_SYS_BUS_DEVICE,
+    .instance_size = sizeof(OMAPI2CState),
+    .class_init = omap_i2c_class_init,
+};
+
+static void omap_i2c_register_types(void)
+{
+    type_register_static(&omap_i2c_info);
 }
 
 i2c_bus *omap_i2c_bus(DeviceState *omap_i2c, int n)
@@ -806,4 +810,4 @@ i2c_bus *omap_i2c_bus(DeviceState *omap_i2c, int n)
     return s->bus[n].bus;
 }
 
-device_init(omap_i2c_register_devices)
+type_init(omap_i2c_register_types)

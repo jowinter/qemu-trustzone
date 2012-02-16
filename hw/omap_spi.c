@@ -632,26 +632,30 @@ SPIBus *omap_mcspi_bus(DeviceState *qdev, int bus_number)
     hw_error("%s: invalid bus number %d\n", __FUNCTION__, bus_number);
 }
 
-static void omap_mcspi_class_init(ObjectClass *klass, void *data)
-{
-    SysBusDeviceClass *k = SYS_BUS_DEVICE_CLASS(klass);
-    k->init = omap_mcspi_init;
-}
-
-static DeviceInfo omap_mcspi_info = {
-    .name = "omap_mcspi",
-    .size = sizeof(OMAPSPIState),
-    .reset = omap_mcspi_reset,
-    .class_init = omap_mcspi_class_init,
-    .props = (Property[]) {
-        DEFINE_PROP_INT32("mpu_model", OMAPSPIState, mpu_model, 0),
-        DEFINE_PROP_END_OF_LIST()
-    }
+static Property omap_mcspi_properties[] = {
+    DEFINE_PROP_INT32("mpu_model", OMAPSPIState, mpu_model, 0),
+    DEFINE_PROP_END_OF_LIST()
 };
 
-static void omap_mcspi_register_device(void)
+static void omap_mcspi_class_init(ObjectClass *klass, void *data)
 {
-    sysbus_register_withprop(&omap_mcspi_info);
+    DeviceClass *dc = DEVICE_CLASS(klass);
+    SysBusDeviceClass *k = SYS_BUS_DEVICE_CLASS(klass);
+    k->init = omap_mcspi_init;
+    dc->props = omap_mcspi_properties;
+    dc->reset = omap_mcspi_reset;
 }
 
-device_init(omap_mcspi_register_device)
+static TypeInfo omap_mcspi_info = {
+    .name = "omap_mcspi",
+    .parent = TYPE_SYS_BUS_DEVICE,
+    .instance_size = sizeof(OMAPSPIState),
+    .class_init = omap_mcspi_class_init,
+};
+
+static void omap_mcspi_register_types(void)
+{
+    type_register_static(&omap_mcspi_info);
+}
+
+type_init(omap_mcspi_register_types)

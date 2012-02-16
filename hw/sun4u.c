@@ -573,18 +573,12 @@ static void ebus_class_init(ObjectClass *klass, void *data)
     k->class_id = PCI_CLASS_BRIDGE_OTHER;
 }
 
-static DeviceInfo ebus_info = {
-    .name = "ebus",
-    .size = sizeof(EbusState),
-    .class_init = ebus_class_init,
+static TypeInfo ebus_info = {
+    .name          = "ebus",
+    .parent        = TYPE_PCI_DEVICE,
+    .instance_size = sizeof(EbusState),
+    .class_init    = ebus_class_init,
 };
-
-static void pci_ebus_register(void)
-{
-    pci_qdev_register(&ebus_info);
-}
-
-device_init(pci_ebus_register);
 
 typedef struct PROMState {
     SysBusDevice busdev;
@@ -649,24 +643,19 @@ static Property prom_properties[] = {
 
 static void prom_class_init(ObjectClass *klass, void *data)
 {
+    DeviceClass *dc = DEVICE_CLASS(klass);
     SysBusDeviceClass *k = SYS_BUS_DEVICE_CLASS(klass);
 
     k->init = prom_init1;
+    dc->props = prom_properties;
 }
 
-static DeviceInfo prom_info = {
-    .name = "openprom",
-    .size = sizeof(PROMState),
-    .props = prom_properties,
-    .class_init = prom_class_init,
+static TypeInfo prom_info = {
+    .name          = "openprom",
+    .parent        = TYPE_SYS_BUS_DEVICE,
+    .instance_size = sizeof(PROMState),
+    .class_init    = prom_class_init,
 };
-
-static void prom_register_devices(void)
-{
-    sysbus_register_withprop(&prom_info);
-}
-
-device_init(prom_register_devices);
 
 
 typedef struct RamDevice
@@ -711,24 +700,19 @@ static Property ram_properties[] = {
 
 static void ram_class_init(ObjectClass *klass, void *data)
 {
+    DeviceClass *dc = DEVICE_CLASS(klass);
     SysBusDeviceClass *k = SYS_BUS_DEVICE_CLASS(klass);
 
     k->init = ram_init1;
+    dc->props = ram_properties;
 }
 
-static DeviceInfo ram_info = {
-    .name = "memory",
-    .size = sizeof(RamDevice),
-    .props = ram_properties,
-    .class_init = ram_class_init,
+static TypeInfo ram_info = {
+    .name          = "memory",
+    .parent        = TYPE_SYS_BUS_DEVICE,
+    .instance_size = sizeof(RamDevice),
+    .class_init    = ram_class_init,
 };
-
-static void ram_register_devices(void)
-{
-    sysbus_register_withprop(&ram_info);
-}
-
-device_init(ram_register_devices);
 
 static CPUState *cpu_devinit(const char *cpu_model, const struct hwdef *hwdef)
 {
@@ -952,6 +936,13 @@ static QEMUMachine niagara_machine = {
     .max_cpus = 1, // XXX for now
 };
 
+static void sun4u_register_types(void)
+{
+    type_register_static(&ebus_info);
+    type_register_static(&prom_info);
+    type_register_static(&ram_info);
+}
+
 static void sun4u_machine_init(void)
 {
     qemu_register_machine(&sun4u_machine);
@@ -959,4 +950,5 @@ static void sun4u_machine_init(void)
     qemu_register_machine(&niagara_machine);
 }
 
+type_init(sun4u_register_types)
 machine_init(sun4u_machine_init);

@@ -9,13 +9,13 @@
  * the Free Software Foundation; either version 2 of the License, or
  * (at your option) any later version.
  *
- *  This program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *  GNU General Public License for more details.
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
  *
- *  You should have received a copy of the GNU General Public License along
- *  with this program; if not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
 #include "sysbus.h"
@@ -67,33 +67,37 @@ static int a15mp_priv_init(SysBusDevice *dev)
     return 0;
 }
 
-static void a15mp_priv_class_init(ObjectClass *klass, void *data)
-{
-    SysBusDeviceClass *k = SYS_BUS_DEVICE_CLASS(klass);
-    k->init = a15mp_priv_init;
-}
-
-static DeviceInfo a15mp_priv_info = {
-    .name  = "a15mpcore_priv",
-    .size  = sizeof(A15MPPrivState),
-    .class_init = a15mp_priv_class_init,
-    /* We currently have no savable state outside the common GIC state */
-    .props = (Property[]) {
-        DEFINE_PROP_UINT32("num-cpu", A15MPPrivState, num_cpu, 1),
-        /* The Cortex-A15MP may have anything from 0 to 224 external interrupt
-         * IRQ lines (with another 32 internal). We default to 64+32, which
-         * is the number provided by the Cortex-A15MP test chip in the
-         * Versatile Express A15 development board.
-         * Other boards may differ and should set this property appropriately.
-         */
-        DEFINE_PROP_UINT32("num-irq", A15MPPrivState, num_irq, 96),
-        DEFINE_PROP_END_OF_LIST(),
-    }
+static Property a15mp_priv_properties[] = {
+    DEFINE_PROP_UINT32("num-cpu", A15MPPrivState, num_cpu, 1),
+    /* The Cortex-A15MP may have anything from 0 to 224 external interrupt
+     * IRQ lines (with another 32 internal). We default to 64+32, which
+     * is the number provided by the Cortex-A15MP test chip in the
+     * Versatile Express A15 development board.
+     * Other boards may differ and should set this property appropriately.
+     */
+    DEFINE_PROP_UINT32("num-irq", A15MPPrivState, num_irq, 96),
+    DEFINE_PROP_END_OF_LIST(),
 };
 
-static void a15mp_register_devices(void)
+static void a15mp_priv_class_init(ObjectClass *klass, void *data)
 {
-    sysbus_register_withprop(&a15mp_priv_info);
+    DeviceClass *dc = DEVICE_CLASS(klass);
+    SysBusDeviceClass *k = SYS_BUS_DEVICE_CLASS(klass);
+    k->init = a15mp_priv_init;
+    dc->props = a15mp_priv_properties;
+    /* We currently have no savable state outside the common GIC state */
 }
 
-device_init(a15mp_register_devices)
+static TypeInfo a15mp_priv_info = {
+    .name  = "a15mpcore_priv",
+    .parent = TYPE_SYS_BUS_DEVICE,
+    .instance_size  = sizeof(A15MPPrivState),
+    .class_init = a15mp_priv_class_init,
+};
+
+static void a15mp_register_types(void)
+{
+    type_register_static(&a15mp_priv_info);
+}
+
+type_init(a15mp_register_types)

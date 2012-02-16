@@ -32,7 +32,8 @@ DEF("machine", HAS_ARG, QEMU_OPTION_machine, \
     "                selects emulated machine (-machine ? for list)\n"
     "                property accel=accel1[:accel2[:...]] selects accelerator\n"
     "                supported accelerators are kvm, xen, tcg (default: tcg)\n"
-    "                kernel_irqchip=on|off controls accelerated irqchip support\n",
+    "                kernel_irqchip=on|off controls accelerated irqchip support\n"
+    "                kvm_shadow_mem=size of KVM shadow MMU\n",
     QEMU_ARCH_ALL)
 STEXI
 @item -machine [type=]@var{name}[,prop=@var{value}[,...]]
@@ -47,6 +48,8 @@ than one accelerator specified, the next one is used if the previous one fails
 to initialize.
 @item kernel_irqchip=on|off
 Enables in-kernel irqchip support for the chosen accelerator when available.
+@item kvm_shadow_mem=size
+Defines the size of the KVM shadow MMU.
 @end table
 ETEXI
 
@@ -554,7 +557,7 @@ DEFHEADING()
 DEFHEADING(File system options:)
 
 DEF("fsdev", HAS_ARG, QEMU_OPTION_fsdev,
-    "-fsdev fsdriver,id=id[,path=path,][security_model={mapped|passthrough|none}]\n"
+    "-fsdev fsdriver,id=id[,path=path,][security_model={mapped-xattr|mapped-file|passthrough|none}]\n"
     " [,writeout=immediate][,readonly][,socket=socket|sock_fd=sock_fd]\n",
     QEMU_ARCH_ALL)
 
@@ -574,12 +577,13 @@ Specifies the export path for the file system device. Files under
 this path will be available to the 9p client on the guest.
 @item security_model=@var{security_model}
 Specifies the security model to be used for this export path.
-Supported security models are "passthrough", "mapped" and "none".
+Supported security models are "passthrough", "mapped-xattr", "mapped-file" and "none".
 In "passthrough" security model, files are stored using the same
 credentials as they are created on the guest. This requires qemu
-to run as root. In "mapped" security model, some of the file
+to run as root. In "mapped-xattr" security model, some of the file
 attributes like uid, gid, mode bits and link target are stored as
-file attributes. Directories exported by this security model cannot
+file attributes. For "mapped-file" these attributes are stored in the
+hidden .virtfs_metadata directory. Directories exported by this security model cannot
 interact with other unix tools. "none" security model is same as
 passthrough except the sever won't report failures if it fails to
 set file attributes like ownership. Security model is mandatory
@@ -619,7 +623,7 @@ DEFHEADING()
 DEFHEADING(Virtual File system pass-through options:)
 
 DEF("virtfs", HAS_ARG, QEMU_OPTION_virtfs,
-    "-virtfs local,path=path,mount_tag=tag,security_model=[mapped|passthrough|none]\n"
+    "-virtfs local,path=path,mount_tag=tag,security_model=[mapped-xattr|mapped-file|passthrough|none]\n"
     "        [,writeout=immediate][,readonly][,socket=socket|sock_fd=sock_fd]\n",
     QEMU_ARCH_ALL)
 
@@ -640,12 +644,13 @@ Specifies the export path for the file system device. Files under
 this path will be available to the 9p client on the guest.
 @item security_model=@var{security_model}
 Specifies the security model to be used for this export path.
-Supported security models are "passthrough", "mapped" and "none".
+Supported security models are "passthrough", "mapped-xattr", "mapped-file" and "none".
 In "passthrough" security model, files are stored using the same
 credentials as they are created on the guest. This requires qemu
-to run as root. In "mapped" security model, some of the file
+to run as root. In "mapped-xattr" security model, some of the file
 attributes like uid, gid, mode bits and link target are stored as
-file attributes. Directories exported by this security model cannot
+file attributes. For "mapped-file" these attributes are stored in the
+hidden .virtfs_metadata directory. Directories exported by this security model cannot
 interact with other unix tools. "none" security model is same as
 passthrough except the sever won't report failures if it fails to
 set file attributes like ownership. Security model is mandatory only
@@ -1093,6 +1098,19 @@ This can be really helpful to save bandwidth when playing videos. Disabling
 adaptive encodings allows to restore the original static behavior of encodings
 like Tight.
 
+@item share=[allow-exclusive|force-shared|ignore]
+
+Set display sharing policy.  'allow-exclusive' allows clients to ask
+for exclusive access.  As suggested by the rfb spec this is
+implemented by dropping other connections.  Connecting multiple
+clients in parallel requires all clients asking for a shared session
+(vncviewer: -shared switch).  This is the default.  'force-shared'
+disables exclusive client access.  Useful for shared desktop sessions,
+where you don't want someone forgetting specify -shared disconnect
+everybody else.  'ignore' completely ignores the shared flag and
+allows everybody connect unconditionally.  Doesn't conform to the rfb
+spec but is traditional qemu behavior.
+
 @end table
 ETEXI
 
@@ -1222,11 +1240,14 @@ DEF("net", HAS_ARG, QEMU_OPTION_net,
     "-net tap[,vlan=n][,name=str],ifname=name\n"
     "                connect the host TAP network interface to VLAN 'n'\n"
 #else
-    "-net tap[,vlan=n][,name=str][,fd=h][,ifname=name][,script=file][,downscript=dfile][,sndbuf=nbytes][,vnet_hdr=on|off][,vhost=on|off][,vhostfd=h][,vhostforce=on|off]\n"
-    "                connect the host TAP network interface to VLAN 'n' and use the\n"
-    "                network scripts 'file' (default=" DEFAULT_NETWORK_SCRIPT ")\n"
-    "                and 'dfile' (default=" DEFAULT_NETWORK_DOWN_SCRIPT ")\n"
+    "-net tap[,vlan=n][,name=str][,fd=h][,ifname=name][,script=file][,downscript=dfile][,helper=helper][,sndbuf=nbytes][,vnet_hdr=on|off][,vhost=on|off][,vhostfd=h][,vhostforce=on|off]\n"
+    "                connect the host TAP network interface to VLAN 'n' \n"
+    "                use network scripts 'file' (default=" DEFAULT_NETWORK_SCRIPT ")\n"
+    "                to configure it and 'dfile' (default=" DEFAULT_NETWORK_DOWN_SCRIPT ")\n"
+    "                to deconfigure it\n"
     "                use '[down]script=no' to disable script execution\n"
+    "                use network helper 'helper' (default=" DEFAULT_BRIDGE_HELPER ") to\n"
+    "                configure it\n"
     "                use 'fd=h' to connect to an already opened TAP interface\n"
     "                use 'sndbuf=nbytes' to limit the size of the send buffer (the\n"
     "                default is disabled 'sndbuf=0' to enable flow control set 'sndbuf=1048576')\n"
@@ -1236,6 +1257,10 @@ DEF("net", HAS_ARG, QEMU_OPTION_net,
     "                    (only has effect for virtio guests which use MSIX)\n"
     "                use vhostforce=on to force vhost on for non-MSIX virtio guests\n"
     "                use 'vhostfd=h' to connect to an already opened vhost net device\n"
+    "-net bridge[,vlan=n][,name=str][,br=bridge][,helper=helper]\n"
+    "                connects a host TAP network interface to a host bridge device 'br'\n"
+    "                (default=" DEFAULT_BRIDGE_INTERFACE ") using the program 'helper'\n"
+    "                (default=" DEFAULT_BRIDGE_HELPER ")\n"
 #endif
     "-net socket[,vlan=n][,name=str][,fd=h][,listen=[host]:port][,connect=host:port]\n"
     "                connect the vlan 'n' to another VLAN using a socket connection\n"
@@ -1261,6 +1286,7 @@ DEF("netdev", HAS_ARG, QEMU_OPTION_netdev,
     "user|"
 #endif
     "tap|"
+    "bridge|"
 #ifdef CONFIG_VDE
     "vde|"
 #endif
@@ -1397,24 +1423,63 @@ processed and applied to -net user. Mixing them with the new configuration
 syntax gives undefined results. Their use for new applications is discouraged
 as they will be removed from future versions.
 
-@item -net tap[,vlan=@var{n}][,name=@var{name}][,fd=@var{h}][,ifname=@var{name}] [,script=@var{file}][,downscript=@var{dfile}]
-Connect the host TAP network interface @var{name} to VLAN @var{n}, use
-the network script @var{file} to configure it and the network script
+@item -net tap[,vlan=@var{n}][,name=@var{name}][,fd=@var{h}][,ifname=@var{name}][,script=@var{file}][,downscript=@var{dfile}][,helper=@var{helper}]
+Connect the host TAP network interface @var{name} to VLAN @var{n}.
+
+Use the network script @var{file} to configure it and the network script
 @var{dfile} to deconfigure it. If @var{name} is not provided, the OS
-automatically provides one. @option{fd}=@var{h} can be used to specify
-the handle of an already opened host TAP interface. The default network
-configure script is @file{/etc/qemu-ifup} and the default network
-deconfigure script is @file{/etc/qemu-ifdown}. Use @option{script=no}
-or @option{downscript=no} to disable script execution. Example:
+automatically provides one. The default network configure script is
+@file{/etc/qemu-ifup} and the default network deconfigure script is
+@file{/etc/qemu-ifdown}. Use @option{script=no} or @option{downscript=no}
+to disable script execution.
+
+If running QEMU as an unprivileged user, use the network helper
+@var{helper} to configure the TAP interface. The default network
+helper executable is @file{/usr/local/libexec/qemu-bridge-helper}.
+
+@option{fd}=@var{h} can be used to specify the handle of an already
+opened host TAP interface.
+
+Examples:
 
 @example
+#launch a QEMU instance with the default network script
 qemu linux.img -net nic -net tap
 @end example
 
-More complicated example (two NICs, each one connected to a TAP device)
 @example
+#launch a QEMU instance with two NICs, each one connected
+#to a TAP device
 qemu linux.img -net nic,vlan=0 -net tap,vlan=0,ifname=tap0 \
                -net nic,vlan=1 -net tap,vlan=1,ifname=tap1
+@end example
+
+@example
+#launch a QEMU instance with the default network helper to
+#connect a TAP device to bridge br0
+qemu linux.img -net nic -net tap,"helper=/usr/local/libexec/qemu-bridge-helper"
+@end example
+
+@item -net bridge[,vlan=@var{n}][,name=@var{name}][,br=@var{bridge}][,helper=@var{helper}]
+Connect a host TAP network interface to a host bridge device.
+
+Use the network helper @var{helper} to configure the TAP interface and
+attach it to the bridge. The default network helper executable is
+@file{/usr/local/libexec/qemu-bridge-helper} and the default bridge
+device is @file{br0}.
+
+Examples:
+
+@example
+#launch a QEMU instance with the default network helper to
+#connect a TAP device to bridge br0
+qemu linux.img -net bridge -net nic,model=virtio
+@end example
+
+@example
+#launch a QEMU instance with the default network helper to
+#connect a TAP device to bridge qemubr0
+qemu linux.img -net bridge,br=qemubr0 -net nic,model=virtio
 @end example
 
 @item -net socket[,vlan=@var{n}][,name=@var{name}][,fd=@var{h}] [,listen=[@var{host}]:@var{port}][,connect=@var{host}:@var{port}]
@@ -1780,24 +1845,32 @@ Syntax for specifying iSCSI LUNs is
 
 Example (without authentication):
 @example
-qemu -cdrom iscsi://192.0.2.1/iqn.2001-04.com.example/2 \
---drive file=iscsi://192.0.2.1/iqn.2001-04.com.example/1
+qemu -iscsi initiator-name=iqn.2001-04.com.example:my-initiator \
+-cdrom iscsi://192.0.2.1/iqn.2001-04.com.example/2 \
+-drive file=iscsi://192.0.2.1/iqn.2001-04.com.example/1
 @end example
 
 Example (CHAP username/password via URL):
 @example
-qemu --drive file=iscsi://user%password@@192.0.2.1/iqn.2001-04.com.example/1
+qemu -drive file=iscsi://user%password@@192.0.2.1/iqn.2001-04.com.example/1
 @end example
 
 Example (CHAP username/password via environment variables):
 @example
 LIBISCSI_CHAP_USERNAME="user" \
 LIBISCSI_CHAP_PASSWORD="password" \
-qemu --drive file=iscsi://192.0.2.1/iqn.2001-04.com.example/1
+qemu -drive file=iscsi://192.0.2.1/iqn.2001-04.com.example/1
 @end example
 
 iSCSI support is an optional feature of QEMU and only available when
 compiled and linked against libiscsi.
+ETEXI
+DEF("iscsi", HAS_ARG, QEMU_OPTION_iscsi,
+    "-iscsi [user=user][,password=password]\n"
+    "       [,header-digest=CRC32C|CR32C-NONE|NONE-CRC32C|NONE\n"
+    "       [,initiator-name=iqn]\n"
+    "                iSCSI session parameters\n", QEMU_ARCH_ALL)
+STEXI
 
 @item NBD
 QEMU supports NBD (Network Block Devices) both using TCP protocol as well

@@ -378,7 +378,7 @@ static void arm_sysctl_gpio_set(void *opaque, int line, int level)
     }
 }
 
-static int arm_sysctl_init1(SysBusDevice *dev)
+static int arm_sysctl_init(SysBusDevice *dev)
 {
     arm_sysctl_state *s = FROM_SYSBUS(arm_sysctl_state, dev);
 
@@ -389,18 +389,6 @@ static int arm_sysctl_init1(SysBusDevice *dev)
     return 0;
 }
 
-/* Legacy helper function.  */
-void arm_sysctl_init(uint32_t base, uint32_t sys_id, uint32_t proc_id)
-{
-    DeviceState *dev;
-
-    dev = qdev_create(NULL, "realview_sysctl");
-    qdev_prop_set_uint32(dev, "sys_id", sys_id);
-    qdev_init_nofail(dev);
-    qdev_prop_set_uint32(dev, "proc_id", proc_id);
-    sysbus_mmio_map(sysbus_from_qdev(dev), 0, base);
-}
-
 static Property arm_sysctl_properties[] = {
     DEFINE_PROP_UINT32("sys_id", arm_sysctl_state, sys_id, 0),
     DEFINE_PROP_UINT32("proc_id", arm_sysctl_state, proc_id, 0),
@@ -409,23 +397,25 @@ static Property arm_sysctl_properties[] = {
 
 static void arm_sysctl_class_init(ObjectClass *klass, void *data)
 {
+    DeviceClass *dc = DEVICE_CLASS(klass);
     SysBusDeviceClass *k = SYS_BUS_DEVICE_CLASS(klass);
 
-    k->init = arm_sysctl_init1;
+    k->init = arm_sysctl_init;
+    dc->reset = arm_sysctl_reset;
+    dc->vmsd = &vmstate_arm_sysctl;
+    dc->props = arm_sysctl_properties;
 }
 
-static DeviceInfo arm_sysctl_info = {
-    .name = "realview_sysctl",
-    .size = sizeof(arm_sysctl_state),
-    .vmsd = &vmstate_arm_sysctl,
-    .reset = arm_sysctl_reset,
-    .props = arm_sysctl_properties,
-    .class_init = arm_sysctl_class_init,
+static TypeInfo arm_sysctl_info = {
+    .name          = "realview_sysctl",
+    .parent        = TYPE_SYS_BUS_DEVICE,
+    .instance_size = sizeof(arm_sysctl_state),
+    .class_init    = arm_sysctl_class_init,
 };
 
-static void arm_sysctl_register_devices(void)
+static void arm_sysctl_register_types(void)
 {
-    sysbus_register_withprop(&arm_sysctl_info);
+    type_register_static(&arm_sysctl_info);
 }
 
-device_init(arm_sysctl_register_devices)
+type_init(arm_sysctl_register_types)

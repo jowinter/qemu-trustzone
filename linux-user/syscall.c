@@ -731,6 +731,9 @@ static inline int is_error(abi_long ret)
 
 char *target_strerror(int err)
 {
+    if ((err >= ERRNO_TABLE_SIZE) || (err < 0)) {
+        return NULL;
+    }
     return strerror(target_to_host_errno(err));
 }
 
@@ -1530,9 +1533,41 @@ static abi_long do_getsockopt(int sockfd, int level, int optname,
         case TARGET_SO_LINGER:
         case TARGET_SO_RCVTIMEO:
         case TARGET_SO_SNDTIMEO:
-        case TARGET_SO_PEERCRED:
         case TARGET_SO_PEERNAME:
             goto unimplemented;
+        case TARGET_SO_PEERCRED: {
+            struct ucred cr;
+            socklen_t crlen;
+            struct target_ucred *tcr;
+
+            if (get_user_u32(len, optlen)) {
+                return -TARGET_EFAULT;
+            }
+            if (len < 0) {
+                return -TARGET_EINVAL;
+            }
+
+            crlen = sizeof(cr);
+            ret = get_errno(getsockopt(sockfd, level, SO_PEERCRED,
+                                       &cr, &crlen));
+            if (ret < 0) {
+                return ret;
+            }
+            if (len > crlen) {
+                len = crlen;
+            }
+            if (!lock_user_struct(VERIFY_WRITE, tcr, optval_addr, 0)) {
+                return -TARGET_EFAULT;
+            }
+            __put_user(cr.pid, &tcr->pid);
+            __put_user(cr.uid, &tcr->uid);
+            __put_user(cr.gid, &tcr->gid);
+            unlock_user_struct(tcr, optval_addr, 1);
+            if (put_user_u32(len, optlen)) {
+                return -TARGET_EFAULT;
+            }
+            break;
+        }
         /* Options with 'int' argument.  */
         case TARGET_SO_DEBUG:
             optname = SO_DEBUG;
@@ -4600,6 +4635,123 @@ int get_osversion(void)
     return osversion;
 }
 
+
+static int open_self_maps(void *cpu_env, int fd)
+{
+    TaskState *ts = ((CPUState *)cpu_env)->opaque;
+
+    dprintf(fd, "%08llx-%08llx rw-p %08llx 00:00 0          [stack]\n",
+                (unsigned long long)ts->info->stack_limit,
+                (unsigned long long)(ts->stack_base + (TARGET_PAGE_SIZE - 1))
+                                     & TARGET_PAGE_MASK,
+                (unsigned long long)ts->stack_base);
+
+    return 0;
+}
+
+static int open_self_stat(void *cpu_env, int fd)
+{
+    TaskState *ts = ((CPUState *)cpu_env)->opaque;
+    abi_ulong start_stack = ts->info->start_stack;
+    int i;
+
+    for (i = 0; i < 44; i++) {
+      char buf[128];
+      int len;
+      uint64_t val = 0;
+
+      if (i == 27) {
+          /* stack bottom */
+          val = start_stack;
+      }
+      snprintf(buf, sizeof(buf), "%"PRId64 "%c", val, i == 43 ? '\n' : ' ');
+      len = strlen(buf);
+      if (write(fd, buf, len) != len) {
+          return -1;
+      }
+    }
+
+    return 0;
+}
+
+static int open_self_auxv(void *cpu_env, int fd)
+{
+    TaskState *ts = ((CPUState *)cpu_env)->opaque;
+    abi_ulong auxv = ts->info->saved_auxv;
+    abi_ulong len = ts->info->auxv_len;
+    char *ptr;
+
+    /*
+     * Auxiliary vector is stored in target process stack.
+     * read in whole auxv vector and copy it to file
+     */
+    ptr = lock_user(VERIFY_READ, auxv, len, 0);
+    if (ptr != NULL) {
+        while (len > 0) {
+            ssize_t r;
+            r = write(fd, ptr, len);
+            if (r <= 0) {
+                break;
+            }
+            len -= r;
+            ptr += r;
+        }
+        lseek(fd, 0, SEEK_SET);
+        unlock_user(ptr, auxv, len);
+    }
+
+    return 0;
+}
+
+static int do_open(void *cpu_env, const char *pathname, int flags, mode_t mode)
+{
+    struct fake_open {
+        const char *filename;
+        int (*fill)(void *cpu_env, int fd);
+    };
+    const struct fake_open *fake_open;
+    static const struct fake_open fakes[] = {
+        { "/proc/self/maps", open_self_maps },
+        { "/proc/self/stat", open_self_stat },
+        { "/proc/self/auxv", open_self_auxv },
+        { NULL, NULL }
+    };
+
+    for (fake_open = fakes; fake_open->filename; fake_open++) {
+        if (!strncmp(pathname, fake_open->filename,
+                     strlen(fake_open->filename))) {
+            break;
+        }
+    }
+
+    if (fake_open->filename) {
+        const char *tmpdir;
+        char filename[PATH_MAX];
+        int fd, r;
+
+        /* create temporary file to map stat to */
+        tmpdir = getenv("TMPDIR");
+        if (!tmpdir)
+            tmpdir = "/tmp";
+        snprintf(filename, sizeof(filename), "%s/qemu-open.XXXXXX", tmpdir);
+        fd = mkstemp(filename);
+        if (fd < 0) {
+            return fd;
+        }
+        unlink(filename);
+
+        if ((r = fake_open->fill(cpu_env, fd))) {
+            close(fd);
+            return r;
+        }
+        lseek(fd, 0, SEEK_SET);
+
+        return fd;
+    }
+
+    return get_errno(open(path(pathname), flags, mode));
+}
+
 /* do_syscall() should always have a single exit point at the end so
    that actions, such as logging of syscall results, can be performed.
    All errnos that do_syscall() returns must be -TARGET_<errcode>. */
@@ -4685,9 +4837,9 @@ abi_long do_syscall(void *cpu_env, int num, abi_long arg1,
     case TARGET_NR_open:
         if (!(p = lock_user_string(arg1)))
             goto efault;
-        ret = get_errno(open(path(p),
-                             target_to_host_bitmask(arg2, fcntl_flags_tbl),
-                             arg3));
+        ret = get_errno(do_open(cpu_env, p,
+                                target_to_host_bitmask(arg2, fcntl_flags_tbl),
+                                arg3));
         unlock_user(p, arg1, 0);
         break;
 #if defined(TARGET_NR_openat) && defined(__NR_openat)
@@ -4715,7 +4867,7 @@ abi_long do_syscall(void *cpu_env, int num, abi_long arg1,
         {
             int status;
             ret = get_errno(waitpid(arg1, &status, arg3));
-            if (!is_error(ret) && arg2
+            if (!is_error(ret) && arg2 && ret
                 && put_user_s32(host_to_target_waitstatus(status), arg2))
                 goto efault;
         }
@@ -6271,7 +6423,7 @@ abi_long do_syscall(void *cpu_env, int num, abi_long arg1,
                 rusage_ptr = NULL;
             ret = get_errno(wait4(arg1, &status, arg3, rusage_ptr));
             if (!is_error(ret)) {
-                if (status_ptr) {
+                if (status_ptr && ret) {
                     status = host_to_target_waitstatus(status);
                     if (put_user_s32(status, status_ptr))
                         goto efault;

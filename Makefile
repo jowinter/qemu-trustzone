@@ -36,6 +36,8 @@ $(call set-vpath, $(SRC_PATH):$(SRC_PATH)/hw)
 
 LIBS+=-lz $(LIBS_TOOLS)
 
+HELPERS-$(CONFIG_LINUX) = qemu-bridge-helper$(EXESUF)
+
 ifdef BUILD_DOCS
 DOCS=qemu-doc.html qemu-tech.html qemu.1 qemu-img.1 qemu-nbd.8 QMP/qmp-commands.txt
 DOCS+=fsdev/virtfs-proxy-helper.1
@@ -77,7 +79,7 @@ defconfig:
 
 -include config-all-devices.mak
 
-build-all: $(DOCS) $(TOOLS) recurse-all
+build-all: $(DOCS) $(TOOLS) $(HELPERS-y) recurse-all
 
 config-host.h: config-host.h-timestamp
 config-host.h-timestamp: config-host.mak
@@ -111,8 +113,6 @@ recurse-all: $(SUBDIR_RULES) $(ROMSUBDIR_RULES)
 audio/audio.o audio/fmodaudio.o: QEMU_CFLAGS += $(FMOD_CFLAGS)
 
 QEMU_CFLAGS+=$(CURL_CFLAGS)
-
-QEMU_CFLAGS+=$(GLIB_CFLAGS)
 
 QEMU_CFLAGS += -I$(SRC_PATH)/include
 
@@ -157,6 +157,8 @@ tools-obj-$(CONFIG_POSIX) += compatfd.o
 qemu-img$(EXESUF): qemu-img.o $(tools-obj-y) $(block-obj-y)
 qemu-nbd$(EXESUF): qemu-nbd.o $(tools-obj-y) $(block-obj-y)
 qemu-io$(EXESUF): qemu-io.o cmd.o $(tools-obj-y) $(block-obj-y)
+
+qemu-bridge-helper$(EXESUF): qemu-bridge-helper.o
 
 fsdev/virtfs-proxy-helper$(EXESUF): fsdev/virtfs-proxy-helper.o fsdev/virtio-9p-marshal.o oslib-posix.o $(trace-obj-y)
 fsdev/virtfs-proxy-helper$(EXESUF): LIBS += -lcap
@@ -207,7 +209,7 @@ clean:
 # avoid old build problems by removing potentially incorrect old files
 	rm -f config.mak op-i386.h opc-i386.h gen-op-i386.h op-arm.h opc-arm.h gen-op-arm.h
 	rm -f qemu-options.def
-	rm -f *.o *.d *.a *.lo $(TOOLS) qemu-ga TAGS cscope.* *.pod *~ */*~
+	rm -f *.o *.d *.a *.lo $(TOOLS) $(HELPERS-y) qemu-ga TAGS cscope.* *.pod *~ */*~
 	rm -Rf .libs
 	rm -f slirp/*.o slirp/*.d audio/*.o audio/*.d block/*.o block/*.d net/*.o net/*.d fsdev/*.o fsdev/*.d ui/*.o ui/*.d qapi/*.o qapi/*.d qga/*.o qga/*.d
 	rm -f qemu-img-cmds.h
@@ -233,6 +235,7 @@ distclean: clean
 	rm -f qemu-doc.log qemu-doc.pdf qemu-doc.pg qemu-doc.toc qemu-doc.tp
 	rm -f qemu-doc.vr
 	rm -f config.log
+	rm -f linux-headers/asm
 	rm -f qemu-tech.info qemu-tech.aux qemu-tech.cp qemu-tech.dvi qemu-tech.fn qemu-tech.info qemu-tech.ky qemu-tech.log qemu-tech.pdf qemu-tech.pg qemu-tech.toc qemu-tech.tp qemu-tech.vr
 	for d in $(TARGET_DIRS) $(QEMULIBS); do \
 	rm -rf $$d || exit 1 ; \
@@ -279,6 +282,10 @@ install: all $(if $(BUILD_DOCS),install-doc) install-sysconfig
 	$(INSTALL_DIR) "$(DESTDIR)$(bindir)"
 ifneq ($(TOOLS),)
 	$(INSTALL_PROG) $(STRIP_OPT) $(TOOLS) "$(DESTDIR)$(bindir)"
+endif
+ifneq ($(HELPERS-y),)
+	$(INSTALL_DIR) "$(DESTDIR)$(libexecdir)"
+	$(INSTALL_PROG) $(STRIP_OPT) $(HELPERS-y) "$(DESTDIR)$(libexecdir)"
 endif
 ifneq ($(BLOBS),)
 	$(INSTALL_DIR) "$(DESTDIR)$(datadir)"

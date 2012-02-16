@@ -62,7 +62,8 @@ typedef struct G364State {
 
 static inline int check_dirty(G364State *s, ram_addr_t page)
 {
-    return memory_region_get_dirty(&s->mem_vram, page, DIRTY_MEMORY_VGA);
+    return memory_region_get_dirty(&s->mem_vram, page, G364_PAGE_SIZE,
+                                   DIRTY_MEMORY_VGA);
 }
 
 static inline void reset_dirty(G364State *s,
@@ -556,24 +557,26 @@ static Property g364fb_sysbus_properties[] = {
 
 static void g364fb_sysbus_class_init(ObjectClass *klass, void *data)
 {
+    DeviceClass *dc = DEVICE_CLASS(klass);
     SysBusDeviceClass *k = SYS_BUS_DEVICE_CLASS(klass);
 
     k->init = g364fb_sysbus_init;
+    dc->desc = "G364 framebuffer";
+    dc->reset = g364fb_sysbus_reset;
+    dc->vmsd = &vmstate_g364fb;
+    dc->props = g364fb_sysbus_properties;
 }
 
-static DeviceInfo g364fb_sysbus_info = {
-    .name = "sysbus-g364",
-    .desc = "G364 framebuffer",
-    .size = sizeof(G364SysBusState),
-    .vmsd = &vmstate_g364fb,
-    .reset = g364fb_sysbus_reset,
-    .props = g364fb_sysbus_properties,
-    .class_init = g364fb_sysbus_class_init,
+static TypeInfo g364fb_sysbus_info = {
+    .name          = "sysbus-g364",
+    .parent        = TYPE_SYS_BUS_DEVICE,
+    .instance_size = sizeof(G364SysBusState),
+    .class_init    = g364fb_sysbus_class_init,
 };
 
-static void g364fb_register(void)
+static void g364fb_register_types(void)
 {
-    sysbus_register_withprop(&g364fb_sysbus_info);
+    type_register_static(&g364fb_sysbus_info);
 }
 
-device_init(g364fb_register);
+type_init(g364fb_register_types)

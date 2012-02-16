@@ -146,6 +146,7 @@ static void ahci_check_irq(AHCIState *s)
 
     DPRINTF(-1, "check irq %#x\n", s->control_regs.irqstatus);
 
+    s->control_regs.irqstatus = 0;
     for (i = 0; i < s->ports; i++) {
         AHCIPortRegs *pr = &s->dev[i].port_regs;
         if (pr->irq_stat & pr->irq_mask) {
@@ -216,6 +217,7 @@ static void  ahci_port_write(AHCIState *s, int port, int offset, uint32_t val)
             break;
         case PORT_IRQ_STAT:
             pr->irq_stat &= ~val;
+            ahci_check_irq(s);
             break;
         case PORT_IRQ_MASK:
             pr->irq_mask = val & 0xfdc000ff;
@@ -558,6 +560,11 @@ static void ahci_reset_port(AHCIState *s, int port)
         if (ncq_tfs->aiocb) {
             bdrv_aio_cancel(ncq_tfs->aiocb);
             ncq_tfs->aiocb = NULL;
+        }
+
+        /* Maybe we just finished the request thanks to bdrv_aio_cancel() */
+        if (!ncq_tfs->used) {
+            continue;
         }
 
         qemu_sglist_destroy(&ncq_tfs->sglist);
@@ -1239,27 +1246,31 @@ static int sysbus_ahci_init(SysBusDevice *dev)
     return 0;
 }
 
+static Property sysbus_ahci_properties[] = {
+    DEFINE_PROP_UINT32("num-ports", SysbusAHCIState, num_ports, 1),
+    DEFINE_PROP_END_OF_LIST(),
+};
+
 static void sysbus_ahci_class_init(ObjectClass *klass, void *data)
 {
     SysBusDeviceClass *sbc = SYS_BUS_DEVICE_CLASS(klass);
+    DeviceClass *dc = DEVICE_CLASS(klass);
 
     sbc->init = sysbus_ahci_init;
+    dc->vmsd = &vmstate_sysbus_ahci;
+    dc->props = sysbus_ahci_properties;
 }
 
-static DeviceInfo sysbus_ahci_info = {
-    .name    = "sysbus-ahci",
-    .size    = sizeof(SysbusAHCIState),
-    .vmsd    = &vmstate_sysbus_ahci,
-    .class_init = sysbus_ahci_class_init,
-    .props = (Property[]) {
-        DEFINE_PROP_UINT32("num-ports", SysbusAHCIState, num_ports, 1),
-        DEFINE_PROP_END_OF_LIST(),
-    },
+static TypeInfo sysbus_ahci_info = {
+    .name          = "sysbus-ahci",
+    .parent        = TYPE_SYS_BUS_DEVICE,
+    .instance_size = sizeof(SysbusAHCIState),
+    .class_init    = sysbus_ahci_class_init,
 };
 
-static void sysbus_ahci_register(void)
+static void sysbus_ahci_register_types(void)
 {
-    sysbus_qdev_register(&sysbus_ahci_info);
+    type_register_static(&sysbus_ahci_info);
 }
 
-device_init(sysbus_ahci_register);
+type_init(sysbus_ahci_register_types)

@@ -908,29 +908,33 @@ qemu_irq *serial_get_irq(SerialState *s)
     return &s->irq;
 }
 
-static void serial_isa_class_initfn(ObjectClass *klass, void *data)
-{
-    ISADeviceClass *ic = ISA_DEVICE_CLASS(klass);
-    ic->init = serial_isa_initfn;
-}
-
-static DeviceInfo serial_isa_info = {
-    .name  = "isa-serial",
-    .size  = sizeof(ISASerialState),
-    .vmsd  = &vmstate_isa_serial,
-    .class_init       = serial_isa_class_initfn,
-    .props = (Property[]) {
-        DEFINE_PROP_UINT32("index", ISASerialState, index,   -1),
-        DEFINE_PROP_HEX32("iobase", ISASerialState, iobase,  -1),
-        DEFINE_PROP_UINT32("irq",   ISASerialState, isairq,  -1),
-        DEFINE_PROP_CHR("chardev",  ISASerialState, state.chr),
-        DEFINE_PROP_END_OF_LIST(),
-    },
+static Property serial_isa_properties[] = {
+    DEFINE_PROP_UINT32("index", ISASerialState, index,   -1),
+    DEFINE_PROP_HEX32("iobase", ISASerialState, iobase,  -1),
+    DEFINE_PROP_UINT32("irq",   ISASerialState, isairq,  -1),
+    DEFINE_PROP_CHR("chardev",  ISASerialState, state.chr),
+    DEFINE_PROP_END_OF_LIST(),
 };
 
-static void serial_register_devices(void)
+static void serial_isa_class_initfn(ObjectClass *klass, void *data)
 {
-    isa_qdev_register(&serial_isa_info);
+    DeviceClass *dc = DEVICE_CLASS(klass);
+    ISADeviceClass *ic = ISA_DEVICE_CLASS(klass);
+    ic->init = serial_isa_initfn;
+    dc->vmsd = &vmstate_isa_serial;
+    dc->props = serial_isa_properties;
 }
 
-device_init(serial_register_devices)
+static TypeInfo serial_isa_info = {
+    .name          = "isa-serial",
+    .parent        = TYPE_ISA_DEVICE,
+    .instance_size = sizeof(ISASerialState),
+    .class_init    = serial_isa_class_initfn,
+};
+
+static void serial_register_types(void)
+{
+    type_register_static(&serial_isa_info);
+}
+
+type_init(serial_register_types)

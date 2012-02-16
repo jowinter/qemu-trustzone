@@ -765,23 +765,25 @@ static Property smc91c111_properties[] = {
 
 static void smc91c111_class_init(ObjectClass *klass, void *data)
 {
+    DeviceClass *dc = DEVICE_CLASS(klass);
     SysBusDeviceClass *k = SYS_BUS_DEVICE_CLASS(klass);
 
     k->init = smc91c111_init1;
+    dc->reset = smc91c111_reset;
+    dc->vmsd = &vmstate_smc91c111;
+    dc->props = smc91c111_properties;
 }
 
-static DeviceInfo smc91c111_info = {
-    .name = "smc91c111",
-    .size = sizeof(smc91c111_state),
-    .vmsd = &vmstate_smc91c111,
-    .reset = smc91c111_reset,
-    .props = smc91c111_properties,
-    .class_init = smc91c111_class_init,
+static TypeInfo smc91c111_info = {
+    .name          = "smc91c111",
+    .parent        = TYPE_SYS_BUS_DEVICE,
+    .instance_size = sizeof(smc91c111_state),
+    .class_init    = smc91c111_class_init,
 };
 
-static void smc91c111_register_devices(void)
+static void smc91c111_register_types(void)
 {
-    sysbus_register_withprop(&smc91c111_info);
+    type_register_static(&smc91c111_info);
 }
 
 /* Legacy helper function.  Should go away when machine config files are
@@ -800,4 +802,4 @@ void smc91c111_init(NICInfo *nd, uint32_t base, qemu_irq irq)
     sysbus_connect_irq(s, 0, irq);
 }
 
-device_init(smc91c111_register_devices)
+type_init(smc91c111_register_types)

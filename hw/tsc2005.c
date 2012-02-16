@@ -658,17 +658,26 @@ void tsc2005_set_transform(DeviceState *qdev, MouseTransformInfo *info,
     s->z2_cons = z2_cons;
 }
 
-static SPIDeviceInfo tsc2005_info = {
-    .init = tsc2005_init,
-    .txrx = tsc2005_txrx,
-    .qdev.name = "tsc2005",
-    .qdev.size = sizeof(TSC2005State),
-    .qdev.reset = tsc2005_reset,
-};
-
-static void tsc2005_register_device(void)
+static void tsc2005_class_init(ObjectClass *klass, void *data)
 {
-    spi_register_device(&tsc2005_info);
+    DeviceClass *dc = DEVICE_CLASS(klass);
+    SPIDeviceClass *k = SPI_DEVICE_CLASS(klass);
+
+    k->init = tsc2005_init;
+    k->txrx = tsc2005_txrx;
+    dc->reset = tsc2005_reset;
 }
 
-device_init(tsc2005_register_device)
+static TypeInfo tsc2005_info = {
+    .name = "tsc2005",
+    .parent = TYPE_SPI_DEVICE,
+    .instance_size = sizeof(TSC2005State),
+    .class_init = tsc2005_class_init,
+};
+
+static void tsc2005_register_types(void)
+{
+    type_register_static(&tsc2005_info);
+}
+
+type_init(tsc2005_register_types)

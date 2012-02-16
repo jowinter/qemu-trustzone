@@ -19,7 +19,6 @@
 
 #include "sysbus.h"
 #include "arm-misc.h"
-#include "primecell.h"
 #include "devices.h"
 #include "loader.h"
 #include "net.h"
@@ -162,25 +161,27 @@ static int highbank_regs_init(SysBusDevice *dev)
 static void highbank_regs_class_init(ObjectClass *klass, void *data)
 {
     SysBusDeviceClass *sbc = SYS_BUS_DEVICE_CLASS(klass);
+    DeviceClass *dc = DEVICE_CLASS(klass);
 
     sbc->init = highbank_regs_init;
+    dc->desc = "Calxeda Highbank registers";
+    dc->vmsd = &vmstate_highbank_regs;
+    dc->reset = highbank_regs_reset;
 }
 
-static DeviceInfo highbank_regs_info = {
-    .name  = "highbank-regs",
-    .desc  = "Calxeda Highbank registers",
-    .size  = sizeof(HighbankRegsState),
-    .vmsd  = &vmstate_highbank_regs,
-    .class_init = highbank_regs_class_init,
-    .reset = highbank_regs_reset,
+static TypeInfo highbank_regs_info = {
+    .name          = "highbank-regs",
+    .parent        = TYPE_SYS_BUS_DEVICE,
+    .instance_size = sizeof(HighbankRegsState),
+    .class_init    = highbank_regs_class_init,
 };
 
-static void highbank_regs_register_device(void)
+static void highbank_regs_register_types(void)
 {
-    sysbus_qdev_register(&highbank_regs_info);
+    type_register_static(&highbank_regs_info);
 }
 
-device_init(highbank_regs_register_device)
+type_init(highbank_regs_register_types)
 
 static struct arm_boot_info highbank_binfo;
 

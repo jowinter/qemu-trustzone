@@ -221,14 +221,14 @@ static const VMStateDescription vmstate_gus = {
     .minimum_version_id = 2,
     .minimum_version_id_old = 2,
     .fields      = (VMStateField []) {
-        VMSTATE_INT32(pos, GUSState),
-        VMSTATE_INT32(left, GUSState),
-        VMSTATE_INT32(shift, GUSState),
-        VMSTATE_INT32(irqs, GUSState),
-        VMSTATE_INT32(samples, GUSState),
-        VMSTATE_INT64(last_ticks, GUSState),
-        VMSTATE_BUFFER(himem, GUSState),
-        VMSTATE_END_OF_LIST()
+        VMSTATE_INT32 (pos, GUSState),
+        VMSTATE_INT32 (left, GUSState),
+        VMSTATE_INT32 (shift, GUSState),
+        VMSTATE_INT32 (irqs, GUSState),
+        VMSTATE_INT32 (samples, GUSState),
+        VMSTATE_INT64 (last_ticks, GUSState),
+        VMSTATE_BUFFER (himem, GUSState),
+        VMSTATE_END_OF_LIST ()
     }
 };
 
@@ -239,13 +239,13 @@ static const MemoryRegionPortio gus_portio_list1[] = {
     {0x006, 10, 2, .read = gus_readw, .write = gus_writew },
     {0x100,  8, 1, .read = gus_readb, .write = gus_writeb },
     {0x100,  8, 2, .read = gus_readw, .write = gus_writew },
-    PORTIO_END_OF_LIST(),
+    PORTIO_END_OF_LIST (),
 };
 
 static const MemoryRegionPortio gus_portio_list2[] = {
     {0, 1, 1, .read = gus_readb },
     {0, 1, 2, .read = gus_readw },
-    PORTIO_END_OF_LIST(),
+    PORTIO_END_OF_LIST (),
 };
 
 static int gus_initfn (ISADevice *dev)
@@ -299,29 +299,34 @@ int GUS_init (ISABus *bus)
     return 0;
 }
 
-static void gus_class_initfn(ObjectClass *klass, void *data)
-{
-    ISADeviceClass *ic = ISA_DEVICE_CLASS(klass);
-    ic->init = gus_initfn;
-}
-
-static DeviceInfo gus_info = {
-    .name     = "gus",
-    .desc     = "Gravis Ultrasound GF1",
-    .size     = sizeof (GUSState),
-    .vmsd     = &vmstate_gus,
-    .class_init          = gus_class_initfn,
-    .props    = (Property[]) {
-        DEFINE_PROP_UINT32 ("freq",    GUSState, freq,        44100),
-        DEFINE_PROP_HEX32  ("iobase",  GUSState, port,        0x240),
-        DEFINE_PROP_UINT32 ("irq",     GUSState, emu.gusirq,  7),
-        DEFINE_PROP_UINT32 ("dma",     GUSState, emu.gusdma,  3),
-        DEFINE_PROP_END_OF_LIST (),
-    },
+static Property gus_properties[] = {
+    DEFINE_PROP_UINT32 ("freq",    GUSState, freq,        44100),
+    DEFINE_PROP_HEX32  ("iobase",  GUSState, port,        0x240),
+    DEFINE_PROP_UINT32 ("irq",     GUSState, emu.gusirq,  7),
+    DEFINE_PROP_UINT32 ("dma",     GUSState, emu.gusdma,  3),
+    DEFINE_PROP_END_OF_LIST (),
 };
 
-static void gus_register (void)
+static void gus_class_initfn (ObjectClass *klass, void *data)
 {
-    isa_qdev_register (&gus_info);
+    DeviceClass *dc = DEVICE_CLASS (klass);
+    ISADeviceClass *ic = ISA_DEVICE_CLASS (klass);
+    ic->init = gus_initfn;
+    dc->desc = "Gravis Ultrasound GF1";
+    dc->vmsd = &vmstate_gus;
+    dc->props = gus_properties;
 }
-device_init (gus_register)
+
+static TypeInfo gus_info = {
+    .name          = "gus",
+    .parent        = TYPE_ISA_DEVICE,
+    .instance_size = sizeof (GUSState),
+    .class_init    = gus_class_initfn,
+};
+
+static void gus_register_types (void)
+{
+    type_register_static (&gus_info);
+}
+
+type_init (gus_register_types)

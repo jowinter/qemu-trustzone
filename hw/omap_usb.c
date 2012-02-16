@@ -239,14 +239,16 @@ static int omap3_hsusb_otg_init(SysBusDevice *dev)
 
 static void omap3_hsusb_otg_class_init(ObjectClass *klass, void *data)
 {
+    DeviceClass *dc = DEVICE_CLASS(klass);
     SysBusDeviceClass *k = SYS_BUS_DEVICE_CLASS(klass);
     k->init = omap3_hsusb_otg_init;
+    dc->reset = omap3_hsusb_otg_reset;
 }
 
-static DeviceInfo omap3_hsusb_otg_info = {
+static TypeInfo omap3_hsusb_otg_info = {
     .name = "omap3_hsusb_otg",
-    .size = sizeof(OMAP3HSUSBOTGState),
-    .reset = omap3_hsusb_otg_reset,
+    .parent = TYPE_SYS_BUS_DEVICE,
+    .instance_size = sizeof(OMAP3HSUSBOTGState),
     .class_init = omap3_hsusb_otg_class_init,
 };
 
@@ -482,21 +484,23 @@ static int omap3_hsusb_host_init(SysBusDevice *dev)
 
 static void omap3_hsusb_host_class_init(ObjectClass *klass, void *data)
 {
+    DeviceClass *dc = DEVICE_CLASS(klass);
     SysBusDeviceClass *k = SYS_BUS_DEVICE_CLASS(klass);
     k->init = omap3_hsusb_host_init;
+    dc->reset = omap3_hsusb_host_reset;
 }
 
-static DeviceInfo omap3_hsusb_host_info = {
+static TypeInfo omap3_hsusb_host_info = {
     .name = "omap3_hsusb_host",
-    .size = sizeof(OMAP3HSUSBHostState),
-    .reset = omap3_hsusb_host_reset,
+    .parent = TYPE_SYS_BUS_DEVICE,
+    .instance_size = sizeof(OMAP3HSUSBHostState),
     .class_init = omap3_hsusb_host_class_init,
 };
 
-static void omap3_hsusb_register_devices(void)
+static void omap3_hsusb_register_types(void)
 {
-    sysbus_register_withprop(&omap3_hsusb_otg_info);
-    sysbus_register_withprop(&omap3_hsusb_host_info);
+    type_register_static(&omap3_hsusb_otg_info);
+    type_register_static(&omap3_hsusb_host_info);
 }
 
-device_init(omap3_hsusb_register_devices)
+type_init(omap3_hsusb_register_types)

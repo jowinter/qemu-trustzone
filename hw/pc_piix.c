@@ -104,7 +104,7 @@ static void ioapic_init(GSIState *gsi_state)
     SysBusDevice *d;
     unsigned int i;
 
-    if (kvm_enabled() && kvm_irqchip_in_kernel()) {
+    if (kvm_irqchip_in_kernel()) {
         dev = qdev_create(NULL, "kvm-ioapic");
     } else {
         dev = qdev_create(NULL, "ioapic");
@@ -183,7 +183,7 @@ static void pc_init1(MemoryRegion *system_memory,
     }
 
     gsi_state = g_malloc0(sizeof(*gsi_state));
-    if (kvm_enabled() && kvm_irqchip_in_kernel()) {
+    if (kvm_irqchip_in_kernel()) {
         kvm_piix3_setup_irq_routing(pci_enabled);
         gsi = qemu_allocate_irqs(kvm_piix3_gsi_handler, gsi_state,
                                  GSI_NUM_PINS);
@@ -209,7 +209,7 @@ static void pc_init1(MemoryRegion *system_memory,
     }
     isa_bus_irqs(isa_bus, gsi);
 
-    if (kvm_enabled() && kvm_irqchip_in_kernel()) {
+    if (kvm_irqchip_in_kernel()) {
         i8259 = kvm_i8259_init(isa_bus);
     } else if (xen_enabled()) {
         i8259 = xen_interrupt_controller_init();
@@ -229,7 +229,7 @@ static void pc_init1(MemoryRegion *system_memory,
 
     dev = pc_vga_init(isa_bus, pci_enabled ? pci_bus : NULL);
     if (dev) {
-        qdev_property_add_child(qdev_get_root(), "vga", dev, NULL);
+        object_property_add_child(object_get_root(), "vga", OBJECT(dev), NULL);
     }
 
     if (xen_enabled()) {
@@ -267,8 +267,8 @@ static void pc_init1(MemoryRegion *system_memory,
          * For now, let's "fix" this by making judicious use of paths.  This
          * is not generally the right way to do this.
          */
-        qdev_property_add_child(qdev_resolve_path("/i440fx/piix3", NULL),
-                                "rtc", (DeviceState *)rtc_state, NULL);
+        object_property_add_child(object_resolve_path("/i440fx/piix3", NULL),
+                                  "rtc", (Object *)rtc_state, NULL);
     } else {
         for(i = 0; i < MAX_IDE_BUS; i++) {
             ISADevice *dev;

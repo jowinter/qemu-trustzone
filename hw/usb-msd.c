@@ -341,7 +341,7 @@ static int usb_msd_handle_data(USBDevice *dev, USBPacket *p)
     uint32_t tag;
     int ret = 0;
     struct usb_msd_cbw cbw;
-    uint8_t devep = p->devep;
+    uint8_t devep = p->ep->nr;
 
     switch (p->pid) {
     case USB_TOKEN_OUT:
@@ -636,37 +636,42 @@ static const VMStateDescription vmstate_usb_msd = {
     }
 };
 
+static Property msd_properties[] = {
+    DEFINE_BLOCK_PROPERTIES(MSDState, conf),
+    DEFINE_PROP_STRING("serial", MSDState, serial),
+    DEFINE_PROP_BIT("removable", MSDState, removable, 0, false),
+    DEFINE_PROP_END_OF_LIST(),
+};
+
 static void usb_msd_class_initfn(ObjectClass *klass, void *data)
 {
+    DeviceClass *dc = DEVICE_CLASS(klass);
     USBDeviceClass *uc = USB_DEVICE_CLASS(klass);
 
     uc->init           = usb_msd_initfn;
     uc->product_desc   = "QEMU USB MSD";
     uc->usb_desc       = &desc;
-    uc->handle_packet  = usb_generic_handle_packet;
     uc->cancel_packet  = usb_msd_cancel_io;
     uc->handle_attach  = usb_desc_attach;
     uc->handle_reset   = usb_msd_handle_reset;
     uc->handle_control = usb_msd_handle_control;
     uc->handle_data    = usb_msd_handle_data;
+    dc->fw_name = "storage";
+    dc->vmsd = &vmstate_usb_msd;
+    dc->props = msd_properties;
 }
 
-static struct DeviceInfo msd_info = {
-    .name      = "usb-storage",
-    .fw_name   = "storage",
-    .size      = sizeof(MSDState),
-    .vmsd      = &vmstate_usb_msd,
-    .class_init= usb_msd_class_initfn,
-    .props     = (Property[]) {
-        DEFINE_BLOCK_PROPERTIES(MSDState, conf),
-        DEFINE_PROP_STRING("serial", MSDState, serial),
-        DEFINE_PROP_BIT("removable", MSDState, removable, 0, false),
-        DEFINE_PROP_END_OF_LIST(),
-    },
+static TypeInfo msd_info = {
+    .name          = "usb-storage",
+    .parent        = TYPE_USB_DEVICE,
+    .instance_size = sizeof(MSDState),
+    .class_init    = usb_msd_class_initfn,
 };
 
-static void usb_msd_register_devices(void)
+static void usb_msd_register_types(void)
 {
-    usb_qdev_register(&msd_info, "disk", usb_msd_init);
+    type_register_static(&msd_info);
+    usb_legacy_register("usb-storage", "disk", usb_msd_init);
 }
-device_init(usb_msd_register_devices)
+
+type_init(usb_msd_register_types)
