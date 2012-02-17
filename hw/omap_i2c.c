@@ -67,19 +67,8 @@ typedef struct omap_i2c_s {
 #define OMAP3_INTR_REV    0x3c
 #define OMAP3630_INTR_REV 0x40
 
-//#define I2C_DEBUG
-#ifdef I2C_DEBUG
-#define TRACE(fmt, ...) fprintf(stderr, "%s " fmt "\n", __FUNCTION__, ##__VA_ARGS__)
-#else
-#define TRACE(...)
-#endif
-
 static void omap_i2c_interrupts_update(OMAPI2CBusState *s)
 {
-    TRACE("IRQ=%04x,RDRQ=%d,XDRQ=%d", 
-          s->stat & s->mask,
-          ((s->dma >> 15 ) & 1) & ((s->stat >> 3) & 1),
-          ((s->dma >> 7 ) & 1 )& ((s->stat >> 4 ) & 1));
     qemu_set_irq(s->irq, s->stat & s->mask);
     if ((s->dma >> 15) & 1)					/* RDMA_EN */
         qemu_set_irq(s->drq[0], (s->stat >> 3) & 1);		/* RRDY */
@@ -117,8 +106,6 @@ static void omap_i2c_fifo_run(OMAPI2CBusState *s)
         }
     } else {
         if ((s->control >> 9) & 1) {				/* TRX */
-            TRACE("master transmit, count_cur=%d, fifolen=%d",
-                  s->count_cur, s->fifolen);
             for (; ack && s->count_cur && s->fifolen; s->count_cur--) {
                 ack = (i2c_send(s->bus, s->fifo[s->fifostart++]) >= 0);
                 s->fifostart &= I2C_FIFO_SIZE_MASK;
@@ -139,14 +126,11 @@ static void omap_i2c_fifo_run(OMAPI2CBusState *s)
             if (!s->count_cur)                      /* everything sent? */
                 s->stat |= 1 << 2;                  /* ARDY */
         } else {                                    /* !TRX */
-            TRACE("master receive");
             for (; s->count_cur && s->fifolen < s->fifosize; s->count_cur--) {
                 i = i2c_recv(s->bus);
                 if (i < 0) break; /* stop receiving if nothing to receive */
                 s->fifo[(s->fifostart + s->fifolen++) & I2C_FIFO_SIZE_MASK] =
                     (uint8_t)(i & 0xff);
-                TRACE("received fifo[%02x] = %02x", s->fifolen - 1,
-                      s->fifo[(s->fifostart + s->fifolen - 1) & I2C_FIFO_SIZE_MASK]);
             }
             s->stat &= ~((1 << 3) | (1 << 13));            /* RRDY | RDR */
             if (s->fifolen) {
@@ -162,7 +146,6 @@ static void omap_i2c_fifo_run(OMAPI2CBusState *s)
                 s->stat |= 1 << 2;                         /* ARDY */
         }
         if (!s->count_cur) {
-            TRACE("no more data to transmit/receive");
             i2c_end_transfer(s->bus);
             if ((s->control >> 1) & 1) {			/* STP */
                 s->control &= ~0x0602;     /* MST | TRX | STP */
@@ -174,7 +157,6 @@ static void omap_i2c_fifo_run(OMAPI2CBusState *s)
     s->stat |= (!ack) << 1;					/* NACK */
     if (!ack)
         s->control &= ~(1 << 1);				/* STP */
-    TRACE("finished, STAT = %04x, CNT = %d", s->stat, s->count_cur);
 }
 
 static void omap_i2c_bus_reset(OMAPI2CBusState *s)
@@ -211,16 +193,13 @@ static uint32_t omap_i2c_read(void *opaque, target_phys_addr_t addr)
 
     switch (offset) {
     case 0x00:	/* I2C_REV */
-        TRACE("REV returns %04x", s->revision);
-        return s->revision;
+        return s->revision;					/* REV */
     case 0x04:	/* I2C_IE */
-        TRACE("IE returns %04x", s->mask);
         return s->mask;
     case 0x08:	/* I2C_STAT */
         ret = s->stat | (i2c_bus_busy(s->bus) << 12 );
         if (s->revision >= OMAP3_INTR_REV && (s->stat & 0x4010)) /* XRDY or XDR  */
             s->stat |= 1 << 10; /* XUDF as required by errata 1.153 */
-        TRACE("STAT returns %04x", ret);
         return ret;
     case 0x0c: /* I2C_IV / I2C_WE */
         if (s->revision >= OMAP3_INTR_REV)
@@ -235,10 +214,8 @@ static uint32_t omap_i2c_read(void *opaque, target_phys_addr_t addr)
     case 0x10:	/* I2C_SYSS */
         return (s->control >> 15) & 1; /* reset completed == I2C_EN */
     case 0x14:	/* I2C_BUF */
-        TRACE("BUF returns %04x", s->dma);
         return s->dma;
     case 0x18:	/* I2C_CNT */
-        TRACE("CNT returns %04x", s->count_cur);
         return s->count_cur;					/* DCOUNT */
     case 0x1c:	/* I2C_DATA */
         ret = 0;
@@ -277,15 +254,12 @@ static uint32_t omap_i2c_read(void *opaque, target_phys_addr_t addr)
             s->stat &= ~(1 << 11);					/* ROVR */
         } else if (s->revision >= OMAP3_INTR_REV)
             s->stat |= (1 << 7); /* AERR */
-        TRACE("DATA returns %04x", ret);
         omap_i2c_fifo_run(s);
         omap_i2c_interrupts_update(s);
         return ret;
     case 0x20:	/* I2C_SYSC */
-        TRACE("SYSC returns %04x", s->sysc);
         return s->sysc;
     case 0x24:	/* I2C_CON */
-        TRACE("CON returns %04x", s->control);
         return s->control;
     case 0x28: /* I2C_OA / I2C_OA0 */
         return s->own_addr[0];
@@ -314,7 +288,6 @@ static uint32_t omap_i2c_read(void *opaque, target_phys_addr_t addr)
             }
             ret |= ((s->fifolen) & 0x3f) << 8;  /* RXSTAT */
             ret |= (s->count_cur) & 0x3f;       /* TXSTAT */
-            TRACE("BUFSTAT returns %04x", ret);
             return ret;
         }
         break;
@@ -384,7 +357,6 @@ static uint32_t omap_i2c_readb(void *opaque, target_phys_addr_t addr)
             s->stat &= ~(1 << 11); /* ROVR */
         } else if (s->revision >= OMAP3_INTR_REV)
             s->stat |= (1 << 7); /* AERR */
-        TRACE("DATA returns %04x", ret);
         omap_i2c_fifo_run(s);
         omap_i2c_interrupts_update(s);
         return ret;
@@ -411,7 +383,6 @@ static void omap_i2c_write(void *opaque, target_phys_addr_t addr,
         OMAP_RO_REG(addr);
         break;
     case 0x04:	/* I2C_IE */
-        TRACE("IE = %04x", value);
         if (s->revision < OMAP2_INTR_REV) {
             s->mask = value & 0x1f;
         } else if (s->revision < OMAP3_INTR_REV) {
@@ -427,7 +398,6 @@ static void omap_i2c_write(void *opaque, target_phys_addr_t addr,
         if (s->revision < OMAP2_INTR_REV)
             OMAP_RO_REG(addr);
         else {
-            TRACE("STAT = %04x", value);
             /* RRDY and XRDY are reset by hardware. (in all versions???) */
             if (s->revision < OMAP3_INTR_REV) {
                 value &= 0x27;
@@ -450,7 +420,6 @@ static void omap_i2c_write(void *opaque, target_phys_addr_t addr,
         }
         break;
     case 0x14:	/* I2C_BUF */
-        TRACE("BUF = %04x", value);
         if (s->revision < OMAP3_INTR_REV)
             s->dma = value & 0x8080;
         else {
@@ -465,11 +434,9 @@ static void omap_i2c_write(void *opaque, target_phys_addr_t addr,
             s->mask &= ~(1 << 4);				/* XRDY_IE */
         break;
     case 0x18:	/* I2C_CNT */
-        TRACE("CNT = %04x", value);
         s->count = value;					/* DCOUNT */
         break;
     case 0x1c:	/* I2C_DATA */
-        TRACE("DATA = %04x", value);
         if (s->revision < OMAP3_INTR_REV) {
             if (s->fifolen > 2) {
                 /* XXX: remote access (qualifier) error - what's that?  */
@@ -503,14 +470,13 @@ static void omap_i2c_write(void *opaque, target_phys_addr_t addr,
             OMAP_BAD_REG(addr);
             break;
         }
-        TRACE("SYSC = %04x", value);
+
         if (value & 2)
             omap_i2c_bus_reset(s);
         else if (s->revision >= OMAP3_INTR_REV)
             s->sysc = value & 0x031d;
         break;
     case 0x24:	/* I2C_CON */
-        TRACE("CON = %04x", value);
         s->control = value & (s->revision < OMAP3_INTR_REV ? 0xcf87 : 0xbff3);
         if (~value & (1 << 15)) {				/* I2C_EN */
             if (s->revision < OMAP2_INTR_REV)
@@ -545,7 +511,6 @@ static void omap_i2c_write(void *opaque, target_phys_addr_t addr,
         }
         break;
     case 0x28: /* I2C_OA / I2C_OA0 */
-        TRACE("OA0 = %04x", value);
         s->own_addr[0] = value & (s->revision < OMAP3_INTR_REV
                                   ? 0x3ff : 0xe3ff);
         /*i2c_set_slave_address(&s->slave[0],
@@ -554,7 +519,6 @@ static void omap_i2c_write(void *opaque, target_phys_addr_t addr,
           ? 0x3ff: 0x7f));*/
         break;
     case 0x2c:	/* I2C_SA */
-        TRACE("SA = %04x", value);
         s->slave_addr = value & 0x3ff;
         break;
     case 0x30:	/* I2C_PSC */
@@ -602,7 +566,6 @@ static void omap_i2c_write(void *opaque, target_phys_addr_t addr,
             OMAP_BAD_REG(addr);
         else {
             addr = (addr >> 2) & 3;
-            TRACE("OA%d = %04x", (int)addr, value);
             s->own_addr[addr] = value & 0x3ff;
             /*i2c_set_slave_address(&s->slave[addr],
               value & ((s->control & (0x80 >> addr))
@@ -630,7 +593,6 @@ static void omap_i2c_writeb(void *opaque, target_phys_addr_t addr,
 
     switch (offset) {
     case 0x1c:	/* I2C_DATA */
-        TRACE("DATA = %02x", value);
         if (s->revision < OMAP3_INTR_REV && s->fifolen > 2) {
             /* XXX: remote access (qualifier) error - what's that?  */
             break;
