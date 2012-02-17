@@ -27,10 +27,10 @@
 
 typedef struct OMAPI2CState {
     SysBusDevice busdev;
-    i2c_bus *bus;
     MemoryRegion iomem;
     qemu_irq irq;
     qemu_irq drq[2];
+    i2c_bus *bus;
 
     uint8_t revision;
     uint32_t fifosize;
