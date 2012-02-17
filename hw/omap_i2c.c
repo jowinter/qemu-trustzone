@@ -25,15 +25,15 @@
 #define I2C_MAX_FIFO_SIZE (1 << 6)
 #define I2C_FIFO_SIZE_MASK ((I2C_MAX_FIFO_SIZE) - 1)
 
-typedef struct omap_i2c_bus_s {
+typedef struct OMAPI2CState {
+    SysBusDevice busdev;
     i2c_bus *bus;
     MemoryRegion iomem;
     qemu_irq irq;
     qemu_irq drq[2];
 
     uint8_t revision;
-    int fifosize;
-    char *id;
+    uint32_t fifosize;
 
     uint16_t mask;
     uint16_t stat;
@@ -52,13 +52,6 @@ typedef struct omap_i2c_bus_s {
     int fifostart;
     int fifolen;
     uint8_t fifo[I2C_MAX_FIFO_SIZE];
-} OMAPI2CBusState;
-
-typedef struct omap_i2c_s {
-    SysBusDevice busdev;
-    int32_t mpu_model;
-    int buscount;
-    OMAPI2CBusState *bus;
 } OMAPI2CState;
 
 /* I2C controller revision register values */
@@ -67,7 +60,7 @@ typedef struct omap_i2c_s {
 #define OMAP3_INTR_REV    0x3c
 #define OMAP3630_INTR_REV 0x40
 
-static void omap_i2c_interrupts_update(OMAPI2CBusState *s)
+static void omap_i2c_interrupts_update(OMAPI2CState *s)
 {
     qemu_set_irq(s->irq, s->stat & s->mask);
     if ((s->dma >> 15) & 1)					/* RDMA_EN */
@@ -76,7 +69,7 @@ static void omap_i2c_interrupts_update(OMAPI2CBusState *s)
         qemu_set_irq(s->drq[1], (s->stat >> 4) & 1);		/* XRDY */
 }
 
-static void omap_i2c_fifo_run(OMAPI2CBusState *s)
+static void omap_i2c_fifo_run(OMAPI2CState *s)
 {
     int ack = 1, i;
 
@@ -159,8 +152,10 @@ static void omap_i2c_fifo_run(OMAPI2CBusState *s)
         s->control &= ~(1 << 1);				/* STP */
 }
 
-static void omap_i2c_bus_reset(OMAPI2CBusState *s)
+static void omap_i2c_reset(DeviceState *dev)
 {
+    OMAPI2CState *s = FROM_SYSBUS(OMAPI2CState,
+                                  sysbus_from_qdev(dev));
     s->mask = 0;
     s->stat = 0;
     s->dma = 0;
@@ -187,7 +182,7 @@ static void omap_i2c_bus_reset(OMAPI2CBusState *s)
 
 static uint32_t omap_i2c_read(void *opaque, target_phys_addr_t addr)
 {
-    OMAPI2CBusState *s = opaque;
+    OMAPI2CState *s = opaque;
     int offset = addr & OMAP_MPUI_REG_MASK;
     uint16_t ret;
 
@@ -315,7 +310,7 @@ static uint32_t omap_i2c_read(void *opaque, target_phys_addr_t addr)
 
 static uint32_t omap_i2c_readb(void *opaque, target_phys_addr_t addr)
 {
-    OMAPI2CBusState *s = opaque;
+    OMAPI2CState *s = opaque;
     int offset = addr & OMAP_MPUI_REG_MASK;
     uint8_t ret;
 
@@ -371,7 +366,7 @@ static uint32_t omap_i2c_readb(void *opaque, target_phys_addr_t addr)
 static void omap_i2c_write(void *opaque, target_phys_addr_t addr,
                 uint32_t value)
 {
-    OMAPI2CBusState *s = opaque;
+    OMAPI2CState *s = opaque;
     int offset = addr & OMAP_MPUI_REG_MASK;
     int nack;
 
@@ -472,7 +467,7 @@ static void omap_i2c_write(void *opaque, target_phys_addr_t addr,
         }
 
         if (value & 2)
-            omap_i2c_bus_reset(s);
+            omap_i2c_reset(&s->busdev.qdev);
         else if (s->revision >= OMAP3_INTR_REV)
             s->sysc = value & 0x031d;
         break;
@@ -480,7 +475,7 @@ static void omap_i2c_write(void *opaque, target_phys_addr_t addr,
         s->control = value & (s->revision < OMAP3_INTR_REV ? 0xcf87 : 0xbff3);
         if (~value & (1 << 15)) {				/* I2C_EN */
             if (s->revision < OMAP2_INTR_REV)
-                omap_i2c_bus_reset(s);
+                omap_i2c_reset(&s->busdev.qdev);
             break;
         }
         if (s->revision >= OMAP3_INTR_REV && ((value >> 12) & 3) > 1) { /* OPMODE */
@@ -588,7 +583,7 @@ static void omap_i2c_write(void *opaque, target_phys_addr_t addr,
 static void omap_i2c_writeb(void *opaque, target_phys_addr_t addr,
                 uint32_t value)
 {
-    OMAPI2CBusState *s = opaque;
+    OMAPI2CState *s = opaque;
     int offset = addr & OMAP_MPUI_REG_MASK;
 
     switch (offset) {
@@ -632,91 +627,55 @@ static const MemoryRegionOps omap_i2c_ops = {
 
 static int omap_i2c_bus_post_load(void *opaque, int version_id)
 {
-    OMAPI2CBusState *s = opaque;
+    OMAPI2CState *s = opaque;
     omap_i2c_interrupts_update(s);
     return 0;
 }
 
-static const VMStateDescription vmstate_omap_i2c_bus = {
+static const VMStateDescription vmstate_omap_i2c = {
     .name = "omap_i2c",
     .version_id = 1,
     .minimum_version_id = 1,
-    .minimum_version_id_old = 1,
     .post_load = omap_i2c_bus_post_load,
     .fields = (VMStateField[]) {
-        VMSTATE_UINT16(mask, OMAPI2CBusState),
-        VMSTATE_UINT16(stat, OMAPI2CBusState),
-        VMSTATE_UINT16(we, OMAPI2CBusState),
-        VMSTATE_UINT16(dma, OMAPI2CBusState),
-        VMSTATE_UINT16(count, OMAPI2CBusState),
-        VMSTATE_INT32(count_cur, OMAPI2CBusState),
-        VMSTATE_UINT16(sysc, OMAPI2CBusState),
-        VMSTATE_UINT16(control, OMAPI2CBusState),
-        VMSTATE_UINT16_ARRAY(own_addr, OMAPI2CBusState, 4),
-        VMSTATE_UINT16(slave_addr, OMAPI2CBusState),
-        VMSTATE_UINT8(sblock, OMAPI2CBusState),
-        VMSTATE_UINT8(divider, OMAPI2CBusState),
-        VMSTATE_UINT16_ARRAY(times, OMAPI2CBusState, 2),
-        VMSTATE_UINT16(test, OMAPI2CBusState),
-        VMSTATE_INT32(fifostart, OMAPI2CBusState),
-        VMSTATE_INT32(fifolen, OMAPI2CBusState),
-        VMSTATE_INT32(fifosize, OMAPI2CBusState),
-        VMSTATE_UINT8_ARRAY(fifo, OMAPI2CBusState, I2C_MAX_FIFO_SIZE),
+        VMSTATE_UINT16(mask, OMAPI2CState),
+        VMSTATE_UINT16(stat, OMAPI2CState),
+        VMSTATE_UINT16(we, OMAPI2CState),
+        VMSTATE_UINT16(dma, OMAPI2CState),
+        VMSTATE_UINT16(count, OMAPI2CState),
+        VMSTATE_INT32(count_cur, OMAPI2CState),
+        VMSTATE_UINT16(sysc, OMAPI2CState),
+        VMSTATE_UINT16(control, OMAPI2CState),
+        VMSTATE_UINT16_ARRAY(own_addr, OMAPI2CState, 4),
+        VMSTATE_UINT16(slave_addr, OMAPI2CState),
+        VMSTATE_UINT8(sblock, OMAPI2CState),
+        VMSTATE_UINT8(divider, OMAPI2CState),
+        VMSTATE_UINT16_ARRAY(times, OMAPI2CState, 2),
+        VMSTATE_UINT16(test, OMAPI2CState),
+        VMSTATE_INT32(fifostart, OMAPI2CState),
+        VMSTATE_INT32(fifolen, OMAPI2CState),
+        VMSTATE_UINT8_ARRAY(fifo, OMAPI2CState, I2C_MAX_FIFO_SIZE),
         VMSTATE_END_OF_LIST()
     }
 };
 
 static int omap_i2c_init(SysBusDevice *dev)
 {
-    int i;
-    uint8_t rev;
     OMAPI2CState *s = FROM_SYSBUS(OMAPI2CState, dev);
-    if (s->mpu_model < omap2410) {
-        rev = OMAP1_INTR_REV;
-        s->buscount = 1;
-    }  else if (s->mpu_model < omap3430) {
-        rev = OMAP2_INTR_REV;
-        s->buscount = 2;
-    } else {
-        s->buscount = 3;
-        if (s->mpu_model < omap3630) {
-            rev = OMAP3_INTR_REV;
-        } else {
-            rev = OMAP3630_INTR_REV;
-        }
-    }
-    s->bus = g_new0(OMAPI2CBusState, s->buscount);
-    for (i = 0; i < s->buscount; i++) {
-        s->bus[i].revision = rev;
-        if (rev < OMAP3_INTR_REV) {
-            s->bus[i].fifosize = 4;
-        } else {
-            s->bus[i].fifosize = (i < 2) ? 8 : 64;
-        }
-        sysbus_init_irq(dev, &s->bus[i].irq);
-        sysbus_init_irq(dev, &s->bus[i].drq[0]);
-        sysbus_init_irq(dev, &s->bus[i].drq[1]);
-        memory_region_init_io(&s->bus[i].iomem, &omap_i2c_ops, &s->bus[i],
-                              "omap.i2c",
-                              (rev < OMAP2_INTR_REV) ? 0x800 : 0x1000);
-        sysbus_init_mmio(dev, &s->bus[i].iomem);
-        s->bus[i].bus = i2c_init_bus(&dev->qdev, NULL);
-        vmstate_register(&dev->qdev, i, &vmstate_omap_i2c_bus, &s->bus[i]);
-    }
+
+    sysbus_init_irq(dev, &s->irq);
+    sysbus_init_irq(dev, &s->drq[0]);
+    sysbus_init_irq(dev, &s->drq[1]);
+    memory_region_init_io(&s->iomem, &omap_i2c_ops, s, "omap.i2c",
+                          (s->revision < OMAP2_INTR_REV) ? 0x800 : 0x1000);
+    sysbus_init_mmio(dev, &s->iomem);
+    s->bus = i2c_init_bus(&dev->qdev, NULL);
     return 0;
 }
 
-static void omap_i2c_reset(DeviceState *dev)
-{
-    OMAPI2CState *s = FROM_SYSBUS(OMAPI2CState, sysbus_from_qdev(dev));
-    int i;
-    for (i = 0; i < s->buscount; i++) {
-        omap_i2c_bus_reset(&s->bus[i]);
-    }
-}
-
 static Property omap_i2c_properties[] = {
-    DEFINE_PROP_INT32("mpu_model", OMAPI2CState, mpu_model, 0),
+    DEFINE_PROP_UINT8("revision", OMAPI2CState, revision, 0),
+    DEFINE_PROP_UINT32("fifo-size", OMAPI2CState, fifosize, 4),
     DEFINE_PROP_END_OF_LIST(),
 };
 
@@ -727,6 +686,7 @@ static void omap_i2c_class_init(ObjectClass *klass, void *data)
     k->init = omap_i2c_init;
     dc->props = omap_i2c_properties;
     dc->reset = omap_i2c_reset;
+    dc->vmsd = &vmstate_omap_i2c;
 }
 
 static TypeInfo omap_i2c_info = {
@@ -741,14 +701,10 @@ static void omap_i2c_register_types(void)
     type_register_static(&omap_i2c_info);
 }
 
-i2c_bus *omap_i2c_bus(DeviceState *omap_i2c, int n)
+i2c_bus *omap_i2c_bus(DeviceState *omap_i2c)
 {
     OMAPI2CState *s = FROM_SYSBUS(OMAPI2CState, sysbus_from_qdev(omap_i2c));
-    if (n >= s->buscount) {
-        hw_error("%s: requested bus %d (maximum allowed bus number is %d)\n",
-                 __FUNCTION__, n, s->buscount - 1);
-    }
-    return s->bus[n].bus;
+    return s->bus;
 }
 
 type_init(omap_i2c_register_types)

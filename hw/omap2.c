@@ -2403,20 +2403,25 @@ struct omap_mpu_state_s *omap2420_mpu_init(MemoryRegion *sysmem,
                     omap_findclk(s, "clk32-kHz"),
                     omap_findclk(s, "core_l4_iclk"));
 
-    s->i2c = qdev_create(NULL, "omap_i2c");
-    qdev_prop_set_int32(s->i2c, "mpu_model", s->mpu_model);
-    qdev_init_nofail(s->i2c);
-    busdev = sysbus_from_qdev(s->i2c);
+    s->i2c[0] = qdev_create(NULL, "omap_i2c");
+    qdev_prop_set_uint8(s->i2c[0], "revision", 0x34);
+    qdev_init_nofail(s->i2c[0]);
+    busdev = sysbus_from_qdev(s->i2c[0]);
     sysbus_connect_irq(busdev, 0,
                        qdev_get_gpio_in(s->ih[0], OMAP_INT_24XX_I2C1_IRQ));
     sysbus_connect_irq(busdev, 1, s->drq[OMAP24XX_DMA_I2C1_TX]);
     sysbus_connect_irq(busdev, 2, s->drq[OMAP24XX_DMA_I2C1_RX]);
-    sysbus_connect_irq(busdev, 3,
-                       qdev_get_gpio_in(s->ih[0], OMAP_INT_24XX_I2C2_IRQ));
-    sysbus_connect_irq(busdev, 4, s->drq[OMAP24XX_DMA_I2C2_TX]);
-    sysbus_connect_irq(busdev, 5, s->drq[OMAP24XX_DMA_I2C2_RX]);
     sysbus_mmio_map(busdev, 0, omap_l4_region_base(omap_l4tao(s->l4, 5), 0));
-    sysbus_mmio_map(busdev, 1, omap_l4_region_base(omap_l4tao(s->l4, 6), 0));
+
+    s->i2c[1] = qdev_create(NULL, "omap_i2c");
+    qdev_prop_set_uint8(s->i2c[1], "revision", 0x34);
+    qdev_init_nofail(s->i2c[1]);
+    busdev = sysbus_from_qdev(s->i2c[1]);
+    sysbus_connect_irq(busdev, 0,
+                       qdev_get_gpio_in(s->ih[0], OMAP_INT_24XX_I2C2_IRQ));
+    sysbus_connect_irq(busdev, 1, s->drq[OMAP24XX_DMA_I2C2_TX]);
+    sysbus_connect_irq(busdev, 2, s->drq[OMAP24XX_DMA_I2C2_RX]);
+    sysbus_mmio_map(busdev, 0, omap_l4_region_base(omap_l4tao(s->l4, 6), 0));
 
     s->gpio = qdev_create(NULL, "omap2-gpio");
     qdev_prop_set_int32(s->gpio, "mpu_model", s->mpu_model);

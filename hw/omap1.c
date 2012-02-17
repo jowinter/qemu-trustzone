@@ -4008,10 +4008,10 @@ struct omap_mpu_state_s *omap310_mpu_init(MemoryRegion *system_memory,
     s->pwt = omap_pwt_init(system_memory, 0xfffb6000,
                            omap_findclk(s, "armxor_ck"));
 
-    s->i2c = qdev_create(NULL, "omap_i2c");
-    qdev_prop_set_int32(s->i2c, "mpu_model", s->mpu_model);
-    qdev_init_nofail(s->i2c);
-    busdev = sysbus_from_qdev(s->i2c);
+    s->i2c[0] = qdev_create(NULL, "omap_i2c");
+    qdev_prop_set_uint8(s->i2c[0], "revision", 0x11);
+    qdev_init_nofail(s->i2c[0]);
+    busdev = sysbus_from_qdev(s->i2c[0]);
     sysbus_connect_irq(busdev, 0, qdev_get_gpio_in(s->ih[1], OMAP_INT_I2C));
     sysbus_connect_irq(busdev, 1, s->drq[OMAP_DMA_I2C_TX]);
     sysbus_connect_irq(busdev, 2, s->drq[OMAP_DMA_I2C_RX]);

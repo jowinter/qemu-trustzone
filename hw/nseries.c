@@ -201,7 +201,7 @@ static void n8x0_i2c_setup(struct n800_s *s)
 {
     DeviceState *dev;
     qemu_irq tmp_irq = qdev_get_gpio_in(s->cpu->gpio, N8X0_TMP105_GPIO);
-    i2c_bus *i2c = omap_i2c_bus(s->cpu->i2c, 0);
+    i2c_bus *i2c = omap_i2c_bus(s->cpu->i2c[0]);
 
     /* Attach a menelaus PM chip */
     dev = i2c_create_slave(i2c, "twl92230", N8X0_MENELAUS_ADDR);
@@ -393,7 +393,7 @@ static void n810_kbd_setup(struct n800_s *s)
 
     /* Attach the LM8322 keyboard to the I2C bus,
      * should happen in n8x0_i2c_setup and s->kbd be initialised here.  */
-    s->kbd = i2c_create_slave(omap_i2c_bus(s->cpu->i2c, 0),
+    s->kbd = i2c_create_slave(omap_i2c_bus(s->cpu->i2c[0]),
                            "lm8323", N810_LM8323_ADDR);
     qdev_connect_gpio_out(s->kbd, 0, kbd_irq);
 }
@@ -2566,17 +2566,17 @@ static void n900_init(ram_addr_t ram_size,
     memory_region_init_io(ssi_iomem, &ssi_ops, 0, "n900_ssi", 0x3c00);
     memory_region_add_subregion(sysmem, 0x48058000, ssi_iomem);
 
-    s->twl4030 = twl4030_init(omap_i2c_bus(s->cpu->i2c, 0),
+    s->twl4030 = twl4030_init(omap_i2c_bus(s->cpu->i2c[0]),
                               qdev_get_gpio_in(s->cpu->ih[0],
                                                OMAP_INT_3XXX_SYS_NIRQ),
                               NULL, n900_twl4030_keymap);
     twl4030_madc_attach(s->twl4030, n900_twl4030_madc_callback);
-    i2c_bus *i2c2 = omap_i2c_bus(s->cpu->i2c, 1);
+    i2c_bus *i2c2 = omap_i2c_bus(s->cpu->i2c[1]);
     s->bq2415x = i2c_create_slave(i2c2, "bq2415x", 0x6b);
     s->tpa6130 = i2c_create_slave(i2c2, "tpa6130", 0x60);
     qdev_connect_gpio_out(s->cpu->gpio, N900_HEADPHONE_EN_GPIO,
                           qdev_get_gpio_in(s->tpa6130, 0));
-    i2c_bus *i2c3 = omap_i2c_bus(s->cpu->i2c, 2);
+    i2c_bus *i2c3 = omap_i2c_bus(s->cpu->i2c[2]);
     s->lis302dl = i2c_create_slave(i2c3, "lis302dl", 0x1d);
     qdev_connect_gpio_out(s->lis302dl, 0,
                           qdev_get_gpio_in(s->cpu->gpio,

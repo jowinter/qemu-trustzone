@@ -81,7 +81,7 @@ static void beagle_common_init(ram_addr_t ram_size,
         omap3_mmc_attach(s->cpu->omap3_mmc[0], dsd->bdrv, 0, 0);
     }
 
-    s->twl4030 = twl4030_init(omap_i2c_bus(s->cpu->i2c, 0),
+    s->twl4030 = twl4030_init(omap_i2c_bus(s->cpu->i2c[0]),
                               qdev_get_gpio_in(s->cpu->ih[0],
                                                OMAP_INT_3XXX_SYS_NIRQ),
                               NULL, NULL);
@@ -94,7 +94,7 @@ static void beagle_common_init(ram_addr_t ram_size,
      * newer Linux kernels won't turn on the display unless they
      * detect a monitor over DDC.
      */
-    s->ddc = i2c_create_slave(omap_i2c_bus(s->cpu->i2c, 2), "i2c-ddc", 0x50);
+    s->ddc = i2c_create_slave(omap_i2c_bus(s->cpu->i2c[2]), "i2c-ddc", 0x50);
 
     omap_lcd_panel_attach(s->cpu->dss);
 }

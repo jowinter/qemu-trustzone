@@ -75,7 +75,7 @@ static void overo_init(ram_addr_t ram_size,
     }
 
     /* FAB revs >= 2516: 4030 interrupt is GPIO 0 (earlier ones were 112) */
-    s->twl4030 = twl4030_init(omap_i2c_bus(s->cpu->i2c, 0),
+    s->twl4030 = twl4030_init(omap_i2c_bus(s->cpu->i2c[0]),
                               qdev_get_gpio_in(s->cpu->gpio, 0),
                               NULL, NULL);
 
@@ -83,7 +83,7 @@ static void overo_init(ram_addr_t ram_size,
      * newer Linux kernels won't turn on the display unless they
      * detect a monitor over DDC.
      */
-    s->ddc = i2c_create_slave(omap_i2c_bus(s->cpu->i2c, 2), "i2c-ddc", 0x50);
+    s->ddc = i2c_create_slave(omap_i2c_bus(s->cpu->i2c[2]), "i2c-ddc", 0x50);
 
     omap_lcd_panel_attach(s->cpu->dss);
 

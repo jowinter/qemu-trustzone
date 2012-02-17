@@ -4350,27 +4350,43 @@ struct omap_mpu_state_s *omap3_mpu_init(MemoryRegion *sysmem,
     sysbus_mmio_map(busdev, 0,
                     omap_l4_region_base(omap3_l4ta_init(s->l4, L4A_MMC3), 0));
 
-    s->i2c = qdev_create(NULL, "omap_i2c");
-    qdev_prop_set_int32(s->i2c, "mpu_model", s->mpu_model);
-    qdev_init_nofail(s->i2c);
-    busdev = sysbus_from_qdev(s->i2c);
+    /* Later OMAP3 models have a different I2C controller rev */
+    i = (s->mpu_model < omap3630) ? 0x3c : 0x40;
+
+    s->i2c[0] = qdev_create(NULL, "omap_i2c");
+    qdev_prop_set_uint8(s->i2c[0], "revision", i);
+    qdev_prop_set_uint32(s->i2c[0], "fifo-size", 8);
+    qdev_init_nofail(s->i2c[0]);
+    busdev = sysbus_from_qdev(s->i2c[0]);
     sysbus_connect_irq(busdev, 0,
                        qdev_get_gpio_in(s->ih[0], OMAP_INT_3XXX_I2C1_IRQ));
     sysbus_connect_irq(busdev, 1, s->drq[OMAP3XXX_DMA_I2C1_TX]);
     sysbus_connect_irq(busdev, 2, s->drq[OMAP3XXX_DMA_I2C1_RX]);
-    sysbus_connect_irq(busdev, 3,
-                       qdev_get_gpio_in(s->ih[0], OMAP_INT_3XXX_I2C2_IRQ));
-    sysbus_connect_irq(busdev, 4, s->drq[OMAP3XXX_DMA_I2C2_TX]);
-    sysbus_connect_irq(busdev, 5, s->drq[OMAP3XXX_DMA_I2C2_RX]);
-    sysbus_connect_irq(busdev, 6,
-                       qdev_get_gpio_in(s->ih[0], OMAP_INT_3XXX_I2C3_IRQ));
-    sysbus_connect_irq(busdev, 7, s->drq[OMAP3XXX_DMA_I2C3_TX]);
-    sysbus_connect_irq(busdev, 8, s->drq[OMAP3XXX_DMA_I2C3_RX]);
     sysbus_mmio_map(busdev, 0,
                     omap_l4_region_base(omap3_l4ta_init(s->l4,L4A_I2C1), 0));
-    sysbus_mmio_map(busdev, 1,
+
+    s->i2c[1] = qdev_create(NULL, "omap_i2c");
+    qdev_prop_set_uint8(s->i2c[1], "revision", i);
+    qdev_prop_set_uint32(s->i2c[1], "fifo-size", 8);
+    qdev_init_nofail(s->i2c[1]);
+    busdev = sysbus_from_qdev(s->i2c[1]);
+    sysbus_connect_irq(busdev, 0,
+                       qdev_get_gpio_in(s->ih[0], OMAP_INT_3XXX_I2C2_IRQ));
+    sysbus_connect_irq(busdev, 1, s->drq[OMAP3XXX_DMA_I2C2_TX]);
+    sysbus_connect_irq(busdev, 2, s->drq[OMAP3XXX_DMA_I2C2_RX]);
+    sysbus_mmio_map(busdev, 0,
                     omap_l4_region_base(omap3_l4ta_init(s->l4,L4A_I2C2), 0));
-    sysbus_mmio_map(busdev, 2,
+
+    s->i2c[2] = qdev_create(NULL, "omap_i2c");
+    qdev_prop_set_uint8(s->i2c[2], "revision", i);
+    qdev_prop_set_uint32(s->i2c[2], "fifo-size", 64);
+    qdev_init_nofail(s->i2c[2]);
+    busdev = sysbus_from_qdev(s->i2c[2]);
+    sysbus_connect_irq(busdev, 0,
+                       qdev_get_gpio_in(s->ih[0], OMAP_INT_3XXX_I2C3_IRQ));
+    sysbus_connect_irq(busdev, 1, s->drq[OMAP3XXX_DMA_I2C3_TX]);
+    sysbus_connect_irq(busdev, 2, s->drq[OMAP3XXX_DMA_I2C3_RX]);
+    sysbus_mmio_map(busdev, 0,
                     omap_l4_region_base(omap3_l4ta_init(s->l4,L4A_I2C3), 0));
 
     s->omap3_usb_otg = qdev_create(NULL, "omap3_hsusb_otg");
