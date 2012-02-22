@@ -1566,22 +1566,22 @@ void HELPER(set_cp15)(CPUState *env, uint32_t insn, uint32_t val)
                 goto bad_reg;
             }
         } else {
-            switch (op2) {
-            case 0:
-                env->cp15.c2_base0 = val;
-                break;
-            case 1:
-                env->cp15.c2_base1 = val;
-                break;
-            case 2:
+	    switch (op2) {
+	    case 0:
+		env->cp15.c2_base0 = val;
+		break;
+	    case 1:
+		env->cp15.c2_base1 = val;
+		break;
+	    case 2:
                 val &= 7;
                 env->cp15.c2_control = val;
-                env->cp15.c2_mask = ~(((uint32_t)0xffffffffu) >> val);
+		env->cp15.c2_mask = ~(((uint32_t)0xffffffffu) >> val);
                 env->cp15.c2_base_mask = ~((uint32_t)0x3fffu >> val);
-                break;
-            default:
-                goto bad_reg;
-            }
+		break;
+	    default:
+		goto bad_reg;
+	    }
         }
         break;
     case 3: /* MMU Domain access control / MPU write buffer control.  */
@@ -1711,26 +1711,26 @@ void HELPER(set_cp15)(CPUState *env, uint32_t insn, uint32_t val)
             break; /* Ignore ReadBuffer access */
         switch (crm) {
         case 0: /* Cache lockdown.  */
-            switch (op1) {
-            case 0: /* L1 cache.  */
-                switch (op2) {
-                case 0:
-                    env->cp15.c9_data = val;
-                    break;
-                case 1:
-                    env->cp15.c9_insn = val;
-                    break;
-                default:
-                    goto bad_reg;
-                }
-                break;
-            case 1: /* L2 cache.  */
-                /* Ignore writes to L2 lockdown/auxiliary registers.  */
-                break;
-            default:
-                goto bad_reg;
-            }
-            break;
+	    switch (op1) {
+	    case 0: /* L1 cache.  */
+		switch (op2) {
+		case 0:
+		    env->cp15.c9_data = val;
+		    break;
+		case 1:
+		    env->cp15.c9_insn = val;
+		    break;
+		default:
+		    goto bad_reg;
+		}
+		break;
+	    case 1: /* L2 cache.  */
+		/* Ignore writes to L2 lockdown/auxiliary registers.  */
+		break;
+	    default:
+		goto bad_reg;
+	    }
+	    break;
         case 1: /* TCM memory region registers.  */
             /* Not implemented.  */
             goto bad_reg;
@@ -1945,7 +1945,7 @@ uint32_t HELPER(get_cp15)(CPUState *env, uint32_t insn)
                 case 0: /* Device ID.  */
                     return env->cp15.c0_cpuid;
                 case 1: /* Cache Type.  */
-                    return env->cp15.c0_cachetype;
+		    return env->cp15.c0_cachetype;
                 case 2: /* TCM status.  */
                     return 0;
                 case 3: /* TLB type register.  */
@@ -2092,17 +2092,17 @@ uint32_t HELPER(get_cp15)(CPUState *env, uint32_t insn)
                 goto bad_reg;
             }
         } else {
-            switch (op2) {
-            case 0:
-                return env->cp15.c2_base0;
-            case 1:
-                return env->cp15.c2_base1;
-            case 2:
+	    switch (op2) {
+	    case 0:
+		return env->cp15.c2_base0;
+	    case 1:
+		return env->cp15.c2_base1;
+	    case 2:
                 return env->cp15.c2_control;
-            default:
-                goto bad_reg;
-            }
-        }
+	    default:
+		goto bad_reg;
+	    }
+	}
     case 3: /* MMU Domain access control / MPU write buffer control.  */
         return env->cp15.c3;
     case 4: /* Reserved.  */
@@ -2138,27 +2138,29 @@ uint32_t HELPER(get_cp15)(CPUState *env, uint32_t insn)
         } else {
             if (arm_feature(env, ARM_FEATURE_OMAPCP))
                 op2 = 0;
-            switch (op2) {
-            case 0:
-                return env->cp15.c6_data;
-            case 1:
-                if (arm_feature(env, ARM_FEATURE_V6)) {
-                    /* Watchpoint Fault Adrress.  */
-                    return 0; /* Not implemented.  */
-                }
-                /* Instruction Fault Adrress.  */
-                /* Arm9 doesn't have an IFAR, but implementing it anyway
-                   shouldn't do any harm.  */
-                return env->cp15.c6_insn;
-            case 2:
-                if (arm_feature(env, ARM_FEATURE_V6)) {
-                    /* Instruction Fault Adrress.  */
-                    return env->cp15.c6_insn;
-                }
-                goto bad_reg;
-            default:
-                goto bad_reg;
-            }
+	    switch (op2) {
+	    case 0:
+		return env->cp15.c6_data;
+	    case 1:
+		if (arm_feature(env, ARM_FEATURE_V6)) {
+		    /* Watchpoint Fault Adrress.  */
+		    return 0; /* Not implemented.  */
+		} else {
+		    /* Instruction Fault Adrress.  */
+		    /* Arm9 doesn't have an IFAR, but implementing it anyway
+		       shouldn't do any harm.  */
+		    return env->cp15.c6_insn;
+		}
+	    case 2:
+		if (arm_feature(env, ARM_FEATURE_V6)) {
+		    /* Instruction Fault Adrress.  */
+		    return env->cp15.c6_insn;
+		} else {
+		    goto bad_reg;
+		}
+	    default:
+		goto bad_reg;
+	    }
         }
     case 7: /* Cache control.  */
         if (crm == 4 && op1 == 0 && op2 == 0) {
