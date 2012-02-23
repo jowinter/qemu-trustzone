@@ -1493,60 +1493,78 @@ void HELPER(set_cp15)(CPUState *env, uint32_t insn, uint32_t val)
         }
         goto bad_reg;
     case 1: /* System configuration.  */
-        switch (crm) {
-        case 0:
-            if (arm_feature(env, ARM_FEATURE_OMAPCP))
-                op2 = 0;
-            switch (op2) {
+        if (arm_feature(env, ARM_FEATURE_V6)) {
+            /* In v5 only crm=0 was used, so implementations may have been
+             * sloppy about decoding that field. So only check the crm!=0
+             * cases for V6 and above.
+             */
+            if (op1 != 0) {
+                goto bad_reg;
+            }
+            switch (crm) {
             case 0:
-                if (!arm_feature(env, ARM_FEATURE_XSCALE))
-                    env->cp15.c1_sys = val;
-                /* ??? Lots of these bits are not implemented.  */
-                /* This may enable/disable the MMU, so do a TLB flush.  */
-                tlb_flush(env, 1);
+                /* crm == 0 case is handled below */
                 break;
-            case 1: /* Auxiliary cotrol register.  */
-                if (arm_feature(env, ARM_FEATURE_XSCALE)) {
-                    env->cp15.c1_xscaleauxcr = val;
-                    break;
-                }
-                /* Not implemented.  */
-                break;
-            case 2:
-                if (arm_feature(env, ARM_FEATURE_XSCALE))
+            case 1:
+                if (!arm_feature(env, ARM_FEATURE_TRUSTZONE)
+                    || (env->uncached_cpsr & CPSR_M) == ARM_CPU_MODE_USR) {
+                    /* XXX handling userspace accesses by aborting? */
                     goto bad_reg;
-                if (env->cp15.c1_coproc != val) {
-                    env->cp15.c1_coproc = val;
-                    /* ??? Is this safe when called from within a TB?  */
-                    tb_flush(env);
+                }
+                switch (op2) {
+                case 0: /* Secure configuration register. */
+                    if (env->cp15.c1_scr & 1) {
+                        goto bad_reg;
+                    }
+                    env->cp15.c1_scr = val;
+                    break;
+                case 1: /* Secure debug enable register. */
+                    if (env->cp15.c1_scr & 1) {
+                        goto bad_reg;
+                    }
+                    env->cp15.c1_sedbg = val;
+                    break;
+                case 2: /* Nonsecure access control register. */
+                    if (env->cp15.c1_scr & 1) {
+                        goto bad_reg;
+                    }
+                    env->cp15.c1_nseac = val;
+                    break;
+                default:
+                    goto bad_reg;
                 }
                 break;
             default:
                 goto bad_reg;
             }
+        }
+
+        /* crm == 0 (and legacy underdecoded variants) */
+
+        if (arm_feature(env, ARM_FEATURE_OMAPCP))
+            op2 = 0;
+        switch (op2) {
+        case 0:
+            if (!arm_feature(env, ARM_FEATURE_XSCALE) || crm == 0)
+                env->cp15.c1_sys = val;
+            /* ??? Lots of these bits are not implemented.  */
+            /* This may enable/disable the MMU, so do a TLB flush.  */
+            tlb_flush(env, 1);
             break;
-        case 1:
-            if (!arm_feature(env, ARM_FEATURE_TRUSTZONE)
-                || (env->uncached_cpsr & CPSR_M) == ARM_CPU_MODE_USR)
+        case 1: /* Auxiliary control register.  */
+            if (arm_feature(env, ARM_FEATURE_XSCALE)) {
+                env->cp15.c1_xscaleauxcr = val;
+                break;
+            }
+            /* Not implemented.  */
+            break;
+        case 2:
+            if (arm_feature(env, ARM_FEATURE_XSCALE))
                 goto bad_reg;
-            switch (op2) {
-            case 0: /* Secure configuration register. */
-                if (env->cp15.c1_scr & 1)
-                    goto bad_reg;
-                env->cp15.c1_scr = val;
-                break;
-            case 1: /* Secure debug enable register. */
-                if (env->cp15.c1_scr & 1)
-                    goto bad_reg;
-                env->cp15.c1_sedbg = val;
-                break;
-            case 2: /* Nonsecure access control register. */
-                if (env->cp15.c1_scr & 1)
-                    goto bad_reg;
-                env->cp15.c1_nseac = val;
-                break;
-            default:
-                goto bad_reg;
+            if (env->cp15.c1_coproc != val) {
+                env->cp15.c1_coproc = val;
+                /* ??? Is this safe when called from within a TB?  */
+                tb_flush(env);
             }
             break;
         default:
@@ -1988,7 +2006,6 @@ uint32_t HELPER(get_cp15)(CPUState *env, uint32_t insn)
             default:
                 goto bad_reg;
             }
-            break;
         case 1:
             /* These registers aren't documented on arm11 cores.  However
                Linux looks at them anyway.  */
@@ -2015,70 +2032,87 @@ uint32_t HELPER(get_cp15)(CPUState *env, uint32_t insn)
         default:
             goto bad_reg;
         }
-        break;
     case 1: /* System configuration.  */
-        switch (crm) {
-        case 0:
-            if (arm_feature(env, ARM_FEATURE_OMAPCP))
-                op2 = 0;
-            switch (op2) {
-            case 0: /* Control register.  */
-                return env->cp15.c1_sys;
-            case 1: /* Auxiliary control register.  */
-                if (arm_feature(env, ARM_FEATURE_XSCALE))
-                    return env->cp15.c1_xscaleauxcr;
-                if (!arm_feature(env, ARM_FEATURE_AUXCR))
+        if (arm_feature(env, ARM_FEATURE_V6)) {
+            /* In v5 only crm=0 was used, so implementations may have been
+             * sloppy about decoding that field. So only check the crm!=0
+             * cases for V6 and above.
+             */
+            if (op1 != 0) {
+                goto bad_reg;
+            }
+            switch (crm) {
+            case 0:
+                /* crm == 0 case is handled below */
+                break;
+            case 1:
+                if (!arm_feature(env, ARM_FEATURE_TRUSTZONE)
+                    || (env->uncached_cpsr & CPSR_M) == ARM_CPU_MODE_USR) {
+                    /* XXX handling userspace accesses by aborting? */
                     goto bad_reg;
-                switch (ARM_CPUID(env)) {
-                case ARM_CPUID_ARM1026:
-                    return 1;
-                case ARM_CPUID_ARM1136:
-                case ARM_CPUID_ARM1136_R2:
-                case ARM_CPUID_ARM1176:
-                    return 7;
-                case ARM_CPUID_ARM11MPCORE:
-                    return 1;
-                case ARM_CPUID_CORTEXA8:
-                case ARM_CPUID_CORTEXA8_R2:
-                    return 2;
-                case ARM_CPUID_CORTEXA9:
-                case ARM_CPUID_CORTEXA15:
-                    return 0;
+                }
+                switch (op2) {
+                case 0: /* Secure configuration register. */
+                    if (env->cp15.c1_scr & 1) {
+                        goto bad_reg;
+                    }
+                    return env->cp15.c1_scr;
+                    break;
+                case 1: /* Secure debug enable register. */
+                    if (env->cp15.c1_scr & 1) {
+                        goto bad_reg;
+                    }
+                    return env->cp15.c1_sedbg;
+                    break;
+                case 2: /* Nonsecure access control register. */
+                    return env->cp15.c1_nseac;
+                    break;
                 default:
                     goto bad_reg;
                 }
                 break;
-            case 2: /* Coprocessor access register.  */
-                if (arm_feature(env, ARM_FEATURE_XSCALE))
-                    goto bad_reg;
-                return env->cp15.c1_coproc;
             default:
                 goto bad_reg;
             }
-            break;
-        case 1:
-            if (!arm_feature(env, ARM_FEATURE_TRUSTZONE)
-                || (env->uncached_cpsr & CPSR_M) == ARM_CPU_MODE_USR)
+        }
+
+        /* crm == 0 (and legacy underdecoded variants) */
+
+        if (arm_feature(env, ARM_FEATURE_OMAPCP))
+            op2 = 0;
+        switch (op2) {
+        case 0: /* Control register.  */
+            return env->cp15.c1_sys;
+        case 1: /* Auxiliary control register.  */
+            if (arm_feature(env, ARM_FEATURE_XSCALE))
+                return env->cp15.c1_xscaleauxcr;
+            if (!arm_feature(env, ARM_FEATURE_AUXCR))
                 goto bad_reg;
-            switch (op2) {
-            case 0: /* Secure configuration register. */
-                if (env->cp15.c1_scr & 1)
-                    goto bad_reg;
-                return env->cp15.c1_scr;
-            case 1: /* Secure debug enable register. */
-                if (env->cp15.c1_scr & 1)
-                    goto bad_reg;
-                return env->cp15.c1_sedbg;
-            case 2: /* Nonsecure access control register. */
-                return env->cp15.c1_nseac;
+            switch (ARM_CPUID(env)) {
+            case ARM_CPUID_ARM1026:
+                return 1;
+            case ARM_CPUID_ARM1136:
+            case ARM_CPUID_ARM1136_R2:
+            case ARM_CPUID_ARM1176:
+                return 7;
+            case ARM_CPUID_ARM11MPCORE:
+                return 1;
+            case ARM_CPUID_CORTEXA8:
+            case ARM_CPUID_CORTEXA8_R2:
+                return 2;
+            case ARM_CPUID_CORTEXA9:
+            case ARM_CPUID_CORTEXA15:
+                return 0;
             default:
                 goto bad_reg;
             }
-            break;
+        case 2: /* Coprocessor access register.  */
+            if (arm_feature(env, ARM_FEATURE_XSCALE))
+                goto bad_reg;
+            return env->cp15.c1_coproc;
         default:
             goto bad_reg;
         }
-        break;
     case 2: /* MMU Page table control / MPU cache control.  */
         if (arm_feature(env, ARM_FEATURE_MPU)) {
             switch (op2) {
