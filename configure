@@ -98,6 +98,7 @@ audio_pt_int=""
 audio_win_int=""
 cc_i386=i386-pc-linux-gnu-gcc
 libs_qga=""
+debug_info="yes"
 
 target_list=""
 
@@ -214,6 +215,10 @@ for opt do
   ;;
   --extra-ldflags=*) LDFLAGS="$optarg $LDFLAGS"
   ;;
+  --enable-debug-info) debug_info="yes"
+  ;;
+  --disable-debug-info) debug_info="no"
+  ;;
   --sparc_cpu=*)
     sparc_cpu="$optarg"
     case $sparc_cpu in
@@ -251,13 +256,15 @@ sdl_config="${SDL_CONFIG-${cross_prefix}sdl-config}"
 
 # default flags for all hosts
 QEMU_CFLAGS="-fno-strict-aliasing $QEMU_CFLAGS"
-CFLAGS="-g $CFLAGS"
 QEMU_CFLAGS="-Wall -Wundef -Wwrite-strings -Wmissing-prototypes $QEMU_CFLAGS"
 QEMU_CFLAGS="-Wstrict-prototypes -Wredundant-decls $QEMU_CFLAGS"
 QEMU_CFLAGS="-D_GNU_SOURCE -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE $QEMU_CFLAGS"
 QEMU_CFLAGS="-D_FORTIFY_SOURCE=2 $QEMU_CFLAGS"
 QEMU_INCLUDES="-I. -I\$(SRC_PATH) -I\$(SRC_PATH)/fpu"
-LDFLAGS="-g $LDFLAGS"
+if test "$debug_info" = "yes"; then
+    CFLAGS="-g $CFLAGS"
+    LDFLAGS="-g $LDFLAGS"
+fi
 
 # make source path absolute
 source_path=`cd "$source_path"; pwd`
@@ -522,7 +529,7 @@ if test "$mingw32" = "yes" ; then
   bindir="\${prefix}"
   sysconfdir="\${prefix}"
   confsuffix=""
-  guest_agent="no"
+  libs_qga="-lws2_32 -lwinmm $lib_qga"
 fi
 
 werror=""
@@ -557,6 +564,10 @@ for opt do
   --extra-cflags=*)
   ;;
   --extra-ldflags=*)
+  ;;
+  --enable-debug-info)
+  ;;
+  --disable-debug-info)
   ;;
   --cpu=*)
   ;;
@@ -1913,9 +1924,6 @@ if test "$curses" != "no" ; then
   curses_found=no
   cat > $TMPC << EOF
 #include <curses.h>
-#ifdef __OpenBSD__
-#define resize_term resizeterm
-#endif
 int main(void) {
   const char *s = curses_version();
   resize_term(0, 0);
@@ -2582,7 +2590,7 @@ EOF
           compile_prog "$smartcard_cflags $libcacard_cflags" "$libcacard_libs"; then
             smartcard_nss="yes"
             QEMU_CFLAGS="$QEMU_CFLAGS $smartcard_cflags $libcacard_cflags"
-            LIBS="$libcacard_libs $LIBS"
+            libs_softmmu="$libcacard_libs $libs_softmmu"
         else
             if test "$smartcard_nss" = "yes"; then
                 feature_not_found "nss"
@@ -3226,6 +3234,8 @@ fi
 
 if test "$smartcard_nss" = "yes" ; then
   echo "CONFIG_SMARTCARD_NSS=y" >> $config_host_mak
+  echo "libcacard_libs=$libcacard_libs" >> $config_host_mak
+  echo "libcacard_cflags=$libcacard_cflags" >> $config_host_mak
 fi
 
 if test "$usb_redir" = "yes" ; then
@@ -3648,6 +3658,9 @@ if test "$target_softmmu" = "yes" ; then
   echo "LIBS+=$libs_softmmu $target_libs_softmmu" >> $config_target_mak
   echo "HWDIR=../libhw$target_phys_bits" >> $config_target_mak
   echo "subdir-$target: subdir-libhw$target_phys_bits" >> $config_host_mak
+  if test "$smartcard_nss" = "yes" ; then
+    echo "subdir-$target: subdir-libcacard" >> $config_host_mak
+  fi
 fi
 if test "$target_user_only" = "yes" ; then
   echo "CONFIG_USER_ONLY=y" >> $config_target_mak
@@ -3658,11 +3671,6 @@ if test "$target_linux_user" = "yes" ; then
 fi
 if test "$target_darwin_user" = "yes" ; then
   echo "CONFIG_DARWIN_USER=y" >> $config_target_mak
-fi
-if test "$smartcard_nss" = "yes" ; then
-  echo "subdir-$target: subdir-libcacard" >> $config_host_mak
-  echo "libcacard_libs=$libcacard_libs" >> $config_host_mak
-  echo "libcacard_cflags=$libcacard_cflags" >> $config_host_mak
 fi
 list=""
 if test ! -z "$gdb_xml_files" ; then

@@ -330,7 +330,7 @@ struct TypeInfo
 
 /**
  * OBJECT_CLASS:
- * @class: A derivative of #ObjectClas.
+ * @class: A derivative of #ObjectClass.
  *
  * Converts a class to an #ObjectClass.  Since all objects are #Objects,
  * this function will always succeed.
@@ -486,7 +486,7 @@ void object_finalize(void *obj);
 Object *object_dynamic_cast(Object *obj, const char *typename);
 
 /**
- * @object_dynamic_cast_assert:
+ * object_dynamic_cast_assert:
  *
  * See object_dynamic_cast() for a description of the parameters of this
  * function.  The only difference in behavior is that this function asserts
@@ -730,7 +730,31 @@ void object_property_set(Object *obj, struct Visitor *v, const char *name,
                          struct Error **errp);
 
 /**
- * @object_property_get_type:
+ * object_property_parse:
+ * @obj: the object
+ * @string: the string that will be used to parse the property value.
+ * @name: the name of the property
+ * @errp: returns an error if this function fails
+ *
+ * Parses a string and writes the result into a property of an object.
+ */
+void object_property_parse(Object *obj, const char *string,
+                           const char *name, struct Error **errp);
+
+/**
+ * object_property_print:
+ * @obj: the object
+ * @name: the name of the property
+ * @errp: returns an error if this function fails
+ *
+ * Returns a string representation of the value of the property.  The
+ * caller shall free the string.
+ */
+char *object_property_print(Object *obj, const char *name,
+                            struct Error **errp);
+
+/**
+ * object_property_get_type:
  * @obj: the object
  * @name: the name of the property
  * @errp: returns an error if this function fails
@@ -813,6 +837,10 @@ Object *object_resolve_path_type(const char *path, const char *typename,
  *
  * There is no way for a child to determine what its parent is.  It is not
  * a bidirectional relationship.  This is by design.
+ *
+ * The value of a child property as a C string will be the child object's
+ * canonical path. It can be retrieved using object_property_get_str().
+ * The child object itself can be retrieved using object_property_get_link().
  */
 void object_property_add_child(Object *obj, const char *name,
                                Object *child, struct Error **errp);

@@ -145,6 +145,9 @@ void qemu_remove_led_event_handler(QEMUPutLEDEntry *entry)
 void kbd_put_keycode(int keycode)
 {
     QEMUPutKBDEntry *cursor;
+    if (!runstate_is_running()) {
+        return;
+    }
     QTAILQ_FOREACH(cursor, &kbd_handlers, next) {
         cursor->put_kbd_event(cursor->opaque, keycode);
     }
@@ -166,6 +169,9 @@ void kbd_mouse_event(int dx, int dy, int dz, int buttons_state)
     void *mouse_event_opaque;
     int width, height;
 
+    if (!runstate_is_running()) {
+        return;
+    }
     if (QTAILQ_EMPTY(&mouse_handlers)) {
         return;
     }
@@ -283,5 +289,5 @@ void qemu_add_mouse_mode_change_notifier(Notifier *notify)
 
 void qemu_remove_mouse_mode_change_notifier(Notifier *notify)
 {
-    notifier_list_remove(&mouse_mode_notifiers, notify);
+    notifier_remove(notify);
 }
