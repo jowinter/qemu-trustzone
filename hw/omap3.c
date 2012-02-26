@@ -4356,6 +4356,8 @@ struct omap_mpu_state_s *omap3_mpu_init(MemoryRegion *sysmem,
     s->i2c[0] = qdev_create(NULL, "omap_i2c");
     qdev_prop_set_uint8(s->i2c[0], "revision", i);
     qdev_prop_set_uint32(s->i2c[0], "fifo-size", 8);
+    qdev_prop_set_ptr(s->i2c[0], "iclk", omap_findclk(s, "omap3_i2c1_iclk"));
+    qdev_prop_set_ptr(s->i2c[0], "fclk", omap_findclk(s, "omap3_i2c1_fclk"));
     qdev_init_nofail(s->i2c[0]);
     busdev = sysbus_from_qdev(s->i2c[0]);
     sysbus_connect_irq(busdev, 0,
@@ -4368,6 +4370,8 @@ struct omap_mpu_state_s *omap3_mpu_init(MemoryRegion *sysmem,
     s->i2c[1] = qdev_create(NULL, "omap_i2c");
     qdev_prop_set_uint8(s->i2c[1], "revision", i);
     qdev_prop_set_uint32(s->i2c[1], "fifo-size", 8);
+    qdev_prop_set_ptr(s->i2c[1], "iclk", omap_findclk(s, "omap3_i2c2_iclk"));
+    qdev_prop_set_ptr(s->i2c[1], "fclk", omap_findclk(s, "omap3_i2c2_fclk"));
     qdev_init_nofail(s->i2c[1]);
     busdev = sysbus_from_qdev(s->i2c[1]);
     sysbus_connect_irq(busdev, 0,
@@ -4380,6 +4384,8 @@ struct omap_mpu_state_s *omap3_mpu_init(MemoryRegion *sysmem,
     s->i2c[2] = qdev_create(NULL, "omap_i2c");
     qdev_prop_set_uint8(s->i2c[2], "revision", i);
     qdev_prop_set_uint32(s->i2c[2], "fifo-size", 64);
+    qdev_prop_set_ptr(s->i2c[2], "iclk", omap_findclk(s, "omap3_i2c3_iclk"));
+    qdev_prop_set_ptr(s->i2c[2], "fclk", omap_findclk(s, "omap3_i2c3_fclk"));
     qdev_init_nofail(s->i2c[2]);
     busdev = sysbus_from_qdev(s->i2c[2]);
     sysbus_connect_irq(busdev, 0,

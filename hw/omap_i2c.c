@@ -34,6 +34,8 @@ typedef struct OMAPI2CState {
 
     uint8_t revision;
     uint32_t fifosize;
+    void *iclk;
+    void *fclk;
 
     uint16_t mask;
     uint16_t stat;
@@ -663,6 +665,13 @@ static int omap_i2c_init(SysBusDevice *dev)
 {
     OMAPI2CState *s = FROM_SYSBUS(OMAPI2CState, dev);
 
+    if (!s->fclk) {
+        hw_error("omap_i2c: fclk not connected\n");
+    }
+    if (s->revision >= OMAP2_INTR_REV && !s->iclk) {
+        /* Note that OMAP1 doesn't have a separate interface clock */
+        hw_error("omap_i2c: iclk not connected\n");
+    }
     sysbus_init_irq(dev, &s->irq);
     sysbus_init_irq(dev, &s->drq[0]);
     sysbus_init_irq(dev, &s->drq[1]);
@@ -676,6 +685,8 @@ static int omap_i2c_init(SysBusDevice *dev)
 static Property omap_i2c_properties[] = {
     DEFINE_PROP_UINT8("revision", OMAPI2CState, revision, 0),
     DEFINE_PROP_UINT32("fifo-size", OMAPI2CState, fifosize, 4),
+    DEFINE_PROP_PTR("iclk", OMAPI2CState, iclk),
+    DEFINE_PROP_PTR("fclk", OMAPI2CState, fclk),
     DEFINE_PROP_END_OF_LIST(),
 };
 
