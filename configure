@@ -122,6 +122,7 @@ docs=""
 fdt=""
 nptl=""
 sdl=""
+virtfs=""
 vnc="yes"
 sparse="no"
 uuid=""
@@ -610,6 +611,10 @@ for opt do
   ;;
   --enable-sdl) sdl="yes"
   ;;
+  --disable-virtfs) virtfs="no"
+  ;;
+  --enable-virtfs) virtfs="yes"
+  ;;
   --disable-vnc) vnc="no"
   ;;
   --enable-vnc) vnc="yes"
@@ -1017,6 +1022,8 @@ echo "  --disable-strip          disable stripping binaries"
 echo "  --disable-werror         disable compilation abort on warning"
 echo "  --disable-sdl            disable SDL"
 echo "  --enable-sdl             enable SDL"
+echo "  --disable-virtfs         disable VirtFS"
+echo "  --enable-virtfs          enable VirtFS"
 echo "  --disable-vnc            disable VNC"
 echo "  --enable-vnc             enable VNC"
 echo "  --enable-cocoa           enable COCOA (Mac OS X only)"
@@ -1296,17 +1303,6 @@ case "$cpu" in
 esac
 
 fi
-
-# host long bits test, actually a pointer size test
-cat > $TMPC << EOF
-int sizeof_pointer_is_8[sizeof(void *) == 8 ? 1 : -1];
-EOF
-if compile_object; then
-hostlongbits=64
-else
-hostlongbits=32
-fi
-
 
 ##########################################
 # NPTL probe
@@ -2560,7 +2556,7 @@ int main(void) { spice_server_new(); return 0; }
 EOF
   spice_cflags=$($pkg_config --cflags spice-protocol spice-server 2>/dev/null)
   spice_libs=$($pkg_config --libs spice-protocol spice-server 2>/dev/null)
-  if $pkg_config --atleast-version=0.6.0 spice-server >/dev/null 2>&1 && \
+  if $pkg_config --atleast-version=0.8.2 spice-server >/dev/null 2>&1 && \
      compile_prog "$spice_cflags" "$spice_libs" ; then
     spice="yes"
     libs_softmmu="$libs_softmmu $spice_libs"
@@ -2584,8 +2580,8 @@ if test "$smartcard" != "no" ; then
 int main(void) { PK11_FreeSlot(0); return 0; }
 EOF
         smartcard_cflags="-I\$(SRC_PATH)/libcacard"
-        libcacard_libs=$($pkg_config --libs nss 2>/dev/null)
-        libcacard_cflags=$($pkg_config --cflags nss 2>/dev/null)
+        libcacard_libs="$($pkg_config --libs nss 2>/dev/null) $glib_libs"
+        libcacard_cflags="$($pkg_config --cflags nss 2>/dev/null) $glib_cflags"
         if $pkg_config --atleast-version=3.12.8 nss >/dev/null 2>&1 && \
           compile_prog "$smartcard_cflags $libcacard_cflags" "$libcacard_libs"; then
             smartcard_nss="yes"
@@ -2605,7 +2601,7 @@ fi
 
 # check for usbredirparser for usb network redirection support
 if test "$usb_redir" != "no" ; then
-    if $pkg_config --atleast-version=0.3.3 libusbredirparser >/dev/null 2>&1 ; then
+    if $pkg_config --atleast-version=0.3.4 libusbredirparser >/dev/null 2>&1 ; then
         usb_redir="yes"
         usb_redir_cflags=$($pkg_config --cflags libusbredirparser 2>/dev/null)
         usb_redir_libs=$($pkg_config --libs libusbredirparser 2>/dev/null)
@@ -2833,8 +2829,15 @@ confdir=$sysconfdir$confsuffix
 tools=
 if test "$softmmu" = yes ; then
   tools="qemu-img\$(EXESUF) qemu-io\$(EXESUF) $tools"
-  if [ "$cap" = "yes" -a "$linux" = "yes" ] ; then
-      tools="$tools fsdev/virtfs-proxy-helper\$(EXESUF)"
+  if test "$virtfs" != no ; then
+      if test "$cap" = yes && test "$linux" = yes && test "$attr" = yes ; then
+	  virtfs=yes
+	  tools="$tools fsdev/virtfs-proxy-helper\$(EXESUF)"
+      else
+	  if test "$virtfs" = yes; then
+	      feature_not_found "virtfs"
+	  fi
+      fi
   fi
   if [ "$linux" = "yes" -o "$bsd" = "yes" -o "$solaris" = "yes" ] ; then
       tools="qemu-nbd\$(EXESUF) $tools"
@@ -2899,6 +2902,7 @@ echo "Audio drivers     $audio_drv_list"
 echo "Extra audio cards $audio_card_list"
 echo "Block whitelist   $block_drv_whitelist"
 echo "Mixer emulation   $mixemu"
+echo "VirtFS support    $virtfs"
 echo "VNC support       $vnc"
 if test "$vnc" = "yes" ; then
     echo "VNC TLS support   $vnc_tls"
@@ -2986,7 +2990,6 @@ fi
 if test "$bigendian" = "yes" ; then
   echo "HOST_WORDS_BIGENDIAN=y" >> $config_host_mak
 fi
-echo "HOST_LONG_BITS=$hostlongbits" >> $config_host_mak
 if test "$mingw32" = "yes" ; then
   echo "CONFIG_WIN32=y" >> $config_host_mak
   rc_version=`cat $source_path/VERSION`
@@ -3188,10 +3191,8 @@ fi
 if test "$libattr" = "yes" ; then
   echo "CONFIG_LIBATTR=y" >> $config_host_mak
 fi
-if test "$linux" = "yes" ; then
-  if test "$attr" = "yes" ; then
-    echo "CONFIG_VIRTFS=y" >> $config_host_mak
-  fi
+if test "$virtfs" = "yes" ; then
+  echo "CONFIG_VIRTFS=y" >> $config_host_mak
 fi
 if test "$blobs" = "yes" ; then
   echo "INSTALL_BLOBS=yes" >> $config_host_mak
@@ -3488,6 +3489,7 @@ case "$target_arch2" in
     gdb_xml_files="arm-core.xml arm-vfp.xml arm-vfp3.xml arm-neon.xml"
     target_phys_bits=32
     target_llong_alignment=4
+    target_libs_softmmu="$fdt_libs"
   ;;
   cris)
     target_nptl="yes"

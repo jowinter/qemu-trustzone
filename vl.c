@@ -1052,12 +1052,13 @@ static int usb_device_add(const char *devname)
 #ifndef CONFIG_LINUX
     /* only the linux version is qdev-ified, usb-bsd still needs this */
     if (strstart(devname, "host:", &p)) {
-        dev = usb_host_device_open(p);
+        dev = usb_host_device_open(usb_bus_find(-1), p);
     } else
 #endif
     if (!strcmp(devname, "bt") || strstart(devname, "bt:", &p)) {
-        dev = usb_bt_init(devname[2] ? hci_init(p) :
-                        bt_new_hci(qemu_find_bt_vlan(0)));
+        dev = usb_bt_init(usb_bus_find(-1),
+                          devname[2] ? hci_init(p)
+                                     : bt_new_hci(qemu_find_bt_vlan(0)));
     } else {
         return -1;
     }
@@ -2526,6 +2527,9 @@ int main(int argc, char **argv, char **envp)
             case QEMU_OPTION_append:
                 qemu_opts_set(qemu_find_opts("machine"), 0, "append", optarg);
                 break;
+            case QEMU_OPTION_dtb:
+                qemu_opts_set(qemu_find_opts("machine"), 0, "dtb", optarg);
+                break;
             case QEMU_OPTION_cdrom:
                 drive_add(IF_DEFAULT, 2, optarg, CDROM_OPTS);
                 break;
@@ -3342,6 +3346,11 @@ int main(int argc, char **argv, char **envp)
 
     if (!linux_boot && initrd_filename != NULL) {
         fprintf(stderr, "-initrd only allowed with -kernel option\n");
+        exit(1);
+    }
+
+    if (!linux_boot && machine_opts && qemu_opt_get(machine_opts, "dtb")) {
+        fprintf(stderr, "-dtb only allowed with -kernel option\n");
         exit(1);
     }
 
