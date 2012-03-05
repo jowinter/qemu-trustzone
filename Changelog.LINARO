@@ -12,6 +12,31 @@ here. For full change detail consult the git history:
 Bug numbers refer to Launchpad qemu-linaro bugs, eg:
 https://bugs.launchpad.net/qemu-linaro/+bug/703094
 
+version 2012.03:
+ - Fixes #932856: the OMAP3 boot rom emulation now tries
+   sector 256 in raw mode as well as sector 0.
+ - Fixes #931940: the PL031 RTC model now correctly raises
+   interrupts when the alarm timer expires.
+ - Fixes #928555: compiling on ARM systems with GLib 2.31
+   or better now works (we were previously failing due to
+   deprecation warnings on thread API functions).
+ - Fixes #885239: booting Linux on models using XScale CPUs
+   now works (a regression from upstream QEMU which has always
+   been present in qemu-linaro).
+ - QEMU's built-in boot loader now supports passing a device
+   tree blob to the kernel: if you boot with -kernel mykernel
+   (and optionally -initrd myinitrd) you can now also use the
+   new command line option -dtb my.dtb to pass a device tree.
+ - This version includes an initial implementation of a model
+   of the Samsung Exynos4210 SoC, used by board models 'nuri' and
+   'smdkc210' (thanks to Evgeny Voevodin, Maksim Kozlov, Igor
+   Mitsyanko and Dmitry Solodkiy from Samsung, who submitted this
+   work to upstream QEMU).
+ - This version includes an initial implementation of a model
+   of the Calxeda Highbank SoC, used by board model 'highbank'
+   (thanks to Rob Herring and Mark Langsdorf of Calxeda, who
+   submitted this work to upstream QEMU).
+
 version 2012.02:
  - Fixes #926102: prctl(PR_SET_NAME, ...) not supported.  Fixes
    usermode qemu running some perl scripts (as of perl 5.14).
