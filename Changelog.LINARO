@@ -23,6 +23,8 @@ version 2012.03:
  - Fixes #885239: booting Linux on models using XScale CPUs
    now works (a regression from upstream QEMU which has always
    been present in qemu-linaro).
+ - Fixes #928432: compilation failures due to warnings in
+   Spice code on 32 bit hosts.
  - QEMU's built-in boot loader now supports passing a device
    tree blob to the kernel: if you boot with -kernel mykernel
    (and optionally -initrd myinitrd) you can now also use the
