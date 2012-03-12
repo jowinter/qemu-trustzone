@@ -25,6 +25,16 @@ version 2012.03:
    been present in qemu-linaro).
  - Fixes #928432: compilation failures due to warnings in
    Spice code on 32 bit hosts.
+ - Fixes #906922: we now default to enabling 'reserve memory
+   for guest' on 64 bit hosts in linux-user-mode. This
+   significantly reduces the chances of QEMU being unable to
+   satisfy a guest process mmap() request.
+ - Fixes #947888: the emulation of /proc/self/maps has been
+   improved. In particular the check for "%n in a format string
+   must be in a read-only area of memory" in the glibc in Ubuntu
+   Precise will now pass rather than always failing. (This was
+   causing some invocations of gpg to fail which in turn meant
+   using live-build to create Linaro images was failing.)
  - QEMU's built-in boot loader now supports passing a device
    tree blob to the kernel: if you boot with -kernel mykernel
    (and optionally -initrd myinitrd) you can now also use the
