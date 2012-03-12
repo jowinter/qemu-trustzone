@@ -35,6 +35,7 @@ version 2012.03:
    Precise will now pass rather than always failing. (This was
    causing some invocations of gpg to fail which in turn meant
    using live-build to create Linaro images was failing.)
+   (Thanks to Alexander Graf of SuSE for these fixes.)
  - QEMU's built-in boot loader now supports passing a device
    tree blob to the kernel: if you boot with -kernel mykernel
    (and optionally -initrd myinitrd) you can now also use the
