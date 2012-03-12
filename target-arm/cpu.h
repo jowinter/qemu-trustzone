@@ -247,6 +247,7 @@ void arm_translate_init(void);
 int cpu_arm_exec(CPUARMState *s);
 void cpu_arm_close(CPUARMState *s);
 void do_interrupt(CPUARMState *);
+int bank_number(CPUARMState *env, int mode);
 void switch_mode(CPUARMState *, int);
 uint32_t do_arm_semihosting(CPUARMState *env);
 
