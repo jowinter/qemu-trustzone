@@ -4018,7 +4018,7 @@ static void omap3_reset(void *opaque)
     struct omap_mpu_state_s *s = opaque;
     int i;
 
-    cpu_reset(s->env);
+    cpu_state_reset(s->env);
     omap_dma_reset(s->dma);
     omap3_cm_reset(s->omap3_cm);
     omap3_prm_reset(s->omap3_prm);

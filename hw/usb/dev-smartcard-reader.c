@@ -5,7 +5,7 @@
  *
  * Written by Alon Levy, with contributions from Robert Relyea.
  *
- * Based on usb-serial.c, see it's copyright and attributions below.
+ * Based on usb-serial.c, see its copyright and attributions below.
  *
  * This work is licensed under the terms of the GNU GPL, version 2.1 or later.
  * See the COPYING file in the top-level directory.
@@ -36,8 +36,8 @@
 
 #include "qemu-common.h"
 #include "qemu-error.h"
-#include "usb.h"
-#include "usb-desc.h"
+#include "hw/usb.h"
+#include "hw/usb/desc.h"
 #include "monitor.h"
 
 #include "hw/ccid.h"

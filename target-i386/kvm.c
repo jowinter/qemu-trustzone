@@ -221,7 +221,7 @@ static int kvm_get_mce_cap_supported(KVMState *s, uint64_t *mce_cap,
     return -ENOSYS;
 }
 
-static void kvm_mce_inject(CPUState *env, target_phys_addr_t paddr, int code)
+static void kvm_mce_inject(CPUX86State *env, target_phys_addr_t paddr, int code)
 {
     uint64_t status = MCI_STATUS_VAL | MCI_STATUS_UC | MCI_STATUS_EN |
                       MCI_STATUS_MISCV | MCI_STATUS_ADDRV | MCI_STATUS_S;
@@ -246,7 +246,7 @@ static void hardware_memory_error(void)
     exit(1);
 }
 
-int kvm_arch_on_sigbus_vcpu(CPUState *env, int code, void *addr)
+int kvm_arch_on_sigbus_vcpu(CPUX86State *env, int code, void *addr)
 {
     ram_addr_t ram_addr;
     target_phys_addr_t paddr;
@@ -306,7 +306,7 @@ int kvm_arch_on_sigbus(int code, void *addr)
     return 0;
 }
 
-static int kvm_inject_mce_oldstyle(CPUState *env)
+static int kvm_inject_mce_oldstyle(CPUX86State *env)
 {
     if (!kvm_has_vcpu_events() && env->exception_injected == EXCP12_MCHK) {
         unsigned int bank, bank_num = env->mcg_cap & 0xff;
@@ -338,14 +338,14 @@ static int kvm_inject_mce_oldstyle(CPUState *env)
 
 static void cpu_update_state(void *opaque, int running, RunState state)
 {
-    CPUState *env = opaque;
+    CPUX86State *env = opaque;
 
     if (running) {
         env->tsc_valid = false;
     }
 }
 
-int kvm_arch_init_vcpu(CPUState *env)
+int kvm_arch_init_vcpu(CPUX86State *env)
 {
     struct {
         struct kvm_cpuid2 cpuid;
@@ -555,6 +555,7 @@ int kvm_arch_init_vcpu(CPUState *env)
 
     qemu_add_vm_change_state_handler(cpu_update_state, env);
 
+    cpuid_data.cpuid.padding = 0;
     r = kvm_vcpu_ioctl(env, KVM_SET_CPUID2, &cpuid_data);
     if (r) {
         return r;
@@ -576,7 +577,7 @@ int kvm_arch_init_vcpu(CPUState *env)
     return 0;
 }
 
-void kvm_arch_reset_vcpu(CPUState *env)
+void kvm_arch_reset_vcpu(CPUX86State *env)
 {
     env->exception_injected = -1;
     env->interrupt_injected = -1;
@@ -740,6 +741,7 @@ static void set_seg(struct kvm_segment *lhs, const SegmentCache *rhs)
     lhs->g = (flags & DESC_G_MASK) != 0;
     lhs->avl = (flags & DESC_AVL_MASK) != 0;
     lhs->unusable = 0;
+    lhs->padding = 0;
 }
 
 static void get_seg(SegmentCache *lhs, const struct kvm_segment *rhs)
@@ -766,7 +768,7 @@ static void kvm_getput_reg(__u64 *kvm_reg, target_ulong *qemu_reg, int set)
     }
 }
 
-static int kvm_getput_regs(CPUState *env, int set)
+static int kvm_getput_regs(CPUX86State *env, int set)
 {
     struct kvm_regs regs;
     int ret = 0;
@@ -807,7 +809,7 @@ static int kvm_getput_regs(CPUState *env, int set)
     return ret;
 }
 
-static int kvm_put_fpu(CPUState *env)
+static int kvm_put_fpu(CPUX86State *env)
 {
     struct kvm_fpu fpu;
     int i;
@@ -839,7 +841,7 @@ static int kvm_put_fpu(CPUState *env)
 #define XSAVE_XSTATE_BV   128
 #define XSAVE_YMMH_SPACE  144
 
-static int kvm_put_xsave(CPUState *env)
+static int kvm_put_xsave(CPUX86State *env)
 {
     struct kvm_xsave* xsave = env->kvm_xsave_buf;
     uint16_t cwd, swd, twd;
@@ -873,7 +875,7 @@ static int kvm_put_xsave(CPUState *env)
     return r;
 }
 
-static int kvm_put_xcrs(CPUState *env)
+static int kvm_put_xcrs(CPUX86State *env)
 {
     struct kvm_xcrs xcrs;
 
@@ -888,7 +890,7 @@ static int kvm_put_xcrs(CPUState *env)
     return kvm_vcpu_ioctl(env, KVM_SET_XCRS, &xcrs);
 }
 
-static int kvm_put_sregs(CPUState *env)
+static int kvm_put_sregs(CPUX86State *env)
 {
     struct kvm_sregs sregs;
 
@@ -919,8 +921,10 @@ static int kvm_put_sregs(CPUState *env)
 
     sregs.idt.limit = env->idt.limit;
     sregs.idt.base = env->idt.base;
+    memset(sregs.idt.padding, 0, sizeof sregs.idt.padding);
     sregs.gdt.limit = env->gdt.limit;
     sregs.gdt.base = env->gdt.base;
+    memset(sregs.gdt.padding, 0, sizeof sregs.gdt.padding);
 
     sregs.cr0 = env->cr[0];
     sregs.cr2 = env->cr[2];
@@ -942,7 +946,7 @@ static void kvm_msr_entry_set(struct kvm_msr_entry *entry,
     entry->data = value;
 }
 
-static int kvm_put_msrs(CPUState *env, int level)
+static int kvm_put_msrs(CPUX86State *env, int level)
 {
     struct {
         struct kvm_msrs info;
@@ -1025,7 +1029,7 @@ static int kvm_put_msrs(CPUState *env, int level)
 }
 
 
-static int kvm_get_fpu(CPUState *env)
+static int kvm_get_fpu(CPUX86State *env)
 {
     struct kvm_fpu fpu;
     int i, ret;
@@ -1051,7 +1055,7 @@ static int kvm_get_fpu(CPUState *env)
     return 0;
 }
 
-static int kvm_get_xsave(CPUState *env)
+static int kvm_get_xsave(CPUX86State *env)
 {
     struct kvm_xsave* xsave = env->kvm_xsave_buf;
     int ret, i;
@@ -1089,7 +1093,7 @@ static int kvm_get_xsave(CPUState *env)
     return 0;
 }
 
-static int kvm_get_xcrs(CPUState *env)
+static int kvm_get_xcrs(CPUX86State *env)
 {
     int i, ret;
     struct kvm_xcrs xcrs;
@@ -1113,7 +1117,7 @@ static int kvm_get_xcrs(CPUState *env)
     return 0;
 }
 
-static int kvm_get_sregs(CPUState *env)
+static int kvm_get_sregs(CPUX86State *env)
 {
     struct kvm_sregs sregs;
     uint32_t hflags;
@@ -1197,7 +1201,7 @@ static int kvm_get_sregs(CPUState *env)
     return 0;
 }
 
-static int kvm_get_msrs(CPUState *env)
+static int kvm_get_msrs(CPUX86State *env)
 {
     struct {
         struct kvm_msrs info;
@@ -1327,14 +1331,14 @@ static int kvm_get_msrs(CPUState *env)
     return 0;
 }
 
-static int kvm_put_mp_state(CPUState *env)
+static int kvm_put_mp_state(CPUX86State *env)
 {
     struct kvm_mp_state mp_state = { .mp_state = env->mp_state };
 
     return kvm_vcpu_ioctl(env, KVM_SET_MP_STATE, &mp_state);
 }
 
-static int kvm_get_mp_state(CPUState *env)
+static int kvm_get_mp_state(CPUX86State *env)
 {
     struct kvm_mp_state mp_state;
     int ret;
@@ -1350,7 +1354,7 @@ static int kvm_get_mp_state(CPUState *env)
     return 0;
 }
 
-static int kvm_get_apic(CPUState *env)
+static int kvm_get_apic(CPUX86State *env)
 {
     DeviceState *apic = env->apic_state;
     struct kvm_lapic_state kapic;
@@ -1367,7 +1371,7 @@ static int kvm_get_apic(CPUState *env)
     return 0;
 }
 
-static int kvm_put_apic(CPUState *env)
+static int kvm_put_apic(CPUX86State *env)
 {
     DeviceState *apic = env->apic_state;
     struct kvm_lapic_state kapic;
@@ -1380,7 +1384,7 @@ static int kvm_put_apic(CPUState *env)
     return 0;
 }
 
-static int kvm_put_vcpu_events(CPUState *env, int level)
+static int kvm_put_vcpu_events(CPUX86State *env, int level)
 {
     struct kvm_vcpu_events events;
 
@@ -1392,6 +1396,7 @@ static int kvm_put_vcpu_events(CPUState *env, int level)
     events.exception.nr = env->exception_injected;
     events.exception.has_error_code = env->has_error_code;
     events.exception.error_code = env->error_code;
+    events.exception.pad = 0;
 
     events.interrupt.injected = (env->interrupt_injected >= 0);
     events.interrupt.nr = env->interrupt_injected;
@@ -1400,6 +1405,7 @@ static int kvm_put_vcpu_events(CPUState *env, int level)
     events.nmi.injected = env->nmi_injected;
     events.nmi.pending = env->nmi_pending;
     events.nmi.masked = !!(env->hflags2 & HF2_NMI_MASK);
+    events.nmi.pad = 0;
 
     events.sipi_vector = env->sipi_vector;
 
@@ -1412,7 +1418,7 @@ static int kvm_put_vcpu_events(CPUState *env, int level)
     return kvm_vcpu_ioctl(env, KVM_SET_VCPU_EVENTS, &events);
 }
 
-static int kvm_get_vcpu_events(CPUState *env)
+static int kvm_get_vcpu_events(CPUX86State *env)
 {
     struct kvm_vcpu_events events;
     int ret;
@@ -1447,7 +1453,7 @@ static int kvm_get_vcpu_events(CPUState *env)
     return 0;
 }
 
-static int kvm_guest_debug_workarounds(CPUState *env)
+static int kvm_guest_debug_workarounds(CPUX86State *env)
 {
     int ret = 0;
     unsigned long reinject_trap = 0;
@@ -1476,7 +1482,7 @@ static int kvm_guest_debug_workarounds(CPUState *env)
     return ret;
 }
 
-static int kvm_put_debugregs(CPUState *env)
+static int kvm_put_debugregs(CPUX86State *env)
 {
     struct kvm_debugregs dbgregs;
     int i;
@@ -1495,7 +1501,7 @@ static int kvm_put_debugregs(CPUState *env)
     return kvm_vcpu_ioctl(env, KVM_SET_DEBUGREGS, &dbgregs);
 }
 
-static int kvm_get_debugregs(CPUState *env)
+static int kvm_get_debugregs(CPUX86State *env)
 {
     struct kvm_debugregs dbgregs;
     int i, ret;
@@ -1517,7 +1523,7 @@ static int kvm_get_debugregs(CPUState *env)
     return 0;
 }
 
-int kvm_arch_put_registers(CPUState *env, int level)
+int kvm_arch_put_registers(CPUX86State *env, int level)
 {
     int ret;
 
@@ -1574,7 +1580,7 @@ int kvm_arch_put_registers(CPUState *env, int level)
     return 0;
 }
 
-int kvm_arch_get_registers(CPUState *env)
+int kvm_arch_get_registers(CPUX86State *env)
 {
     int ret;
 
@@ -1619,7 +1625,7 @@ int kvm_arch_get_registers(CPUState *env)
     return 0;
 }
 
-void kvm_arch_pre_run(CPUState *env, struct kvm_run *run)
+void kvm_arch_pre_run(CPUX86State *env, struct kvm_run *run)
 {
     int ret;
 
@@ -1679,7 +1685,7 @@ void kvm_arch_pre_run(CPUState *env, struct kvm_run *run)
     }
 }
 
-void kvm_arch_post_run(CPUState *env, struct kvm_run *run)
+void kvm_arch_post_run(CPUX86State *env, struct kvm_run *run)
 {
     if (run->if_flag) {
         env->eflags |= IF_MASK;
@@ -1690,7 +1696,7 @@ void kvm_arch_post_run(CPUState *env, struct kvm_run *run)
     cpu_set_apic_base(env->apic_state, run->apic_base);
 }
 
-int kvm_arch_process_async_events(CPUState *env)
+int kvm_arch_process_async_events(CPUX86State *env)
 {
     if (env->interrupt_request & CPU_INTERRUPT_MCE) {
         /* We must not raise CPU_INTERRUPT_MCE if it's not supported. */
@@ -1742,7 +1748,7 @@ int kvm_arch_process_async_events(CPUState *env)
     return env->halted;
 }
 
-static int kvm_handle_halt(CPUState *env)
+static int kvm_handle_halt(CPUX86State *env)
 {
     if (!((env->interrupt_request & CPU_INTERRUPT_HARD) &&
           (env->eflags & IF_MASK)) &&
@@ -1754,7 +1760,7 @@ static int kvm_handle_halt(CPUState *env)
     return 0;
 }
 
-static int kvm_handle_tpr_access(CPUState *env)
+static int kvm_handle_tpr_access(CPUX86State *env)
 {
     struct kvm_run *run = env->kvm_run;
 
@@ -1764,7 +1770,7 @@ static int kvm_handle_tpr_access(CPUState *env)
     return 1;
 }
 
-int kvm_arch_insert_sw_breakpoint(CPUState *env, struct kvm_sw_breakpoint *bp)
+int kvm_arch_insert_sw_breakpoint(CPUX86State *env, struct kvm_sw_breakpoint *bp)
 {
     static const uint8_t int3 = 0xcc;
 
@@ -1775,7 +1781,7 @@ int kvm_arch_insert_sw_breakpoint(CPUState *env, struct kvm_sw_breakpoint *bp)
     return 0;
 }
 
-int kvm_arch_remove_sw_breakpoint(CPUState *env, struct kvm_sw_breakpoint *bp)
+int kvm_arch_remove_sw_breakpoint(CPUX86State *env, struct kvm_sw_breakpoint *bp)
 {
     uint8_t int3;
 
@@ -1918,7 +1924,7 @@ static int kvm_handle_debug(struct kvm_debug_exit_arch *arch_info)
     return ret;
 }
 
-void kvm_arch_update_guest_debug(CPUState *env, struct kvm_guest_debug *dbg)
+void kvm_arch_update_guest_debug(CPUX86State *env, struct kvm_guest_debug *dbg)
 {
     const uint8_t type_code[] = {
         [GDB_BREAKPOINT_HW] = 0x0,
@@ -1955,7 +1961,7 @@ static bool host_supports_vmx(void)
 
 #define VMX_INVALID_GUEST_STATE 0x80000021
 
-int kvm_arch_handle_exit(CPUState *env, struct kvm_run *run)
+int kvm_arch_handle_exit(CPUX86State *env, struct kvm_run *run)
 {
     uint64_t code;
     int ret;
@@ -2006,7 +2012,7 @@ int kvm_arch_handle_exit(CPUState *env, struct kvm_run *run)
     return ret;
 }
 
-bool kvm_arch_stop_on_emulation_error(CPUState *env)
+bool kvm_arch_stop_on_emulation_error(CPUX86State *env)
 {
     kvm_cpu_synchronize_state(env);
     return !(env->cr[0] & CR0_PE_MASK) ||

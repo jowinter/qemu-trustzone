@@ -136,6 +136,7 @@ obj-m68k-y += m68k-sim.o m68k-semi.o
 
 $(obj-y) $(obj-$(TARGET_BASE_ARCH)-y): $(GENERATED_HEADERS)
 
+obj-y += $(addprefix ../, $(universal-obj-y))
 obj-y += $(addprefix ../libuser/, $(user-obj-y))
 obj-y += $(addprefix ../libdis-user/, $(libdis-y))
 obj-y += $(libobj-y)
@@ -163,6 +164,7 @@ obj-i386-y += ioport-user.o
 
 $(obj-y) $(obj-$(TARGET_BASE_ARCH)-y): $(GENERATED_HEADERS)
 
+obj-y += $(addprefix ../, $(universal-obj-y))
 obj-y += $(addprefix ../libuser/, $(user-obj-y))
 obj-y += $(addprefix ../libdis-user/, $(libdis-y))
 obj-y += $(libobj-y)
@@ -185,6 +187,7 @@ obj-i386-y += ioport-user.o
 
 $(obj-y) $(obj-$(TARGET_BASE_ARCH)-y): $(GENERATED_HEADERS)
 
+obj-y += $(addprefix ../, $(universal-obj-y))
 obj-y += $(addprefix ../libuser/, $(user-obj-y))
 obj-y += $(addprefix ../libdis-user/, $(libdis-y))
 obj-y += $(libobj-y)
@@ -244,7 +247,7 @@ obj-i386-y += pci-hotplug.o smbios.o wdt_ib700.o
 obj-i386-y += debugcon.o multiboot.o
 obj-i386-y += pc_piix.o
 obj-i386-y += pc_sysfw.o
-obj-i386-$(CONFIG_KVM) += kvm/clock.o kvm/apic.o kvm/i8259.o kvm/ioapic.o
+obj-i386-$(CONFIG_KVM) += kvm/clock.o kvm/apic.o kvm/i8259.o kvm/ioapic.o kvm/i8254.o
 obj-i386-$(CONFIG_SPICE) += qxl.o qxl-logger.o qxl-render.o
 
 # shared objects
@@ -307,6 +310,7 @@ obj-mips-$(CONFIG_FULONG) += bonito.o vt82c686.o mips_fulong2e.o
 
 obj-microblaze-y = petalogix_s3adsp1800_mmu.o
 obj-microblaze-y += petalogix_ml605_mmu.o
+obj-microblaze-y += microblaze_boot.o
 
 obj-microblaze-y += microblaze_pic_cpu.o
 obj-microblaze-y += xilinx_intc.o
@@ -345,6 +349,10 @@ endif
 obj-arm-y = integratorcp.o versatilepb.o arm_pic.o arm_timer.o
 obj-arm-y += arm_boot.o pl011.o pl031.o pl050.o pl080.o pl110.o pl181.o pl190.o
 obj-arm-y += versatile_pci.o
+obj-arm-y += cadence_uart.o
+obj-arm-y += cadence_ttc.o
+obj-arm-y += cadence_gem.o
+obj-arm-y += xilinx_zynq.o zynq_slcr.o
 obj-arm-y += realview_gic.o realview.o arm_sysctl.o arm11mpcore.o a9mpcore.o
 obj-arm-y += exynos4210_gic.o exynos4210_combiner.o exynos4210.o
 obj-arm-y += exynos4_boards.o exynos4210_uart.o exynos4210_pwm.o
@@ -367,7 +375,7 @@ obj-arm-y += omap2.o omap_dss.o soc_dma.o omap_gptimer.o omap_synctimer.o \
 obj-arm-y += omap3.o omap_usb.o omap3_boot.o omap3_mmc.o dsi.o
 obj-arm-y += twl4030.o beagle.o overo.o
 obj-arm-y += omap_sx1.o palm.o tsc210x.o
-obj-arm-y += nseries.o blizzard.o onenand.o cbus.o tusb6010.o usb-musb.o
+obj-arm-y += nseries.o blizzard.o onenand.o cbus.o tusb6010.o usb/hcd-musb.o
 obj-arm-y += mst_fpga.o mainstone.o
 obj-arm-y += z2.o
 obj-arm-y += musicpal.o bitbang_i2c.o marvell_88w8618_audio.o
@@ -403,6 +411,7 @@ monitor.o: hmp-commands.h qmp-commands-old.h
 
 $(obj-y) $(obj-$(TARGET_BASE_ARCH)-y): $(GENERATED_HEADERS)
 
+obj-y += $(addprefix ../, $(universal-obj-y))
 obj-y += $(addprefix ../, $(common-obj-y))
 obj-y += $(addprefix ../libdis/, $(libdis-y))
 obj-y += $(libobj-y)

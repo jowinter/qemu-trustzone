@@ -12,7 +12,6 @@
 #include "primecell.h"
 #include "devices.h"
 #include "pci.h"
-#include "usb-ohci.h"
 #include "net.h"
 #include "sysemu.h"
 #include "boards.h"
@@ -129,7 +128,7 @@ static void realview_init(ram_addr_t ram_size,
                      const char *initrd_filename, const char *cpu_model,
                      enum realview_board_type board_type)
 {
-    CPUState *env = NULL;
+    CPUARMState *env = NULL;
     MemoryRegion *sysmem = get_system_memory();
     MemoryRegion *ram_lo = g_new(MemoryRegion, 1);
     MemoryRegion *ram_hi = g_new(MemoryRegion, 1);
@@ -305,7 +304,7 @@ static void realview_init(ram_addr_t ram_size,
         sysbus_connect_irq(busdev, 3, pic[51]);
         pci_bus = (PCIBus *)qdev_get_child_bus(dev, "pci");
         if (usb_enabled) {
-            usb_ohci_init_pci(pci_bus, -1);
+            pci_create_simple(pci_bus, -1, "pci-ohci");
         }
         n = drive_get_max_bus(IF_SCSI);
         while (n >= 0) {

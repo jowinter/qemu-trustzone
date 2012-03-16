@@ -382,16 +382,20 @@ static void memory_region_iorange_read(IORange *iorange,
                                        unsigned width,
                                        uint64_t *data)
 {
-    MemoryRegion *mr = container_of(iorange, MemoryRegion, iorange);
+    MemoryRegionIORange *mrio
+        = container_of(iorange, MemoryRegionIORange, iorange);
+    MemoryRegion *mr = mrio->mr;
 
+    offset += mrio->offset;
     if (mr->ops->old_portio) {
-        const MemoryRegionPortio *mrp = find_portio(mr, offset, width, false);
+        const MemoryRegionPortio *mrp = find_portio(mr, offset - mrio->offset,
+                                                    width, false);
 
         *data = ((uint64_t)1 << (width * 8)) - 1;
         if (mrp) {
             *data = mrp->read(mr->opaque, offset);
         } else if (width == 2) {
-            mrp = find_portio(mr, offset, 1, false);
+            mrp = find_portio(mr, offset - mrio->offset, 1, false);
             assert(mrp);
             *data = mrp->read(mr->opaque, offset) |
                     (mrp->read(mr->opaque, offset + 1) << 8);
@@ -410,15 +414,19 @@ static void memory_region_iorange_write(IORange *iorange,
                                         unsigned width,
                                         uint64_t data)
 {
-    MemoryRegion *mr = container_of(iorange, MemoryRegion, iorange);
+    MemoryRegionIORange *mrio
+        = container_of(iorange, MemoryRegionIORange, iorange);
+    MemoryRegion *mr = mrio->mr;
 
+    offset += mrio->offset;
     if (mr->ops->old_portio) {
-        const MemoryRegionPortio *mrp = find_portio(mr, offset, width, true);
+        const MemoryRegionPortio *mrp = find_portio(mr, offset - mrio->offset,
+                                                    width, true);
 
         if (mrp) {
             mrp->write(mr->opaque, offset, data);
         } else if (width == 2) {
-            mrp = find_portio(mr, offset, 1, false);
+            mrp = find_portio(mr, offset - mrio->offset, 1, false);
             assert(mrp);
             mrp->write(mr->opaque, offset, data & 0xff);
             mrp->write(mr->opaque, offset + 1, data >> 8);
@@ -431,9 +439,15 @@ static void memory_region_iorange_write(IORange *iorange,
                               memory_region_write_accessor, mr);
 }
 
+static void memory_region_iorange_destructor(IORange *iorange)
+{
+    g_free(container_of(iorange, MemoryRegionIORange, iorange));
+}
+
 const IORangeOps memory_region_iorange_ops = {
     .read = memory_region_iorange_read,
     .write = memory_region_iorange_write,
+    .destructor = memory_region_iorange_destructor,
 };
 
 static AddressSpace address_space_io;
@@ -767,13 +781,11 @@ static void memory_region_destructor_ram_from_ptr(MemoryRegion *mr)
 
 static void memory_region_destructor_iomem(MemoryRegion *mr)
 {
-    cpu_unregister_io_memory(mr->ram_addr);
 }
 
 static void memory_region_destructor_rom_device(MemoryRegion *mr)
 {
     qemu_ram_free(mr->ram_addr & TARGET_PAGE_MASK);
-    cpu_unregister_io_memory(mr->ram_addr & ~TARGET_PAGE_MASK);
 }
 
 static bool memory_region_wrong_endianness(MemoryRegion *mr)
@@ -928,7 +940,7 @@ void memory_region_init_io(MemoryRegion *mr,
     mr->opaque = opaque;
     mr->terminates = true;
     mr->destructor = memory_region_destructor_iomem;
-    mr->ram_addr = cpu_register_io_memory(mr);
+    mr->ram_addr = ~(ram_addr_t)0;
 }
 
 void memory_region_init_ram(MemoryRegion *mr,
@@ -978,7 +990,6 @@ void memory_region_init_rom_device(MemoryRegion *mr,
     mr->rom_device = true;
     mr->destructor = memory_region_destructor_rom_device;
     mr->ram_addr = qemu_ram_alloc(size, mr);
-    mr->ram_addr |= cpu_register_io_memory(mr);
 }
 
 static uint64_t invalid_read(void *opaque, target_phys_addr_t addr,
@@ -1487,15 +1498,15 @@ void set_system_io_map(MemoryRegion *mr)
     memory_region_update_topology(NULL);
 }
 
-uint64_t io_mem_read(int io_index, target_phys_addr_t addr, unsigned size)
+uint64_t io_mem_read(MemoryRegion *mr, target_phys_addr_t addr, unsigned size)
 {
-    return memory_region_dispatch_read(io_mem_region[io_index], addr, size);
+    return memory_region_dispatch_read(mr, addr, size);
 }
 
-void io_mem_write(int io_index, target_phys_addr_t addr,
+void io_mem_write(MemoryRegion *mr, target_phys_addr_t addr,
                   uint64_t val, unsigned size)
 {
-    memory_region_dispatch_write(io_mem_region[io_index], addr, val, size);
+    memory_region_dispatch_write(mr, addr, val, size);
 }
 
 typedef struct MemoryRegionList MemoryRegionList;

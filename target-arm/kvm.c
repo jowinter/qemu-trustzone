@@ -32,12 +32,12 @@ int kvm_arch_init(KVMState *s)
     return 0;
 }
 
-int kvm_arch_init_vcpu(CPUState *env)
+int kvm_arch_init_vcpu(CPUARMState *env)
 {
     return 0;
 }
 
-int kvm_arch_put_registers(CPUState *env, int level)
+int kvm_arch_put_registers(CPUARMState *env, int level)
 {
     struct kvm_regs regs;
     int ret;
@@ -77,7 +77,7 @@ int kvm_arch_put_registers(CPUState *env, int level)
     return ret;
 }
 
-int kvm_arch_get_registers(CPUState *env)
+int kvm_arch_get_registers(CPUARMState *env)
 {
     struct kvm_regs regs;
     int32_t ret;
@@ -119,7 +119,7 @@ int kvm_arch_get_registers(CPUState *env)
 
 #define KVM_ARM_EXCEPTION_IRQ 0x02
 #define KVM_ARM_EXCEPTION_FIQ 0x01
-int kvm_arch_interrupt(CPUState *env, int irq, int level)
+int kvm_arch_interrupt(CPUARMState *env, int irq, int level)
 {
     struct kvm_irq_level irq_level;
     int vcpu_idx = env->cpu_index;
@@ -152,36 +152,36 @@ int kvm_arch_interrupt(CPUState *env, int irq, int level)
     return 0;
 }
 
-void kvm_arch_pre_run(CPUState *env, struct kvm_run *run)
+void kvm_arch_pre_run(CPUARMState *env, struct kvm_run *run)
 {
 }
 
-void kvm_arch_post_run(CPUState *env, struct kvm_run *run)
+void kvm_arch_post_run(CPUARMState *env, struct kvm_run *run)
 {
 }
 
-int kvm_arch_handle_exit(CPUState *env, struct kvm_run *run)
+int kvm_arch_handle_exit(CPUARMState *env, struct kvm_run *run)
 {
     int ret = 0;
 
     return ret;
 }
 
-void kvm_arch_reset_vcpu(CPUState *env)
+void kvm_arch_reset_vcpu(CPUARMState *env)
 {
 }
 
-bool kvm_arch_stop_on_emulation_error(CPUState *env)
+bool kvm_arch_stop_on_emulation_error(CPUARMState *env)
 {
     return true;
 }
 
-int kvm_arch_process_async_events(CPUState *env)
+int kvm_arch_process_async_events(CPUARMState *env)
 {
     return 0;
 }
 
-int kvm_arch_on_sigbus_vcpu(CPUState *env, int code, void *addr)
+int kvm_arch_on_sigbus_vcpu(CPUARMState *env, int code, void *addr)
 {
     return 1;
 }

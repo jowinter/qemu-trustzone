@@ -251,6 +251,13 @@ M: Peter Maydell <peter.maydell@linaro.org>
 S: Maintained
 F: hw/versatilepb.c
 
+Xilinx Zynq
+M: Peter Crosthwaite <peter.crosthwaite@petalogix.com>
+S: Maintained
+F: hw/xilinx_zynq.c
+F: hw/zynq_slcr.c
+F: hw/cadence_*
+
 CRIS Machines
 -------------
 Axis Dev88
@@ -541,6 +548,7 @@ Tracing
 M: Stefan Hajnoczi <stefanha@linux.vnet.ibm.com>
 S: Maintained
 F: trace/
+F: docs/tracing.txt
 T: git://github.com/stefanha/qemu.git tracing
 
 Checkpatch

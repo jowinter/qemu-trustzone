@@ -140,7 +140,7 @@ void cpu_smm_register(cpu_set_smm_t callback, void *arg)
     smm_arg = arg;
 }
 
-void cpu_smm_update(CPUState *env)
+void cpu_smm_update(CPUX86State *env)
 {
     if (smm_set && smm_arg && env == first_cpu)
         smm_set(!!(env->hflags & HF_SMM_MASK), smm_arg);
@@ -148,7 +148,7 @@ void cpu_smm_update(CPUState *env)
 
 
 /* IRQ handling */
-int cpu_get_pic_interrupt(CPUState *env)
+int cpu_get_pic_interrupt(CPUX86State *env)
 {
     int intno;
 
@@ -167,7 +167,7 @@ int cpu_get_pic_interrupt(CPUState *env)
 
 static void pic_irq_request(void *opaque, int irq, int level)
 {
-    CPUState *env = first_cpu;
+    CPUX86State *env = first_cpu;
 
     DPRINTF("pic_irqs: %s irq %d\n", level? "raise" : "lower", irq);
     if (env->apic_state) {
@@ -522,7 +522,7 @@ type_init(port92_register_types)
 
 static void handle_a20_line_change(void *opaque, int irq, int level)
 {
-    CPUState *cpu = opaque;
+    CPUX86State *cpu = opaque;
 
     /* XXX: send to all CPUs ? */
     /* XXX: add logic to handle multiple A20 line sources */
@@ -869,7 +869,7 @@ void pc_init_ne2k_isa(ISABus *bus, NICInfo *nd)
     nb_ne2k++;
 }
 
-int cpu_is_bsp(CPUState *env)
+int cpu_is_bsp(CPUX86State *env)
 {
     /* We hard-wire the BSP to the first CPU. */
     return env->cpu_index == 0;
@@ -917,7 +917,7 @@ static DeviceState *apic_init(void *env, uint8_t apic_id)
 
 void pc_acpi_smi_interrupt(void *opaque, int irq, int level)
 {
-    CPUState *s = opaque;
+    CPUX86State *s = opaque;
 
     if (level) {
         cpu_interrupt(s, CPU_INTERRUPT_SMI);
@@ -926,15 +926,15 @@ void pc_acpi_smi_interrupt(void *opaque, int irq, int level)
 
 static void pc_cpu_reset(void *opaque)
 {
-    CPUState *env = opaque;
+    CPUX86State *env = opaque;
 
-    cpu_reset(env);
+    cpu_state_reset(env);
     env->halted = !cpu_is_bsp(env);
 }
 
-static CPUState *pc_new_cpu(const char *cpu_model)
+static CPUX86State *pc_new_cpu(const char *cpu_model)
 {
-    CPUState *env;
+    CPUX86State *env;
 
     env = cpu_init(cpu_model);
     if (!env) {
@@ -1070,7 +1070,7 @@ DeviceState *pc_vga_init(ISABus *isa_bus, PCIBus *pci_bus)
 
 static void cpu_request_exit(void *opaque, int irq, int level)
 {
-    CPUState *env = cpu_single_env;
+    CPUX86State *env = cpu_single_env;
 
     if (env && level) {
         cpu_exit(env);
@@ -1096,7 +1096,13 @@ void pc_basic_device_init(ISABus *isa_bus, qemu_irq *gsi,
 
     register_ioport_write(0xf0, 1, 1, ioportF0_write, NULL);
 
-    if (!no_hpet) {
+    /*
+     * Check if an HPET shall be created.
+     *
+     * Without KVM_CAP_PIT_STATE2, we cannot switch off the in-kernel PIT
+     * when the HPET wants to take over. Thus we have to disable the latter.
+     */
+    if (!no_hpet && (!kvm_irqchip_in_kernel() || kvm_has_pit_state2())) {
         hpet = sysbus_try_create_simple("hpet", HPET_BASE, NULL);
 
         if (hpet) {
@@ -1112,7 +1118,11 @@ void pc_basic_device_init(ISABus *isa_bus, qemu_irq *gsi,
 
     qemu_register_boot_set(pc_boot_set, *rtc_state);
 
-    pit = pit_init(isa_bus, 0x40, pit_isa_irq, pit_alt_irq);
+    if (kvm_irqchip_in_kernel()) {
+        pit = kvm_pit_init(isa_bus, 0x40);
+    } else {
+        pit = pit_init(isa_bus, 0x40, pit_isa_irq, pit_alt_irq);
+    }
     if (hpet) {
         /* connect PIT to output control line of the HPET */
         qdev_connect_gpio_out(hpet, 0, qdev_get_gpio_in(&pit->qdev, 0));

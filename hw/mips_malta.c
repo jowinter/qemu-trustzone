@@ -33,7 +33,6 @@
 #include "mips.h"
 #include "mips_cpudevs.h"
 #include "pci.h"
-#include "usb-uhci.h"
 #include "vmware_vga.h"
 #include "qemu-char.h"
 #include "sysemu.h"
@@ -501,7 +500,7 @@ static void network_init(void)
      a3 - RAM size in bytes
 */
 
-static void write_bootloader (CPUState *env, uint8_t *base,
+static void write_bootloader (CPUMIPSState *env, uint8_t *base,
                               int64_t kernel_entry)
 {
     uint32_t *p;
@@ -737,7 +736,7 @@ static int64_t load_kernel (void)
     return kernel_entry;
 }
 
-static void malta_mips_config(CPUState *env)
+static void malta_mips_config(CPUMIPSState *env)
 {
     env->mvp->CP0_MVPConf0 |= ((smp_cpus - 1) << CP0MVPC0_PVPE) |
                          ((smp_cpus * env->nr_threads - 1) << CP0MVPC0_PTC);
@@ -745,8 +744,8 @@ static void malta_mips_config(CPUState *env)
 
 static void main_cpu_reset(void *opaque)
 {
-    CPUState *env = opaque;
-    cpu_reset(env);
+    CPUMIPSState *env = opaque;
+    cpu_state_reset(env);
 
     /* The bootloader does not need to be rewritten as it is located in a
        read only location. The kernel location and the arguments table
@@ -760,7 +759,7 @@ static void main_cpu_reset(void *opaque)
 
 static void cpu_request_exit(void *opaque, int irq, int level)
 {
-    CPUState *env = cpu_single_env;
+    CPUMIPSState *env = cpu_single_env;
 
     if (env && level) {
         cpu_exit(env);
@@ -782,7 +781,7 @@ void mips_malta_init (ram_addr_t ram_size,
     int64_t kernel_entry;
     PCIBus *pci_bus;
     ISABus *isa_bus;
-    CPUState *env;
+    CPUMIPSState *env;
     qemu_irq *isa_irq;
     qemu_irq *cpu_exit_irq;
     int piix4_devfn;
@@ -965,7 +964,7 @@ void mips_malta_init (ram_addr_t ram_size,
 
     isa_bus_irqs(isa_bus, s->i8259);
     pci_piix4_ide_init(pci_bus, hd, piix4_devfn + 1);
-    usb_uhci_piix4_init(pci_bus, piix4_devfn + 2);
+    pci_create_simple(pci_bus, piix4_devfn + 2, "piix4-usb-uhci");
     smbus = piix4_pm_init(pci_bus, piix4_devfn + 3, 0x1100,
                           isa_get_irq(NULL, 9), NULL, 0);
     /* TODO: Populate SPD eeprom data.  */

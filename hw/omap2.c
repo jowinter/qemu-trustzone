@@ -2216,7 +2216,7 @@ static void omap2_mpu_reset(void *opaque)
     omap_sdrc_reset(mpu->sdrc);
     omap_gpmc_reset(mpu->gpmc);
     omap_mmc_reset(mpu->mmc);
-    cpu_reset(mpu->env);
+    cpu_state_reset(mpu->env);
 }
 
 static int omap2_validate_addr(struct omap_mpu_state_s *s,

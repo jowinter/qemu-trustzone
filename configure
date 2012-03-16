@@ -22,7 +22,9 @@ rm -f config.log
 
 # Print a helpful header at the top of config.log
 echo "# QEMU configure log $(date)" >> config.log
-echo "# produced by $0 $*" >> config.log
+printf "# Configured with:" >> config.log
+printf " '%s'" "$0" "$@" >> config.log
+echo >> config.log
 echo "#" >> config.log
 
 compile_object() {
@@ -192,6 +194,7 @@ opengl=""
 zlib="yes"
 guest_agent="yes"
 libiscsi=""
+coroutine=""
 
 # If this is a Linaro QEMU tarball then default the pkgversion
 # string to say so, so that we clearly distinguish ourselves
@@ -239,7 +242,7 @@ for opt do
 done
 # OS specific
 # Using uname is really, really broken.  Once we have the right set of checks
-# we can eliminate it's usage altogether
+# we can eliminate its usage altogether.
 
 cc="${CC-${cross_prefix}gcc}"
 ar="${AR-${cross_prefix}ar}"
@@ -522,7 +525,13 @@ if test "$mingw32" = "yes" ; then
   QEMU_CFLAGS="-DWIN32_LEAN_AND_MEAN -DWINVER=0x501 $QEMU_CFLAGS"
   # enable C99/POSIX format strings (needs mingw32-runtime 3.15 or later)
   QEMU_CFLAGS="-D__USE_MINGW_ANSI_STDIO=1 $QEMU_CFLAGS"
-  LIBS="-lwinmm -lws2_32 -liberty -liphlpapi $LIBS"
+  LIBS="-lwinmm -lws2_32 -liphlpapi $LIBS"
+cat > $TMPC << EOF
+int main(void) { return 0; }
+EOF
+  if compile_prog "" "-liberty" ; then
+    LIBS="-liberty $LIBS"
+  fi
   prefix="c:/Program Files/Qemu"
   mandir="\${prefix}"
   datadir="\${prefix}"
@@ -530,7 +539,7 @@ if test "$mingw32" = "yes" ; then
   bindir="\${prefix}"
   sysconfdir="\${prefix}"
   confsuffix=""
-  libs_qga="-lws2_32 -lwinmm $lib_qga"
+  libs_qga="-lws2_32 -lwinmm -lpowrprof $lib_qga"
 fi
 
 werror=""
@@ -788,6 +797,8 @@ for opt do
   --disable-blobs) blobs="no"
   ;;
   --with-pkgversion=*) pkgversion=" ($optarg)"
+  ;;
+  --with-coroutine=*) coroutine="$optarg"
   ;;
   --disable-docs) docs="no"
   ;;
@@ -1115,6 +1126,8 @@ echo "  --disable-usb-redir      disable usb network redirection support"
 echo "  --enable-usb-redir       enable usb network redirection support"
 echo "  --disable-guest-agent    disable building of the QEMU Guest Agent"
 echo "  --enable-guest-agent     enable building of the QEMU Guest Agent"
+echo "  --with-coroutine=BACKEND coroutine backend. Supported options:"
+echo "                           gthread, ucontext, sigaltstack, windows"
 echo ""
 echo "NOTE: The object files are built at the place where configure is launched"
 exit 1
@@ -2537,17 +2550,6 @@ if test "$darwin" != "yes" -a "$mingw32" != "yes" -a "$solaris" != yes -a \
 fi
 
 ##########################################
-# check if the compiler defines offsetof
-
-need_offsetof=yes
-cat > $TMPC << EOF
-#include <stddef.h>
-int main(void) { struct s { int f; }; return offsetof(struct s, f); }
-EOF
-if compile_prog "" "" ; then
-    need_offsetof=no
-fi
-
 # spice probe
 if test "$spice" != "no" ; then
   cat > $TMPC << EOF
@@ -2732,21 +2734,38 @@ EOF
 fi
 
 ##########################################
-# check if we have makecontext
-# (and that it's not a glibc stub which always returns -1)
+# check and set a backend for coroutine
 
-ucontext_coroutine=no
-if test "$darwin" != "yes"; then
-  cat > $TMPC << EOF
+# default is ucontext, but always fallback to gthread
+# windows autodetected by make
+if test "$coroutine" = "" -o "$coroutine" = "ucontext"; then
+  if test "$darwin" != "yes"; then
+    cat > $TMPC << EOF
 #include <ucontext.h>
 #ifdef __stub_makecontext
 #error Ignoring glibc stub makecontext which will always fail
 #endif
 int main(void) { makecontext(0, 0, 0); return 0; }
 EOF
-  if compile_prog "" "" ; then
-      ucontext_coroutine=yes
+    if compile_prog "" "" ; then
+        coroutine_backend=ucontext
+    else
+	coroutine_backend=gthread
+    fi
+  else
+    echo "Silently falling back into gthread backend under darwin"
   fi
+elif test "$coroutine" = "gthread" ; then
+  coroutine_backend=gthread
+elif test "$coroutine" = "windows" ; then
+  coroutine_backend=windows
+elif test "$coroutine" = "sigaltstack" ; then
+  coroutine_backend=sigaltstack
+else
+  echo
+  echo "Error: unknown coroutine backend $coroutine"
+  echo
+  exit 1
 fi
 
 ##########################################
@@ -2948,6 +2967,7 @@ echo "usb net redir     $usb_redir"
 echo "OpenGL support    $opengl"
 echo "libiscsi support  $libiscsi"
 echo "build guest agent $guest_agent"
+echo "coroutine backend $coroutine_backend"
 
 if test "$sdl_too_old" = "yes"; then
 echo "-> Your SDL version is too old - please upgrade to have SDL support"
@@ -3213,9 +3233,6 @@ fi
 if test "$tcg_interpreter" = "yes" ; then
   echo "CONFIG_TCG_INTERPRETER=y" >> $config_host_mak
 fi
-if test "$need_offsetof" = "yes" ; then
-  echo "CONFIG_NEED_OFFSETOF=y" >> $config_host_mak
-fi
 if test "$fdatasync" = "yes" ; then
   echo "CONFIG_FDATASYNC=y" >> $config_host_mak
 fi
@@ -3266,8 +3283,10 @@ if test "$rbd" = "yes" ; then
   echo "CONFIG_RBD=y" >> $config_host_mak
 fi
 
-if test "$ucontext_coroutine" = "yes" ; then
+if test "$coroutine_backend" = "ucontext" ; then
   echo "CONFIG_UCONTEXT_COROUTINE=y" >> $config_host_mak
+elif test "$coroutine_backend" = "sigaltstack" ; then
+  echo "CONFIG_SIGALTSTACK_COROUTINE=y" >> $config_host_mak
 fi
 
 if test "$open_by_handle_at" = "yes" ; then
@@ -3445,6 +3464,7 @@ mkdir -p $target_dir
 mkdir -p $target_dir/fpu
 mkdir -p $target_dir/tcg
 mkdir -p $target_dir/ide
+mkdir -p $target_dir/usb
 mkdir -p $target_dir/9pfs
 mkdir -p $target_dir/kvm
 if test "$target" = "arm-linux-user" -o "$target" = "armeb-linux-user" -o "$target" = "arm-bsd-user" -o "$target" = "armeb-bsd-user" ; then
@@ -3861,7 +3881,7 @@ done # for target in $targets
 DIRS="tests tests/tcg tests/tcg/cris slirp audio block net pc-bios/optionrom"
 DIRS="$DIRS pc-bios/spapr-rtas"
 DIRS="$DIRS roms/seabios roms/vgabios"
-DIRS="$DIRS fsdev ui"
+DIRS="$DIRS fsdev ui usb"
 DIRS="$DIRS qapi qapi-generated"
 DIRS="$DIRS qga trace qom"
 FILES="Makefile tests/tcg/Makefile qdict-test-data.txt"
@@ -3903,6 +3923,7 @@ for hwlib in 32 64; do
   d=libhw$hwlib
   mkdir -p $d
   mkdir -p $d/ide
+  mkdir -p $d/usb
   symlink $source_path/Makefile.hw $d/Makefile
   mkdir -p $d/9pfs
   echo "QEMU_CFLAGS+=-DTARGET_PHYS_ADDR_BITS=$hwlib" > $d/config.mak
@@ -3918,6 +3939,7 @@ fi
 d=libuser
 mkdir -p $d
 mkdir -p $d/trace
+mkdir -p $d/qom
 symlink $source_path/Makefile.user $d/Makefile
 
 if test "$docs" = "yes" ; then

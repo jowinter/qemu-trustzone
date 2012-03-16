@@ -1040,19 +1040,19 @@ static void tcg_out_qemu_ld(TCGContext *s, const TCGArg *args, int opc)
     lab1 = gen_new_label();
     lab2 = gen_new_label();
 
-    offset = offsetof(CPUState, tlb_table[mem_index][0].addr_read);
+    offset = offsetof(CPUArchState, tlb_table[mem_index][0].addr_read);
     offset = tcg_out_tlb_read(s, TCG_REG_R26, TCG_REG_R25, addrlo_reg, addrhi_reg,
                               opc & 3, lab1, offset);
 
     /* TLB Hit.  */
     tcg_out_ld(s, TCG_TYPE_PTR, TCG_REG_R20, (offset ? TCG_REG_R1 : TCG_REG_R25),
-               offsetof(CPUState, tlb_table[mem_index][0].addend) - offset);
+               offsetof(CPUArchState, tlb_table[mem_index][0].addend) - offset);
     tcg_out_qemu_ld_direct(s, datalo_reg, datahi_reg, addrlo_reg, TCG_REG_R20, opc);
     tcg_out_branch(s, lab2, 1);
 
     /* TLB Miss.  */
     /* label1: */
-    tcg_out_label(s, lab1, (tcg_target_long)s->code_ptr);
+    tcg_out_label(s, lab1, s->code_ptr);
 
     argreg = TCG_REG_R26;
     tcg_out_mov(s, TCG_TYPE_I32, argreg--, addrlo_reg);
@@ -1089,7 +1089,7 @@ static void tcg_out_qemu_ld(TCGContext *s, const TCGArg *args, int opc)
     }
 
     /* label2: */
-    tcg_out_label(s, lab2, (tcg_target_long)s->code_ptr);
+    tcg_out_label(s, lab2, s->code_ptr);
 #else
     tcg_out_qemu_ld_direct(s, datalo_reg, datahi_reg, addrlo_reg,
                            (GUEST_BASE ? TCG_GUEST_BASE_REG : TCG_REG_R0), opc);
@@ -1155,13 +1155,13 @@ static void tcg_out_qemu_st(TCGContext *s, const TCGArg *args, int opc)
     lab1 = gen_new_label();
     lab2 = gen_new_label();
 
-    offset = offsetof(CPUState, tlb_table[mem_index][0].addr_write);
+    offset = offsetof(CPUArchState, tlb_table[mem_index][0].addr_write);
     offset = tcg_out_tlb_read(s, TCG_REG_R26, TCG_REG_R25, addrlo_reg, addrhi_reg,
                               opc, lab1, offset);
 
     /* TLB Hit.  */
     tcg_out_ld(s, TCG_TYPE_PTR, TCG_REG_R20, (offset ? TCG_REG_R1 : TCG_REG_R25),
-               offsetof(CPUState, tlb_table[mem_index][0].addend) - offset);
+               offsetof(CPUArchState, tlb_table[mem_index][0].addend) - offset);
 
     /* There are no indexed stores, so we must do this addition explitly.
        Careful to avoid R20, which is used for the bswaps to follow.  */
@@ -1171,7 +1171,7 @@ static void tcg_out_qemu_st(TCGContext *s, const TCGArg *args, int opc)
 
     /* TLB Miss.  */
     /* label1: */
-    tcg_out_label(s, lab1, (tcg_target_long)s->code_ptr);
+    tcg_out_label(s, lab1, s->code_ptr);
 
     argreg = TCG_REG_R26;
     tcg_out_mov(s, TCG_TYPE_I32, argreg--, addrlo_reg);
@@ -1215,7 +1215,7 @@ static void tcg_out_qemu_st(TCGContext *s, const TCGArg *args, int opc)
     tcg_out_call(s, qemu_st_helpers[opc]);
 
     /* label2: */
-    tcg_out_label(s, lab2, (tcg_target_long)s->code_ptr);
+    tcg_out_label(s, lab2, s->code_ptr);
 #else
     /* There are no indexed stores, so if GUEST_BASE is set we must do the add
        explicitly.  Careful to avoid R20, which is used for the bswaps to follow.  */
