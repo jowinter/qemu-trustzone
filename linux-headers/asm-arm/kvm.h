@@ -19,6 +19,9 @@
 
 #include <asm/types.h>
 
+#define __KVM_HAVE_GUEST_DEBUG
+#define __KVM_HAVE_IRQ_LINE
+
 /*
  * KVM_IRQ_LINE macros to set/read IRQ/FIQ for specific VCPU index.
  */
@@ -33,13 +36,15 @@ enum KVM_ARM_IRQ_LINE_TYPE {
  *
  * Note: These indices do NOT correspond to the value of the CPSR mode bits!
  */
-#define MODE_FIQ	0
-#define MODE_IRQ	1
-#define MODE_SVC	2
-#define MODE_ABT	3
-#define MODE_UND	4
-#define MODE_USR	5
-#define MODE_SYS	6
+enum vcpu_mode {
+	MODE_FIQ = 0,
+	MODE_IRQ,
+	MODE_SVC,
+	MODE_ABT,
+	MODE_UND,
+	MODE_USR,
+	MODE_SYS
+};
 
 struct kvm_regs {
 	__u32 regs0_7[8];	/* Unbanked regs. (r0 - r7)	   */
@@ -55,6 +60,7 @@ struct kvm_regs {
 		__u32 c1_sys;
 		__u32 c2_base0;
 		__u32 c2_base1;
+		__u32 c2_control;
 		__u32 c3_dacr;
 	} cp15;
 
@@ -73,6 +79,9 @@ struct kvm_debug_exit_arch {
 };
 
 struct kvm_sync_regs {
+};
+
+struct kvm_arch_memory_slot {
 };
 
 #endif /* __ARM_KVM_H__ */
