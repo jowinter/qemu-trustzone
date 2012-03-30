@@ -81,7 +81,9 @@ libobj-y += tcg/tcg.o tcg/optimize.o
 libobj-$(CONFIG_TCG_INTERPRETER) += tci.o
 libobj-y += fpu/softfloat.o
 ifneq ($(TARGET_BASE_ARCH), sparc)
+ifneq ($(TARGET_BASE_ARCH), alpha)
 libobj-y += op_helper.o
+endif
 endif
 libobj-y += helper.o
 ifeq ($(TARGET_BASE_ARCH), i386)
@@ -96,6 +98,7 @@ libobj-y += cpu_init.o
 endif
 libobj-$(TARGET_SPARC) += int32_helper.o
 libobj-$(TARGET_SPARC64) += int64_helper.o
+libobj-$(TARGET_ALPHA) += int_helper.o fpu_helper.o sys_helper.o mem_helper.o
 
 libobj-y += disas.o
 libobj-$(CONFIG_TCI_DIS) += tci-dis.o
@@ -209,7 +212,7 @@ obj-y = arch_init.o cpus.o monitor.o machine.o gdbstub.o balloon.o ioport.o
 # need to fix this properly
 obj-$(CONFIG_NO_PCI) += pci-stub.o
 obj-$(CONFIG_VIRTIO) += virtio.o virtio-blk.o virtio-balloon.o virtio-net.o virtio-serial-bus.o
-obj-$(CONFIG_VIRTIO_SCSI) += virtio-scsi.o
+obj-$(CONFIG_VIRTIO) += virtio-scsi.o
 obj-y += vhost_net.o
 obj-$(CONFIG_VHOST_NET) += vhost.o
 obj-$(CONFIG_REALLY_VIRTFS) += 9pfs/virtio-9p-device.o

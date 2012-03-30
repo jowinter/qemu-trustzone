@@ -3099,6 +3099,7 @@ int main(int argc, char **argv, char **envp)
                 break;
             case QEMU_OPTION_incoming:
                 incoming = optarg;
+                runstate_set(RUN_STATE_INMIGRATE);
                 break;
             case QEMU_OPTION_nodefaults:
                 default_serial = 0;
@@ -3195,7 +3196,7 @@ int main(int argc, char **argv, char **envp)
     cpudef_init();
 
     if (cpu_model && *cpu_model == '?') {
-        list_cpus(stdout, &fprintf, optarg);
+        list_cpus(stdout, &fprintf, cpu_model);
         exit(0);
     }
 
@@ -3368,6 +3369,11 @@ int main(int argc, char **argv, char **envp)
         fprintf(stderr, "could not initialize alarm timer\n");
         exit(1);
     }
+
+#ifdef CONFIG_SPICE
+    /* spice needs the timers to be initialized by this point */
+    qemu_spice_init();
+#endif
 
     if (icount_option && (kvm_enabled() || xen_enabled())) {
         fprintf(stderr, "-icount is not allowed with kvm or xen\n");
@@ -3611,7 +3617,6 @@ int main(int argc, char **argv, char **envp)
     }
 
     if (incoming) {
-        runstate_set(RUN_STATE_INMIGRATE);
         int ret = qemu_start_incoming_migration(incoming);
         if (ret < 0) {
             fprintf(stderr, "Migration failed. Exit code %s(%d), exiting.\n",
