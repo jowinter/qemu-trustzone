@@ -4061,6 +4061,8 @@ struct omap_mpu_state_s *omap3_mpu_init(MemoryRegion *sysmem,
     qemu_irq drqs[4];
     int i;
     SysBusDevice *busdev;
+    /* values reported by beagleboard(-xm) hw */
+    const unsigned uart_revision = model == omap3430 ? 0x46 : 0x52;
 
     if (model != omap3430 && model != omap3630) {
         hw_error("%s: invalid cpu model (%d)", __FUNCTION__, model);
@@ -4203,6 +4205,7 @@ struct omap_mpu_state_s *omap3_mpu_init(MemoryRegion *sysmem,
                          omap_clk_getrate(omap_findclk(s, "omap3_uart1_fclk"))
                          / 16);
     qdev_prop_set_chr(s->uart[0], "chardev", chr_uart1);
+    qdev_prop_set_uint32(s->uart[0], "revision", uart_revision);
     qdev_init_nofail(s->uart[0]);
     busdev = sysbus_from_qdev(s->uart[0]);
     sysbus_connect_irq(busdev, 0,
@@ -4219,6 +4222,7 @@ struct omap_mpu_state_s *omap3_mpu_init(MemoryRegion *sysmem,
                          omap_clk_getrate(omap_findclk(s, "omap3_uart2_fclk"))
                          / 16);
     qdev_prop_set_chr(s->uart[1], "chardev", chr_uart2);
+    qdev_prop_set_uint32(s->uart[1], "revision", uart_revision);
     qdev_init_nofail(s->uart[1]);
     busdev = sysbus_from_qdev(s->uart[1]);
     sysbus_connect_irq(busdev, 0,
@@ -4235,6 +4239,7 @@ struct omap_mpu_state_s *omap3_mpu_init(MemoryRegion *sysmem,
                          omap_clk_getrate(omap_findclk(s, "omap3_uart3_fclk"))
                          / 16);
     qdev_prop_set_chr(s->uart[2], "chardev", chr_uart3);
+    qdev_prop_set_uint32(s->uart[2], "revision", uart_revision);
     qdev_init_nofail(s->uart[2]);
     busdev = sysbus_from_qdev(s->uart[2]);
     sysbus_connect_irq(busdev, 0,
@@ -4253,6 +4258,7 @@ struct omap_mpu_state_s *omap3_mpu_init(MemoryRegion *sysmem,
                                                            "omap3_uart4_fclk"))
                              / 16);
         qdev_prop_set_chr(s->uart[3], "chardev", chr_uart4);
+        qdev_prop_set_uint32(s->uart[3], "revision", uart_revision);
         qdev_init_nofail(s->uart[3]);
         busdev = sysbus_from_qdev(s->uart[3]);
         sysbus_connect_irq(busdev, 0,

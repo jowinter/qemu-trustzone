@@ -46,6 +46,7 @@ struct omap_uart_s {
     const MemoryRegionOps *serial_ops;
     uint32_t mmio_size;
     uint32_t baudrate;
+    uint32_t revision;
     qemu_irq tx_drq;
     qemu_irq rx_drq;
 
@@ -165,7 +166,7 @@ static uint64_t omap_uart_read(void *opaque, target_phys_addr_t addr,
     case 0x4C:	/* OSC_12M_SEL (OMAP1) */
         return s->clksel;
     case 0x50:	/* MVR */
-        return 0x30;
+        return s->revision;
     case 0x54:	/* SYSC (OMAP2) */
         return s->syscontrol;
     case 0x58:	/* SYSS (OMAP2) */
@@ -326,6 +327,7 @@ static int omap_uart_init(SysBusDevice *busdev)
 }
 
 static Property omap_uart_properties[] = {
+    DEFINE_PROP_UINT32("revision", struct omap_uart_s, revision, 0x30),
     DEFINE_PROP_UINT32("mmio_size", struct omap_uart_s, mmio_size, 0x400),
     DEFINE_PROP_UINT32("baudrate", struct omap_uart_s, baudrate, 0),
     DEFINE_PROP_CHR("chardev", struct omap_uart_s, chr),
