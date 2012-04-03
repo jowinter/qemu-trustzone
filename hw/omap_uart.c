@@ -175,6 +175,16 @@ static uint64_t omap_uart_read(void *opaque, target_phys_addr_t addr,
         return s->wkup;
     case 0x60:	/* CFPS (OMAP2) */
         return s->cfps;
+    case 0x64:  /* RXFIFO_LVL_REG (OMAP36xx) */
+        if (s->revision >= 0x52) {
+            return serial_rx_fifo_count(s->serial) & 0xff;
+        }
+        break;
+    case 0x68:  /* TXFIFO_LVL_REG (OMAP36xx) */
+        if (s->revision >= 0x52) {
+            return serial_tx_fifo_count(s->serial) & 0xff;
+        }
+        break;
     }
 
     OMAP_BAD_REG(addr);
