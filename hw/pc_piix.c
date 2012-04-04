@@ -107,6 +107,9 @@ static void ioapic_init(GSIState *gsi_state)
     } else {
         dev = qdev_create(NULL, "ioapic");
     }
+    /* FIXME: this should be under the piix3.  */
+    object_property_add_child(object_resolve_path("i440fx", NULL),
+                              "ioapic", OBJECT(dev), NULL);
     qdev_init_nofail(dev);
     d = sysbus_from_qdev(dev);
     sysbus_mmio_map(d, 0, 0xfec00000);
@@ -146,7 +149,6 @@ static void pc_init1(MemoryRegion *system_memory,
     MemoryRegion *ram_memory;
     MemoryRegion *pci_memory;
     MemoryRegion *rom_memory;
-    DeviceState *dev;
 
     pc_cpus_init(cpu_model);
 
@@ -224,11 +226,7 @@ static void pc_init1(MemoryRegion *system_memory,
 
     pc_register_ferr_irq(gsi[13]);
 
-    dev = pc_vga_init(isa_bus, pci_enabled ? pci_bus : NULL);
-    if (dev) {
-        object_property_add_child(object_get_root(), "vga", OBJECT(dev), NULL);
-    }
-
+    pc_vga_init(isa_bus, pci_enabled ? pci_bus : NULL);
     if (xen_enabled()) {
         pci_create_simple(pci_bus, -1, "xen-platform");
     }
@@ -255,17 +253,6 @@ static void pc_init1(MemoryRegion *system_memory,
         }
         idebus[0] = qdev_get_child_bus(&dev->qdev, "ide.0");
         idebus[1] = qdev_get_child_bus(&dev->qdev, "ide.1");
-
-        /* FIXME there's some major spaghetti here.  Somehow we create the
-         * devices on the PIIX before we actually create it.  We create the
-         * PIIX3 deep in the recess of the i440fx creation too and then lose
-         * the DeviceState.
-         *
-         * For now, let's "fix" this by making judicious use of paths.  This
-         * is not generally the right way to do this.
-         */
-        object_property_add_child(object_resolve_path("/i440fx/piix3", NULL),
-                                  "rtc", (Object *)rtc_state, NULL);
     } else {
         for(i = 0; i < MAX_IDE_BUS; i++) {
             ISADevice *dev;

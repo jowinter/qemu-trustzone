@@ -245,7 +245,6 @@ typedef struct CPUARMState {
 CPUARMState *cpu_arm_init(const char *cpu_model);
 void arm_translate_init(void);
 int cpu_arm_exec(CPUARMState *s);
-void cpu_arm_close(CPUARMState *s);
 void do_interrupt(CPUARMState *);
 int bank_number(CPUARMState *env, int mode);
 void switch_mode(CPUARMState *, int);
@@ -392,6 +391,7 @@ enum arm_features {
     ARM_FEATURE_ARM_DIV, /* divide supported in ARM encoding */
     ARM_FEATURE_VFP4, /* VFPv4 (implies that NEON is v2) */
     ARM_FEATURE_GENERIC_TIMER,
+    ARM_FEATURE_MVFR, /* Media and VFP Feature Registers 0 and 1 */
     ARM_FEATURE_TRUSTZONE, /* TrustZone Security Extensions. */
 };
 
@@ -487,6 +487,7 @@ static inline void cpu_clone_regs(CPUARMState *env, target_ulong newsp)
 #endif
 
 #include "cpu-all.h"
+#include "cpu-qom.h"
 
 /* Bit usage in the TB flags field: */
 #define ARM_TBFLAG_THUMB_SHIFT      0

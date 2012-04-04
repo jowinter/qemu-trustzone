@@ -323,6 +323,8 @@ hw-obj-$(CONFIG_DP8393X) += dp8393x.o
 hw-obj-$(CONFIG_DS1225Y) += ds1225y.o
 hw-obj-$(CONFIG_MIPSNET) += mipsnet.o
 
+hw-obj-y += qtest.o
+
 # Sound
 sound-obj-y =
 sound-obj-$(CONFIG_SB16) += sb16.o
@@ -364,6 +366,7 @@ libdis-$(CONFIG_PPC_DIS) += ppc-dis.o
 libdis-$(CONFIG_S390_DIS) += s390-dis.o
 libdis-$(CONFIG_SH4_DIS) += sh4-dis.o
 libdis-$(CONFIG_SPARC_DIS) += sparc-dis.o
+libdis-$(CONFIG_LM32_DIS) += lm32-dis.o
 
 ######################################################################
 # trace
