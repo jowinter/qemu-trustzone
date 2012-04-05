@@ -12,6 +12,16 @@ here. For full change detail consult the git history:
 Bug numbers refer to Launchpad qemu-linaro bugs, eg:
 https://bugs.launchpad.net/qemu-linaro/+bug/703094
 
+version 2012.04:
+ - Fixes #928432: compiling spice support for i386 should
+   no longer give compile warnings/errors.
+ - Fixes #953544: 'SETEND' in Thumb mode should now UNDEF,
+   in line with the behaviour for the ARM encoding.
+ - Fixes #956799: add support for the ppoll syscall for
+   ARM linux-user emulation.
+ - Fixes #970252: add the OMAP36xx UART FIFO status registers
+   (thanks to Jan Vesely for the bug report and patch).
+
 version 2012.03:
  - Fixes #932856: the OMAP3 boot rom emulation now tries
    sector 256 in raw mode as well as sector 0.
