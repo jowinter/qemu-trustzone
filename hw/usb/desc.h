@@ -3,6 +3,69 @@
 
 #include <inttypes.h>
 
+/* binary representation */
+typedef struct USBDescriptor {
+    uint8_t                   bLength;
+    uint8_t                   bDescriptorType;
+    union {
+        struct {
+            uint8_t           bcdUSB_lo;
+            uint8_t           bcdUSB_hi;
+            uint8_t           bDeviceClass;
+            uint8_t           bDeviceSubClass;
+            uint8_t           bDeviceProtocol;
+            uint8_t           bMaxPacketSize0;
+            uint8_t           idVendor_lo;
+            uint8_t           idVendor_hi;
+            uint8_t           idProduct_lo;
+            uint8_t           idProduct_hi;
+            uint8_t           bcdDevice_lo;
+            uint8_t           bcdDevice_hi;
+            uint8_t           iManufacturer;
+            uint8_t           iProduct;
+            uint8_t           iSerialNumber;
+            uint8_t           bNumConfigurations;
+        } device;
+        struct {
+            uint8_t           bcdUSB_lo;
+            uint8_t           bcdUSB_hi;
+            uint8_t           bDeviceClass;
+            uint8_t           bDeviceSubClass;
+            uint8_t           bDeviceProtocol;
+            uint8_t           bMaxPacketSize0;
+            uint8_t           bNumConfigurations;
+            uint8_t           bReserved;
+        } device_qualifier;
+        struct {
+            uint8_t           wTotalLength_lo;
+            uint8_t           wTotalLength_hi;
+            uint8_t           bNumInterfaces;
+            uint8_t           bConfigurationValue;
+            uint8_t           iConfiguration;
+            uint8_t           bmAttributes;
+            uint8_t           bMaxPower;
+        } config;
+        struct {
+            uint8_t           bInterfaceNumber;
+            uint8_t           bAlternateSetting;
+            uint8_t           bNumEndpoints;
+            uint8_t           bInterfaceClass;
+            uint8_t           bInterfaceSubClass;
+            uint8_t           bInterfaceProtocol;
+            uint8_t           iInterface;
+        } interface;
+        struct {
+            uint8_t           bEndpointAddress;
+            uint8_t           bmAttributes;
+            uint8_t           wMaxPacketSize_lo;
+            uint8_t           wMaxPacketSize_hi;
+            uint8_t           bInterval;
+            uint8_t           bRefresh;        /* only audio ep */
+            uint8_t           bSynchAddress;   /* only audio ep */
+        } endpoint;
+    } u;
+} QEMU_PACKED USBDescriptor;
+
 struct USBDescID {
     uint16_t                  idVendor;
     uint16_t                  idProduct;
@@ -108,6 +171,7 @@ int usb_desc_other(const USBDescOther *desc, uint8_t *dest, size_t len);
 void usb_desc_init(USBDevice *dev);
 void usb_desc_attach(USBDevice *dev);
 void usb_desc_set_string(USBDevice *dev, uint8_t index, const char *str);
+void usb_desc_create_serial(USBDevice *dev);
 const char *usb_desc_get_string(USBDevice *dev, uint8_t index);
 int usb_desc_string(USBDevice *dev, int index, uint8_t *dest, size_t len);
 int usb_desc_get_descriptor(USBDevice *dev, int value, uint8_t *dest, size_t len);

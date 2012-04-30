@@ -233,10 +233,10 @@ enum {
     POWERPC_EXCP_DTLBE    = 93, /* Data TLB error                            */
     /* EOL                                                                   */
     POWERPC_EXCP_NB       = 96,
-    /* Qemu exceptions: used internally during code translation              */
+    /* QEMU exceptions: used internally during code translation              */
     POWERPC_EXCP_STOP         = 0x200, /* stop translation                   */
     POWERPC_EXCP_BRANCH       = 0x201, /* branch instruction                 */
-    /* Qemu exceptions: special cases we want to stop translation            */
+    /* QEMU exceptions: special cases we want to stop translation            */
     POWERPC_EXCP_SYNC         = 0x202, /* context synchronizing instruction  */
     POWERPC_EXCP_SYSCALL_USER = 0x203, /* System call in user mode only      */
     POWERPC_EXCP_STCX         = 0x204 /* Conditional stores in user mode     */
@@ -1041,7 +1041,7 @@ struct CPUPPCState {
     /* opcode handlers */
     opc_handler_t *opcodes[0x40];
 
-    /* Those resources are used only in Qemu core */
+    /* Those resources are used only in QEMU core */
     target_ulong hflags;      /* hflags is a MSR & HFLAGS_MASK         */
     target_ulong hflags_nmsr; /* specific hflags, not coming from MSR */
     int mmu_idx;         /* precomputed MMU index to speed up mem accesses */
@@ -1096,11 +1096,12 @@ struct mmu_ctx_t {
 };
 #endif
 
+#include "cpu-qom.h"
+
 /*****************************************************************************/
 CPUPPCState *cpu_ppc_init (const char *cpu_model);
 void ppc_translate_init(void);
 int cpu_ppc_exec (CPUPPCState *s);
-void cpu_ppc_close (CPUPPCState *s);
 /* you can call this signal handler from your SIGBUS and SIGSEGV
    signal handlers to inform the virtual CPU of exceptions. non zero
    is returned if the signal was handled by the virtual CPU.  */

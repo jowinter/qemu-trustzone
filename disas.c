@@ -138,7 +138,7 @@ print_insn_thumb1(bfd_vma pc, disassemble_info *info)
 /* Disassemble this for me please... (debugging). 'flags' has the following
    values:
     i386 - 1 means 16 bit code, 2 means 64 bit code
-    arm  - nonzero means thumb code
+    arm  - bit 0 = thumb, bit 1 = reverse endian
     ppc  - nonzero means little endian
     other targets - unused
  */
@@ -169,10 +169,18 @@ void target_disas(FILE *out, target_ulong code, target_ulong size, int flags)
         disasm_info.mach = bfd_mach_i386_i386;
     print_insn = print_insn_i386;
 #elif defined(TARGET_ARM)
-    if (flags)
-	print_insn = print_insn_thumb1;
-    else
-	print_insn = print_insn_arm;
+    if (flags & 1) {
+        print_insn = print_insn_thumb1;
+    } else {
+        print_insn = print_insn_arm;
+    }
+    if (flags & 2) {
+#ifdef TARGET_WORDS_BIGENDIAN
+        disasm_info.endian = BFD_ENDIAN_LITTLE;
+#else
+        disasm_info.endian = BFD_ENDIAN_BIG;
+#endif
+    }
 #elif defined(TARGET_SPARC)
     print_insn = print_insn_sparc;
 #ifdef TARGET_SPARC64
@@ -260,7 +268,7 @@ void target_disas(FILE *out, target_ulong code, target_ulong size, int flags)
 /* Disassemble this for me please... (debugging). */
 void disas(FILE *out, void *code, unsigned long size)
 {
-    unsigned long pc;
+    uintptr_t pc;
     int count;
     struct disassemble_info disasm_info;
     int (*print_insn)(bfd_vma pc, disassemble_info *info);
@@ -268,7 +276,7 @@ void disas(FILE *out, void *code, unsigned long size)
     INIT_DISASSEMBLE_INFO(disasm_info, out, fprintf);
 
     disasm_info.buffer = code;
-    disasm_info.buffer_vma = (unsigned long)code;
+    disasm_info.buffer_vma = (uintptr_t)code;
     disasm_info.buffer_length = size;
 
 #ifdef HOST_WORDS_BIGENDIAN
@@ -312,8 +320,8 @@ void disas(FILE *out, void *code, unsigned long size)
 	    (long) code);
     return;
 #endif
-    for (pc = (unsigned long)code; size > 0; pc += count, size -= count) {
-	fprintf(out, "0x%08lx:  ", pc);
+    for (pc = (uintptr_t)code; size > 0; pc += count, size -= count) {
+        fprintf(out, "0x%08" PRIxPTR ":  ", pc);
 	count = print_insn(pc, &disasm_info);
 	fprintf(out, "\n");
 	if (count < 0)

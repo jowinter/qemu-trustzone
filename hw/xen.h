@@ -34,6 +34,7 @@ static inline int xen_enabled(void)
 int xen_pci_slot_get_pirq(PCIDevice *pci_dev, int irq_num);
 void xen_piix3_set_irq(void *opaque, int irq_num, int level);
 void xen_piix_pci_write_config_client(uint32_t address, uint32_t val, int len);
+void xen_hvm_inject_msi(uint64_t addr, uint32_t data);
 void xen_cmos_set_s3_resume(void *opaque, int irq, int level);
 
 qemu_irq *xen_interrupt_controller_init(void);
@@ -55,5 +56,15 @@ void xen_register_framebuffer(struct MemoryRegion *mr);
 #if defined(CONFIG_XEN) && CONFIG_XEN_CTRL_INTERFACE_VERSION < 400
 #  define HVM_MAX_VCPUS 32
 #endif
+
+static inline int xen_msi_support(void)
+{
+#if defined(CONFIG_XEN_CTRL_INTERFACE_VERSION) \
+    && CONFIG_XEN_CTRL_INTERFACE_VERSION >= 420
+    return xen_enabled();
+#else
+    return 0;
+#endif
+}
 
 #endif /* QEMU_HW_XEN_H */

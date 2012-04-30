@@ -103,7 +103,7 @@ static int cow_open(BlockDriverState *bs, int flags)
 }
 
 /*
- * XXX(hch): right now these functions are extremely ineffcient.
+ * XXX(hch): right now these functions are extremely inefficient.
  * We should just read the whole bitmap we'll need in one go instead.
  */
 static inline int cow_set_bit(BlockDriverState *bs, int64_t bitnum)
@@ -318,11 +318,6 @@ exit:
     return ret;
 }
 
-static coroutine_fn int cow_co_flush(BlockDriverState *bs)
-{
-    return bdrv_co_flush(bs->file);
-}
-
 static QEMUOptionParameter cow_create_options[] = {
     {
         .name = BLOCK_OPT_SIZE,
@@ -348,7 +343,6 @@ static BlockDriver bdrv_cow = {
 
     .bdrv_read              = cow_co_read,
     .bdrv_write             = cow_co_write,
-    .bdrv_co_flush_to_disk  = cow_co_flush,
     .bdrv_co_is_allocated   = cow_co_is_allocated,
 
     .create_options = cow_create_options,

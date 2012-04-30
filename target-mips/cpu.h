@@ -15,13 +15,6 @@
 #include "cpu-defs.h"
 #include "softfloat.h"
 
-// uint_fast8_t and uint_fast16_t not in <sys/int_types.h>
-// XXX: move that elsewhere
-#if defined(CONFIG_SOLARIS) && CONFIG_SOLARIS_VERSION < 10
-typedef unsigned char           uint_fast8_t;
-typedef unsigned int            uint_fast16_t;
-#endif
-
 struct CPUMIPSState;
 
 typedef struct r4k_tlb_t r4k_tlb_t;
@@ -418,7 +411,7 @@ struct CPUMIPSState {
     /* We waste some space so we can handle shadow registers like TCs. */
     TCState tcs[MIPS_SHADOW_SET_MAX];
     CPUMIPSFPUContext fpus[MIPS_FPU_MAX];
-    /* Qemu */
+    /* QEMU */
     int error_code;
     uint32_t hflags;    /* CPU State */
     /* TMASK defines different execution modes */

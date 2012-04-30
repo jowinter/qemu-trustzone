@@ -76,6 +76,39 @@ static int coroutine_fn stream_populate(BlockDriverState *bs,
     return bdrv_co_copy_on_readv(bs, sector_num, nb_sectors, &qiov);
 }
 
+static void close_unused_images(BlockDriverState *top, BlockDriverState *base,
+                                const char *base_id)
+{
+    BlockDriverState *intermediate;
+    intermediate = top->backing_hd;
+
+    while (intermediate) {
+        BlockDriverState *unused;
+
+        /* reached base */
+        if (intermediate == base) {
+            break;
+        }
+
+        unused = intermediate;
+        intermediate = intermediate->backing_hd;
+        unused->backing_hd = NULL;
+        bdrv_delete(unused);
+    }
+    top->backing_hd = base;
+
+    pstrcpy(top->backing_file, sizeof(top->backing_file), "");
+    pstrcpy(top->backing_format, sizeof(top->backing_format), "");
+    if (base_id) {
+        pstrcpy(top->backing_file, sizeof(top->backing_file), base_id);
+        if (base->drv) {
+            pstrcpy(top->backing_format, sizeof(top->backing_format),
+                    base->drv->format_name);
+        }
+    }
+
+}
+
 /*
  * Given an image chain: [BASE] -> [INTER1] -> [INTER2] -> [TOP]
  *
@@ -175,7 +208,7 @@ retry:
             break;
         }
 
-
+        s->common.busy = true;
         if (base) {
             ret = is_allocated_base(bs, base, sector_num,
                                     STREAM_BUFFER_SIZE / BDRV_SECTOR_SIZE, &n);
@@ -189,6 +222,7 @@ retry:
             if (s->common.speed) {
                 uint64_t delay_ns = ratelimit_calculate_delay(&s->limit, n);
                 if (delay_ns > 0) {
+                    s->common.busy = false;
                     co_sleep_ns(rt_clock, delay_ns);
 
                     /* Recheck cancellation and that sectors are unallocated */
@@ -208,6 +242,7 @@ retry:
         /* Note that even when no rate limit is applied we need to yield
          * with no pending I/O here so that qemu_aio_flush() returns.
          */
+        s->common.busy = false;
         co_sleep_ns(rt_clock, 0);
     }
 
@@ -215,28 +250,28 @@ retry:
         bdrv_disable_copy_on_read(bs);
     }
 
-    if (sector_num == end && ret == 0) {
+    if (!block_job_is_cancelled(&s->common) && sector_num == end && ret == 0) {
         const char *base_id = NULL;
         if (base) {
             base_id = s->backing_file_id;
         }
         ret = bdrv_change_backing_file(bs, base_id, NULL);
+        close_unused_images(bs, base, base_id);
     }
 
     qemu_vfree(buf);
     block_job_complete(&s->common, ret);
 }
 
-static int stream_set_speed(BlockJob *job, int64_t value)
+static void stream_set_speed(BlockJob *job, int64_t speed, Error **errp)
 {
     StreamBlockJob *s = container_of(job, StreamBlockJob, common);
 
-    if (value < 0) {
-        return -EINVAL;
+    if (speed < 0) {
+        error_set(errp, QERR_INVALID_PARAMETER, "speed");
+        return;
     }
-    job->speed = value;
-    ratelimit_set_speed(&s->limit, value / BDRV_SECTOR_SIZE);
-    return 0;
+    ratelimit_set_speed(&s->limit, speed / BDRV_SECTOR_SIZE);
 }
 
 static BlockJobType stream_job_type = {
@@ -245,16 +280,17 @@ static BlockJobType stream_job_type = {
     .set_speed     = stream_set_speed,
 };
 
-int stream_start(BlockDriverState *bs, BlockDriverState *base,
-                 const char *base_id, BlockDriverCompletionFunc *cb,
-                 void *opaque)
+void stream_start(BlockDriverState *bs, BlockDriverState *base,
+                  const char *base_id, int64_t speed,
+                  BlockDriverCompletionFunc *cb,
+                  void *opaque, Error **errp)
 {
     StreamBlockJob *s;
     Coroutine *co;
 
-    s = block_job_create(&stream_job_type, bs, cb, opaque);
+    s = block_job_create(&stream_job_type, bs, speed, cb, opaque, errp);
     if (!s) {
-        return -EBUSY; /* bs must already be in use */
+        return;
     }
 
     s->base = base;
@@ -265,5 +301,4 @@ int stream_start(BlockDriverState *bs, BlockDriverState *base,
     co = qemu_coroutine_create(stream_run);
     trace_stream_start(bs, base, s, co, opaque);
     qemu_coroutine_enter(co, s);
-    return 0;
 }

@@ -133,7 +133,6 @@
 #define NB_MAXINTRATE    8        // Max rate at which controller issues ints
 #define NB_PORTS         6        // Number of downstream ports
 #define BUFF_SIZE        5*4096   // Max bytes to transfer per transaction
-#define MAX_ITERATIONS   20       // Max number of QH before we break the loop
 #define MAX_QH           100      // Max allowable queue heads in a chain
 
 /*  Internal periodic / asynchronous schedule state machine states
@@ -403,7 +402,6 @@ struct EHCIState {
     /*
      *  Internal states, shadow registers, etc
      */
-    uint32_t sofv;
     QEMUTimer *frame_timer;
     int attach_poll_counter;
     int astate;                        // Current state in asynchronous schedule
@@ -666,6 +664,7 @@ static EHCIQueue *ehci_alloc_queue(EHCIState *ehci, int async)
 
     q = g_malloc0(sizeof(*q));
     q->ehci = ehci;
+    usb_packet_init(&q->packet);
     QTAILQ_INSERT_HEAD(head, q, next);
     trace_usb_ehci_queue_action(q, "alloc");
     return q;
@@ -797,7 +796,6 @@ static void ehci_child_detach(USBPort *port, USBDevice *child)
     if (portsc & PORTSC_POWNER) {
         USBPort *companion = s->companion_ports[port->index];
         companion->ops->child_detach(companion, child);
-        companion->dev = NULL;
         return;
     }
 
@@ -1104,7 +1102,7 @@ static void ehci_mem_writel(void *ptr, target_phys_addr_t addr, uint32_t val)
         break;
 
     case FRINDEX:
-        s->sofv = val >> 3;
+        val &= 0x00003ff8; /* frindex is 14bits and always a multiple of 8 */
         break;
 
     case CONFIGFLAG:
@@ -1937,24 +1935,8 @@ static void ehci_advance_state(EHCIState *ehci,
 {
     EHCIQueue *q = NULL;
     int again;
-    int iter = 0;
 
     do {
-        if (ehci_get_state(ehci, async) == EST_FETCHQH) {
-            iter++;
-            /* if we are roaming a lot of QH without executing a qTD
-             * something is wrong with the linked list. TO-DO: why is
-             * this hack needed?
-             */
-            assert(iter < MAX_ITERATIONS);
-#if 0
-            if (iter > MAX_ITERATIONS) {
-                DPRINTF("\n*** advance_state: bailing on MAX ITERATIONS***\n");
-                ehci_set_state(ehci, async, EST_ACTIVE);
-                break;
-            }
-#endif
-        }
         switch(ehci_get_state(ehci, async)) {
         case EST_WAITLISTHEAD:
             again = ehci_state_waitlisthead(ehci, async);
@@ -1990,7 +1972,6 @@ static void ehci_advance_state(EHCIState *ehci,
             break;
 
         case EST_EXECUTE:
-            iter = 0;
             again = ehci_state_execute(q, async);
             break;
 
@@ -2015,7 +1996,6 @@ static void ehci_advance_state(EHCIState *ehci,
             fprintf(stderr, "processing error - resetting ehci HC\n");
             ehci_reset(ehci);
             again = 0;
-            assert(0);
         }
     }
     while (again);
@@ -2150,13 +2130,14 @@ static void ehci_frame_timer(void *opaque)
         if ( !(ehci->usbsts & USBSTS_HALT)) {
             ehci->frindex += 8;
 
-            if (ehci->frindex > 0x00001fff) {
-                ehci->frindex = 0;
+            if (ehci->frindex == 0x00002000) {
                 ehci_set_interrupt(ehci, USBSTS_FLR);
             }
 
-            ehci->sofv = (ehci->frindex - 1) >> 3;
-            ehci->sofv &= 0x000003ff;
+            if (ehci->frindex == 0x00004000) {
+                ehci_set_interrupt(ehci, USBSTS_FLR);
+                ehci->frindex = 0;
+            }
         }
 
         if (frames - i > ehci->maxframes) {

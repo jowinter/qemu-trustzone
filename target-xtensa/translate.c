@@ -37,9 +37,9 @@
 #include "qemu-log.h"
 #include "sysemu.h"
 
-#include "helpers.h"
+#include "helper.h"
 #define GEN_HELPER 1
-#include "helpers.h"
+#include "helper.h"
 
 typedef struct DisasContext {
     const XtensaConfig *config;
@@ -183,7 +183,7 @@ void xtensa_translate_init(void)
         }
     }
 #define GEN_HELPER 2
-#include "helpers.h"
+#include "helper.h"
 }
 
 static inline bool option_bits_enabled(DisasContext *dc, uint64_t opt)
@@ -459,11 +459,13 @@ static void gen_rsr(DisasContext *dc, TCGv_i32 d, uint32_t sr)
 static void gen_wsr_lbeg(DisasContext *dc, uint32_t sr, TCGv_i32 s)
 {
     gen_helper_wsr_lbeg(s);
+    gen_jumpi_check_loop_end(dc, 0);
 }
 
 static void gen_wsr_lend(DisasContext *dc, uint32_t sr, TCGv_i32 s)
 {
     gen_helper_wsr_lend(s);
+    gen_jumpi_check_loop_end(dc, 0);
 }
 
 static void gen_wsr_sar(DisasContext *dc, uint32_t sr, TCGv_i32 s)
@@ -2276,7 +2278,7 @@ static void disas_xtensa_insn(DisasContext *dc)
 
                         tcg_gen_subi_i32(cpu_SR[LCOUNT], cpu_R[RRI8_S], 1);
                         tcg_gen_movi_i32(cpu_SR[LBEG], dc->next_pc);
-                        gen_wsr_lend(dc, LEND, tmp);
+                        gen_helper_wsr_lend(tmp);
                         tcg_temp_free(tmp);
 
                         if (BRI8_R > 8) {

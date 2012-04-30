@@ -59,12 +59,13 @@ TARGET_TYPE=system
 endif
 
 $(QEMU_PROG).stp: $(SRC_PATH)/trace-events
-	$(call quiet-command,sh $(SRC_PATH)/scripts/tracetool \
-		--$(TRACE_BACKEND) \
-		--binary $(bindir)/$(QEMU_PROG) \
-		--target-arch $(TARGET_ARCH) \
-		--target-type $(TARGET_TYPE) \
-		--stap < $(SRC_PATH)/trace-events > $(QEMU_PROG).stp,"  GEN   $(QEMU_PROG).stp")
+	$(call quiet-command,$(TRACETOOL) \
+		--format=stap \
+		--backend=$(TRACE_BACKEND) \
+		--binary=$(bindir)/$(QEMU_PROG) \
+		--target-arch=$(TARGET_ARCH) \
+		--target-type=$(TARGET_TYPE) \
+		< $< > $@,"  GEN   $(QEMU_PROG).stp")
 else
 stap:
 endif
@@ -87,20 +88,26 @@ endif
 endif
 libobj-y += helper.o
 ifeq ($(TARGET_BASE_ARCH), i386)
-libobj-y += cpuid.o
+libobj-y += cpu.o
 endif
 libobj-$(TARGET_SPARC64) += vis_helper.o
 libobj-$(CONFIG_NEED_MMU) += mmu.o
 libobj-$(TARGET_ARM) += neon_helper.o iwmmxt_helper.o
 libobj-$(TARGET_ARM) += cpu.o
+libobj-$(TARGET_CRIS) += cpu.o
+libobj-$(TARGET_LM32) += cpu.o
+libobj-$(TARGET_MICROBLAZE) += cpu.o
+libobj-$(TARGET_S390X) += cpu.o
 ifeq ($(TARGET_BASE_ARCH), sparc)
 libobj-y += fop_helper.o cc_helper.o win_helper.o mmu_helper.o ldst_helper.o
-libobj-y += cpu_init.o
+libobj-y += cpu.o
 endif
 libobj-$(TARGET_SPARC) += int32_helper.o
 libobj-$(TARGET_SPARC64) += int64_helper.o
 libobj-$(TARGET_UNICORE32) += cpu.o
+libobj-$(TARGET_XTENSA) += cpu.o
 libobj-$(TARGET_ALPHA) += int_helper.o fpu_helper.o sys_helper.o mem_helper.o
+libobj-$(TARGET_ALPHA) += cpu.o
 
 libobj-y += disas.o
 libobj-$(CONFIG_TCI_DIS) += tci-dis.o
@@ -235,7 +242,7 @@ QEMU_CFLAGS += $(VNC_PNG_CFLAGS)
 obj-$(CONFIG_XEN) += xen-all.o xen_machine_pv.o xen_domainbuild.o xen-mapcache.o
 obj-$(CONFIG_NO_XEN) += xen-stub.o
 
-obj-i386-$(CONFIG_XEN) += xen_platform.o
+obj-i386-$(CONFIG_XEN) += xen_platform.o xen_apic.o
 
 # Inter-VM PCI shared memory
 CONFIG_IVSHMEM =
@@ -360,10 +367,12 @@ endif
 obj-arm-y = integratorcp.o versatilepb.o arm_pic.o arm_timer.o
 obj-arm-y += arm_boot.o pl011.o pl031.o pl050.o pl080.o pl110.o pl181.o pl190.o
 obj-arm-y += versatile_pci.o
+obj-arm-y += versatile_i2c.o
 obj-arm-y += cadence_uart.o
 obj-arm-y += cadence_ttc.o
 obj-arm-y += cadence_gem.o
 obj-arm-y += xilinx_zynq.o zynq_slcr.o
+obj-arm-y += arm_gic.o
 obj-arm-y += realview_gic.o realview.o arm_sysctl.o arm11mpcore.o a9mpcore.o
 obj-arm-y += exynos4210_gic.o exynos4210_combiner.o exynos4210.o
 obj-arm-y += exynos4_boards.o exynos4210_uart.o exynos4210_pwm.o
@@ -414,6 +423,7 @@ obj-xtensa-y += xtensa_sim.o
 obj-xtensa-y += xtensa_lx60.o
 obj-xtensa-y += xtensa-semi.o
 obj-xtensa-y += core-dc232b.o
+obj-xtensa-y += core-dc233c.o
 obj-xtensa-y += core-fsf.o
 
 main.o: QEMU_CFLAGS+=$(GPROF_CFLAGS)
@@ -477,8 +487,8 @@ ifneq ($(STRIP),)
 endif
 endif
 ifdef CONFIG_TRACE_SYSTEMTAP
-	$(INSTALL_DIR) "$(DESTDIR)$(datadir)/../systemtap/tapset"
-	$(INSTALL_DATA) $(QEMU_PROG).stp "$(DESTDIR)$(datadir)/../systemtap/tapset"
+	$(INSTALL_DIR) "$(DESTDIR)$(qemu_datadir)/../systemtap/tapset"
+	$(INSTALL_DATA) $(QEMU_PROG).stp "$(DESTDIR)$(qemu_datadir)/../systemtap/tapset"
 endif
 
 # Include automatically generated dependency files

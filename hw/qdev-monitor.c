@@ -19,6 +19,7 @@
 
 #include "qdev.h"
 #include "monitor.h"
+#include "qmp-commands.h"
 
 /*
  * Aliases were a bad idea from the start.  Let's keep them
@@ -180,7 +181,7 @@ static Object *qdev_get_peripheral(void)
     static Object *dev;
 
     if (dev == NULL) {
-        dev = container_get("/machine/peripheral");
+        dev = container_get(qdev_get_machine(), "/peripheral");
     }
 
     return dev;
@@ -191,7 +192,7 @@ static Object *qdev_get_peripheral_anon(void)
     static Object *dev;
 
     if (dev == NULL) {
-        dev = container_get("/machine/peripheral-anon");
+        dev = container_get(qdev_get_machine(), "/peripheral-anon");
     }
 
     return dev;
@@ -570,17 +571,17 @@ int do_device_add(Monitor *mon, const QDict *qdict, QObject **ret_data)
     return 0;
 }
 
-int do_device_del(Monitor *mon, const QDict *qdict, QObject **ret_data)
+void qmp_device_del(const char *id, Error **errp)
 {
-    const char *id = qdict_get_str(qdict, "id");
     DeviceState *dev;
 
     dev = qdev_find_recursive(sysbus_get_default(), id);
     if (NULL == dev) {
-        qerror_report(QERR_DEVICE_NOT_FOUND, id);
-        return -1;
+        error_set(errp, QERR_DEVICE_NOT_FOUND, id);
+        return;
     }
-    return qdev_unplug(dev);
+
+    qdev_unplug(dev, errp);
 }
 
 void qdev_machine_init(void)

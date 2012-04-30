@@ -160,7 +160,9 @@ int qemu_chr_be_can_write(CharDriverState *s)
 
 void qemu_chr_be_write(CharDriverState *s, uint8_t *buf, int len)
 {
-    s->chr_read(s->handler_opaque, buf, len);
+    if (s->chr_read) {
+        s->chr_read(s->handler_opaque, buf, len);
+    }
 }
 
 int qemu_chr_fe_get_msgfd(CharDriverState *s)
@@ -177,6 +179,7 @@ void qemu_chr_accept_input(CharDriverState *s)
 {
     if (s->chr_accept_input)
         s->chr_accept_input(s);
+    qemu_notify_event();
 }
 
 void qemu_chr_fe_printf(CharDriverState *s, const char *fmt, ...)

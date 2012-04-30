@@ -1370,7 +1370,7 @@ async_common:
     case QXL_IO_DESTROY_SURFACE_WAIT:
         if (val >= NUM_SURFACES) {
             qxl_guest_bug(d, "QXL_IO_DESTROY_SURFACE (async=%d):"
-                             "%d >= NUM_SURFACES", async, val);
+                             "%" PRIu64 " >= NUM_SURFACES", async, val);
             goto cancel_async;
         }
         qxl_spice_destroy_surface_wait(d, val, async);
@@ -1959,8 +1959,8 @@ static Property qxl_properties[] = {
         DEFINE_PROP_UINT32("guestdebug", PCIQXLDevice, guestdebug, 0),
         DEFINE_PROP_UINT32("cmdlog", PCIQXLDevice, cmdlog, 0),
         DEFINE_PROP_UINT32("ram_size_mb",  PCIQXLDevice, ram_size_mb, -1),
-        DEFINE_PROP_UINT32("vram_size_mb", PCIQXLDevice, vram32_size_mb, 0),
-        DEFINE_PROP_UINT32("vram64_size_mb", PCIQXLDevice, vram_size_mb, 0),
+        DEFINE_PROP_UINT32("vram_size_mb", PCIQXLDevice, vram32_size_mb, -1),
+        DEFINE_PROP_UINT32("vram64_size_mb", PCIQXLDevice, vram_size_mb, -1),
         DEFINE_PROP_END_OF_LIST(),
 };
 

@@ -27,6 +27,7 @@
 #include "kvm.h"
 #include "kvm_ppc.h"
 #include "cpu.h"
+#include "cpus.h"
 #include "device_tree.h"
 #include "hw/sysbus.h"
 #include "hw/spapr.h"
@@ -470,7 +471,7 @@ void kvm_arch_pre_run(CPUPPCState *env, struct kvm_run *run)
     int r;
     unsigned irq;
 
-    /* PowerPC Qemu tracks the various core input pins (interrupt, critical
+    /* PowerPC QEMU tracks the various core input pins (interrupt, critical
      * interrupt, reset, etc) in PPC-specific env->irq_input_state. */
     if (!cap_interrupt_level &&
         run->ready_for_interrupt_injection &&
@@ -937,6 +938,19 @@ const ppc_def_t *kvmppc_host_cpu_def(void)
 
     return spec;
 }
+
+int kvmppc_fixup_cpu(CPUPPCState *env)
+{
+    int smt;
+
+    /* Adjust cpu index for SMT */
+    smt = kvmppc_smt_threads();
+    env->cpu_index = (env->cpu_index / smp_threads) * smt
+        + (env->cpu_index % smp_threads);
+
+    return 0;
+}
+
 
 bool kvm_arch_stop_on_emulation_error(CPUPPCState *env)
 {

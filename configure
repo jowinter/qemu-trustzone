@@ -155,8 +155,8 @@ mingw32="no"
 EXESUF=""
 prefix="/usr/local"
 mandir="\${prefix}/share/man"
-datadir="\${prefix}/share/qemu"
-docdir="\${prefix}/share/doc/qemu"
+datadir="\${prefix}/share"
+qemu_docdir="\${prefix}/share/doc/qemu"
 bindir="\${prefix}/bin"
 libdir="\${prefix}/lib"
 includedir="\${prefix}/include"
@@ -511,8 +511,8 @@ esac
 if [ "$bsd" = "yes" ] ; then
   if [ "$darwin" != "yes" ] ; then
     usb="bsd"
+    bsd_user="yes"
   fi
-  bsd_user="yes"
 fi
 
 : ${make=${MAKE-make}}
@@ -532,14 +532,14 @@ EOF
   if compile_prog "" "-liberty" ; then
     LIBS="-liberty $LIBS"
   fi
-  prefix="c:/Program Files/Qemu"
+  prefix="c:/Program Files/QEMU"
   mandir="\${prefix}"
   datadir="\${prefix}"
-  docdir="\${prefix}"
+  qemu_docdir="\${prefix}"
   bindir="\${prefix}"
   sysconfdir="\${prefix}"
   confsuffix=""
-  libs_qga="-lws2_32 -lwinmm -lpowrprof $lib_qga"
+  libs_qga="-lws2_32 -lwinmm -lpowrprof $libs_qga"
 fi
 
 werror=""
@@ -604,7 +604,9 @@ for opt do
   ;;
   --datadir=*) datadir="$optarg"
   ;;
-  --docdir=*) docdir="$optarg"
+  --with-confsuffix=*) confsuffix="$optarg"
+  ;;
+  --docdir=*) qemu_docdir="$optarg"
   ;;
   --sysconfdir=*) sysconfdir="$optarg"
   ;;
@@ -1020,10 +1022,11 @@ echo "  --python=PYTHON          use specified python [$python]"
 echo "  --smbd=SMBD              use specified smbd [$smbd]"
 echo "  --static                 enable static build [$static]"
 echo "  --mandir=PATH            install man pages in PATH"
-echo "  --datadir=PATH           install firmware in PATH"
-echo "  --docdir=PATH            install documentation in PATH"
+echo "  --datadir=PATH           install firmware in PATH$confsuffix"
+echo "  --docdir=PATH            install documentation in PATH$confsuffix"
 echo "  --bindir=PATH            install binaries in PATH"
-echo "  --sysconfdir=PATH        install config in PATH/qemu"
+echo "  --sysconfdir=PATH        install config in PATH$confsuffix"
+echo "  --with-confsuffix=SUFFIX      suffix for Qemu data inside datadir and sysconfdir [$confsuffix]"
 echo "  --enable-debug-tcg       enable TCG debugging"
 echo "  --disable-debug-tcg      disable TCG debugging (default)"
 echo "  --enable-debug           enable common debug build options"
@@ -1110,7 +1113,7 @@ echo "  --disable-docs           disable documentation build"
 echo "  --disable-vhost-net      disable vhost-net acceleration support"
 echo "  --enable-vhost-net       enable vhost-net acceleration support"
 echo "  --enable-trace-backend=B Set trace backend"
-echo "                           Available backends:" $("$source_path"/scripts/tracetool --list-backends)
+echo "                           Available backends:" $($python "$source_path"/scripts/tracetool.py --list-backends)
 echo "  --with-trace-file=NAME   Full PATH,NAME of file to store traces"
 echo "                           Default:trace-<pid>"
 echo "  --disable-spice          disable spice"
@@ -1255,6 +1258,14 @@ if ! has $python; then
   exit 1
 fi
 
+# Note that if the Python conditional here evaluates True we will exit
+# with status 1 which is a shell 'false' value.
+if ! "$python" -c 'import sys; sys.exit(sys.version_info[0] >= 3)'; then
+  echo "Python 2 required but '$python' is version 3 or better."
+  echo "Use --python=/path/to/python to specify a Python 2."
+  exit 1
+fi
+
 if test -z "$target_list" ; then
     target_list="$default_target_list"
 else
@@ -1387,6 +1398,31 @@ EOF
     xen=no
 
   # Xen unstable
+  elif (
+      cat > $TMPC <<EOF
+#include <xenctrl.h>
+#include <xs.h>
+#include <stdint.h>
+#include <xen/hvm/hvm_info_table.h>
+#if !defined(HVM_MAX_VCPUS)
+# error HVM_MAX_VCPUS not defined
+#endif
+int main(void) {
+  xc_interface *xc;
+  xs_daemon_open();
+  xc = xc_interface_open(0, 0, 0);
+  xc_hvm_set_mem_type(0, 0, HVMMEM_ram_ro, 0, 0);
+  xc_gnttab_open(NULL, 0);
+  xc_domain_add_to_physmap(0, 0, XENMAPSPACE_gmfn, 0, 0);
+  xc_hvm_inject_msi(xc, 0, 0xf0000000, 0x00000000);
+  return 0;
+}
+EOF
+      compile_prog "" "$xen_libs"
+    ) ; then
+    xen_ctrl_version=420
+    xen=yes
+
   elif (
       cat > $TMPC <<EOF
 #include <xenctrl.h>
@@ -1860,9 +1896,9 @@ for drv in $audio_drv_list; do
     ;;
 
     pa)
-    audio_drv_probe $drv pulse/simple.h "-lpulse-simple -lpulse" \
-        "pa_simple *s = 0; pa_simple_free(s); return 0;"
-    libs_softmmu="-lpulse -lpulse-simple $libs_softmmu"
+    audio_drv_probe $drv pulse/mainloop.h "-lpulse" \
+        "pa_mainloop *m = 0; pa_mainloop_free (m); return 0;"
+    libs_softmmu="-lpulse $libs_softmmu"
     audio_pt_int="yes"
     ;;
 
@@ -2006,13 +2042,21 @@ fi
 
 ##########################################
 # glib support probe
-if $pkg_config --modversion gthread-2.0 > /dev/null 2>&1 ; then
+
+if test "$mingw32" = yes; then
+    # g_poll is required in order to integrate with the glib main loop.
+    glib_req_ver=2.20
+else
+    glib_req_ver=2.12
+fi
+if $pkg_config --atleast-version=$glib_req_ver gthread-2.0 > /dev/null 2>&1
+then
     glib_cflags=`$pkg_config --cflags gthread-2.0 2>/dev/null`
     glib_libs=`$pkg_config --libs gthread-2.0 2>/dev/null`
     LIBS="$glib_libs $LIBS"
     libs_qga="$glib_libs $libs_qga"
 else
-    echo "glib-2.0 required to compile QEMU"
+    echo "glib-$glib_req_ver required to compile QEMU"
     exit 1
 fi
 
@@ -2052,7 +2096,16 @@ else
   for pthread_lib in $PTHREADLIBS_LIST; do
     if compile_prog "" "$pthread_lib" ; then
       pthread=yes
-      LIBS="$pthread_lib $LIBS"
+      found=no
+      for lib_entry in $LIBS; do
+        if test "$lib_entry" = "$pthread_lib"; then
+          found=yes
+          break
+        fi
+      done
+      if test "$found" = "no"; then
+        LIBS="$pthread_lib $LIBS"
+      fi
       break
     fi
   done
@@ -2374,7 +2427,7 @@ int main(void)
     return 0;
 }
 EOF
-if compile_prog "$ARCH_CFLAGS" "" ; then
+if compile_prog "" "" ; then
   fallocate=yes
 fi
 
@@ -2389,7 +2442,7 @@ int main(void)
     return 0;
 }
 EOF
-if compile_prog "$ARCH_CFLAGS" "" ; then
+if compile_prog "" "" ; then
   sync_file_range=yes
 fi
 
@@ -2406,7 +2459,7 @@ int main(void)
     return 0;
 }
 EOF
-if compile_prog "$ARCH_CFLAGS" "" ; then
+if compile_prog "" "" ; then
   fiemap=yes
 fi
 
@@ -2436,7 +2489,7 @@ int main(void)
     return 0;
 }
 EOF
-if compile_prog "$ARCH_CFLAGS" "" ; then
+if compile_prog "" "" ; then
   epoll=yes
 fi
 
@@ -2459,7 +2512,7 @@ int main(void)
     return epoll_create1 == epoll_create1;
 }
 EOF
-if compile_prog "$ARCH_CFLAGS" "" ; then
+if compile_prog "" "" ; then
   epoll_create1=yes
 fi
 
@@ -2473,7 +2526,7 @@ int main(void)
     return 0;
 }
 EOF
-if compile_prog "$ARCH_CFLAGS" "" ; then
+if compile_prog "" "" ; then
   epoll_pwait=yes
 fi
 
@@ -2630,7 +2683,7 @@ int main(void) {
 #if defined(_POSIX_SYNCHRONIZED_IO) && _POSIX_SYNCHRONIZED_IO > 0
 return fdatasync(0);
 #else
-#abort Not supported
+#error Not supported
 #endif
 }
 EOF
@@ -2668,7 +2721,7 @@ fi
 ##########################################
 # check if trace backend exists
 
-sh "$source_path/scripts/tracetool" "--$trace_backend" --check-backend > /dev/null 2> /dev/null
+$python "$source_path/scripts/tracetool.py" "--backend=$trace_backend" --check-backend  > /dev/null 2> /dev/null
 if test "$?" -ne 0 ; then
   echo
   echo "Error: invalid trace backend"
@@ -2686,7 +2739,8 @@ if test "$trace_backend" = "ust"; then
 int main(void) { return 0; }
 EOF
   if compile_prog "" "" ; then
-    LIBS="-lust $LIBS"
+    LIBS="-lust -lurcu-bp $LIBS"
+    libs_qga="-lust -lurcu-bp $libs_qga"
   else
     echo
     echo "Error: Trace backend 'ust' missing libust header files"
@@ -2851,7 +2905,8 @@ if test "$mingw32" = "yes" ; then
     done
 fi
 
-confdir=$sysconfdir$confsuffix
+qemu_confdir=$sysconfdir$confsuffix
+qemu_datadir=$datadir$confsuffix
 
 tools=
 if test "$softmmu" = yes ; then
@@ -2886,7 +2941,7 @@ if test "$cpu" = "ppc64" -a "$targetos" != "Darwin" ; then
 fi
 
 echo "Install prefix    $prefix"
-echo "BIOS directory    `eval echo $datadir`"
+echo "BIOS directory    `eval echo $qemu_datadir`"
 echo "binary directory  `eval echo $bindir`"
 echo "library directory `eval echo $libdir`"
 echo "include directory `eval echo $includedir`"
@@ -2994,12 +3049,11 @@ echo "bindir=$bindir" >> $config_host_mak
 echo "libdir=$libdir" >> $config_host_mak
 echo "includedir=$includedir" >> $config_host_mak
 echo "mandir=$mandir" >> $config_host_mak
-echo "datadir=$datadir" >> $config_host_mak
 echo "sysconfdir=$sysconfdir" >> $config_host_mak
-echo "docdir=$docdir" >> $config_host_mak
-echo "confdir=$confdir" >> $config_host_mak
+echo "qemu_confdir=$qemu_confdir" >> $config_host_mak
+echo "qemu_datadir=$qemu_datadir" >> $config_host_mak
+echo "qemu_docdir=$qemu_docdir" >> $config_host_mak
 echo "libexecdir=\${prefix}/libexec" >> $config_host_mak
-echo "CONFIG_QEMU_SHAREDIR=\"$prefix$datasuffix\"" >> $config_host_mak
 echo "CONFIG_QEMU_HELPERDIR=\"$prefix/libexec\"" >> $config_host_mak
 
 echo "ARCH=$ARCH" >> $config_host_mak

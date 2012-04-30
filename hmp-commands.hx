@@ -71,8 +71,8 @@ ETEXI
 
     {
         .name       = "block_stream",
-        .args_type  = "device:B,base:s?",
-        .params     = "device [base]",
+        .args_type  = "device:B,speed:o?,base:s?",
+        .params     = "device [speed [base]]",
         .help       = "copy data from a backing file into a block device",
         .mhandler.cmd = hmp_block_stream,
     },
@@ -85,15 +85,15 @@ ETEXI
 
     {
         .name       = "block_job_set_speed",
-        .args_type  = "device:B,value:o",
-        .params     = "device value",
+        .args_type  = "device:B,speed:o",
+        .params     = "device speed",
         .help       = "set maximum speed for a background block operation",
         .mhandler.cmd = hmp_block_job_set_speed,
     },
 
 STEXI
-@item block_job_set_stream
-@findex block_job_set_stream
+@item block_job_set_speed
+@findex block_job_set_speed
 Set maximum speed for a background block operation.
 ETEXI
 
@@ -622,8 +622,7 @@ ETEXI
         .args_type  = "id:s",
         .params     = "device",
         .help       = "remove device",
-        .user_print = monitor_user_noop,
-        .mhandler.cmd_new = do_device_del,
+        .mhandler.cmd = hmp_device_del,
     },
 
 STEXI

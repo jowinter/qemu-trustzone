@@ -348,6 +348,8 @@ struct IDEState {
     uint8_t identify_data[512];
     int drive_serial;
     char drive_serial_str[21];
+    char drive_model_str[41];
+    uint64_t wwn;
     /* ide regs */
     uint8_t feature;
     uint8_t error;
@@ -383,6 +385,9 @@ struct IDEState {
     int cd_sector_size;
     int atapi_dma; /* true if dma is requested for the packet cmd */
     BlockAcctCookie acct;
+    BlockDriverAIOCB *pio_aiocb;
+    struct iovec iov;
+    QEMUIOVector qiov;
     /* ATA DMA state */
     int io_buffer_size;
     QEMUSGList sg;
@@ -468,6 +473,8 @@ struct IDEDevice {
     BlockConf conf;
     char *version;
     char *serial;
+    char *model;
+    uint64_t wwn;
 };
 
 #define BM_STATUS_DMAING 0x01
@@ -534,7 +541,8 @@ void ide_data_writel(void *opaque, uint32_t addr, uint32_t val);
 uint32_t ide_data_readl(void *opaque, uint32_t addr);
 
 int ide_init_drive(IDEState *s, BlockDriverState *bs, IDEDriveKind kind,
-                   const char *version, const char *serial);
+                   const char *version, const char *serial, const char *model,
+                   uint64_t wwn);
 void ide_init2(IDEBus *bus, qemu_irq irq);
 void ide_init2_with_non_qdev_drives(IDEBus *bus, DriveInfo *hd0,
                                     DriveInfo *hd1, qemu_irq irq);

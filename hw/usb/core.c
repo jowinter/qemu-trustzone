@@ -484,18 +484,24 @@ void usb_packet_check_state(USBPacket *p, USBPacketState expected)
 
 void usb_packet_set_state(USBPacket *p, USBPacketState state)
 {
-    USBDevice *dev = p->ep->dev;
-    USBBus *bus = usb_bus_from_device(dev);
-
-    trace_usb_packet_state_change(bus->busnr, dev->port->path, p->ep->nr, p,
-                                  usb_packet_state_name(p->state),
-                                  usb_packet_state_name(state));
+    if (p->ep) {
+        USBDevice *dev = p->ep->dev;
+        USBBus *bus = usb_bus_from_device(dev);
+        trace_usb_packet_state_change(bus->busnr, dev->port->path, p->ep->nr, p,
+                                      usb_packet_state_name(p->state),
+                                      usb_packet_state_name(state));
+    } else {
+        trace_usb_packet_state_change(-1, "", -1, p,
+                                      usb_packet_state_name(p->state),
+                                      usb_packet_state_name(state));
+    }
     p->state = state;
 }
 
 void usb_packet_setup(USBPacket *p, int pid, USBEndpoint *ep)
 {
     assert(!usb_packet_is_inflight(p));
+    assert(p->iov.iov != NULL);
     p->pid = pid;
     p->ep = ep;
     p->result = 0;

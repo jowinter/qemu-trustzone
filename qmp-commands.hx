@@ -314,10 +314,7 @@ EQMP
     {
         .name       = "device_del",
         .args_type  = "id:s",
-        .params     = "device",
-        .help       = "remove device",
-        .user_print = monitor_user_noop,
-        .mhandler.cmd_new = do_device_del,
+        .mhandler.cmd_new = qmp_marshal_input_device_del,
     },
 
 SQMP
@@ -690,19 +687,19 @@ Example:
 EQMP
 
     {
-        .name       = "block_stream",
-        .args_type  = "device:B,base:s?",
+        .name       = "block-stream",
+        .args_type  = "device:B,base:s?,speed:o?",
         .mhandler.cmd_new = qmp_marshal_input_block_stream,
     },
 
     {
-        .name       = "block_job_set_speed",
-        .args_type  = "device:B,value:o",
+        .name       = "block-job-set-speed",
+        .args_type  = "device:B,speed:o",
         .mhandler.cmd_new = qmp_marshal_input_block_job_set_speed,
     },
 
     {
-        .name       = "block_job_cancel",
+        .name       = "block-job-cancel",
         .args_type  = "device:B",
         .mhandler.cmd_new = qmp_marshal_input_block_job_cancel,
     },
