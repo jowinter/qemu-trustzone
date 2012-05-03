@@ -542,7 +542,7 @@ static uint32_t omap3_read_fat_cluster(uint8_t *data,
     }
     
     if (bdrv_pread(drv->bs, 
-                   drv->c0 + ((drv->ptype == 32 ? cl - 2 : cl) * len),
+                   drv->c0 + (cl - 2) * len,
                    data, len) != len)
         return 0;
     
@@ -614,14 +614,26 @@ static int omap3_mmc_fat_boot(BlockDriverState *bs,
         }
         free(cluster);
     } else { /* FAT12/16 */
+        /*
+         * drv.c0 points to start of root directory
+         */
         for (i = rootsize, j = 0, p = 0; i-- && !p; j++) {
             if (bdrv_pread(drv.bs, drv.c0 + j * 0x200, sector, 0x200) != 0x200)
                 break;
             p = omap3_scan_fat_dir_sector(sector);
         }
+        /*
+         * Adjust start of clusters to point after the root directory.
+         */
+        drv.c0 += 0x200 * rootsize;
     }
     
     if (p && *p) { /* did we indeed find the file? */
+        /*
+         * FAT16 Spec says to ignore bytes at offset 0x14 (the FAT32
+         * high-order cylinder number bytes); but the omap3 bootrom
+         * seems always to use them.
+         */
         i = omap3_get_le16(p + 0x14);
         i <<= 16;
         i |= omap3_get_le16(p + 0x1a);
