@@ -41,8 +41,8 @@ compile_prog() {
 
 # symbolically link $1 to $2.  Portable version of "ln -sf".
 symlink() {
-  rm -f $2
-  ln -s $1 $2
+  rm -rf "$2"
+  ln -s "$1" "$2"
 }
 
 # check whether a command is available to this shell (may be either an
@@ -173,7 +173,6 @@ profiler="no"
 cocoa="no"
 softmmu="yes"
 linux_user="no"
-darwin_user="no"
 bsd_user="no"
 guest_base=""
 uname_release=""
@@ -431,7 +430,6 @@ Darwin)
   else
     QEMU_CFLAGS="-mdynamic-no-pic $QEMU_CFLAGS"
   fi
-  darwin_user="yes"
   cocoa="yes"
   audio_drv_list="coreaudio"
   audio_possible_drivers="coreaudio sdl fmod"
@@ -477,7 +475,9 @@ SunOS)
 # needed for TIOCWIN* defines in termios.h
   QEMU_CFLAGS="-D__EXTENSIONS__ $QEMU_CFLAGS"
   QEMU_CFLAGS="-std=gnu99 $QEMU_CFLAGS"
-  LIBS="-lsocket -lnsl -lresolv $LIBS"
+  solarisnetlibs="-lsocket -lnsl -lresolv"
+  LIBS="$solarisnetlibs $LIBS"
+  libs_qga="$solarisnetlibs $libs_qga"
 ;;
 AIX)
   aix="yes"
@@ -727,6 +727,8 @@ for opt do
   ;;
   --enable-profiler) profiler="yes"
   ;;
+  --disable-cocoa) cocoa="no"
+  ;;
   --enable-cocoa)
       cocoa="yes" ;
       sdl="no" ;
@@ -739,16 +741,11 @@ for opt do
   --disable-user)
       linux_user="no" ;
       bsd_user="no" ;
-      darwin_user="no"
   ;;
   --enable-user) ;;
   --disable-linux-user) linux_user="no"
   ;;
   --enable-linux-user) linux_user="yes"
-  ;;
-  --disable-darwin-user) darwin_user="no"
-  ;;
-  --enable-darwin-user) darwin_user="yes"
   ;;
   --disable-bsd-user) bsd_user="no"
   ;;
@@ -978,10 +975,6 @@ unicore32-linux-user \
 s390x-linux-user \
 "
 fi
-# the following are Darwin specific
-if [ "$darwin_user" = "yes" ] ; then
-    default_target_list="$default_target_list i386-darwin-user ppc-darwin-user "
-fi
 # the following are BSD specific
 if [ "$bsd_user" = "yes" ] ; then
     default_target_list="${default_target_list}\
@@ -1040,7 +1033,8 @@ echo "  --disable-virtfs         disable VirtFS"
 echo "  --enable-virtfs          enable VirtFS"
 echo "  --disable-vnc            disable VNC"
 echo "  --enable-vnc             enable VNC"
-echo "  --enable-cocoa           enable COCOA (Mac OS X only)"
+echo "  --disable-cocoa          disable Cocoa (Mac OS X only)"
+echo "  --enable-cocoa           enable Cocoa (default on Mac OS X)"
 echo "  --audio-drv-list=LIST    set audio drivers list:"
 echo "                           Available drivers: $audio_possible_drivers"
 echo "  --audio-card-list=LIST   set list of emulated audio cards [$audio_card_list]"
@@ -1082,8 +1076,6 @@ echo "  --enable-user            enable supported user emulation targets"
 echo "  --disable-user           disable all user emulation targets"
 echo "  --enable-linux-user      enable all linux usermode emulation targets"
 echo "  --disable-linux-user     disable all linux usermode emulation targets"
-echo "  --enable-darwin-user     enable all darwin usermode emulation targets"
-echo "  --disable-darwin-user    disable all darwin usermode emulation targets"
 echo "  --enable-bsd-user        enable all BSD usermode emulation targets"
 echo "  --disable-bsd-user       disable all BSD usermode emulation targets"
 echo "  --enable-guest-base      enable GUEST_BASE support for usermode"
@@ -1260,9 +1252,10 @@ fi
 
 # Note that if the Python conditional here evaluates True we will exit
 # with status 1 which is a shell 'false' value.
-if ! "$python" -c 'import sys; sys.exit(sys.version_info[0] >= 3)'; then
-  echo "Python 2 required but '$python' is version 3 or better."
-  echo "Use --python=/path/to/python to specify a Python 2."
+if ! "$python" -c 'import sys; sys.exit(sys.version_info < (2,4) or sys.version_info >= (3,))'; then
+  echo "Cannot use '$python', Python 2.4 or later is required."
+  echo "Note that Python 3 or later is not yet supported."
+  echo "Use --python=/path/to/python to specify a supported Python."
   exit 1
 fi
 
@@ -3449,7 +3442,7 @@ fi
 
 for d in libdis libdis-user; do
     mkdir -p $d
-    symlink $source_path/Makefile.dis $d/Makefile
+    symlink "$source_path/Makefile.dis" "$d/Makefile"
     echo > $d/config.mak
 done
 
@@ -3461,13 +3454,13 @@ if test "$linux" = "yes" ; then
     symlink $source_path/linux-headers/asm-arm linux-headers/asm
     ;;
   i386|x86_64)
-    symlink $source_path/linux-headers/asm-x86 linux-headers/asm
+    symlink "$source_path/linux-headers/asm-x86" linux-headers/asm
     ;;
   ppcemb|ppc|ppc64)
-    symlink $source_path/linux-headers/asm-powerpc linux-headers/asm
+    symlink "$source_path/linux-headers/asm-powerpc" linux-headers/asm
     ;;
   s390x)
-    symlink $source_path/linux-headers/asm-s390 linux-headers/asm
+    symlink "$source_path/linux-headers/asm-s390" linux-headers/asm
     ;;
   esac
 fi
@@ -3486,7 +3479,6 @@ esac
 target_softmmu="no"
 target_user_only="no"
 target_linux_user="no"
-target_darwin_user="no"
 target_bsd_user="no"
 case "$target" in
   ${target_arch2}-softmmu)
@@ -3499,14 +3491,6 @@ case "$target" in
     fi
     target_user_only="yes"
     target_linux_user="yes"
-    ;;
-  ${target_arch2}-darwin-user)
-    if test "$darwin" != "yes" ; then
-      echo "ERROR: Target '$target' is only available on a Darwin host"
-      exit 1
-    fi
-    target_user_only="yes"
-    target_darwin_user="yes"
     ;;
   ${target_arch2}-bsd-user)
     if test "$bsd" != "yes" ; then
@@ -3532,7 +3516,7 @@ mkdir -p $target_dir/kvm
 if test "$target" = "arm-linux-user" -o "$target" = "armeb-linux-user" -o "$target" = "arm-bsd-user" -o "$target" = "armeb-bsd-user" ; then
   mkdir -p $target_dir/nwfpe
 fi
-symlink $source_path/Makefile.target $target_dir/Makefile
+symlink "$source_path/Makefile.target" "$target_dir/Makefile"
 
 
 echo "# Automatically generated by configure - do not modify" > $config_target_mak
@@ -3761,9 +3745,6 @@ fi
 if test "$target_linux_user" = "yes" ; then
   echo "CONFIG_LINUX_USER=y" >> $config_target_mak
 fi
-if test "$target_darwin_user" = "yes" ; then
-  echo "CONFIG_DARWIN_USER=y" >> $config_target_mak
-fi
 list=""
 if test ! -z "$gdb_xml_files" ; then
   for x in $gdb_xml_files; do
@@ -3976,7 +3957,7 @@ do
 done
 mkdir -p $DIRS
 for f in $FILES ; do
-    if [ -e "$source_path/$f" ] && ! [ -e "$f" ]; then
+    if [ -e "$source_path/$f" ] && [ "$source_path" != `pwd` ]; then
         symlink "$source_path/$f" "$f"
     fi
 done
@@ -3999,7 +3980,7 @@ for hwlib in 32 64; do
   mkdir -p $d
   mkdir -p $d/ide
   mkdir -p $d/usb
-  symlink $source_path/Makefile.hw $d/Makefile
+  symlink "$source_path/Makefile.hw" "$d/Makefile"
   mkdir -p $d/9pfs
   echo "QEMU_CFLAGS+=-DTARGET_PHYS_ADDR_BITS=$hwlib" > $d/config.mak
 done
@@ -4007,7 +3988,6 @@ done
 if [ "$source_path" != `pwd` ]; then
     # out of tree build
     mkdir -p libcacard
-    rm -f libcacard/Makefile
     symlink "$source_path/libcacard/Makefile" libcacard/Makefile
 fi
 
@@ -4015,7 +3995,7 @@ d=libuser
 mkdir -p $d
 mkdir -p $d/trace
 mkdir -p $d/qom
-symlink $source_path/Makefile.user $d/Makefile
+symlink "$source_path/Makefile.user" "$d/Makefile"
 
 if test "$docs" = "yes" ; then
   mkdir -p QMP
