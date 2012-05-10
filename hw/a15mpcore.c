@@ -19,6 +19,7 @@
  */
 
 #include "sysbus.h"
+#include "kvm.h"
 
 /* A15MP private memory region.  */
 
@@ -41,7 +42,12 @@ static int a15mp_priv_init(SysBusDevice *dev)
     A15MPPrivState *s = FROM_SYSBUS(A15MPPrivState, dev);
     SysBusDevice *busdev;
 
-    s->gic = qdev_create(NULL, "arm_gic");
+    if (kvm_irqchip_in_kernel()) {
+        s->gic = qdev_create(NULL, "kvm-arm_gic");
+    } else {
+        s->gic = qdev_create(NULL, "arm_gic");
+    }
+
     qdev_prop_set_uint32(s->gic, "num-cpu", s->num_cpu);
     qdev_prop_set_uint32(s->gic, "num-irq", s->num_irq);
     qdev_prop_set_uint32(s->gic, "revision", 2);
