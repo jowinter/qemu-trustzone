@@ -12,6 +12,13 @@ here. For full change detail consult the git history:
 Bug numbers refer to Launchpad qemu-linaro bugs, eg:
 https://bugs.launchpad.net/qemu-linaro/+bug/703094
 
+version 2012.05:
+ - Fixes #978694: Beagle bootrom emulation now correctly handles
+   FAT12/FAT16 images (thanks to Peter Chubb for the bug report
+   and patch).
+ - We now support running ARM BE8 userspace binaries (ie
+   byte-invariant big-endian data and little-endian code).
+
 version 2012.04:
  - Fixes #928432: compiling spice support for i386 should
    no longer give compile warnings/errors.
