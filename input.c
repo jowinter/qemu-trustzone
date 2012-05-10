@@ -145,7 +145,7 @@ void qemu_remove_led_event_handler(QEMUPutLEDEntry *entry)
 void kbd_put_keycode(int keycode)
 {
     QEMUPutKBDEntry *cursor;
-    if (!runstate_is_running()) {
+    if (!runstate_is_running() && !runstate_check(RUN_STATE_SUSPENDED)) {
         return;
     }
     QTAILQ_FOREACH(cursor, &kbd_handlers, next) {
@@ -169,7 +169,7 @@ void kbd_mouse_event(int dx, int dy, int dz, int buttons_state)
     void *mouse_event_opaque;
     int width, height;
 
-    if (!runstate_is_running()) {
+    if (!runstate_is_running() && !runstate_check(RUN_STATE_SUSPENDED)) {
         return;
     }
     if (QTAILQ_EMPTY(&mouse_handlers)) {

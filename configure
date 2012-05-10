@@ -2908,14 +2908,15 @@ tools=
 if test "$softmmu" = yes ; then
   tools="qemu-img\$(EXESUF) qemu-io\$(EXESUF) $tools"
   if test "$virtfs" != no ; then
-      if test "$cap" = yes && test "$linux" = yes && test "$attr" = yes ; then
-	  virtfs=yes
-	  tools="$tools fsdev/virtfs-proxy-helper\$(EXESUF)"
-      else
-	  if test "$virtfs" = yes; then
-	      feature_not_found "virtfs"
-	  fi
+    if test "$cap" = yes && test "$linux" = yes && test "$attr" = yes ; then
+      virtfs=yes
+      tools="$tools fsdev/virtfs-proxy-helper\$(EXESUF)"
+    else
+      if test "$virtfs" = yes; then
+        feature_not_found "virtfs"
       fi
+      virtfs=no
+    fi
   fi
   if [ "$linux" = "yes" -o "$bsd" = "yes" -o "$solaris" = "yes" ] ; then
       tools="qemu-nbd\$(EXESUF) $tools"
