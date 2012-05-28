@@ -300,7 +300,10 @@ static int qcow2_open(BlockDriverState *bs, int flags)
 
     if (!bs->read_only && s->autoclear_features != 0) {
         s->autoclear_features = 0;
-        qcow2_update_header(bs);
+        ret = qcow2_update_header(bs);
+        if (ret < 0) {
+            goto fail;
+        }
     }
 
     /* Check support for various header values */
@@ -1011,11 +1014,6 @@ fail:
 static int qcow2_change_backing_file(BlockDriverState *bs,
     const char *backing_file, const char *backing_fmt)
 {
-    /* Backing file format doesn't make sense without a backing file */
-    if (backing_fmt && !backing_file) {
-        return -EINVAL;
-    }
-
     pstrcpy(bs->backing_file, sizeof(bs->backing_file), backing_file ?: "");
     pstrcpy(bs->backing_format, sizeof(bs->backing_format), backing_fmt ?: "");
 

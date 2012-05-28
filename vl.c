@@ -273,6 +273,7 @@ static int default_monitor = 1;
 static int default_floppy = 1;
 static int default_cdrom = 1;
 static int default_sdcard = 1;
+static int default_vga = 1;
 
 static struct {
     const char *driver;
@@ -288,6 +289,12 @@ static struct {
     { .driver = "virtio-serial-pci",    .flag = &default_virtcon   },
     { .driver = "virtio-serial-s390",   .flag = &default_virtcon   },
     { .driver = "virtio-serial",        .flag = &default_virtcon   },
+    { .driver = "VGA",                  .flag = &default_vga       },
+    { .driver = "isa-vga",              .flag = &default_vga       },
+    { .driver = "cirrus-vga",           .flag = &default_vga       },
+    { .driver = "isa-cirrus-vga",       .flag = &default_vga       },
+    { .driver = "vmware-svga",          .flag = &default_vga       },
+    { .driver = "qxl-vga",              .flag = &default_vga       },
 };
 
 static void res_free(void)
@@ -2277,13 +2284,14 @@ int main(int argc, char **argv, char **envp)
     const char *loadvm = NULL;
     QEMUMachine *machine;
     const char *cpu_model;
-    const char *vga_model = NULL;
+    const char *vga_model = "none";
     const char *pid_file = NULL;
     const char *incoming = NULL;
 #ifdef CONFIG_VNC
     int show_vnc_port = 0;
 #endif
-    int defconfig = 1;
+    bool defconfig = true;
+    bool userconfig = true;
     const char *log_mask = NULL;
     const char *log_file = NULL;
     GMemVTable mem_trace = {
@@ -2350,7 +2358,10 @@ int main(int argc, char **argv, char **envp)
             popt = lookup_opt(argc, argv, &optarg, &optind);
             switch (popt->index) {
             case QEMU_OPTION_nodefconfig:
-                defconfig=0;
+                defconfig = false;
+                break;
+            case QEMU_OPTION_nouserconfig:
+                userconfig = false;
                 break;
             }
         }
@@ -2358,14 +2369,8 @@ int main(int argc, char **argv, char **envp)
 
     if (defconfig) {
         int ret;
-
-        ret = qemu_read_config_file(CONFIG_QEMU_CONFDIR "/qemu.conf");
-        if (ret < 0 && ret != -ENOENT) {
-            exit(1);
-        }
-
-        ret = qemu_read_config_file(arch_config_name);
-        if (ret < 0 && ret != -ENOENT) {
+        ret = qemu_read_default_config_files(userconfig);
+        if (ret < 0) {
             exit(1);
         }
     }
@@ -2709,6 +2714,7 @@ int main(int argc, char **argv, char **envp)
                 break;
             case QEMU_OPTION_vga:
                 vga_model = optarg;
+                default_vga = 0;
                 break;
             case QEMU_OPTION_g:
                 {
@@ -3118,7 +3124,7 @@ int main(int argc, char **argv, char **envp)
                 default_floppy = 0;
                 default_cdrom = 0;
                 default_sdcard = 0;
-                vga_model = "none";
+                default_vga = 0;
                 break;
             case QEMU_OPTION_xen_domid:
                 if (!(xen_available())) {
@@ -3488,14 +3494,11 @@ int main(int argc, char **argv, char **envp)
     if (foreach_device_config(DEV_DEBUGCON, debugcon_parse) < 0)
         exit(1);
 
-    /* must be after qdev registration but before machine init */
-    if (vga_model) {
-        select_vgahw(vga_model);
-    } else if (cirrus_vga_available()) {
-        select_vgahw("cirrus");
-    } else {
-        select_vgahw("none");
+    /* If no default VGA is requested, the default is "none".  */
+    if (default_vga && cirrus_vga_available()) {
+        vga_model = "cirrus";
     }
+    select_vgahw(vga_model);
 
     if (qemu_opts_foreach(qemu_find_opts("device"), device_help_func, NULL, 0) != 0)
         exit(0);
@@ -3631,8 +3634,13 @@ int main(int argc, char **argv, char **envp)
     }
 
     if (incoming) {
-        int ret = qemu_start_incoming_migration(incoming);
+        Error *errp = NULL;
+        int ret = qemu_start_incoming_migration(incoming, &errp);
         if (ret < 0) {
+            if (error_is_set(&errp)) {
+                fprintf(stderr, "Migrate: %s\n", error_get_pretty(errp));
+                error_free(errp);
+            }
             fprintf(stderr, "Migration failed. Exit code %s(%d), exiting.\n",
                     incoming, ret);
             exit(ret);
