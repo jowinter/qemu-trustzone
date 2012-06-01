@@ -14,11 +14,21 @@
 #include <glib.h>
 #include <sys/types.h>
 #include <sys/ioctl.h>
+#include <sys/wait.h>
 #include "qga/guest-agent-core.h"
 #include "qga-qmp-commands.h"
 #include "qerror.h"
 #include "qemu-queue.h"
 #include "host-utils.h"
+
+#ifndef CONFIG_HAS_ENVIRON
+#ifdef __APPLE__
+#include <crt_externs.h>
+#define environ (*_NSGetEnviron())
+#else
+extern char **environ;
+#endif
+#endif
 
 #if defined(__linux__)
 #include <mntent.h>
@@ -27,7 +37,6 @@
 #include <arpa/inet.h>
 #include <sys/socket.h>
 #include <net/if.h>
-#include <sys/wait.h>
 
 #if defined(__linux__) && defined(FIFREEZE)
 #define CONFIG_FSFREEZE
@@ -336,7 +345,7 @@ static int guest_fsfreeze_build_mount_list(GuestFsfreezeMountList *mounts)
 {
     struct mntent *ment;
     GuestFsfreezeMount *mount;
-    char const *mtab = MOUNTED;
+    char const *mtab = "/proc/self/mounts";
     FILE *fp;
 
     fp = setmntent(mtab, "r");
