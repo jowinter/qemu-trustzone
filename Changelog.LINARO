@@ -12,6 +12,9 @@ here. For full change detail consult the git history:
 Bug numbers refer to Launchpad qemu-linaro bugs, eg:
 https://bugs.launchpad.net/qemu-linaro/+bug/703094
 
+version 2012.06:
+ - No significant changes, rebased onto upstream v1.1.0.
+
 version 2012.05:
  - Fixes #978694: Beagle bootrom emulation now correctly handles
    FAT12/FAT16 images (thanks to Peter Chubb for the bug report
