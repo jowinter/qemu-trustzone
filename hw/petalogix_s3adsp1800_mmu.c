@@ -49,8 +49,10 @@
 #define UARTLITE_BASEADDR 0x84000000
 #define ETHLITE_BASEADDR 0x81000000
 
-static void machine_cpu_reset(CPUMBState *env)
+static void machine_cpu_reset(MicroBlazeCPU *cpu)
 {
+    CPUMBState *env = &cpu->env;
+
     env->pvr.regs[10] = 0x0c000000; /* spartan 3a dsp family.  */
 }
 
@@ -62,6 +64,7 @@ petalogix_s3adsp1800_init(ram_addr_t ram_size,
                           const char *initrd_filename, const char *cpu_model)
 {
     DeviceState *dev;
+    MicroBlazeCPU *cpu;
     CPUMBState *env;
     DriveInfo *dinfo;
     int i;
@@ -75,7 +78,8 @@ petalogix_s3adsp1800_init(ram_addr_t ram_size,
     if (cpu_model == NULL) {
         cpu_model = "microblaze";
     }
-    env = cpu_init(cpu_model);
+    cpu = cpu_mb_init(cpu_model);
+    env = &cpu->env;
 
     /* Attach emulated BRAM through the LMB.  */
     memory_region_init_ram(phys_lmb_bram,
@@ -100,12 +104,12 @@ petalogix_s3adsp1800_init(ram_addr_t ram_size,
         irq[i] = qdev_get_gpio_in(dev, i);
     }
 
-    sysbus_create_simple("xilinx,uartlite", UARTLITE_BASEADDR, irq[3]);
+    sysbus_create_simple("xlnx.xps-uartlite", UARTLITE_BASEADDR, irq[3]);
     /* 2 timers at irq 2 @ 62 Mhz.  */
-    xilinx_timer_create(TIMER_BASEADDR, irq[0], 2, 62 * 1000000);
+    xilinx_timer_create(TIMER_BASEADDR, irq[0], 0, 62 * 1000000);
     xilinx_ethlite_create(&nd_table[0], ETHLITE_BASEADDR, irq[1], 0, 0);
 
-    microblaze_load_kernel(env, ddr_base, ram_size,
+    microblaze_load_kernel(cpu, ddr_base, ram_size,
                     BINARY_DEVICE_TREE_FILE, machine_cpu_reset);
 }
 

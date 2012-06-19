@@ -25,18 +25,23 @@ struct SPIBus {
     SPIDevice **device;
 };
 
-static struct BusInfo spi_bus_info = {
-    .name = "SPI",
-    .size = sizeof(SPIBus),
-    .props = (Property[]) {
-        DEFINE_PROP_UINT8("channel", SPIDevice, channel, 0),
-        DEFINE_PROP_END_OF_LIST()
-    }
+#define TYPE_SPI_BUS "spi-bus"
+#define SPI_BUS(obj) OBJECT_CHECK(SPIBus, (obj), TYPE_SPI_BUS)
+
+static Property spi_props[] = {
+    DEFINE_PROP_UINT8("channel", SPIDevice, channel, 0),
+    DEFINE_PROP_END_OF_LIST()
+};
+
+static const TypeInfo spi_bus_info = {
+    .name = TYPE_SPI_BUS,
+    .parent = TYPE_BUS,
+    .instance_size = sizeof(SPIBus),
 };
 
 SPIBus *spi_init_bus(DeviceState *parent, const char *name, int num_channels)
 {
-    SPIBus *bus = FROM_QBUS(SPIBus, qbus_create(&spi_bus_info, parent, name));
+    SPIBus *bus = FROM_QBUS(SPIBus, qbus_create(TYPE_SPI_BUS, parent, name));
     bus->channels = num_channels;
     bus->device = g_new0(SPIDevice*, bus->channels);
     return bus;
@@ -94,7 +99,8 @@ static void spi_device_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *k = DEVICE_CLASS(klass);
     k->init = spi_device_qdev_init;
-    k->bus_info = &spi_bus_info;
+    k->bus_type = TYPE_SPI_BUS;
+    k->props = spi_props;
 }
 
 static TypeInfo spi_device_type_info = {

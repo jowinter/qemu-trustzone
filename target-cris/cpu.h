@@ -64,17 +64,19 @@
 #define PR_NRP 12
 #define PR_CCS 13
 #define PR_USP 14
+#define PRV10_BRP 14
 #define PR_SPC 15
 
 /* CPU flags.  */
 #define Q_FLAG 0x80000000
-#define M_FLAG 0x40000000
+#define M_FLAG_V32 0x40000000
 #define PFIX_FLAG 0x800      /* CRISv10 Only.  */
 #define F_FLAG_V10 0x400
 #define P_FLAG_V10 0x200
 #define S_FLAG 0x200
 #define R_FLAG 0x100
 #define P_FLAG 0x80
+#define M_FLAG_V10 0x80
 #define U_FLAG 0x40
 #define I_FLAG 0x20
 #define X_FLAG 0x10
@@ -171,7 +173,7 @@ typedef struct CPUCRISState {
 
 #include "cpu-qom.h"
 
-CPUCRISState *cpu_cris_init(const char *cpu_model);
+CRISCPU *cpu_cris_init(const char *cpu_model);
 int cpu_cris_exec(CPUCRISState *s);
 void cpu_cris_close(CPUCRISState *s);
 void do_interrupt(CPUCRISState *env);
@@ -216,7 +218,15 @@ enum {
 #define TARGET_PHYS_ADDR_SPACE_BITS 32
 #define TARGET_VIRT_ADDR_SPACE_BITS 32
 
-#define cpu_init cpu_cris_init
+static inline CPUCRISState *cpu_init(const char *cpu_model)
+{
+    CRISCPU *cpu = cpu_cris_init(cpu_model);
+    if (cpu == NULL) {
+        return NULL;
+    }
+    return &cpu->env;
+}
+
 #define cpu_exec cpu_cris_exec
 #define cpu_gen_code cpu_cris_gen_code
 #define cpu_signal_handler cpu_cris_signal_handler

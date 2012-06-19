@@ -70,7 +70,7 @@ void s390x_cpu_timer(void *opaque)
 }
 #endif
 
-CPUS390XState *cpu_s390x_init(const char *cpu_model)
+S390CPU *cpu_s390x_init(const char *cpu_model)
 {
     S390CPU *cpu;
     CPUS390XState *env;
@@ -86,7 +86,7 @@ CPUS390XState *cpu_s390x_init(const char *cpu_model)
 
     env->cpu_model_str = cpu_model;
     qemu_init_vcpu(env);
-    return env;
+    return cpu;
 }
 
 #if defined(CONFIG_USER_ONLY)
@@ -106,14 +106,7 @@ int cpu_s390x_handle_mmu_fault (CPUS390XState *env, target_ulong address, int rw
     return 1;
 }
 
-#endif /* CONFIG_USER_ONLY */
-
-void cpu_state_reset(CPUS390XState *env)
-{
-    cpu_reset(ENV_GET_CPU(env));
-}
-
-#ifndef CONFIG_USER_ONLY
+#else /* !CONFIG_USER_ONLY */
 
 /* Ensure to exit the TB after this call! */
 static void trigger_pgm_exception(CPUS390XState *env, uint32_t code, uint32_t ilc)

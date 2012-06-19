@@ -949,11 +949,11 @@ void omap3_boot_rom_emu(struct omap_mpu_state_s *s)
         result = omap3_mmc_boot(s);
 
     /* move PC to the boot ROM reset vector */
-    s->env->regs[15] = 0x40014000;
+    s->cpu->env.regs[15] = 0x40014000;
 
     if (!result) { /* no boot device found */
         /* move PC to the appropriate ROM dead loop address */
-        s->env->regs[15] = 0x400140a4;
+        s->cpu->env.regs[15] = 0x400140a4;
         /* ...on second thought, let's just call it a day and quit */
         hw_error("no boot device found");
     }

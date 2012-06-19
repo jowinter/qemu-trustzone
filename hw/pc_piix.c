@@ -29,6 +29,7 @@
 #include "apic.h"
 #include "pci.h"
 #include "pci_ids.h"
+#include "usb.h"
 #include "net.h"
 #include "boards.h"
 #include "ide.h"
@@ -56,30 +57,26 @@ static void kvm_piix3_setup_irq_routing(bool pci_enabled)
 {
 #ifdef CONFIG_KVM
     KVMState *s = kvm_state;
-    int ret, i;
+    int i;
 
     if (kvm_check_extension(s, KVM_CAP_IRQ_ROUTING)) {
         for (i = 0; i < 8; ++i) {
             if (i == 2) {
                 continue;
             }
-            kvm_irqchip_add_route(s, i, KVM_IRQCHIP_PIC_MASTER, i);
+            kvm_irqchip_add_irq_route(s, i, KVM_IRQCHIP_PIC_MASTER, i);
         }
         for (i = 8; i < 16; ++i) {
-            kvm_irqchip_add_route(s, i, KVM_IRQCHIP_PIC_SLAVE, i - 8);
+            kvm_irqchip_add_irq_route(s, i, KVM_IRQCHIP_PIC_SLAVE, i - 8);
         }
         if (pci_enabled) {
             for (i = 0; i < 24; ++i) {
                 if (i == 0) {
-                    kvm_irqchip_add_route(s, i, KVM_IRQCHIP_IOAPIC, 2);
+                    kvm_irqchip_add_irq_route(s, i, KVM_IRQCHIP_IOAPIC, 2);
                 } else if (i != 2) {
-                    kvm_irqchip_add_route(s, i, KVM_IRQCHIP_IOAPIC, i);
+                    kvm_irqchip_add_irq_route(s, i, KVM_IRQCHIP_IOAPIC, i);
                 }
             }
-        }
-        ret = kvm_irqchip_commit_routes(s);
-        if (ret < 0) {
-            hw_error("KVM IRQ routing setup failed");
         }
     }
 #endif /* CONFIG_KVM */
@@ -378,7 +375,7 @@ static QEMUMachine pc_machine_v1_1 = {
             .property = "vapic",\
             .value    = "off",\
         },{\
-            .driver   = "USB",\
+            .driver   = TYPE_USB_DEVICE,\
             .property = "full-path",\
             .value    = "no",\
         }
@@ -451,7 +448,7 @@ static QEMUMachine pc_machine_v0_14 = {
 #define PC_COMPAT_0_13 \
         PC_COMPAT_0_14,\
         {\
-            .driver   = "PCI",\
+            .driver   = TYPE_PCI_DEVICE,\
             .property = "command_serr_enable",\
             .value    = "off",\
         },{\
@@ -523,7 +520,7 @@ static QEMUMachine pc_machine_v0_12 = {
             .property = "vectors",\
             .value    = stringify(0),\
         },{\
-            .driver   = "PCI",\
+            .driver   = TYPE_PCI_DEVICE,\
             .property = "rombar",\
             .value    = stringify(0),\
         }

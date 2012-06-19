@@ -4018,7 +4018,7 @@ static void omap3_reset(void *opaque)
     struct omap_mpu_state_s *s = opaque;
     int i;
 
-    cpu_state_reset(s->env);
+    cpu_reset(CPU(s->cpu));
     omap_dma_reset(s->dma);
     omap3_cm_reset(s->omap3_cm);
     omap3_prm_reset(s->omap3_prm);
@@ -4068,8 +4068,8 @@ struct omap_mpu_state_s *omap3_mpu_init(MemoryRegion *sysmem,
         hw_error("%s: invalid cpu model (%d)", __FUNCTION__, model);
     }
     s->mpu_model = model;
-    s->env = cpu_init("cortex-a8-r2");
-    if (!s->env) {
+    s->cpu = cpu_arm_init("cortex-a8-r2");
+    if (!s->cpu) {
         hw_error("%s: Unable to find CPU definition", __FUNCTION__);
     }
     s->sdram_size = sdram_size;
@@ -4086,7 +4086,7 @@ struct omap_mpu_state_s *omap3_mpu_init(MemoryRegion *sysmem,
 
     s->l4 = omap_l4_init(sysmem, OMAP3_L4_BASE, L4A_COUNT, L4ID_COUNT);
 
-    cpu_irq = arm_pic_init_cpu(s->env);
+    cpu_irq = arm_pic_init_cpu(s->cpu);
     s->ih[0] = qdev_create(NULL, "omap2-intc");
     qdev_prop_set_uint8(s->ih[0], "revision", 0x40);
     qdev_prop_set_ptr(s->ih[0], "fclk", omap_findclk(s, "omap3_mpu_intc_fclk"));

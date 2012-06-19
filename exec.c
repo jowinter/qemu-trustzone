@@ -1076,11 +1076,11 @@ TranslationBlock *tb_gen_code(CPUArchState *env,
 }
 
 /*
- * invalidate all TBs which intersect with the target physical pages
- * starting in range [start;end[. NOTE: start and end may refer to
- * different physical pages. 'is_cpu_write_access' should be true if called
- * from a real cpu write access: the virtual CPU will exit the current
- * TB if code is modified inside this TB.
+ * Invalidate all TBs which intersect with the target physical address range
+ * [start;end[. NOTE: start and end may refer to *different* physical pages.
+ * 'is_cpu_write_access' should be true if called from a real cpu write
+ * access: the virtual CPU will exit the current TB if code is modified inside
+ * this TB.
  */
 void tb_invalidate_phys_range(tb_page_addr_t start, tb_page_addr_t end,
                               int is_cpu_write_access)
@@ -1092,11 +1092,13 @@ void tb_invalidate_phys_range(tb_page_addr_t start, tb_page_addr_t end,
     }
 }
 
-/* invalidate all TBs which intersect with the target physical page
-   starting in range [start;end[. NOTE: start and end must refer to
-   the same physical page. 'is_cpu_write_access' should be true if called
-   from a real cpu write access: the virtual CPU will exit the current
-   TB if code is modified inside this TB. */
+/*
+ * Invalidate all TBs which intersect with the target physical address range
+ * [start;end[. NOTE: start and end must refer to the *same* physical page.
+ * 'is_cpu_write_access' should be true if called from a real cpu write
+ * access: the virtual CPU will exit the current TB if code is modified inside
+ * this TB.
+ */
 void tb_invalidate_phys_page_range(tb_page_addr_t start, tb_page_addr_t end,
                                    int is_cpu_write_access)
 {
@@ -1492,7 +1494,8 @@ void tb_invalidate_phys_addr(target_phys_addr_t addr)
 
 static void breakpoint_invalidate(CPUArchState *env, target_ulong pc)
 {
-    tb_invalidate_phys_addr(cpu_get_phys_page_debug(env, pc));
+    tb_invalidate_phys_addr(cpu_get_phys_page_debug(env, pc) |
+            (pc & ~TARGET_PAGE_MASK));
 }
 #endif
 #endif /* TARGET_HAS_ICE */
@@ -2600,8 +2603,8 @@ void qemu_ram_set_idstr(ram_addr_t addr, const char *name, DeviceState *dev)
     assert(new_block);
     assert(!new_block->idstr[0]);
 
-    if (dev && dev->parent_bus && dev->parent_bus->info->get_dev_path) {
-        char *id = dev->parent_bus->info->get_dev_path(dev);
+    if (dev) {
+        char *id = qdev_get_dev_path(dev);
         if (id) {
             snprintf(new_block->idstr, sizeof(new_block->idstr), "%s/", id);
             g_free(id);
@@ -4335,4 +4338,16 @@ bool virtio_is_big_endian(void)
 #endif
 }
 
+#endif
+
+#ifndef CONFIG_USER_ONLY
+bool cpu_physical_memory_is_io(target_phys_addr_t phys_addr)
+{
+    MemoryRegionSection *section;
+
+    section = phys_page_find(phys_addr >> TARGET_PAGE_BITS);
+
+    return !(memory_region_is_ram(section->mr) ||
+             memory_region_is_romd(section->mr));
+}
 #endif

@@ -56,19 +56,19 @@
 #include <sys/select.h>
 #ifdef CONFIG_BSD
 #include <sys/stat.h>
-#if defined(__FreeBSD__) || defined(__FreeBSD_kernel__)
-#include <libutil.h>
-#include <dev/ppbus/ppi.h>
-#include <dev/ppbus/ppbconf.h>
 #if defined(__GLIBC__)
 #include <pty.h>
-#endif
-#elif defined(__DragonFly__)
+#elif defined(__FreeBSD__) || defined(__FreeBSD_kernel__) || defined(__DragonFly__)
 #include <libutil.h>
-#include <dev/misc/ppi/ppi.h>
-#include <bus/ppbus/ppbconf.h>
 #else
 #include <util.h>
+#endif
+#if defined(__FreeBSD__) || defined(__FreeBSD_kernel__)
+#include <dev/ppbus/ppi.h>
+#include <dev/ppbus/ppbconf.h>
+#elif defined(__DragonFly__)
+#include <dev/misc/ppi/ppi.h>
+#include <bus/ppbus/ppbconf.h>
 #endif
 #else
 #ifdef __linux__
@@ -2584,10 +2584,14 @@ QemuOpts *qemu_chr_parse_compat(const char *label, const char *filename)
     int pos;
     const char *p;
     QemuOpts *opts;
+    Error *local_err = NULL;
 
-    opts = qemu_opts_create(qemu_find_opts("chardev"), label, 1);
-    if (NULL == opts)
+    opts = qemu_opts_create(qemu_find_opts("chardev"), label, 1, &local_err);
+    if (error_is_set(&local_err)) {
+        qerror_report_err(local_err);
+        error_free(local_err);
         return NULL;
+    }
 
     if (strstart(filename, "mon:", &p)) {
         filename = p;

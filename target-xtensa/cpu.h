@@ -344,13 +344,24 @@ typedef struct CPUXtensaState {
     CPU_COMMON
 } CPUXtensaState;
 
-#define cpu_init cpu_xtensa_init
+#include "cpu-qom.h"
+
 #define cpu_exec cpu_xtensa_exec
 #define cpu_gen_code cpu_xtensa_gen_code
 #define cpu_signal_handler cpu_xtensa_signal_handler
 #define cpu_list xtensa_cpu_list
 
-CPUXtensaState *cpu_xtensa_init(const char *cpu_model);
+XtensaCPU *cpu_xtensa_init(const char *cpu_model);
+
+static inline CPUXtensaState *cpu_init(const char *cpu_model)
+{
+    XtensaCPU *cpu = cpu_xtensa_init(cpu_model);
+    if (cpu == NULL) {
+        return NULL;
+    }
+    return &cpu->env;
+}
+
 void xtensa_translate_init(void);
 int cpu_xtensa_exec(CPUXtensaState *s);
 void xtensa_register_core(XtensaConfigList *node);
@@ -370,9 +381,12 @@ void split_tlb_entry_spec_way(const CPUXtensaState *env, uint32_t v, bool dtlb,
         uint32_t *vpn, uint32_t wi, uint32_t *ei);
 int xtensa_tlb_lookup(const CPUXtensaState *env, uint32_t addr, bool dtlb,
         uint32_t *pwi, uint32_t *pei, uint8_t *pring);
+void xtensa_tlb_set_entry_mmu(const CPUXtensaState *env,
+        xtensa_tlb_entry *entry, bool dtlb,
+        unsigned wi, unsigned ei, uint32_t vpn, uint32_t pte);
 void xtensa_tlb_set_entry(CPUXtensaState *env, bool dtlb,
         unsigned wi, unsigned ei, uint32_t vpn, uint32_t pte);
-int xtensa_get_physical_addr(CPUXtensaState *env,
+int xtensa_get_physical_addr(CPUXtensaState *env, bool update_tlb,
         uint32_t vaddr, int is_write, int mmu_idx,
         uint32_t *paddr, uint32_t *page_size, unsigned *access);
 void reset_mmu(CPUXtensaState *env);
@@ -471,7 +485,6 @@ static inline void cpu_get_tb_cpu_state(CPUXtensaState *env, target_ulong *pc,
 }
 
 #include "cpu-all.h"
-#include "cpu-qom.h"
 #include "exec-all.h"
 
 static inline int cpu_has_work(CPUXtensaState *env)

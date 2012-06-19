@@ -39,6 +39,7 @@ static PCIDevice *qemu_pci_hot_add_nic(Monitor *mon,
                                        const char *devaddr,
                                        const char *opts_str)
 {
+    Error *local_err = NULL;
     QemuOpts *opts;
     PCIBus *bus;
     int ret, devfn;
@@ -60,9 +61,12 @@ static PCIDevice *qemu_pci_hot_add_nic(Monitor *mon,
 
     qemu_opt_set(opts, "type", "nic");
 
-    ret = net_client_init(mon, opts, 0);
-    if (ret < 0)
+    ret = net_client_init(opts, 0, &local_err);
+    if (error_is_set(&local_err)) {
+        qerror_report_err(local_err);
+        error_free(local_err);
         return NULL;
+    }
     if (nd_table[ret].devaddr) {
         monitor_printf(mon, "Parameter addr not supported\n");
         return NULL;
@@ -76,11 +80,7 @@ static int scsi_hot_add(Monitor *mon, DeviceState *adapter,
     SCSIBus *scsibus;
     SCSIDevice *scsidev;
 
-    scsibus = DO_UPCAST(SCSIBus, qbus, QLIST_FIRST(&adapter->child_bus));
-    if (!scsibus || strcmp(scsibus->qbus.info->name, "SCSI") != 0) {
-        error_report("Device is not a SCSI adapter");
-        return -1;
-    }
+    scsibus = SCSI_BUS(QLIST_FIRST(&adapter->child_bus));
 
     /*
      * drive_init() tries to find a default for dinfo->unit.  Doesn't

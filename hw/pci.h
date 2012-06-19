@@ -173,6 +173,10 @@ typedef struct PCIDeviceClass {
     const char *romfile;
 } PCIDeviceClass;
 
+typedef int (*MSIVectorUseNotifier)(PCIDevice *dev, unsigned int vector,
+                                      MSIMessage msg);
+typedef void (*MSIVectorReleaseNotifier)(PCIDevice *dev, unsigned int vector);
+
 struct PCIDevice {
     DeviceState qdev;
     /* PCI config space */
@@ -193,7 +197,7 @@ struct PCIDevice {
 
     /* the following fields are read only */
     PCIBus *bus;
-    uint32_t devfn;
+    int32_t devfn;
     char name[64];
     PCIIORegion io_regions[PCI_NUM_REGIONS];
 
@@ -243,6 +247,10 @@ struct PCIDevice {
     bool has_rom;
     MemoryRegion rom;
     uint32_t rom_bar;
+
+    /* MSI-X notifiers */
+    MSIVectorUseNotifier msix_vector_use_notifier;
+    MSIVectorReleaseNotifier msix_vector_release_notifier;
 };
 
 void pci_register_bar(PCIDevice *pci_dev, int region_num,

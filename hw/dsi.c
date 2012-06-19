@@ -36,21 +36,25 @@ struct DSIHost {
     dsi_get_drawfn_cb get_drawfn;
 };
 
-static struct BusInfo dsi_bus_info = {
-    .name = "DSI",
-    .size = sizeof(DSIHost),
-    .props = (Property[]) {
-        DEFINE_PROP_UINT8("virtual_channel", DSIDevice, vchannel, 0),
-        DEFINE_PROP_END_OF_LIST()
-    }
+static Property dsi_props[] = {
+    DEFINE_PROP_UINT8("virtual_channel", DSIDevice, vchannel, 0),
+    DEFINE_PROP_END_OF_LIST()
+};
+
+#define TYPE_DSI_BUS "dsi-bus"
+#define DSI_BUS(obj) OBJECT_CHECK(DSIHost, (obj), TYPE_DSI_BUS)
+
+static const TypeInfo dsi_bus_info = {
+    .name = TYPE_DSI_BUS,
+    .parent = TYPE_BUS,
+    .instance_size = sizeof(DSIHost),
 };
 
 DSIHost *dsi_init_host(DeviceState *parent, const char *name,
                        dsi_te_trigger_cb te_trigger_cb,
                        dsi_get_drawfn_cb get_drawfn_cb)
 {
-    DSIHost *host = FROM_QBUS(DSIHost,
-                              qbus_create(&dsi_bus_info, parent, name));
+    DSIHost *host = FROM_QBUS(DSIHost, qbus_create(TYPE_DSI_BUS, parent, name));
     host->te_trigger = te_trigger_cb;
     host->get_drawfn = get_drawfn_cb;
     return host;
@@ -387,7 +391,8 @@ static void dsi_device_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *k = DEVICE_CLASS(klass);
     k->init = dsi_device_init;
-    k->bus_info = &dsi_bus_info;
+    k->bus_type = TYPE_DSI_BUS;
+    k->props = dsi_props;
 }
 
 static void dsi_common_device_class_init(ObjectClass *klass, void *data)
