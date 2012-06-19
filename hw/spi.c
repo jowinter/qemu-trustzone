@@ -114,6 +114,7 @@ static TypeInfo spi_device_type_info = {
 
 static void spi_device_register_types(void)
 {
+    type_register_static(&spi_bus_info);
     type_register_static(&spi_device_type_info);
 }
 

@@ -424,6 +424,7 @@ static TypeInfo dsi_common_device_type_info = {
 
 static void dsi_register_types(void)
 {
+    type_register_static(&dsi_bus_info);
     type_register_static(&dsi_device_type_info);
     type_register_static(&dsi_common_device_type_info);
 }
