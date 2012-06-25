@@ -23,13 +23,11 @@
 #define SIGNBIT (uint32_t)0x80000000
 #define SIGNBIT64 ((uint64_t)1 << 63)
 
-#if !defined(CONFIG_USER_ONLY)
 static void raise_exception(int tt)
 {
     env->exception_index = tt;
     cpu_loop_exit(env);
 }
-#endif
 
 uint32_t HELPER(neon_tbl)(uint32_t ireg, uint32_t def,
                           uint32_t rn, uint32_t maxindex)
@@ -99,48 +97,6 @@ void tlb_fill(CPUARMState *env1, target_ulong addr, int is_write, int mmu_idx,
     }
     env = saved_env;
 }
-
-void HELPER(set_cp)(CPUARMState *env, uint32_t insn, uint32_t val)
-{
-    int cp_num = (insn >> 8) & 0xf;
-    int cp_info = (insn >> 5) & 7;
-    int src = (insn >> 16) & 0xf;
-    int operand = insn & 0xf;
-    
-    if (env->cp[cp_num].cp_write)
-        env->cp[cp_num].cp_write(env->cp[cp_num].opaque,
-                                 cp_info, src, operand, val, GETPC());
-        }
-
-uint32_t HELPER(get_cp)(CPUARMState *env, uint32_t insn)
-{
-    int cp_num = (insn >> 8) & 0xf;
-    int cp_info = (insn >> 5) & 7;
-    int dest = (insn >> 16) & 0xf;
-    int operand = insn & 0xf;
-    
-    if (env->cp[cp_num].cp_read)
-        return env->cp[cp_num].cp_read(env->cp[cp_num].opaque,
-                                       cp_info, dest, operand, GETPC());
-        return 0;
-}
-
-#else
-
-void HELPER(set_cp)(CPUARMState *env, uint32_t insn, uint32_t val)
-{
-    int op1 = (insn >> 8) & 0xf;
-    cpu_abort(env, "cp%i insn %08x\n", op1, insn);
-    return;
-}
-
-uint32_t HELPER(get_cp)(CPUARMState *env, uint32_t insn)
-{
-    int op1 = (insn >> 8) & 0xf;
-    cpu_abort(env, "cp%i insn %08x\n", op1, insn);
-    return 0;
-}
-
 #endif
 
 /* FIXME: Pass an axplicit pointer to QF to CPUARMState, and move saturating
@@ -327,6 +283,46 @@ void HELPER(set_user_reg)(uint32_t regno, uint32_t val)
     } else {
         env->regs[regno] = val;
     }
+}
+
+void HELPER(set_cp_reg)(CPUARMState *env, void *rip, uint32_t value)
+{
+    const ARMCPRegInfo *ri = rip;
+    int excp = ri->writefn(env, ri, value);
+    if (excp) {
+        raise_exception(excp);
+    }
+}
+
+uint32_t HELPER(get_cp_reg)(CPUARMState *env, void *rip)
+{
+    const ARMCPRegInfo *ri = rip;
+    uint64_t value;
+    int excp = ri->readfn(env, ri, &value);
+    if (excp) {
+        raise_exception(excp);
+    }
+    return value;
+}
+
+void HELPER(set_cp_reg64)(CPUARMState *env, void *rip, uint64_t value)
+{
+    const ARMCPRegInfo *ri = rip;
+    int excp = ri->writefn(env, ri, value);
+    if (excp) {
+        raise_exception(excp);
+    }
+}
+
+uint64_t HELPER(get_cp_reg64)(CPUARMState *env, void *rip)
+{
+    const ARMCPRegInfo *ri = rip;
+    uint64_t value;
+    int excp = ri->readfn(env, ri, &value);
+    if (excp) {
+        raise_exception(excp);
+    }
+    return value;
 }
 
 /* ??? Flag setting arithmetic is awkward because we need to do comparisons.

@@ -487,7 +487,7 @@ static void tci_out_label(TCGContext *s, TCGArg arg)
         assert(label->u.value);
     } else {
         tcg_out_reloc(s, s->code_ptr, sizeof(tcg_target_ulong), arg, 0);
-        tcg_out_i(s, 0);
+        s->code_ptr += sizeof(tcg_target_ulong);
     }
 }
 
@@ -878,7 +878,7 @@ static void tcg_target_init(TCGContext *s)
 #if defined(CONFIG_DEBUG_TCG_INTERPRETER)
     const char *envval = getenv("DEBUG_TCG");
     if (envval) {
-        loglevel = strtol(envval, NULL, 0);
+        cpu_set_log(strtol(envval, NULL, 0));
     }
 #endif
 

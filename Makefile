@@ -148,8 +148,8 @@ install-libcacard: libcacard.la
 	$(call quiet-command,$(MAKE) $(SUBDIR_MAKEFLAGS) -C libcacard V="$(V)" TARGET_DIR="$*/" install-libcacard,)
 endif
 
-vscclient$(EXESUF): $(libcacard-y) $(oslib-obj-y) qemu-timer-common.o libcacard/vscclient.o
-	$(call quiet-command,$(CC) -o $@ $^ $(libcacard_libs) $(LIBS),"  LINK  $@")
+vscclient$(EXESUF): $(libcacard-y) $(oslib-obj-y) $(trace-obj-y) qemu-timer-common.o libcacard/vscclient.o
+	$(call quiet-command,$(CC) $(LDFLAGS) -o $@ $^ $(libcacard_libs) $(LIBS),"  LINK  $@")
 
 ######################################################################
 
@@ -260,7 +260,6 @@ pxe-e1000.rom pxe-eepro100.rom pxe-ne2k_pci.rom \
 pxe-pcnet.rom pxe-rtl8139.rom pxe-virtio.rom \
 qemu-icon.bmp \
 bamboo.dtb petalogix-s3adsp1800.dtb petalogix-ml605.dtb \
-mpc8544ds.dtb \
 multiboot.bin linuxboot.bin kvmvapic.bin \
 s390-zipl.rom \
 spapr-rtas.bin slof.bin \
@@ -407,5 +406,5 @@ tar:
 Makefile: $(GENERATED_HEADERS)
 
 # Include automatically generated dependency files
--include $(wildcard *.d audio/*.d slirp/*.d block/*.d net/*.d ui/*.d qapi/*.d)
--include $(wildcard qga/*.d hw/*.d hw/usb/*.d)
+# All subdir dependencies come automatically from our recursive subdir rules
+-include $(wildcard *.d)
