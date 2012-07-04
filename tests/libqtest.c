@@ -74,6 +74,7 @@ static int socket_accept(int sock)
     socklen_t addrlen;
     int ret;
 
+    addrlen = sizeof(addr);
     do {
         ret = accept(sock, (struct sockaddr *)&addr, &addrlen);
     } while (ret == -1 && errno == EINTR);
@@ -288,6 +289,11 @@ void qtest_qmp(QTestState *s, const char *fmt, ...)
         len = read(s->qmp_fd, &c, 1);
         if (len == -1 && errno == EINTR) {
             continue;
+        }
+
+        if (len == -1 || len == 0) {
+            fprintf(stderr, "Broken pipe\n");
+            exit(1);
         }
 
         switch (c) {

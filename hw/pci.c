@@ -775,6 +775,9 @@ static PCIDevice *do_pci_register_device(PCIDevice *pci_dev, PCIBus *bus,
         return NULL;
     }
     pci_dev->bus = bus;
+    if (bus->dma_context_fn) {
+        pci_dev->dma = bus->dma_context_fn(bus, bus->dma_context_opaque, devfn);
+    }
     pci_dev->devfn = devfn;
     pstrcpy(pci_dev->name, sizeof(pci_dev->name), name);
     pci_dev->irq_state = 0;
@@ -1144,7 +1147,9 @@ static const pci_class_desc pci_class_descriptions[] =
 };
 
 static void pci_for_each_device_under_bus(PCIBus *bus,
-                                          void (*fn)(PCIBus *b, PCIDevice *d))
+                                          void (*fn)(PCIBus *b, PCIDevice *d,
+                                                     void *opaque),
+                                          void *opaque)
 {
     PCIDevice *d;
     int devfn;
@@ -1152,18 +1157,19 @@ static void pci_for_each_device_under_bus(PCIBus *bus,
     for(devfn = 0; devfn < ARRAY_SIZE(bus->devices); devfn++) {
         d = bus->devices[devfn];
         if (d) {
-            fn(bus, d);
+            fn(bus, d, opaque);
         }
     }
 }
 
 void pci_for_each_device(PCIBus *bus, int bus_num,
-                         void (*fn)(PCIBus *b, PCIDevice *d))
+                         void (*fn)(PCIBus *b, PCIDevice *d, void *opaque),
+                         void *opaque)
 {
     bus = pci_find_bus_nr(bus, bus_num);
 
     if (bus) {
-        pci_for_each_device_under_bus(bus, fn);
+        pci_for_each_device_under_bus(bus, fn, opaque);
     }
 }
 
@@ -2019,6 +2025,12 @@ static void pci_device_class_init(ObjectClass *klass, void *data)
     k->exit = pci_unregister_device;
     k->bus_type = TYPE_PCI_BUS;
     k->props = pci_props;
+}
+
+void pci_setup_iommu(PCIBus *bus, PCIDMAContextFunc fn, void *opaque)
+{
+    bus->dma_context_fn = fn;
+    bus->dma_context_opaque = opaque;
 }
 
 static TypeInfo pci_device_type_info = {
