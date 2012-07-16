@@ -1168,13 +1168,7 @@ struct omap_mpu_state_s *omap3_mpu_init(MemoryRegion *sysmem,
 void omap3_boot_rom_init(struct omap_mpu_state_s *s);
 void omap3_boot_rom_emu(struct omap_mpu_state_s *s);
 
-# if TARGET_PHYS_ADDR_BITS == 32
-#  define OMAP_FMT_plx "%#08x"
-# elif TARGET_PHYS_ADDR_BITS == 64
-#  define OMAP_FMT_plx "%#08" PRIx64
-# else
-#  error TARGET_PHYS_ADDR_BITS undefined
-# endif
+#define OMAP_FMT_plx "%#08" TARGET_PRIxPHYS
 
 uint32_t omap_badwidth_read8(void *opaque, target_phys_addr_t addr);
 void omap_badwidth_write8(void *opaque, target_phys_addr_t addr,

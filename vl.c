@@ -1795,9 +1795,8 @@ char *qemu_find_file(int type, const char *name)
     const char *subdir;
     char *buf;
 
-    /* If name contains path separators then try it as a straight path.  */
-    if ((strchr(name, '/') || strchr(name, '\\'))
-        && access(name, R_OK) == 0) {
+    /* Try the name as a straight path first */
+    if (access(name, R_OK) == 0) {
         return g_strdup(name);
     }
     switch (type) {
@@ -3585,8 +3584,11 @@ int main(int argc, char **argv, char **envp)
     /* init remote displays */
     if (vnc_display) {
         vnc_display_init(ds);
-        if (vnc_display_open(ds, vnc_display) < 0)
+        if (vnc_display_open(ds, vnc_display) < 0) {
+            fprintf(stderr, "Failed to start VNC server on `%s'\n",
+                    vnc_display);
             exit(1);
+        }
 
         if (show_vnc_port) {
             printf("VNC server running on `%s'\n", vnc_display_local_addr(ds));
