@@ -39,9 +39,8 @@ void visit_start_struct(Visitor *v, void **obj, const char *kind,
 
 void visit_end_struct(Visitor *v, Error **errp)
 {
-    if (!error_is_set(errp)) {
-        v->end_struct(v, errp);
-    }
+    assert(!error_is_set(errp));
+    v->end_struct(v, errp);
 }
 
 void visit_start_list(Visitor *v, const char *name, Error **errp)
@@ -62,9 +61,8 @@ GenericList *visit_next_list(Visitor *v, GenericList **list, Error **errp)
 
 void visit_end_list(Visitor *v, Error **errp)
 {
-    if (!error_is_set(errp)) {
-        v->end_list(v, errp);
-    }
+    assert(!error_is_set(errp));
+    v->end_list(v, errp);
 }
 
 void visit_start_optional(Visitor *v, bool *present, const char *name,
@@ -236,6 +234,13 @@ void visit_type_int64(Visitor *v, int64_t *obj, const char *name, Error **errp)
     }
 }
 
+void visit_type_size(Visitor *v, uint64_t *obj, const char *name, Error **errp)
+{
+    if (!error_is_set(errp)) {
+        (v->type_size ? v->type_size : v->type_uint64)(v, obj, name, errp);
+    }
+}
+
 void visit_type_bool(Visitor *v, bool *obj, const char *name, Error **errp)
 {
     if (!error_is_set(errp)) {
@@ -298,7 +303,7 @@ void input_type_enum(Visitor *v, int *obj, const char *strings[],
     }
 
     if (strings[value] == NULL) {
-        error_set(errp, QERR_INVALID_PARAMETER, name ? name : "null");
+        error_set(errp, QERR_INVALID_PARAMETER, enum_str);
         g_free(enum_str);
         return;
     }

@@ -941,13 +941,6 @@ static void do_info_cpu_stats(Monitor *mon)
 }
 #endif
 
-#if defined(CONFIG_TRACE_SIMPLE)
-static void do_info_trace(Monitor *mon)
-{
-    st_print_trace((FILE *)mon, &monitor_fprintf);
-}
-#endif
-
 static void do_trace_print_events(Monitor *mon)
 {
     trace_print_events((FILE *)mon, &monitor_fprintf);
@@ -2307,48 +2300,45 @@ static void do_inject_mce(Monitor *mon, const QDict *qdict)
 }
 #endif
 
-static int do_getfd(Monitor *mon, const QDict *qdict, QObject **ret_data)
+void qmp_getfd(const char *fdname, Error **errp)
 {
-    const char *fdname = qdict_get_str(qdict, "fdname");
     mon_fd_t *monfd;
     int fd;
 
-    fd = qemu_chr_fe_get_msgfd(mon->chr);
+    fd = qemu_chr_fe_get_msgfd(cur_mon->chr);
     if (fd == -1) {
-        qerror_report(QERR_FD_NOT_SUPPLIED);
-        return -1;
+        error_set(errp, QERR_FD_NOT_SUPPLIED);
+        return;
     }
 
     if (qemu_isdigit(fdname[0])) {
-        qerror_report(QERR_INVALID_PARAMETER_VALUE, "fdname",
-                      "a name not starting with a digit");
-        return -1;
+        error_set(errp, QERR_INVALID_PARAMETER_VALUE, "fdname",
+                  "a name not starting with a digit");
+        return;
     }
 
-    QLIST_FOREACH(monfd, &mon->fds, next) {
+    QLIST_FOREACH(monfd, &cur_mon->fds, next) {
         if (strcmp(monfd->name, fdname) != 0) {
             continue;
         }
 
         close(monfd->fd);
         monfd->fd = fd;
-        return 0;
+        return;
     }
 
     monfd = g_malloc0(sizeof(mon_fd_t));
     monfd->name = g_strdup(fdname);
     monfd->fd = fd;
 
-    QLIST_INSERT_HEAD(&mon->fds, monfd, next);
-    return 0;
+    QLIST_INSERT_HEAD(&cur_mon->fds, monfd, next);
 }
 
-static int do_closefd(Monitor *mon, const QDict *qdict, QObject **ret_data)
+void qmp_closefd(const char *fdname, Error **errp)
 {
-    const char *fdname = qdict_get_str(qdict, "fdname");
     mon_fd_t *monfd;
 
-    QLIST_FOREACH(monfd, &mon->fds, next) {
+    QLIST_FOREACH(monfd, &cur_mon->fds, next) {
         if (strcmp(monfd->name, fdname) != 0) {
             continue;
         }
@@ -2357,11 +2347,10 @@ static int do_closefd(Monitor *mon, const QDict *qdict, QObject **ret_data)
         close(monfd->fd);
         g_free(monfd->name);
         g_free(monfd);
-        return 0;
+        return;
     }
 
-    qerror_report(QERR_FD_NOT_FOUND, fdname);
-    return -1;
+    error_set(errp, QERR_FD_NOT_FOUND, fdname);
 }
 
 static void do_loadvm(Monitor *mon, const QDict *qdict)
@@ -2693,15 +2682,6 @@ static mon_cmd_t info_cmds[] = {
         .help       = "show roms",
         .mhandler.info = do_info_roms,
     },
-#if defined(CONFIG_TRACE_SIMPLE)
-    {
-        .name       = "trace",
-        .args_type  = "",
-        .params     = "",
-        .help       = "show current contents of trace buffer",
-        .mhandler.info = do_info_trace,
-    },
-#endif
     {
         .name       = "trace-events",
         .args_type  = "",

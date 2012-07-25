@@ -343,7 +343,7 @@
 # @CPU: the index of the virtual CPU
 #
 # @current: this only exists for backwards compatible and should be ignored
-# 
+#
 # @halted: true if the virtual CPU is in the halt state.  Halt usually refers
 #          to a processor specific low power mode.
 #
@@ -686,7 +686,7 @@
 # @SpiceInfo
 #
 # Information about the SPICE session.
-# 
+#
 # @enabled: true if the SPICE server is enabled, false otherwise
 #
 # @host: #optional The hostname the SPICE server is bound to.  This depends on
@@ -1297,7 +1297,7 @@
 ##
 { 'command': 'human-monitor-command',
   'data': {'command-line': 'str', '*cpu-index': 'int'},
-  'returns': 'str' } 
+  'returns': 'str' }
 
 ##
 # @migrate_cancel
@@ -1458,7 +1458,7 @@
 # @password: the new password
 #
 # @connected: #optional how to handle existing clients when changing the
-#                       password.  If nothing is specified, defaults to `keep' 
+#                       password.  If nothing is specified, defaults to `keep'
 #                       `fail' to fail the command if clients are connected
 #                       `disconnect' to disconnect existing clients
 #                       `keep' to maintain existing clients
@@ -1598,7 +1598,7 @@
 #          If the argument combination is invalid, InvalidParameterCombination
 #
 # Since: 1.1
-## 
+##
 { 'command': 'block_set_io_throttle',
   'data': { 'device': 'str', 'bps': 'int', 'bps_rd': 'int', 'bps_wr': 'int',
             'iops': 'int', 'iops_rd': 'int', 'iops_wr': 'int' } }
@@ -1789,34 +1789,36 @@
 #
 # Dump guest's memory to vmcore. It is a synchronous operation that can take
 # very long depending on the amount of guest memory. This command is only
-# supported only on i386 and x86_64
+# supported on i386 and x86_64.
 #
-# @paging: if true, do paging to get guest's memory mapping. The @paging's
-# default value of @paging is false, If you want to use gdb to process the
-# core, please set @paging to true. The reason why the @paging's value is
-# false:
-#   1. guest machine in a catastrophic state can have corrupted memory,
-#      which we cannot trust.
-#   2. The guest machine can be in read-mode even if paging is enabled.
-#      For example: the guest machine uses ACPI to sleep, and ACPI sleep
-#      state goes in real-mode
+# @paging: if true, do paging to get guest's memory mapping. This allows
+# using gdb to process the core file. However, setting @paging to false
+# may be desirable because of two reasons:
+#
+#   1. The guest may be in a catastrophic state or can have corrupted
+#      memory, which cannot be trusted
+#   2. The guest can be in real-mode even if paging is enabled. For example,
+#      the guest uses ACPI to sleep, and ACPI sleep state goes in real-mode
+#
 # @protocol: the filename or file descriptor of the vmcore. The supported
-# protocol can be file or fd:
+# protocols are:
+#
 #   1. file: the protocol starts with "file:", and the following string is
 #      the file's path.
 #   2. fd: the protocol starts with "fd:", and the following string is the
 #      fd's name.
+#
 # @begin: #optional if specified, the starting physical address.
+#
 # @length: #optional if specified, the memory size, in bytes. If you don't
-# want to dump all guest's memory, please specify the start @begin and
-# @length
+# want to dump all guest's memory, please specify the start @begin and @length
 #
 # Returns: nothing on success
 #          If @begin contains an invalid address, InvalidParameter
 #          If only one of @begin and @length is specified, MissingParameter
 #          If @protocol stats with "fd:", and the fd cannot be found, FdNotFound
 #          If @protocol starts with "file:", and the file cannot be
-#          opened, OpenFileFailed
+#             opened, OpenFileFailed
 #          If @protocol does not start with "fd:" or "file:", InvalidParameter
 #          If an I/O error occurs while writing the file, IOError
 #          If the target does not support this command, Unsupported
@@ -1868,3 +1870,316 @@
 # Since: 0.14.0
 ##
 { 'command': 'netdev_del', 'data': {'id': 'str'} }
+
+##
+# @NetdevNoneOptions
+#
+# Use it alone to have zero network devices.
+#
+# Since 1.2
+##
+{ 'type': 'NetdevNoneOptions',
+  'data': { } }
+
+##
+# @NetLegacyNicOptions
+#
+# Create a new Network Interface Card.
+#
+# @netdev: #optional id of -netdev to connect to
+#
+# @macaddr: #optional MAC address
+#
+# @model: #optional device model (e1000, rtl8139, virtio etc.)
+#
+# @addr: #optional PCI device address
+#
+# @vectors: #optional number of MSI-x vectors, 0 to disable MSI-X
+#
+# Since 1.2
+##
+{ 'type': 'NetLegacyNicOptions',
+  'data': {
+    '*netdev':  'str',
+    '*macaddr': 'str',
+    '*model':   'str',
+    '*addr':    'str',
+    '*vectors': 'uint32' } }
+
+##
+# @String
+#
+# A fat type wrapping 'str', to be embedded in lists.
+#
+# Since 1.2
+##
+{ 'type': 'String',
+  'data': {
+    'str': 'str' } }
+
+##
+# @NetdevUserOptions
+#
+# Use the user mode network stack which requires no administrator privilege to
+# run.
+#
+# @hostname: #optional client hostname reported by the builtin DHCP server
+#
+# @restrict: #optional isolate the guest from the host
+#
+# @ip: #optional legacy parameter, use net= instead
+#
+# @net: #optional IP address and optional netmask
+#
+# @host: #optional guest-visible address of the host
+#
+# @tftp: #optional root directory of the built-in TFTP server
+#
+# @bootfile: #optional BOOTP filename, for use with tftp=
+#
+# @dhcpstart: #optional the first of the 16 IPs the built-in DHCP server can
+#             assign
+#
+# @dns: #optional guest-visible address of the virtual nameserver
+#
+# @smb: #optional root directory of the built-in SMB server
+#
+# @smbserver: #optional IP address of the built-in SMB server
+#
+# @hostfwd: #optional redirect incoming TCP or UDP host connections to guest
+#           endpoints
+#
+# @guestfwd: #optional forward guest TCP connections
+#
+# Since 1.2
+##
+{ 'type': 'NetdevUserOptions',
+  'data': {
+    '*hostname':  'str',
+    '*restrict':  'bool',
+    '*ip':        'str',
+    '*net':       'str',
+    '*host':      'str',
+    '*tftp':      'str',
+    '*bootfile':  'str',
+    '*dhcpstart': 'str',
+    '*dns':       'str',
+    '*smb':       'str',
+    '*smbserver': 'str',
+    '*hostfwd':   ['String'],
+    '*guestfwd':  ['String'] } }
+
+##
+# @NetdevTapOptions
+#
+# Connect the host TAP network interface name to the VLAN.
+#
+# @ifname: #optional interface name
+#
+# @fd: #optional file descriptor of an already opened tap
+#
+# @script: #optional script to initialize the interface
+#
+# @downscript: #optional script to shut down the interface
+#
+# @helper: #optional command to execute to configure bridge
+#
+# @sndbuf: #optional send buffer limit. Understands [TGMKkb] suffixes.
+#
+# @vnet_hdr: #optional enable the IFF_VNET_HDR flag on the tap interface
+#
+# @vhost: #optional enable vhost-net network accelerator
+#
+# @vhostfd: #optional file descriptor of an already opened vhost net device
+#
+# @vhostforce: #optional vhost on for non-MSIX virtio guests
+#
+# Since 1.2
+##
+{ 'type': 'NetdevTapOptions',
+  'data': {
+    '*ifname':     'str',
+    '*fd':         'str',
+    '*script':     'str',
+    '*downscript': 'str',
+    '*helper':     'str',
+    '*sndbuf':     'size',
+    '*vnet_hdr':   'bool',
+    '*vhost':      'bool',
+    '*vhostfd':    'str',
+    '*vhostforce': 'bool' } }
+
+##
+# @NetdevSocketOptions
+#
+# Connect the VLAN to a remote VLAN in another QEMU virtual machine using a TCP
+# socket connection.
+#
+# @fd: #optional file descriptor of an already opened socket
+#
+# @listen: #optional port number, and optional hostname, to listen on
+#
+# @connect: #optional port number, and optional hostname, to connect to
+#
+# @mcast: #optional UDP multicast address and port number
+#
+# @localaddr: #optional source address and port for multicast and udp packets
+#
+# @udp: #optional UDP unicast address and port number
+#
+# Since 1.2
+##
+{ 'type': 'NetdevSocketOptions',
+  'data': {
+    '*fd':        'str',
+    '*listen':    'str',
+    '*connect':   'str',
+    '*mcast':     'str',
+    '*localaddr': 'str',
+    '*udp':       'str' } }
+
+##
+# @NetdevVdeOptions
+#
+# Connect the VLAN to a vde switch running on the host.
+#
+# @sock: #optional socket path
+#
+# @port: #optional port number
+#
+# @group: #optional group owner of socket
+#
+# @mode: #optional permissions for socket
+#
+# Since 1.2
+##
+{ 'type': 'NetdevVdeOptions',
+  'data': {
+    '*sock':  'str',
+    '*port':  'uint16',
+    '*group': 'str',
+    '*mode':  'uint16' } }
+
+##
+# @NetdevDumpOptions
+#
+# Dump VLAN network traffic to a file.
+#
+# @len: #optional per-packet size limit (64k default). Understands [TGMKkb]
+# suffixes.
+#
+# @file: #optional dump file path (default is qemu-vlan0.pcap)
+#
+# Since 1.2
+##
+{ 'type': 'NetdevDumpOptions',
+  'data': {
+    '*len':  'size',
+    '*file': 'str' } }
+
+##
+# @NetdevBridgeOptions
+#
+# Connect a host TAP network interface to a host bridge device.
+#
+# @br: #optional bridge name
+#
+# @helper: #optional command to execute to configure bridge
+#
+# Since 1.2
+##
+{ 'type': 'NetdevBridgeOptions',
+  'data': {
+    '*br':     'str',
+    '*helper': 'str' } }
+
+##
+# @NetClientOptions
+#
+# A discriminated record of network device traits.
+#
+# Since 1.2
+##
+{ 'union': 'NetClientOptions',
+  'data': {
+    'none':   'NetdevNoneOptions',
+    'nic':    'NetLegacyNicOptions',
+    'user':   'NetdevUserOptions',
+    'tap':    'NetdevTapOptions',
+    'socket': 'NetdevSocketOptions',
+    'vde':    'NetdevVdeOptions',
+    'dump':   'NetdevDumpOptions',
+    'bridge': 'NetdevBridgeOptions' } }
+
+##
+# @NetLegacy
+#
+# Captures the configuration of a network device; legacy.
+#
+# @vlan: #optional vlan number
+#
+# @id: #optional identifier for monitor commands
+#
+# @name: #optional identifier for monitor commands, ignored if @id is present
+#
+# @opts: device type specific properties (legacy)
+#
+# Since 1.2
+##
+{ 'type': 'NetLegacy',
+  'data': {
+    '*vlan': 'int32',
+    '*id':   'str',
+    '*name': 'str',
+    'opts':  'NetClientOptions' } }
+
+##
+# @Netdev
+#
+# Captures the configuration of a network device.
+#
+# @id: identifier for monitor commands.
+#
+# @opts: device type specific properties
+#
+# Since 1.2
+##
+{ 'type': 'Netdev',
+  'data': {
+    'id':   'str',
+    'opts': 'NetClientOptions' } }
+
+##
+# @getfd:
+#
+# Receive a file descriptor via SCM rights and assign it a name
+#
+# @fdname: file descriptor name
+#
+# Returns: Nothing on success
+#          If file descriptor was not received, FdNotSupplied
+#          If @fdname is not valid, InvalidParameterType
+#
+# Since: 0.14.0
+#
+# Notes: If @fdname already exists, the file descriptor assigned to
+#        it will be closed and replaced by the received file
+#        descriptor.
+#        The 'closefd' command can be used to explicitly close the
+#        file descriptor when it is no longer needed.
+##
+{ 'command': 'getfd', 'data': {'fdname': 'str'} }
+
+##
+# @closefd:
+#
+# Close a file descriptor previously passed via SCM rights
+#
+# @fdname: file descriptor name
+#
+# Returns: Nothing on success
+#          If @fdname is not found, FdNotFound
+#
+# Since: 0.14.0
+##
+{ 'command': 'closefd', 'data': {'fdname': 'str'} }

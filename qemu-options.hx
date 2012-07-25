@@ -1030,8 +1030,21 @@ is a TCP port number, not a display number.
 @item password
 
 Require that password based authentication is used for client connections.
-The password must be set separately using the @code{change} command in the
-@ref{pcsys_monitor}
+
+The password must be set separately using the @code{set_password} command in
+the @ref{pcsys_monitor}. The syntax to change your password is:
+@code{set_password <protocol> <password>} where <protocol> could be either
+"vnc" or "spice".
+
+If you would like to change <protocol> password expiration, you should use
+@code{expire_password <protocol> <expiration-time>} where expiration time could
+be one of the following options: now, never, +seconds or UNIX time of
+expiration, e.g. +60 to make password expire in 60 seconds, or 1335196800
+to make password expire on "Mon Apr 23 12:00:00 EDT 2012" (UNIX time for this
+date and time).
+
+You can also use keywords "now" or "never" for the expiration time to
+allow <protocol> password to expire immediately or never expire.
 
 @item tls
 
@@ -1426,7 +1439,7 @@ Forward guest TCP connections to the IP address @var{server} on port @var{port}
 to the character device @var{dev} or to a program executed by @var{cmd:command}
 which gets spawned for each connection. This option can be given multiple times.
 
-You can either use a chardev directly and have that one used throughout Qemu's
+You can either use a chardev directly and have that one used throughout QEMU's
 lifetime, like in the following example:
 
 @example
@@ -1436,7 +1449,7 @@ qemu -net user,guestfwd=tcp:10.0.2.100:1234-tcp:10.10.1.1:4321 [...]
 @end example
 
 Or you can execute a command on every TCP connection established by the guest,
-so that Qemu behaves similar to an inetd process for that virtual server:
+so that QEMU behaves similar to an inetd process for that virtual server:
 
 @example
 # call "netcat 10.10.1.1 4321" on every TCP connection to 10.0.2.100:1234
@@ -2641,7 +2654,10 @@ DEF("nodefaults", 0, QEMU_OPTION_nodefaults, \
 STEXI
 @item -nodefaults
 @findex -nodefaults
-Don't create default devices.
+Don't create default devices. Normally, QEMU sets the default devices like serial
+port, parallel port, virtual console, monitor device, VGA adapter, floppy and
+CD-ROM drive and others. The @code{-nodefaults} option will disable all those
+default devices.
 ETEXI
 
 #ifndef _WIN32
@@ -2697,7 +2713,9 @@ DEF("readconfig", HAS_ARG, QEMU_OPTION_readconfig,
 STEXI
 @item -readconfig @var{file}
 @findex -readconfig
-Read device configuration from @var{file}.
+Read device configuration from @var{file}. This approach is useful when you want to spawn
+QEMU process with many command line options but you don't want to exceed the command line
+character limit.
 ETEXI
 DEF("writeconfig", HAS_ARG, QEMU_OPTION_writeconfig,
     "-writeconfig <file>\n"
@@ -2705,7 +2723,9 @@ DEF("writeconfig", HAS_ARG, QEMU_OPTION_writeconfig,
 STEXI
 @item -writeconfig @var{file}
 @findex -writeconfig
-Write device configuration to @var{file}.
+Write device configuration to @var{file}. The @var{file} can be either filename to save
+command line and device configuration into file or dash @code{-}) character to print the
+output to stdout. This can be later used as input file for @code{-readconfig} option.
 ETEXI
 DEF("nodefconfig", 0, QEMU_OPTION_nodefconfig,
     "-nodefconfig\n"
