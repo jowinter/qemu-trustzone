@@ -94,12 +94,12 @@ static void cmd646_data_write(void *opaque, target_phys_addr_t addr,
     CMD646BAR *cmd646bar = opaque;
 
     if (size == 1) {
-        return ide_ioport_write(cmd646bar->bus, addr, data);
+        ide_ioport_write(cmd646bar->bus, addr, data);
     } else if (addr == 0) {
         if (size == 2) {
-            return ide_data_writew(cmd646bar->bus, addr, data);
+            ide_data_writew(cmd646bar->bus, addr, data);
         } else {
-            return ide_data_writel(cmd646bar->bus, addr, data);
+            ide_data_writel(cmd646bar->bus, addr, data);
         }
     }
 }
@@ -295,7 +295,7 @@ static int pci_cmd646_ide_initfn(PCIDevice *dev)
     return 0;
 }
 
-static int pci_cmd646_ide_exitfn(PCIDevice *dev)
+static void pci_cmd646_ide_exitfn(PCIDevice *dev)
 {
     PCIIDEState *d = DO_UPCAST(PCIIDEState, dev, dev);
     unsigned i;
@@ -309,8 +309,6 @@ static int pci_cmd646_ide_exitfn(PCIDevice *dev)
         memory_region_destroy(&d->cmd646_bar[i].data);
     }
     memory_region_destroy(&d->bmdma_bar);
-
-    return 0;
 }
 
 void pci_cmd646_ide_init(PCIBus *bus, DriveInfo **hd_table,

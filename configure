@@ -937,6 +937,7 @@ mips-softmmu \
 mipsel-softmmu \
 mips64-softmmu \
 mips64el-softmmu \
+or32-softmmu \
 ppc-softmmu \
 ppcemb-softmmu \
 ppc64-softmmu \
@@ -963,6 +964,7 @@ microblaze-linux-user \
 microblazeel-linux-user \
 mips-linux-user \
 mipsel-linux-user \
+or32-linux-user \
 ppc-linux-user \
 ppc64-linux-user \
 ppc64abi32-linux-user \
@@ -1169,9 +1171,10 @@ gcc_flags="-Wold-style-declaration -Wold-style-definition -Wtype-limits"
 gcc_flags="-Wformat-security -Wformat-y2k -Winit-self -Wignored-qualifiers $gcc_flags"
 gcc_flags="-Wmissing-include-dirs -Wempty-body -Wnested-externs $gcc_flags"
 gcc_flags="-fstack-protector-all -Wendif-labels $gcc_flags"
-if test "$werror" = "yes" ; then
-    gcc_flags="-Werror $gcc_flags"
-fi
+# Note that we do not add -Werror to gcc_flags here, because that would
+# enable it for all configure tests. If a configure test failed due
+# to -Werror this would just silently disable some features,
+# so it's too error prone.
 cat > $TMPC << EOF
 int main(void) { return 0; }
 EOF
@@ -1394,7 +1397,6 @@ if test "$xen" != "no" ; then
   # Xen (any)
   cat > $TMPC <<EOF
 #include <xenctrl.h>
-#include <xs.h>
 int main(void) {
   return 0;
 }
@@ -1407,8 +1409,8 @@ EOF
     xen=no
 
   # Xen unstable
-  elif (
-      cat > $TMPC <<EOF
+  elif
+      cat > $TMPC <<EOF &&
 #include <xenctrl.h>
 #include <xenstore.h>
 #include <stdint.h>
@@ -1428,12 +1430,12 @@ int main(void) {
 }
 EOF
       compile_prog "" "$xen_libs"
-    ) ; then
+    then
     xen_ctrl_version=420
     xen=yes
 
-  elif (
-      cat > $TMPC <<EOF
+  elif
+      cat > $TMPC <<EOF &&
 #include <xenctrl.h>
 #include <xs.h>
 #include <stdint.h>
@@ -1442,9 +1444,8 @@ EOF
 # error HVM_MAX_VCPUS not defined
 #endif
 int main(void) {
-  xc_interface *xc;
   xs_daemon_open();
-  xc = xc_interface_open(0, 0, 0);
+  xc_interface_open(0, 0, 0);
   xc_hvm_set_mem_type(0, 0, HVMMEM_ram_ro, 0, 0);
   xc_gnttab_open(NULL, 0);
   xc_domain_add_to_physmap(0, 0, XENMAPSPACE_gmfn, 0, 0);
@@ -1452,13 +1453,13 @@ int main(void) {
 }
 EOF
       compile_prog "" "$xen_libs"
-    ) ; then
+    then
     xen_ctrl_version=410
     xen=yes
 
   # Xen 4.0.0
-  elif (
-      cat > $TMPC <<EOF
+  elif
+      cat > $TMPC <<EOF &&
 #include <xenctrl.h>
 #include <xs.h>
 #include <stdint.h>
@@ -1479,13 +1480,13 @@ int main(void) {
 }
 EOF
       compile_prog "" "$xen_libs"
-    ) ; then
+    then
     xen_ctrl_version=400
     xen=yes
 
   # Xen 3.4.0
-  elif (
-      cat > $TMPC <<EOF
+  elif
+      cat > $TMPC <<EOF &&
 #include <xenctrl.h>
 #include <xs.h>
 int main(void) {
@@ -1501,13 +1502,13 @@ int main(void) {
 }
 EOF
       compile_prog "" "$xen_libs"
-    ) ; then
+    then
     xen_ctrl_version=340
     xen=yes
 
   # Xen 3.3.0
-  elif (
-      cat > $TMPC <<EOF
+  elif
+      cat > $TMPC <<EOF &&
 #include <xenctrl.h>
 #include <xs.h>
 int main(void) {
@@ -1519,7 +1520,7 @@ int main(void) {
 }
 EOF
       compile_prog "" "$xen_libs"
-    ) ; then
+    then
     xen_ctrl_version=330
     xen=yes
 
@@ -1739,7 +1740,7 @@ cat > $TMPC <<EOF
 int main(void) {
     png_structp png_ptr;
     png_ptr = png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
-    return 0;
+    return png_ptr != 0;
 }
 EOF
   if $pkg_config libpng --modversion >/dev/null 2>&1; then
@@ -1832,7 +1833,8 @@ if test "$vde" != "no" ; then
 int main(void)
 {
     struct vde_open_args a = {0, 0, 0};
-    vde_open("", "", &a);
+    char s[] = "";
+    vde_open(s, s, &a);
     return 0;
 }
 EOF
@@ -1901,7 +1903,7 @@ for drv in $audio_drv_list; do
     case $drv in
     alsa)
     audio_drv_probe $drv alsa/asoundlib.h -lasound \
-        "snd_pcm_t **handle; return snd_pcm_close(*handle);"
+        "return snd_pcm_close((snd_pcm_t *)0);"
     libs_softmmu="-lasound $libs_softmmu"
     ;;
 
@@ -2095,7 +2097,7 @@ if test "$cap" != "no" ; then
   cat > $TMPC <<EOF
 #include <stdio.h>
 #include <sys/capability.h>
-int main(void) { cap_t caps; caps = cap_init(); }
+int main(void) { cap_t caps; caps = cap_init(); return caps != NULL; }
 EOF
   if compile_prog "" "-lcap" ; then
     cap=yes
@@ -2352,6 +2354,7 @@ cat > $TMPC << EOF
 #define _ATFILE_SOURCE
 #include <stddef.h>
 #include <fcntl.h>
+#include <sys/stat.h>
 
 int main(void)
 {
@@ -2666,13 +2669,22 @@ if test "$smartcard" != "no" ; then
 #include <pk11pub.h>
 int main(void) { PK11_FreeSlot(0); return 0; }
 EOF
-        smartcard_cflags="-I\$(SRC_PATH)/libcacard"
+        smartcard_includes="-I\$(SRC_PATH)/libcacard"
         libcacard_libs="$($pkg_config --libs nss 2>/dev/null) $glib_libs"
         libcacard_cflags="$($pkg_config --cflags nss 2>/dev/null) $glib_cflags"
+        test_cflags="$libcacard_cflags"
+        # The header files in nss < 3.13.3 have a bug which causes them to
+        # emit a warning. If we're going to compile QEMU with -Werror, then
+        # test that the headers don't have this bug. Otherwise we would pass
+        # the configure test but fail to compile QEMU later.
+        if test "$werror" = "yes"; then
+            test_cflags="-Werror $test_cflags"
+        fi
         if $pkg_config --atleast-version=3.12.8 nss >/dev/null 2>&1 && \
-          compile_prog "$smartcard_cflags $libcacard_cflags" "$libcacard_libs"; then
+          compile_prog "$test_cflags" "$libcacard_libs"; then
             smartcard_nss="yes"
-            QEMU_CFLAGS="$QEMU_CFLAGS $smartcard_cflags $libcacard_cflags"
+            QEMU_CFLAGS="$QEMU_CFLAGS $libcacard_cflags"
+            QEMU_INCLUDES="$QEMU_INCLUDES $smartcard_includes"
             libs_softmmu="$libcacard_libs $libs_softmmu"
         else
             if test "$smartcard_nss" = "yes"; then
@@ -2801,7 +2813,7 @@ fi
 # specification is necessary
 if test "$vhost_net" = "yes" && test "$cpu" = "i386"; then
   cat > $TMPC << EOF
-int sfaa(unsigned *ptr)
+static int sfaa(int *ptr)
 {
   return __sync_fetch_and_and(ptr, 0);
 }
@@ -2814,7 +2826,7 @@ int main(int argc, char **argv)
 }
 EOF
   if ! compile_prog "" "" ; then
-    CFLAGS+="-march=i486"
+    QEMU_CFLAGS="-march=i486 $QEMU_CFLAGS"
   fi
 fi
 
@@ -2884,14 +2896,29 @@ if compile_prog "" "" ; then
 fi
 
 ########################################
+# check whether we can disable the -Wunused-but-set-variable
+# option with a pragma (this is needed to silence a warning in
+# some versions of the valgrind VALGRIND_STACK_DEREGISTER macro.)
+# This test has to be compiled with -Werror as otherwise an
+# unknown pragma is only a warning.
+pragma_disable_unused_but_set=no
+cat > $TMPC << EOF
+#pragma GCC diagnostic ignored "-Wunused-but-set-variable"
+int main(void) {
+    return 0;
+}
+EOF
+if compile_prog "-Werror" "" ; then
+    pragma_disable_unused_but_set=yes
+fi
+
+########################################
 # check if we have valgrind/valgrind.h
 
 valgrind_h=no
 cat > $TMPC << EOF
 #include <valgrind/valgrind.h>
-#pragma GCC diagnostic ignored "-Wunused-but-set-variable"
 int main(void) {
-  VALGRIND_STACK_DEREGISTER(0);
   return 0;
 }
 EOF
@@ -2930,6 +2957,11 @@ if test -z "$zero_malloc" ; then
     else
 	zero_malloc="yes"
     fi
+fi
+
+# Now we've finished running tests it's OK to add -Werror to the compiler flags
+if test "$werror" = "yes"; then
+    QEMU_CFLAGS="-Werror $QEMU_CFLAGS"
 fi
 
 if test "$solaris" = "no" ; then
@@ -3408,6 +3440,10 @@ if test "$linux_magic_h" = "yes" ; then
   echo "CONFIG_LINUX_MAGIC_H=y" >> $config_host_mak
 fi
 
+if test "$pragma_disable_unused_but_set" = "yes" ; then
+  echo "CONFIG_PRAGMA_DISABLE_UNUSED_BUT_SET=y" >> $config_host_mak
+fi
+
 if test "$valgrind_h" = "yes" ; then
   echo "CONFIG_VALGRIND_H=y" >> $config_host_mak
 fi
@@ -3536,7 +3572,7 @@ target_arch2=`echo $target | cut -d '-' -f 1`
 target_bigendian="no"
 
 case "$target_arch2" in
-  armeb|lm32|m68k|microblaze|mips|mipsn32|mips64|ppc|ppcemb|ppc64|ppc64abi32|s390x|sh4eb|sparc|sparc64|sparc32plus|xtensaeb)
+  armeb|lm32|m68k|microblaze|mips|mipsn32|mips64|or32|ppc|ppcemb|ppc64|ppc64abi32|s390x|sh4eb|sparc|sparc64|sparc32plus|xtensaeb)
   target_bigendian=yes
   ;;
 esac
@@ -3652,6 +3688,11 @@ case "$target_arch2" in
     target_phys_bits=64
     target_long_alignment=8
   ;;
+  or32)
+    TARGET_ARCH=openrisc
+    TARGET_BASE_ARCH=openrisc
+    target_phys_bits=32
+  ;;
   ppc)
     gdb_xml_files="power-core.xml power-fpu.xml power-altivec.xml power-spe.xml"
     target_phys_bits=64
@@ -3730,7 +3771,7 @@ symlink "$source_path/Makefile.target" "$target_dir/Makefile"
 
 
 case "$target_arch2" in
-  alpha | sparc* | xtensa* | ppc*)
+  alpha | or32 | sparc* | xtensa* | ppc*)
     echo "CONFIG_TCG_PASS_AREG0=y" >> $config_target_mak
   ;;
 esac
@@ -3903,6 +3944,10 @@ for i in $ARCH $TARGET_BASE_ARCH ; do
   mips*)
     echo "CONFIG_MIPS_DIS=y"  >> $config_target_mak
     echo "CONFIG_MIPS_DIS=y"  >> $libdis_config_mak
+  ;;
+  or32)
+    echo "CONFIG_OPENRISC_DIS=y"  >> $config_target_mak
+    echo "CONFIG_OPENRISC_DIS=y"  >> $libdis_config_mak
   ;;
   ppc*)
     echo "CONFIG_PPC_DIS=y"  >> $config_target_mak

@@ -31,6 +31,8 @@
 
 #include "hyperv.h"
 
+#include "hw/hw.h"
+
 /* feature flags taken from "Intel Processor Identification and the CPUID
  * Instruction" and AMD's "CPUID Specification".  In cases of disagreement
  * between feature naming conventions, aliases may be added.
@@ -1686,7 +1688,30 @@ static void x86_cpu_reset(CPUState *s)
     env->dr[7] = DR7_FIXED_1;
     cpu_breakpoint_remove_all(env, BP_CPU);
     cpu_watchpoint_remove_all(env, BP_CPU);
+
+#if !defined(CONFIG_USER_ONLY)
+    /* We hard-wire the BSP to the first CPU. */
+    if (env->cpu_index == 0) {
+        apic_designate_bsp(env->apic_state);
+    }
+
+    env->halted = !cpu_is_bsp(cpu);
+#endif
 }
+
+#ifndef CONFIG_USER_ONLY
+bool cpu_is_bsp(X86CPU *cpu)
+{
+    return cpu_get_apic_base(cpu->env.apic_state) & MSR_IA32_APICBASE_BSP;
+}
+
+/* TODO: remove me, when reset over QOM tree is implemented */
+static void x86_cpu_machine_reset_cb(void *opaque)
+{
+    X86CPU *cpu = opaque;
+    cpu_reset(CPU(cpu));
+}
+#endif
 
 static void mce_init(X86CPU *cpu)
 {
@@ -1708,8 +1733,13 @@ void x86_cpu_realize(Object *obj, Error **errp)
 {
     X86CPU *cpu = X86_CPU(obj);
 
+#ifndef CONFIG_USER_ONLY
+    qemu_register_reset(x86_cpu_machine_reset_cb, cpu);
+#endif
+
     mce_init(cpu);
     qemu_init_vcpu(&cpu->env);
+    cpu_reset(CPU(cpu));
 }
 
 static void x86_cpu_initfn(Object *obj)

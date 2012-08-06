@@ -74,7 +74,8 @@ static void bmdma_write(void *opaque, target_phys_addr_t addr,
 #endif
     switch (addr & 3) {
     case 0:
-        return bmdma_cmd_writeb(bm, val);
+        bmdma_cmd_writeb(bm, val);
+        break;
     case 2:
         bm->status = (val & 0x60) | (bm->status & 1) | (bm->status & ~val & 0x06);
         break;
@@ -189,7 +190,7 @@ static int vt82c686b_ide_initfn(PCIDevice *dev)
     return 0;
 }
 
-static int vt82c686b_ide_exitfn(PCIDevice *dev)
+static void vt82c686b_ide_exitfn(PCIDevice *dev)
 {
     PCIIDEState *d = DO_UPCAST(PCIIDEState, dev, dev);
     unsigned i;
@@ -201,8 +202,6 @@ static int vt82c686b_ide_exitfn(PCIDevice *dev)
         memory_region_destroy(&d->bmdma[i].addr_ioport);
     }
     memory_region_destroy(&d->bmdma_bar);
-
-    return 0;
 }
 
 void vt82c686b_ide_init(PCIBus *bus, DriveInfo **hd_table, int devfn)

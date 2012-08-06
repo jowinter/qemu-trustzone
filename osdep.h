@@ -3,6 +3,7 @@
 
 #include <stdarg.h>
 #include <stddef.h>
+#include <stdbool.h>
 #ifdef __OpenBSD__
 #include <sys/types.h>
 #include <sys/signal.h>
@@ -70,10 +71,12 @@ typedef signed int              int_fast16_t;
 #ifndef always_inline
 #if !((__GNUC__ < 3) || defined(__APPLE__))
 #ifdef __OPTIMIZE__
+#undef inline
 #define inline __attribute__ (( always_inline )) __inline__
 #endif
 #endif
 #else
+#undef inline
 #define inline always_inline
 #endif
 
@@ -151,5 +154,8 @@ void qemu_set_cloexec(int fd);
 
 void qemu_set_version(const char *);
 const char *qemu_get_version(void);
+
+void fips_set_state(bool requested);
+bool fips_get_state(void);
 
 #endif

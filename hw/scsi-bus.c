@@ -186,6 +186,10 @@ static int scsi_qdev_init(DeviceState *qdev)
                                                          dev);
     }
 
+    if (bus->info->hotplug) {
+        bus->info->hotplug(bus, dev);
+    }
+
 err:
     return rc;
 }
@@ -729,6 +733,72 @@ static int scsi_get_performance_length(int num_desc, int type, int data_type)
     }
 }
 
+static int ata_passthrough_xfer_unit(SCSIDevice *dev, uint8_t *buf)
+{
+    int byte_block = (buf[2] >> 2) & 0x1;
+    int type = (buf[2] >> 4) & 0x1;
+    int xfer_unit;
+
+    if (byte_block) {
+        if (type) {
+            xfer_unit = dev->blocksize;
+        } else {
+            xfer_unit = 512;
+        }
+    } else {
+        xfer_unit = 1;
+    }
+
+    return xfer_unit;
+}
+
+static int ata_passthrough_12_xfer_size(SCSIDevice *dev, uint8_t *buf)
+{
+    int length = buf[2] & 0x3;
+    int xfer;
+    int unit = ata_passthrough_xfer_unit(dev, buf);
+
+    switch (length) {
+    case 0:
+    case 3: /* USB-specific.  */
+        xfer = 0;
+        break;
+    case 1:
+        xfer = buf[3];
+        break;
+    case 2:
+        xfer = buf[4];
+        break;
+    }
+
+    return xfer * unit;
+}
+
+static int ata_passthrough_16_xfer_size(SCSIDevice *dev, uint8_t *buf)
+{
+    int extend = buf[1] & 0x1;
+    int length = buf[2] & 0x3;
+    int xfer;
+    int unit = ata_passthrough_xfer_unit(dev, buf);
+
+    switch (length) {
+    case 0:
+    case 3: /* USB-specific.  */
+        xfer = 0;
+        break;
+    case 1:
+        xfer = buf[4];
+        xfer |= (extend ? buf[3] << 8 : 0);
+        break;
+    case 2:
+        xfer = buf[6];
+        xfer |= (extend ? buf[5] << 8 : 0);
+        break;
+    }
+
+    return xfer * unit;
+}
+
 static int scsi_req_length(SCSICommand *cmd, SCSIDevice *dev, uint8_t *buf)
 {
     switch (buf[0] >> 5) {
@@ -863,6 +933,17 @@ static int scsi_req_length(SCSICommand *cmd, SCSIDevice *dev, uint8_t *buf)
             cmd->xfer = buf[9] | (buf[8] << 8);
         }
         break;
+    case ATA_PASSTHROUGH_12:
+        if (dev->type == TYPE_ROM) {
+            /* BLANK command of MMC */
+            cmd->xfer = 0;
+        } else {
+            cmd->xfer = ata_passthrough_12_xfer_size(dev, buf);
+        }
+        break;
+    case ATA_PASSTHROUGH_16:
+        cmd->xfer = ata_passthrough_16_xfer_size(dev, buf);
+        break;
     }
     return 0;
 }
@@ -992,8 +1073,13 @@ static void scsi_cmd_xfer_mode(SCSICommand *cmd)
     case SEND_DVD_STRUCTURE:
     case PERSISTENT_RESERVE_OUT:
     case MAINTENANCE_OUT:
-    case ATA_PASSTHROUGH:
         cmd->mode = SCSI_XFER_TO_DEV;
+        break;
+    case ATA_PASSTHROUGH_12:
+    case ATA_PASSTHROUGH_16:
+        /* T_DIR */
+        cmd->mode = (cmd->buf[2] & 0x8) ?
+                   SCSI_XFER_FROM_DEV : SCSI_XFER_TO_DEV;
         break;
     default:
         cmd->mode = SCSI_XFER_FROM_DEV;
@@ -1068,6 +1154,16 @@ int scsi_req_parse(SCSICommand *cmd, SCSIDevice *dev, uint8_t *buf)
     return 0;
 }
 
+void scsi_device_report_change(SCSIDevice *dev, SCSISense sense)
+{
+    SCSIBus *bus = DO_UPCAST(SCSIBus, qbus, dev->qdev.parent_bus);
+
+    scsi_device_set_ua(dev, sense);
+    if (bus->info->change) {
+        bus->info->change(bus, dev, sense);
+    }
+}
+
 /*
  * Predefined sense codes
  */
@@ -1089,7 +1185,7 @@ const struct SCSISense sense_code_NO_MEDIUM = {
 
 /* LUN not ready, medium removal prevented */
 const struct SCSISense sense_code_NOT_READY_REMOVAL_PREVENTED = {
-    .key = NOT_READY, .asc = 0x53, .ascq = 0x00
+    .key = NOT_READY, .asc = 0x53, .ascq = 0x02
 };
 
 /* Hardware error, internal target failure */
@@ -1112,6 +1208,16 @@ const struct SCSISense sense_code_INVALID_FIELD = {
     .key = ILLEGAL_REQUEST, .asc = 0x24, .ascq = 0x00
 };
 
+/* Illegal request, Invalid field in parameter list */
+const struct SCSISense sense_code_INVALID_PARAM = {
+    .key = ILLEGAL_REQUEST, .asc = 0x26, .ascq = 0x00
+};
+
+/* Illegal request, Parameter list length error */
+const struct SCSISense sense_code_INVALID_PARAM_LEN = {
+    .key = ILLEGAL_REQUEST, .asc = 0x1a, .ascq = 0x00
+};
+
 /* Illegal request, LUN not supported */
 const struct SCSISense sense_code_LUN_NOT_SUPPORTED = {
     .key = ILLEGAL_REQUEST, .asc = 0x25, .ascq = 0x00
@@ -1129,7 +1235,7 @@ const struct SCSISense sense_code_INCOMPATIBLE_FORMAT = {
 
 /* Illegal request, medium removal prevented */
 const struct SCSISense sense_code_ILLEGAL_REQ_REMOVAL_PREVENTED = {
-    .key = ILLEGAL_REQUEST, .asc = 0x53, .ascq = 0x00
+    .key = ILLEGAL_REQUEST, .asc = 0x53, .ascq = 0x02
 };
 
 /* Command aborted, I/O process terminated */
@@ -1145,6 +1251,11 @@ const struct SCSISense sense_code_I_T_NEXUS_LOSS = {
 /* Command aborted, Logical Unit failure */
 const struct SCSISense sense_code_LUN_FAILURE = {
     .key = ABORTED_COMMAND, .asc = 0x3e, .ascq = 0x01
+};
+
+/* Unit attention, Capacity data has changed */
+const struct SCSISense sense_code_CAPACITY_CHANGED = {
+    .key = UNIT_ATTENTION, .asc = 0x2a, .ascq = 0x09
 };
 
 /* Unit attention, Power on, reset or bus device reset occurred */
@@ -1170,6 +1281,11 @@ const struct SCSISense sense_code_REPORTED_LUNS_CHANGED = {
 /* Unit attention, Device internal reset */
 const struct SCSISense sense_code_DEVICE_INTERNAL_RESET = {
     .key = UNIT_ATTENTION, .asc = 0x29, .ascq = 0x04
+};
+
+/* Data Protection, Write Protected */
+const struct SCSISense sense_code_WRITE_PROTECTED = {
+    .key = DATA_PROTECT, .asc = 0x27, .ascq = 0x00
 };
 
 /*
@@ -1301,7 +1417,7 @@ static const char *scsi_command_name(uint8_t cmd)
         [ PERSISTENT_RESERVE_OUT   ] = "PERSISTENT_RESERVE_OUT",
         [ WRITE_FILEMARKS_16       ] = "WRITE_FILEMARKS_16",
         [ EXTENDED_COPY            ] = "EXTENDED_COPY",
-        [ ATA_PASSTHROUGH          ] = "ATA_PASSTHROUGH",
+        [ ATA_PASSTHROUGH_16       ] = "ATA_PASSTHROUGH_16",
         [ ACCESS_CONTROL_IN        ] = "ACCESS_CONTROL_IN",
         [ ACCESS_CONTROL_OUT       ] = "ACCESS_CONTROL_OUT",
         [ READ_16                  ] = "READ_16",
@@ -1318,7 +1434,7 @@ static const char *scsi_command_name(uint8_t cmd)
         [ SERVICE_ACTION_IN_16     ] = "SERVICE_ACTION_IN_16",
         [ WRITE_LONG_16            ] = "WRITE_LONG_16",
         [ REPORT_LUNS              ] = "REPORT_LUNS",
-        [ BLANK                    ] = "BLANK",
+        [ ATA_PASSTHROUGH_12       ] = "BLANK/ATA_PASSTHROUGH_12",
         [ MOVE_MEDIUM              ] = "MOVE_MEDIUM",
         [ EXCHANGE_MEDIUM          ] = "EXCHANGE MEDIUM",
         [ LOAD_UNLOAD              ] = "LOAD_UNLOAD",
@@ -1481,6 +1597,7 @@ void scsi_req_complete(SCSIRequest *req, int status)
 
 void scsi_req_cancel(SCSIRequest *req)
 {
+    trace_scsi_req_cancel(req->dev->id, req->lun, req->tag);
     if (!req->enqueued) {
         return;
     }
@@ -1511,6 +1628,55 @@ void scsi_req_abort(SCSIRequest *req, int status)
     scsi_req_unref(req);
 }
 
+static int scsi_ua_precedence(SCSISense sense)
+{
+    if (sense.key != UNIT_ATTENTION) {
+        return INT_MAX;
+    }
+    if (sense.asc == 0x29 && sense.ascq == 0x04) {
+        /* DEVICE INTERNAL RESET goes with POWER ON OCCURRED */
+        return 1;
+    } else if (sense.asc == 0x3F && sense.ascq == 0x01) {
+        /* MICROCODE HAS BEEN CHANGED goes with SCSI BUS RESET OCCURRED */
+        return 2;
+    } else if (sense.asc == 0x29 && (sense.ascq == 0x05 || sense.ascq == 0x06)) {
+        /* These two go with "all others". */
+        ;
+    } else if (sense.asc == 0x29 && sense.ascq <= 0x07) {
+        /* POWER ON, RESET OR BUS DEVICE RESET OCCURRED = 0
+         * POWER ON OCCURRED = 1
+         * SCSI BUS RESET OCCURRED = 2
+         * BUS DEVICE RESET FUNCTION OCCURRED = 3
+         * I_T NEXUS LOSS OCCURRED = 7
+         */
+        return sense.ascq;
+    } else if (sense.asc == 0x2F && sense.ascq == 0x01) {
+        /* COMMANDS CLEARED BY POWER LOSS NOTIFICATION  */
+        return 8;
+    }
+    return (sense.asc << 8) | sense.ascq;
+}
+
+void scsi_device_set_ua(SCSIDevice *sdev, SCSISense sense)
+{
+    int prec1, prec2;
+    if (sense.key != UNIT_ATTENTION) {
+        return;
+    }
+    trace_scsi_device_set_ua(sdev->id, sdev->lun, sense.key,
+                             sense.asc, sense.ascq);
+
+    /*
+     * Override a pre-existing unit attention condition, except for a more
+     * important reset condition.
+    */
+    prec1 = scsi_ua_precedence(sdev->unit_attention);
+    prec2 = scsi_ua_precedence(sense);
+    if (prec2 < prec1) {
+        sdev->unit_attention = sense;
+    }
+}
+
 void scsi_device_purge_requests(SCSIDevice *sdev, SCSISense sense)
 {
     SCSIRequest *req;
@@ -1519,7 +1685,8 @@ void scsi_device_purge_requests(SCSIDevice *sdev, SCSISense sense)
         req = QTAILQ_FIRST(&sdev->requests);
         scsi_req_cancel(req);
     }
-    sdev->unit_attention = sense;
+
+    scsi_device_set_ua(sdev, sense);
 }
 
 static char *scsibus_get_dev_path(DeviceState *dev)
@@ -1634,6 +1801,17 @@ static int get_scsi_requests(QEMUFile *f, void *pv, size_t size)
     return 0;
 }
 
+static int scsi_qdev_unplug(DeviceState *qdev)
+{
+    SCSIDevice *dev = SCSI_DEVICE(qdev);
+    SCSIBus *bus = DO_UPCAST(SCSIBus, qbus, dev->qdev.parent_bus);
+
+    if (bus->info->hot_unplug) {
+        bus->info->hot_unplug(bus, dev);
+    }
+    return qdev_simple_unplug_cb(qdev);
+}
+
 static const VMStateInfo vmstate_info_scsi_requests = {
     .name = "scsi-requests",
     .get  = get_scsi_requests,
@@ -1670,7 +1848,7 @@ static void scsi_device_class_init(ObjectClass *klass, void *data)
     DeviceClass *k = DEVICE_CLASS(klass);
     k->bus_type = TYPE_SCSI_BUS;
     k->init     = scsi_qdev_init;
-    k->unplug   = qdev_simple_unplug_cb;
+    k->unplug   = scsi_qdev_unplug;
     k->exit     = scsi_qdev_exit;
     k->props    = scsi_props;
 }

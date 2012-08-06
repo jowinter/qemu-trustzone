@@ -88,7 +88,7 @@ static void overo_init(ram_addr_t ram_size,
     omap_lcd_panel_attach(s->cpu->dss);
 
     /* Strictly this should be a LAN9221 */
-    if (nd_table[0].vlan) {
+    if (nd_table[0].used) {
         /* The ethernet chip hangs off the GPMC */
         NICInfo *nd = &nd_table[0];
         qemu_check_nic_model(nd, "lan9118");

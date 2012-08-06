@@ -2306,6 +2306,93 @@ done_syscall:
 }
 #endif
 
+#ifdef TARGET_OPENRISC
+
+void cpu_loop(CPUOpenRISCState *env)
+{
+    int trapnr, gdbsig;
+
+    for (;;) {
+        trapnr = cpu_exec(env);
+        gdbsig = 0;
+
+        switch (trapnr) {
+        case EXCP_RESET:
+            qemu_log("\nReset request, exit, pc is %#x\n", env->pc);
+            exit(1);
+            break;
+        case EXCP_BUSERR:
+            qemu_log("\nBus error, exit, pc is %#x\n", env->pc);
+            gdbsig = SIGBUS;
+            break;
+        case EXCP_DPF:
+        case EXCP_IPF:
+            cpu_dump_state(env, stderr, fprintf, 0);
+            gdbsig = TARGET_SIGSEGV;
+            break;
+        case EXCP_TICK:
+            qemu_log("\nTick time interrupt pc is %#x\n", env->pc);
+            break;
+        case EXCP_ALIGN:
+            qemu_log("\nAlignment pc is %#x\n", env->pc);
+            gdbsig = SIGBUS;
+            break;
+        case EXCP_ILLEGAL:
+            qemu_log("\nIllegal instructionpc is %#x\n", env->pc);
+            gdbsig = SIGILL;
+            break;
+        case EXCP_INT:
+            qemu_log("\nExternal interruptpc is %#x\n", env->pc);
+            break;
+        case EXCP_DTLBMISS:
+        case EXCP_ITLBMISS:
+            qemu_log("\nTLB miss\n");
+            break;
+        case EXCP_RANGE:
+            qemu_log("\nRange\n");
+            gdbsig = SIGSEGV;
+            break;
+        case EXCP_SYSCALL:
+            env->pc += 4;   /* 0xc00; */
+            env->gpr[11] = do_syscall(env,
+                                      env->gpr[11], /* return value       */
+                                      env->gpr[3],  /* r3 - r7 are params */
+                                      env->gpr[4],
+                                      env->gpr[5],
+                                      env->gpr[6],
+                                      env->gpr[7],
+                                      env->gpr[8], 0, 0);
+            break;
+        case EXCP_FPE:
+            qemu_log("\nFloating point error\n");
+            break;
+        case EXCP_TRAP:
+            qemu_log("\nTrap\n");
+            gdbsig = SIGTRAP;
+            break;
+        case EXCP_NR:
+            qemu_log("\nNR\n");
+            break;
+        default:
+            qemu_log("\nqemu: unhandled CPU exception %#x - aborting\n",
+                     trapnr);
+            cpu_dump_state(env, stderr, fprintf, 0);
+            gdbsig = TARGET_SIGILL;
+            break;
+        }
+        if (gdbsig) {
+            gdb_handlesig(env, gdbsig);
+            if (gdbsig != TARGET_SIGTRAP) {
+                exit(1);
+            }
+        }
+
+        process_pending_signals(env);
+    }
+}
+
+#endif /* TARGET_OPENRISC */
+
 #ifdef TARGET_SH4
 void cpu_loop(CPUSH4State *env)
 {
@@ -2759,13 +2846,11 @@ void cpu_loop(CPUAlphaState *env)
                     break;
                 }
                 /* Syscall writes 0 to V0 to bypass error check, similar
-                   to how this is handled internal to Linux kernel.  */
-                if (env->ir[IR_V0] == 0) {
-                    env->ir[IR_V0] = sysret;
-                } else {
-                    env->ir[IR_V0] = (sysret < 0 ? -sysret : sysret);
-                    env->ir[IR_A3] = (sysret < 0);
-                }
+                   to how this is handled internal to Linux kernel.
+                   (Ab)use trapnr temporarily as boolean indicating error.  */
+                trapnr = (env->ir[IR_V0] != 0 && sysret < 0);
+                env->ir[IR_V0] = (trapnr ? -sysret : sysret);
+                env->ir[IR_A3] = trapnr;
                 break;
             case 0x86:
                 /* IMB */
@@ -2833,6 +2918,9 @@ void cpu_loop(CPUAlphaState *env)
         case EXCP_STL_C:
         case EXCP_STQ_C:
             do_store_exclusive(env, env->error_code, trapnr - EXCP_STL_C);
+            break;
+        case EXCP_INTERRUPT:
+            /* Just indicate that signals should be handled asap.  */
             break;
         default:
             printf ("Unhandled trap: 0x%x\n", trapnr);
@@ -3053,7 +3141,7 @@ static void handle_arg_uname(const char *arg)
 static void handle_arg_cpu(const char *arg)
 {
     cpu_model = strdup(arg);
-    if (cpu_model == NULL || strcmp(cpu_model, "?") == 0) {
+    if (cpu_model == NULL || is_help_option(cpu_model)) {
         /* XXX: implement xxx_cpu_list for targets that still miss it */
 #if defined(cpu_list_id)
         cpu_list_id(stdout, &fprintf, "");
@@ -3144,7 +3232,7 @@ struct qemu_argument arg_table[] = {
     {"s",          "QEMU_STACK_SIZE",  true,  handle_arg_stack_size,
      "size",       "set the stack size to 'size' bytes"},
     {"cpu",        "QEMU_CPU",         true,  handle_arg_cpu,
-     "model",      "select CPU (-cpu ? for list)"},
+     "model",      "select CPU (-cpu help for list)"},
     {"E",          "QEMU_SET_ENV",     true,  handle_arg_set_env,
      "var=value",  "sets targets environment variable (see below)"},
     {"U",          "QEMU_UNSET_ENV",   true,  handle_arg_unset_env,
@@ -3386,6 +3474,8 @@ int main(int argc, char **argv, char **envp)
 #else
         cpu_model = "24Kf";
 #endif
+#elif defined TARGET_OPENRISC
+        cpu_model = "or1200";
 #elif defined(TARGET_PPC)
 #ifdef TARGET_PPC64
         cpu_model = "970fx";
@@ -3787,6 +3877,17 @@ int main(int argc, char **argv, char **envp)
         if (regs->cp0_epc & 1) {
             env->hflags |= MIPS_HFLAG_M16;
         }
+    }
+#elif defined(TARGET_OPENRISC)
+    {
+        int i;
+
+        for (i = 0; i < 32; i++) {
+            env->gpr[i] = regs->gpr[i];
+        }
+
+        env->sr = regs->sr;
+        env->pc = regs->pc;
     }
 #elif defined(TARGET_SH4)
     {

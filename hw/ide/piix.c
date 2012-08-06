@@ -73,7 +73,8 @@ static void bmdma_write(void *opaque, target_phys_addr_t addr,
 #endif
     switch(addr & 3) {
     case 0:
-        return bmdma_cmd_writeb(bm, val);
+        bmdma_cmd_writeb(bm, val);
+        break;
     case 2:
         bm->status = (val & 0x60) | (bm->status & 1) | (bm->status & ~val & 0x06);
         break;
@@ -200,7 +201,7 @@ PCIDevice *pci_piix3_xen_ide_init(PCIBus *bus, DriveInfo **hd_table, int devfn)
     return dev;
 }
 
-static int pci_piix_ide_exitfn(PCIDevice *dev)
+static void pci_piix_ide_exitfn(PCIDevice *dev)
 {
     PCIIDEState *d = DO_UPCAST(PCIIDEState, dev, dev);
     unsigned i;
@@ -212,8 +213,6 @@ static int pci_piix_ide_exitfn(PCIDevice *dev)
         memory_region_destroy(&d->bmdma[i].addr_ioport);
     }
     memory_region_destroy(&d->bmdma_bar);
-
-    return 0;
 }
 
 /* hd_table must contain 4 block drivers */
