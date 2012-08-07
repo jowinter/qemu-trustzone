@@ -48,16 +48,18 @@ int kvm_arch_put_registers(CPUARMState *env, int level)
     int ret;
 
     ret = kvm_vcpu_ioctl(env, KVM_GET_REGS, &regs);
-    if (ret < 0)
+    if (ret < 0) {
         return ret;
+    }
 
     /* We make sure the banked regs are properly set */
     mode = env->uncached_cpsr & CPSR_M;
     bn = bank_number(env, mode);
-    if (mode == ARM_CPU_MODE_FIQ)
+    if (mode == ARM_CPU_MODE_FIQ) {
         memcpy(env->fiq_regs, env->regs + 8, 5 * sizeof(uint32_t));
-    else
+    } else {
         memcpy(env->usr_regs, env->regs + 8, 5 * sizeof(uint32_t));
+    }
     env->banked_r13[bn] = env->regs[13];
     env->banked_r14[bn] = env->regs[14];
     env->banked_spsr[bn] = env->spsr;
@@ -101,8 +103,9 @@ int kvm_arch_get_registers(CPUARMState *env)
     int32_t ret;
 
     ret = kvm_vcpu_ioctl(env, KVM_GET_REGS, &regs);
-    if (ret < 0)
+    if (ret < 0) {
         return ret;
+    }
 
     /* First, let's transfer the banked state */
     cpsr_write(env, regs.cpsr, 0xFFFFFFFF);
@@ -132,20 +135,22 @@ int kvm_arch_get_registers(CPUARMState *env)
     /* We make sure the current mode regs are properly set */
     mode = env->uncached_cpsr & CPSR_M;
     bn = bank_number(env, mode);
-    if (mode == ARM_CPU_MODE_FIQ)
+    if (mode == ARM_CPU_MODE_FIQ) {
         memcpy(env->regs + 8, env->fiq_regs, 5 * sizeof(uint32_t));
-    else
+    } else {
         memcpy(env->regs + 8, env->usr_regs, 5 * sizeof(uint32_t));
+    }
     env->regs[13] = env->banked_r13[bn];
     env->regs[14] = env->banked_r14[bn];
     env->spsr = env->banked_spsr[bn];
 
-    //env->cp15.c0_cpuid = regs.cp15.c0_midr;
     env->cp15.c1_sys = regs.cp15.c1_sys;
     env->cp15.c2_base0 = regs.cp15.c2_base0;
     env->cp15.c2_base1 = regs.cp15.c2_base1;
 
-    /* This is ugly, but necessary for GDB compatibility */
+    /* This is ugly, but necessary for GDB compatibility
+     * TODO: do this via an access function.
+     */
     env->cp15.c2_control = regs.cp15.c2_control;
     env->cp15.c2_mask = ~(((uint32_t)0xffffffffu) >> regs.cp15.c2_control);
     env->cp15.c2_base_mask = ~((uint32_t)0x3fffu >> regs.cp15.c2_control);
@@ -199,7 +204,8 @@ void kvm_arch_update_guest_debug(CPUARMState *env, struct kvm_guest_debug *dbg)
     fprintf(stderr, "%s: not implemented\n", __func__);
 }
 
-int kvm_arch_insert_sw_breakpoint(CPUARMState *env, struct kvm_sw_breakpoint *bp)
+int kvm_arch_insert_sw_breakpoint(CPUARMState *env,
+                                  struct kvm_sw_breakpoint *bp)
 {
     fprintf(stderr, "%s: not implemented\n", __func__);
     return -EINVAL;
@@ -219,7 +225,8 @@ int kvm_arch_remove_hw_breakpoint(target_ulong addr,
     return -EINVAL;
 }
 
-int kvm_arch_remove_sw_breakpoint(CPUARMState *env, struct kvm_sw_breakpoint *bp)
+int kvm_arch_remove_sw_breakpoint(CPUARMState *env,
+                                  struct kvm_sw_breakpoint *bp)
 {
     fprintf(stderr, "%s: not implemented\n", __func__);
     return -EINVAL;
