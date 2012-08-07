@@ -29,6 +29,10 @@ const KVMCapabilityInfo kvm_arch_required_capabilities[] = {
 
 int kvm_arch_init(KVMState *s)
 {
+    /* For ARM interrupt delivery is always asynchronous,
+     * whether we are using an in-kernel VGIC or not.
+     */
+    kvm_async_interrupts_allowed = true;
     return 0;
 }
 
@@ -147,41 +151,6 @@ int kvm_arch_get_registers(CPUARMState *env)
     env->cp15.c2_base_mask = ~((uint32_t)0x3fffu >> regs.cp15.c2_control);
 
     env->cp15.c3 = regs.cp15.c3_dacr;
-
-    return 0;
-}
-
-#define KVM_ARM_EXCEPTION_IRQ 0x02
-#define KVM_ARM_EXCEPTION_FIQ 0x01
-int kvm_arch_interrupt(CPUARMState *env, int irq, int level)
-{
-    struct kvm_irq_level irq_level;
-    int vcpu_idx = env->cpu_index;
-    KVMState *s = kvm_state;
-    int ret;
-
-    if (level)
-        irq_level.level = 1;
-    else
-        irq_level.level = 0;
-
-    switch (irq) {
-    case ARM_PIC_CPU_IRQ:
-        irq_level.irq = KVM_ARM_IRQ_LINE | (vcpu_idx << 1);
-        break;
-    case ARM_PIC_CPU_FIQ:
-        irq_level.irq = KVM_ARM_FIQ_LINE | (vcpu_idx << 1);
-        break;
-    default:
-        fprintf(stderr, "unsupported ARM irq injection\n");
-        abort();
-    }
-
-    ret = kvm_vm_ioctl(s, KVM_IRQ_LINE, &irq_level);
-    if (ret) {
-        fprintf(stderr, "kvm_vm_ioctl(s, KVM_IRQ_LINE, &irq_level) failed\n");
-        abort();
-    }
 
     return 0;
 }

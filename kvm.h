@@ -182,8 +182,6 @@ int kvm_arch_init_vcpu(CPUArchState *env);
 
 void kvm_arch_reset_vcpu(CPUArchState *env);
 
-int kvm_arch_interrupt(CPUArchState *env, int irq, int level);
-
 int kvm_arch_on_sigbus_vcpu(CPUArchState *env, int code, void *addr);
 int kvm_arch_on_sigbus(int code, void *addr);
 
