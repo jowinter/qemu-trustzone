@@ -45,21 +45,20 @@ static void kvm_arm_gic_set_irq(void *opaque, int irq, int level)
      *  ...
      */
     gic_state *s = (gic_state *)opaque;
-    struct kvm_irq_level irq_level;
 
-    irq_level.level = level ? 1 : 0;
 
     if (irq < (s->num_irq - GIC_INTERNAL)) {
         /* External interrupt number 'irq' */
-        irq_level.irq = irq + GIC_INTERNAL;
-        kvm_vm_ioctl(kvm_state, KVM_IRQ_LINE, &irq_level);
+        kvm_set_irq(kvm_state, irq + GIC_INTERNAL, !!level);
     } else {
+        struct kvm_irq_level irq_level;
         int cpu;
         irq -= (s->num_irq - GIC_INTERNAL);
         cpu = irq / GIC_INTERNAL;
         irq %= GIC_INTERNAL;
         /* Internal interrupt 'irq' for CPU 'cpu' */
         irq_level.irq = irq;
+        irq_level.level = !!level;
         kvm_vcpu_ioctl(qemu_get_cpu(cpu), KVM_IRQ_LINE, &irq_level);
     }
 }
