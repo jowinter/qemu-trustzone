@@ -45,10 +45,17 @@ int kvm_arch_init_vcpu(CPUARMState *env)
     return kvm_vcpu_ioctl(env, KVM_ARM_VCPU_INIT, &init);
 }
 
+#define MSR32_INDEX_OF(coproc, crn, opc1, crm, opc2) \
+    (((coproc)<<16) | ((opc1)<<11) | ((crn)<<7) | ((opc2)<<4) | (crm))
+
 int kvm_arch_put_registers(CPUARMState *env, int level)
 {
     struct kvm_regs regs;
     int mode, bn;
+    struct cp15 {
+        struct kvm_msrs hdr;
+        struct kvm_msr_entry e[2];
+    } cp15;
     int ret;
 
     ret = kvm_vcpu_ioctl(env, KVM_GET_REGS, &regs);
@@ -92,11 +99,16 @@ int kvm_arch_put_registers(CPUARMState *env, int level)
     regs.spsr[MODE_ABT] = env->banked_spsr[2];
     regs.spsr[MODE_UND] = env->banked_spsr[3];
 
-    regs.cp15.c0_midr = env->cp15.c0_cpuid;
-    regs.cp15.c1_sys = env->cp15.c1_sys;
+    cp15.hdr.nmsrs = ARRAY_SIZE(cp15.e);
+    cp15.e[0].index = MSR32_INDEX_OF(15, 0, 0, 0, 0); /* MIDR */
+    cp15.e[0].data = env->cp15.c0_cpuid;
+    cp15.e[1].index = MSR32_INDEX_OF(15, 1, 0, 0, 0); /* SCTLR */
+    cp15.e[1].data = env->cp15.c1_sys;
 
     ret = kvm_vcpu_ioctl(env, KVM_SET_REGS, &regs);
-
+    if (ret == 0) {
+        ret = kvm_vcpu_ioctl(env, KVM_SET_MSRS, &cp15);
+    }
     return ret;
 }
 
@@ -105,6 +117,11 @@ int kvm_arch_get_registers(CPUARMState *env)
     struct kvm_regs regs;
     int mode, bn;
     int32_t ret;
+    struct cp15 {
+        struct kvm_msrs hdr;
+        struct kvm_msr_entry e[6];
+    } cp15;
+
 
     ret = kvm_vcpu_ioctl(env, KVM_GET_REGS, &regs);
     if (ret < 0) {
@@ -148,19 +165,34 @@ int kvm_arch_get_registers(CPUARMState *env)
     env->regs[14] = env->banked_r14[bn];
     env->spsr = env->banked_spsr[bn];
 
-    env->cp15.c1_sys = regs.cp15.c1_sys;
-    env->cp15.c2_base0 = regs.cp15.c2_base0;
-    env->cp15.c2_base1 = regs.cp15.c2_base1;
+    /* TODO: investigate automatically getting all registers
+     * we know about via the ARMCPU cp_regs hashtable.
+     */
+    cp15.hdr.nmsrs = ARRAY_SIZE(cp15.e);
+    cp15.e[0].index = MSR32_INDEX_OF(15, 0, 0, 0, 0); /* MIDR */
+    cp15.e[1].index = MSR32_INDEX_OF(15, 1, 0, 0, 0); /* SCTLR */
+    cp15.e[2].index = MSR32_INDEX_OF(15, 2, 0, 0, 0); /* TTBR0 */
+    cp15.e[3].index = MSR32_INDEX_OF(15, 2, 0, 0, 1); /* TTBR1 */
+    cp15.e[4].index = MSR32_INDEX_OF(15, 2, 0, 0, 2); /* TTBCR */
+    cp15.e[5].index = MSR32_INDEX_OF(15, 3, 0, 0, 0); /* DACR */
+
+    ret = kvm_vcpu_ioctl(env, KVM_GET_MSRS, &cp15);
+    if (ret < 0) {
+        return ret;
+    }
+
+    env->cp15.c1_sys = cp15.e[1].data;
+    env->cp15.c2_base0 = cp15.e[2].data;
+    env->cp15.c2_base1 = cp15.e[3].data;
 
     /* This is ugly, but necessary for GDB compatibility
      * TODO: do this via an access function.
      */
-    env->cp15.c2_control = regs.cp15.c2_control;
-    env->cp15.c2_mask = ~(((uint32_t)0xffffffffu) >> regs.cp15.c2_control);
-    env->cp15.c2_base_mask = ~((uint32_t)0x3fffu >> regs.cp15.c2_control);
+    env->cp15.c2_control = cp15.e[4].data;
+    env->cp15.c2_mask = ~(((uint32_t)0xffffffffu) >> cp15.e[4].data);
+    env->cp15.c2_base_mask = ~((uint32_t)0x3fffu >> cp15.e[4].data);
 
-    env->cp15.c3 = regs.cp15.c3_dacr;
-
+    env->cp15.c3 = cp15.e[5].data;
     return 0;
 }
 
