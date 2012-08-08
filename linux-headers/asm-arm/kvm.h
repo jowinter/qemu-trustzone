@@ -1,4 +1,7 @@
 /*
+ * Copyright (C) 2012 - Virtual Open Systems and Columbia University
+ * Author: Christoffer Dall <c.dall@virtualopensystems.com>
+ *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License, version 2, as
  * published by the Free Software Foundation.
@@ -11,7 +14,6 @@
  * You should have received a copy of the GNU General Public License
  * along with this program; if not, write to the Free Software
  * Foundation, 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
- *
  */
 
 #ifndef __ARM_KVM_H__
@@ -55,15 +57,14 @@ struct kvm_regs {
 	__u32 reg15;
 	__u32 cpsr;
 	__u32 spsr[5];		/* Banked SPSR,  indexed by MODE_  */
-	struct {
-		__u32 c0_midr;
-		__u32 c1_sys;
-		__u32 c2_base0;
-		__u32 c2_base1;
-		__u32 c2_control;
-		__u32 c3_dacr;
-	} cp15;
+};
 
+/* Supported Processor Types */
+#define KVM_ARM_TARGET_CORTEX_A15	(0xC0F)
+
+struct kvm_vcpu_init {
+	__u32 target;
+	__u32 features[7];
 };
 
 struct kvm_sregs {
@@ -83,5 +84,36 @@ struct kvm_sync_regs {
 
 struct kvm_arch_memory_slot {
 };
+
+/* Based on x86, but we use KVM_GET_VCPU_MSR_INDEX_LIST. */
+struct kvm_msr_entry {
+	__u32 index;
+	__u32 reserved;
+	__u64 data;
+};
+
+/* for KVM_GET_MSRS and KVM_SET_MSRS */
+struct kvm_msrs {
+	__u32 nmsrs; /* number of msrs in entries */
+	__u32 pad;
+
+	struct kvm_msr_entry entries[0];
+};
+
+/* for KVM_VCPU_GET_MSR_INDEX_LIST */
+struct kvm_msr_list {
+	__u32 nmsrs; /* number of msrs in entries */
+	__u32 indices[0];
+};
+
+/* If you need to interpret the index values, here's the key. */
+#define KVM_ARM_MSR_COPROC_MASK		0xFFFF0000
+#define KVM_ARM_MSR_64_BIT_MASK		0x00008000
+#define KVM_ARM_MSR_64_OPC1_MASK	0x000000F0
+#define KVM_ARM_MSR_64_CRM_MASK		0x0000000F
+#define KVM_ARM_MSR_32_CRM_MASK		0x0000000F
+#define KVM_ARM_MSR_32_OPC2_MASK	0x00000070
+#define KVM_ARM_MSR_32_CRN_MASK		0x00000780
+#define KVM_ARM_MSR_32_OPC1_MASK	0x00003800
 
 #endif /* __ARM_KVM_H__ */
