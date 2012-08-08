@@ -38,7 +38,11 @@ int kvm_arch_init(KVMState *s)
 
 int kvm_arch_init_vcpu(CPUARMState *env)
 {
-    return 0;
+    struct kvm_vcpu_init init;
+
+    init.target = KVM_ARM_TARGET_CORTEX_A15;
+    memset(init.features, 0, sizeof(init.features));
+    return kvm_vcpu_ioctl(env, KVM_ARM_VCPU_INIT, &init);
 }
 
 int kvm_arch_put_registers(CPUARMState *env, int level)
