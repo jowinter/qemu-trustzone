@@ -48,7 +48,7 @@ static int a15mp_priv_init(SysBusDevice *dev)
              * work with the in-kernel timer.
              */
             fprintf(stderr, "For Cortex-A15 guests with KVM enabled "
-                    "kvm_irqchip must be set\n");
+                    "you must set kernel_irqchip=on\n");
             exit(1);
         }
         s->gic = qdev_create(NULL, "kvm-arm_gic");
