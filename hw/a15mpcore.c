@@ -42,15 +42,10 @@ static int a15mp_priv_init(SysBusDevice *dev)
     A15MPPrivState *s = FROM_SYSBUS(A15MPPrivState, dev);
     SysBusDevice *busdev;
 
-    if (kvm_enabled()) {
-        if (!kvm_irqchip_in_kernel()) {
-            /* An out-of-kernel GIC isn't a valid config because it won't
-             * work with the in-kernel timer.
-             */
-            fprintf(stderr, "For Cortex-A15 guests with KVM enabled "
-                    "you must set kernel_irqchip=on\n");
-            exit(1);
-        }
+    /* TODO when the VGIC patches make it to Christoffer's kernel
+     * tree we can make !kvm_irqchip_in_kernel() a fatal error.
+     */
+    if (kvm_irqchip_in_kernel()) {
         s->gic = qdev_create(NULL, "kvm-arm_gic");
     } else {
         s->gic = qdev_create(NULL, "arm_gic");
