@@ -42,7 +42,15 @@ static int a15mp_priv_init(SysBusDevice *dev)
     A15MPPrivState *s = FROM_SYSBUS(A15MPPrivState, dev);
     SysBusDevice *busdev;
 
-    if (kvm_irqchip_in_kernel()) {
+    if (kvm_enabled()) {
+        if (!kvm_irqchip_in_kernel()) {
+            /* An out-of-kernel GIC isn't a valid config because it won't
+             * work with the in-kernel timer.
+             */
+            fprintf(stderr, "For Cortex-A15 guests with KVM enabled "
+                    "kvm_irqchip must be set\n");
+            exit(1);
+        }
         s->gic = qdev_create(NULL, "kvm-arm_gic");
     } else {
         s->gic = qdev_create(NULL, "arm_gic");
