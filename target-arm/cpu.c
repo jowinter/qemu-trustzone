@@ -45,14 +45,16 @@ static void cp_reg_reset(gpointer key, gpointer value, gpointer opaque)
      * This is basically only used for fields in non-core coprocessors
      * (like the pxa2xx ones).
      */
-    if (!ri->fieldoffset) {
+    if (!ri->fieldoffset.secure) {
         return;
     }
 
     if (ri->type & ARM_CP_64BIT) {
-        CPREG_FIELD64(&cpu->env, ri) = ri->resetvalue;
+        CPREG_S_FIELD64(&cpu->env, ri) = ri->resetvalue.secure;
+        CPREG_N_FIELD64(&cpu->env, ri) = ri->resetvalue.normal;
     } else {
-        CPREG_FIELD32(&cpu->env, ri) = ri->resetvalue;
+        CPREG_S_FIELD32(&cpu->env, ri) = ri->resetvalue.secure;
+        CPREG_N_FIELD32(&cpu->env, ri) = ri->resetvalue.normal;
     }
 }
 
@@ -243,8 +245,8 @@ static void arm1026_initfn(Object *obj)
         ARMCPRegInfo ifar = {
             .name = "IFAR", .cp = 15, .crn = 6, .crm = 0, .opc1 = 0, .opc2 = 1,
             .access = PL1_RW,
-            .fieldoffset = offsetof(CPUARMState, cp15.c6_insn),
-            .resetvalue = 0
+            .fieldoffset = CPREG_COMMON_OFFSET(cp15.c6_insn),
+            .resetvalue = CPREG_COMMON_VALUE(0)
         };
         define_one_arm_cp_reg(cpu, &ifar);
     }
@@ -385,9 +387,9 @@ static void cortex_m3_initfn(Object *obj)
 
 static const ARMCPRegInfo cortexa8_cp_reginfo[] = {
     { .name = "L2LOCKDOWN", .cp = 15, .crn = 9, .crm = 0, .opc1 = 1, .opc2 = 0,
-      .access = PL1_RW, .type = ARM_CP_CONST, .resetvalue = 0 },
+      .access = PL1_RW, .type = ARM_CP_CONST, .resetvalue = CPREG_COMMON_VALUE(0) },
     { .name = "L2AUXCR", .cp = 15, .crn = 9, .crm = 0, .opc1 = 1, .opc2 = 2,
-      .access = PL1_RW, .type = ARM_CP_CONST, .resetvalue = 0 },
+      .access = PL1_RW, .type = ARM_CP_CONST, .resetvalue = CPREG_COMMON_VALUE(0) },
     REGINFO_SENTINEL
 };
 
@@ -472,27 +474,27 @@ static const ARMCPRegInfo cortexa9_cp_reginfo[] = {
      * default to 0 and set by private hook
      */
     { .name = "A9_PWRCTL", .cp = 15, .crn = 15, .crm = 0, .opc1 = 0, .opc2 = 0,
-      .access = PL1_RW, .resetvalue = 0,
-      .fieldoffset = offsetof(CPUARMState, cp15.c15_power_control) },
+      .access = PL1_RW, .resetvalue = CPREG_COMMON_VALUE(0),
+      .fieldoffset = CPREG_COMMON_OFFSET(cp15.c15_power_control) },
     { .name = "A9_DIAG", .cp = 15, .crn = 15, .crm = 0, .opc1 = 0, .opc2 = 1,
-      .access = PL1_RW, .resetvalue = 0,
-      .fieldoffset = offsetof(CPUARMState, cp15.c15_diagnostic) },
+      .access = PL1_RW, .resetvalue = CPREG_COMMON_VALUE(0),
+      .fieldoffset = CPREG_COMMON_OFFSET(cp15.c15_diagnostic) },
     { .name = "A9_PWRDIAG", .cp = 15, .crn = 15, .crm = 0, .opc1 = 0, .opc2 = 2,
-      .access = PL1_RW, .resetvalue = 0,
-      .fieldoffset = offsetof(CPUARMState, cp15.c15_power_diagnostic) },
+      .access = PL1_RW, .resetvalue = CPREG_COMMON_VALUE(0),
+      .fieldoffset = CPREG_COMMON_OFFSET(cp15.c15_power_diagnostic) },
     { .name = "NEONBUSY", .cp = 15, .crn = 15, .crm = 1, .opc1 = 0, .opc2 = 0,
-      .access = PL1_RW, .resetvalue = 0, .type = ARM_CP_CONST },
+      .access = PL1_RW, .resetvalue = CPREG_COMMON_VALUE(0), .type = ARM_CP_CONST },
     /* TLB lockdown control */
     { .name = "TLB_LOCKR", .cp = 15, .crn = 15, .crm = 4, .opc1 = 5, .opc2 = 2,
-      .access = PL1_W, .resetvalue = 0, .type = ARM_CP_NOP },
+      .access = PL1_W, .resetvalue = CPREG_COMMON_VALUE(0), .type = ARM_CP_NOP },
     { .name = "TLB_LOCKW", .cp = 15, .crn = 15, .crm = 4, .opc1 = 5, .opc2 = 4,
-      .access = PL1_W, .resetvalue = 0, .type = ARM_CP_NOP },
+      .access = PL1_W, .resetvalue = CPREG_COMMON_VALUE(0), .type = ARM_CP_NOP },
     { .name = "TLB_VA", .cp = 15, .crn = 15, .crm = 5, .opc1 = 5, .opc2 = 2,
-      .access = PL1_RW, .resetvalue = 0, .type = ARM_CP_CONST },
+      .access = PL1_RW, .resetvalue = CPREG_COMMON_VALUE(0), .type = ARM_CP_CONST },
     { .name = "TLB_PA", .cp = 15, .crn = 15, .crm = 6, .opc1 = 5, .opc2 = 2,
-      .access = PL1_RW, .resetvalue = 0, .type = ARM_CP_CONST },
+      .access = PL1_RW, .resetvalue = CPREG_COMMON_VALUE(0), .type = ARM_CP_CONST },
     { .name = "TLB_ATTR", .cp = 15, .crn = 15, .crm = 7, .opc1 = 5, .opc2 = 2,
-      .access = PL1_RW, .resetvalue = 0, .type = ARM_CP_CONST },
+      .access = PL1_RW, .resetvalue = CPREG_COMMON_VALUE(0), .type = ARM_CP_CONST },
     REGINFO_SENTINEL
 };
 
@@ -535,8 +537,8 @@ static void cortex_a9_initfn(Object *obj)
     {
         ARMCPRegInfo cbar = {
             .name = "CBAR", .cp = 15, .crn = 15,  .crm = 0, .opc1 = 4,
-            .opc2 = 0, .access = PL1_R|PL3_W, .resetvalue = cpu->reset_cbar,
-            .fieldoffset = offsetof(CPUARMState, cp15.c15_config_base_address)
+            .opc2 = 0, .access = PL1_R|PL3_W, .resetvalue = CPREG_COMMON_VALUE(cpu->reset_cbar),
+            .fieldoffset = CPREG_COMMON_OFFSET(cp15.c15_config_base_address)
         };
         define_one_arm_cp_reg(cpu, &cbar);
         define_arm_cp_regs(cpu, cortexa9_cp_reginfo);
@@ -558,11 +560,12 @@ static int a15_l2ctlr_read(CPUARMState *env, const ARMCPRegInfo *ri,
 static const ARMCPRegInfo cortexa15_cp_reginfo[] = {
 #ifndef CONFIG_USER_ONLY
     { .name = "L2CTLR", .cp = 15, .crn = 9, .crm = 0, .opc1 = 1, .opc2 = 2,
-      .access = PL1_RW, .resetvalue = 0, .readfn = a15_l2ctlr_read,
-      .writefn = arm_cp_write_ignore, },
+      .access = PL1_RW, .resetvalue = CPREG_COMMON_VALUE(0),
+      .readfn = a15_l2ctlr_read, .writefn = arm_cp_write_ignore, },
 #endif
     { .name = "L2ECTLR", .cp = 15, .crn = 9, .crm = 0, .opc1 = 1, .opc2 = 3,
-      .access = PL1_RW, .type = ARM_CP_CONST, .resetvalue = 0 },
+      .access = PL1_RW, .type = ARM_CP_CONST,
+      .resetvalue = CPREG_COMMON_VALUE(0) },
     REGINFO_SENTINEL
 };
 

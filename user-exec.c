@@ -109,8 +109,9 @@ static inline int handle_cpu_signal(uintptr_t pc, unsigned long address,
     }
 
     /* see if it is an MMU fault */
-    ret = cpu_handle_mmu_fault(cpu_single_env, address, is_write,
-                               MMU_USER_IDX);
+    /* TODO: TrustZone: Do we want to simulate normal-world user-space? */
+    ret = cpu_handle_mmu_fault(cpu_single_env, address,
+                               is_write, MMU_S_USER_IDX);
     if (ret < 0) {
         return 0; /* not an MMU fault */
     }

@@ -1,0 +1,12 @@
+This file covers ARM TrustZone related changes on top of the qemu-linaro
+source tree which are developed during the EU FP7 "SEPIA" project by
+the Institute for Applied Information Processing and Communications (IAIK)
+at Graz University of Technology.
+
+Note that the TrustZone support in this QEMU fork is considered
+HIGHLY EXPERIMENTAL and UNSTABLE.
+
+Code parts of particular interest are marked with comments including
+the word "TrustZone" to allow easy grepping. A simple "grep -r TrustZone ."
+should list the interesting parts without the need to go through the
+entire GIT history.

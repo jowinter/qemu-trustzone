@@ -1,3 +1,5 @@
 Read the documentation in qemu-doc.html or on http://wiki.qemu.org
 
 - QEMU team
+
+For ARM TrustZone related changes see README.IAIK

@@ -67,7 +67,31 @@ typedef uint32_t ARMReadCPFunc(void *opaque, int cp_info,
 
 struct arm_boot_info;
 
-#define NB_MMU_MODES 2
+/* NOTE: TrustZone: We represent banked register with a secure and
+   a normal world version using the banked_uint32_t and the
+   banked_uint64_t structures.
+
+   The banked_ptrdiff_t structure simplifies handling of field offsets
+   in ARM CP register definitions.
+ */
+typedef struct {
+    uint32_t secure; /* Secure world bank */
+    uint32_t normal; /* Normal world bank */
+} banked_uint32_t;
+
+typedef struct {
+    uint64_t secure; /* Secure world bank */
+    uint64_t normal; /* Normal world bank */
+} banked_uint64_t;
+
+typedef struct {
+    ptrdiff_t secure; /* Field offset of a secure world CP register */
+    ptrdiff_t normal; /* Field offset of a normal world CP register */
+} banked_ptrdiff_t;
+
+/* NOTE: TrustZone: See CPU mode definitions further down, we use 2
+   modes for normal world and 2 modes for secure world. */
+#define NB_MMU_MODES 4
 
 /* We currently assume float and double are IEEE single and double
    precision respectively.
@@ -336,7 +360,9 @@ enum arm_cpu_mode {
   ARM_CPU_MODE_FIQ = 0x11,
   ARM_CPU_MODE_IRQ = 0x12,
   ARM_CPU_MODE_SVC = 0x13,
-  ARM_CPU_MODE_SMC = 0x16,
+  /* NOTE: TrustZone: Changed name of Secure Monitor Mode
+   * to "ARM_CPU_MODE_MON" for better clarity. */
+  ARM_CPU_MODE_MON = 0x16,
   ARM_CPU_MODE_ABT = 0x17,
   ARM_CPU_MODE_UND = 0x1b,
   ARM_CPU_MODE_SYS = 0x1f
@@ -497,15 +523,44 @@ static inline bool cptype_valid(int cptype)
 #define PL1_RW (PL1_R | PL1_W)
 #define PL0_RW (PL0_R | PL0_W)
 
+/* Secure configuration register (SCR) */
+#define SCR_NS  (1 << 0)
+#define SCR_IRQ (1 << 1)
+#define SCR_FIQ (1 << 2)
+#define SCR_EA  (1 << 3)
+#define SCR_FW  (1 << 4)
+#define SCR_AW  (1 << 5)
+#define SCR_nET (1 << 6)
+
 static inline int arm_current_pl(CPUARMState *env)
 {
-    if ((env->uncached_cpsr & 0x1f) == ARM_CPU_MODE_USR) {
+    uint32_t uncached_mode = (env->uncached_cpsr & 0x1f);
+
+    if (uncached_mode == ARM_CPU_MODE_USR) {
+        /* We do not distinguish between secure and normal user mode */
         return 0;
+
+    } else if (uncached_mode == ARM_CPU_MODE_MON) {
+        /* Secure monitor mode is unconditionally secure, irrespective
+         * of SCR.NS */
+        return 3;
     }
-    /* We don't currently implement the Virtualization or TrustZone
-     * extensions, so PL2 and PL3 don't exist for us.
+
+    /* We don't currently implement the Virtualization
+     * extensions, so PL2 doesn't exist for us.
+     *
+     * TODO: Properly handle PL2 vs. PL3 selection once Virtualization
+     * is implemented.
      */
-    return 1;
+    return (env->cp15.c1_scr & SCR_NS) ? 1 : 3;
+}
+
+static inline int arm_current_secure(CPUARMState *env)
+{
+    uint32_t uncached_mode = (env->uncached_cpsr & 0x1f);
+
+    /* PL3 (secure privileged) or PL0 (user) and SCR.NS==0 */
+    return (uncached_mode == ARM_CPU_MODE_MON) || !(env->cp15.c1_scr & SCR_NS);
 }
 
 typedef struct ARMCPRegInfo ARMCPRegInfo;
@@ -524,6 +579,26 @@ typedef void CPResetFn(CPUARMState *env, const ARMCPRegInfo *opaque);
 #define CP_ANY 0xff
 
 /* Definition of an ARM coprocessor register */
+/* NOTE: TrustZone: We use a banked_ptrdiff_t and a banked_uint64_t structure
+ * to describe the the normal and secure world banks of a register.
+ *
+ * Unbanked registers simply use the same values for their offsets and reset
+ * values. A set of macros is provided for initializing the register structures:
+ *
+ * CP_COMMON_OFFSET - initializes the field offset of an unbanked (common)
+ *                    register.
+ *
+ * CP_COMMON_VALUE  - initializes the reset (or constant) value of an
+ *                    unbanked (common) register.
+ *
+ * CP_BANKED_OFFSET - initializes the field offset of a banked register.
+ *
+ * CP_BANKED_VALUE  - initializes the reset (or constant) value of an
+ *                    banked register.
+ *
+ * TODO: Can we integrate this logic with the CPU state load/save handlers
+ * in target-arm/machine.c ? (i.e. auto-save all banked registers?)
+ */
 struct ARMCPRegInfo {
     /* Name of register (useful mainly for debugging, need not be unique) */
     const char *name;
@@ -554,13 +629,13 @@ struct ARMCPRegInfo {
     /* Value of this register, if it is ARM_CP_CONST. Otherwise, if
      * fieldoffset is non-zero, the reset value of the register.
      */
-    uint64_t resetvalue;
+    banked_uint64_t resetvalue;
     /* Offset of the field in CPUARMState for this register. This is not
      * needed if either:
      *  1. type is ARM_CP_CONST or one of the ARM_CP_SPECIALs
      *  2. both readfn and writefn are specified
      */
-    ptrdiff_t fieldoffset; /* offsetof(CPUARMState, field) */
+    banked_ptrdiff_t fieldoffset; /* offsetof(CPUARMState, field) */
     /* Function for handling reads of this register. If NULL, then reads
      * will be done by loading from the offset into CPUARMState specified
      * by fieldoffset.
@@ -578,13 +653,61 @@ struct ARMCPRegInfo {
     CPResetFn *resetfn;
 };
 
+/* Initialization helper macros */
+#define CPREG_COMMON_OFFSET(_field) {        \
+    .secure = offsetof(CPUARMState, _field), \
+    .normal = offsetof(CPUARMState, _field)  \
+   }
+
+#define CPREG_COMMON_VALUE(_value) {        \
+    .secure = (_value), .normal = (_value)  \
+   }
+
+#define CPREG_BANKED_OFFSET(_field) {        \
+    .secure = offsetof(CPUARMState, _field.secure), \
+    .normal = offsetof(CPUARMState, _field.normal)  \
+   }
+
+#define CPREG_BANKED_VALUE(_secure,_normal) { \
+    .secure = (_secure), .normal = (_normal)  \
+   }
+
 /* Macros which are lvalues for the field in CPUARMState for the
  * ARMCPRegInfo *ri.
  */
-#define CPREG_FIELD32(env, ri) \
-    (*(uint32_t *)((char *)(env) + (ri)->fieldoffset))
-#define CPREG_FIELD64(env, ri) \
-    (*(uint64_t *)((char *)(env) + (ri)->fieldoffset))
+
+/* Raw pointers to banked registers */
+#define CPREG_PTR(env, ri, type, bank)   \
+    ((type *) ((char *)(env) + (ri)->fieldoffset.bank))
+
+#define CPREG_ACTIVE_PTR(env, ri, type)  \
+    (arm_current_secure(env) ?           \
+     CPREG_PTR(env, ri, type, secure) :  \
+     CPREG_PTR(env, ri, type, normal))
+
+/* Secure-world bank access */
+#define CPREG_S_FIELD32(env, ri) \
+    (*CPREG_PTR(env, ri, uint32_t, secure))
+
+#define CPREG_S_FIELD64(env, ri) \
+    (*CPREG_PTR(env, ri, uint64_t, secure))
+
+/* Normal world bank access */
+#define CPREG_N_FIELD32(env, ri) \
+    (*CPREG_PTR(env, ri, uint32_t, normal))
+
+#define CPREG_N_FIELD64(env, ri) \
+    (*CPREG_PTR(env, ri, uint64_t, normal))
+
+/* Current bank access */
+#define CPREG_FIELD32(env, ri)   \
+    (*CPREG_ACTIVE_PTR(env, ri, uint32_t))
+
+#define CPREG_FIELD64(env, ri)   \
+    (arm_current_secure(env) ?   \
+     CPREG_FIELD64_SECURE(env, ri) : \
+     CPREG_FIELD64_NORMAL(env, ri))
+
 
 #define REGINFO_SENTINEL { .type = ARM_CP_SENTINEL }
 
@@ -649,15 +772,38 @@ static inline CPUARMState *cpu_init(const char *cpu_model)
 #define cpu_signal_handler cpu_arm_signal_handler
 #define cpu_list arm_cpu_list
 
-#define CPU_SAVE_VERSION 9
+/* NOTE: TrustZone: Changed from 9 to 10 to accomodate banked registers */
+#define CPU_SAVE_VERSION 10
 
 /* MMU modes definitions */
-#define MMU_MODE0_SUFFIX _kernel
-#define MMU_MODE1_SUFFIX _user
-#define MMU_USER_IDX 1
+#define MMU_MODE0_SUFFIX _kernel       /* Secure privileged modes */
+#define MMU_MODE1_SUFFIX _user         /* Secure user mode        */
+#define MMU_MODE2_SUFFIX _n_kernel     /* Normal privileged mode  */
+#define MMU_MODE3_SUFFIX _n_user       /* Normal user mode        */
+
+/* Secure world MMU modes */
+#define MMU_S_BASE_IDX   0
+#define MMU_S_KERNEL_IDX (MMU_S_BASE_IDX + 0)
+#define MMU_S_USER_IDX   (MMU_S_BASE_IDX + 1)
+
+/* Normal world MMU modes */
+#define MMU_N_BASE_IDX   2
+#define MMU_N_KERNEL_IDX (MMU_N_BASE_IDX + 0)
+#define MMU_N_USER_IDX   (MMU_N_BASE_IDX + 1)
+
+/* NOTE: TrustZone: Use this function to get the current MMU state */
 static inline int cpu_mmu_index (CPUARMState *env)
 {
-    return (env->uncached_cpsr & CPSR_M) == ARM_CPU_MODE_USR ? 1 : 0;
+    /* Select between user/kernel MMU index */
+    int mmu_index = (env->uncached_cpsr & CPSR_M) == ARM_CPU_MODE_USR ? 1 : 0;
+
+    /* Select between normal/secure world MMU index */
+    if (!arm_current_secure(env)) {
+        /* Currently in secure world */
+        mmu_index += MMU_N_BASE_IDX;
+    }
+
+    return mmu_index;
 }
 
 #if defined(CONFIG_USER_ONLY)
@@ -667,6 +813,9 @@ static inline void cpu_clone_regs(CPUARMState *env, target_ulong newsp)
         env->regs[13] = newsp;
     env->regs[0] = 0;
 }
+
+#else
+
 #endif
 
 #include "cpu-all.h"
@@ -686,7 +835,9 @@ static inline void cpu_clone_regs(CPUARMState *env, target_ulong newsp)
 #define ARM_TBFLAG_CONDEXEC_MASK    (0xff << ARM_TBFLAG_CONDEXEC_SHIFT)
 #define ARM_TBFLAG_BSWAP_CODE_SHIFT 16
 #define ARM_TBFLAG_BSWAP_CODE_MASK  (1 << ARM_TBFLAG_BSWAP_CODE_SHIFT)
-/* Bits 31..17 are currently unused. */
+#define ARM_TBFLAG_SECURE_SHIFT     17
+#define ARM_TBFLAG_SECURE_MASK      (1 << ARM_TBFLAG_SECURE_SHIFT)
+/* Bits 31..18 are currently unused. */
 
 /* some convenience accessor macros */
 #define ARM_TBFLAG_THUMB(F) \
@@ -703,6 +854,8 @@ static inline void cpu_clone_regs(CPUARMState *env, target_ulong newsp)
     (((F) & ARM_TBFLAG_CONDEXEC_MASK) >> ARM_TBFLAG_CONDEXEC_SHIFT)
 #define ARM_TBFLAG_BSWAP_CODE(F) \
     (((F) & ARM_TBFLAG_BSWAP_CODE_MASK) >> ARM_TBFLAG_BSWAP_CODE_SHIFT)
+#define ARM_TBFLAG_SECURE(F) \
+    (((F) & ARM_TBFLAG_SECURE_MASK) >> ARM_TBFLAG_SECURE_SHIFT)
 
 static inline void cpu_get_tb_cpu_state(CPUARMState *env, target_ulong *pc,
                                         target_ulong *cs_base, int *flags)
@@ -722,6 +875,11 @@ static inline void cpu_get_tb_cpu_state(CPUARMState *env, target_ulong *pc,
     }
     if (privmode) {
         *flags |= ARM_TBFLAG_PRIV_MASK;
+    }
+    /* NOTE: TrustZone: Indicate if a secure or normal world block is to be
+     * translated */
+    if (arm_current_secure(env)) {
+        *flags |= ARM_TBFLAG_SECURE_MASK;
     }
     if (env->vfp.xregs[ARM_VFP_FPEXC] & (1 << 30)) {
         *flags |= ARM_TBFLAG_VFPEN_MASK;

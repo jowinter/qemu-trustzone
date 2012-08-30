@@ -1,6 +1,10 @@
 #include "hw/hw.h"
 #include "hw/boards.h"
 
+/* TODO: TrustZone: It should be possible to auto-derive the
+ * co-processor registers to store from the register
+ * info structures ...
+ */
 void cpu_save(QEMUFile *f, void *opaque)
 {
     int i;
