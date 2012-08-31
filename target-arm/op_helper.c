@@ -325,6 +325,22 @@ uint64_t HELPER(get_cp_reg64)(CPUARMState *env, void *rip)
     return value;
 }
 
+void HELPER(log_cp_write64)(CPUARMState *env, void *rip, uint64_t value)
+{
+}
+
+void HELPER(log_cp_read64)(CPUARMState *env, void *rip, uint64_t value)
+{
+}
+
+void HELPER(log_cp_write32)(CPUARMState *env, void *rip, uint32_t value)
+{
+}
+
+void HELPER(log_cp_read32)(CPUARMState *env, void *rip, uint32_t value)
+{
+}
+
 /* ??? Flag setting arithmetic is awkward because we need to do comparisons.
    The only way to do that in TCG is a conditional branch, which clobbers
    all our temporaries.  For now implement these as helper functions.  */

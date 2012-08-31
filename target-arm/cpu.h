@@ -837,7 +837,9 @@ static inline void cpu_clone_regs(CPUARMState *env, target_ulong newsp)
 #define ARM_TBFLAG_BSWAP_CODE_MASK  (1 << ARM_TBFLAG_BSWAP_CODE_SHIFT)
 #define ARM_TBFLAG_SECURE_SHIFT     17
 #define ARM_TBFLAG_SECURE_MASK      (1 << ARM_TBFLAG_SECURE_SHIFT)
-/* Bits 31..18 are currently unused. */
+#define ARM_TBFLAG_SECURE_CP_SHIFT  18
+#define ARM_TBFLAG_SECURE_CP_MASK   (1 << ARM_TBFLAG_SECURE_SHIFT)
+/* Bits 31..19 are currently unused. */
 
 /* some convenience accessor macros */
 #define ARM_TBFLAG_THUMB(F) \
@@ -856,6 +858,8 @@ static inline void cpu_clone_regs(CPUARMState *env, target_ulong newsp)
     (((F) & ARM_TBFLAG_BSWAP_CODE_MASK) >> ARM_TBFLAG_BSWAP_CODE_SHIFT)
 #define ARM_TBFLAG_SECURE(F) \
     (((F) & ARM_TBFLAG_SECURE_MASK) >> ARM_TBFLAG_SECURE_SHIFT)
+#define ARM_TBFLAG_SECURE_CP(F) \
+    (((F) & ARM_TBFLAG_SECURE_CP_MASK) >> ARM_TBFLAG_SECURE_CP_SHIFT)
 
 static inline void cpu_get_tb_cpu_state(CPUARMState *env, target_ulong *pc,
                                         target_ulong *cs_base, int *flags)
@@ -876,10 +880,14 @@ static inline void cpu_get_tb_cpu_state(CPUARMState *env, target_ulong *pc,
     if (privmode) {
         *flags |= ARM_TBFLAG_PRIV_MASK;
     }
-    /* NOTE: TrustZone: Indicate if a secure or normal world block is to be
-     * translated */
+    /* NOTE: TrustZone: Indicate the active world for the TB */
     if (arm_current_secure(env)) {
         *flags |= ARM_TBFLAG_SECURE_MASK;
+    }
+    /* NOTE: TrustZone: Indicate the active CP15 bank for the TB
+     * (can be different from active world if CPSR.M==MON) */
+    if ((env->cp15.c1_scr & SCR_NS) == 0) {
+        *flags |= ARM_TBFLAG_SECURE_CP_MASK;
     }
     if (env->vfp.xregs[ARM_VFP_FPEXC] & (1 << 30)) {
         *flags |= ARM_TBFLAG_VFPEN_MASK;
