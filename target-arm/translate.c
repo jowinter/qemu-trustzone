@@ -6231,20 +6231,42 @@ static int disas_neon_data_insn(CPUARMState * env, DisasContext *s, uint32_t ins
     return 0;
 }
 
-static void log_cp_read64(DisasContext *s, const ARMCPRegInfo *ri, TCGv_i64 value)
+static void log_cp64(DisasContext *s, const ARMCPRegInfo *ri, int is_write,
+                     TCGv_i64 value)
 {
+    if (qemu_loglevel_mask(CPU_LOG_CP_SECURE | CPU_LOG_CP_NORMAL)) {
+        TCGv_ptr tmpptr;
+
+        gen_set_pc_im(s->pc);
+        tmpptr = tcg_const_ptr(ri);
+
+        if (is_write) {
+            gen_helper_log_cp_write64(cpu_env, tmpptr, value);
+        } else {
+            gen_helper_log_cp_read64(cpu_env, tmpptr, value);
+        }
+
+        tcg_temp_free_ptr(tmpptr);
+    }
 }
 
-static void log_cp_write64(DisasContext *s, const ARMCPRegInfo *ri, TCGv_i64 value)
+static void log_cp32(DisasContext *s, const ARMCPRegInfo *ri, int is_write,
+                     TCGv_i32 value)
 {
-}
+    if (qemu_loglevel_mask(CPU_LOG_CP_SECURE | CPU_LOG_CP_NORMAL)) {
+        TCGv_ptr tmpptr;
 
-static void log_cp_read32(DisasContext *s, const ARMCPRegInfo *ri, TCGv_i32 value)
-{
-}
+        gen_set_pc_im(s->pc);
+        tmpptr = tcg_const_ptr(ri);
 
-static void log_cp_write32(DisasContext *s, const ARMCPRegInfo *ri, TCGv_i32 value)
-{
+        if (is_write) {
+            gen_helper_log_cp_write32(cpu_env, tmpptr, value);
+        } else {
+            gen_helper_log_cp_read32(cpu_env, tmpptr, value);
+        }
+
+        tcg_temp_free_ptr(tmpptr);
+    }
 }
 
 static int disas_coproc_insn(CPUARMState * env, DisasContext *s, uint32_t insn)
@@ -6297,11 +6319,12 @@ static int disas_coproc_insn(CPUARMState * env, DisasContext *s, uint32_t insn)
     isread = (insn >> 20) & 1;
     rt = (insn >> 12) & 0xf;
 
-    /* NOTE: TrustZone: Select the active register bank */
+    /* NOTE: TrustZone: Select the active register bank and encode it
+     * as part of the register number.
+     */
     bank = IS_SECURE_CP(s);
-
-    ri = get_arm_cp_reginfo(cpu,
-                            ENCODE_CP_REG(cpnum, is64, crn, crm, opc1, opc2));
+    ri = get_arm_cp_reginfo(cpu, ENCODE_CP_REG(bank, cpnum, is64,
+                                               crn, crm, opc1, opc2));
     if (ri) {
         /* Check access permissions */
         if (!cp_access_ok(env, ri, isread)) {
@@ -6329,10 +6352,7 @@ static int disas_coproc_insn(CPUARMState * env, DisasContext *s, uint32_t insn)
                 TCGv_i64 tmp64;
                 TCGv_i32 tmp;
                 if (ri->type & ARM_CP_CONST) {
-                    /* NOTE: TrustZone: Banked constant value access */
-                    tmp64 = tcg_const_i64(IS_SECURE(s) ?
-                                          ri->resetvalue.secure :
-                                          ri->resetvalue.normal);
+                    tmp64 = tcg_const_i64(ri->resetvalue);
                 } else if (ri->readfn) {
                     TCGv_ptr tmpptr;
                     gen_set_pc_im(s->pc);
@@ -6341,14 +6361,11 @@ static int disas_coproc_insn(CPUARMState * env, DisasContext *s, uint32_t insn)
                     gen_helper_get_cp_reg64(tmp64, cpu_env, tmpptr);
                     tcg_temp_free_ptr(tmpptr);
                 } else {
-                    /* NOTE: TrustZone: Banked field value access */
                     tmp64 = tcg_temp_new_i64();
-                    tcg_gen_ld_i64(tmp64, cpu_env, bank ?
-                                   ri->fieldoffset.secure :
-                                   ri->fieldoffset.normal);
+                    tcg_gen_ld_i64(tmp64, cpu_env, ri->fieldoffset);
                 }
                 /* NOTE: TrustZone: Secure/normal world CP bank access logging */
-                log_cp_read64(s, ri, tmp64);
+                log_cp64(s, ri, 0, tmp64);
                 tmp = tcg_temp_new_i32();
                 tcg_gen_trunc_i64_i32(tmp, tmp64);
                 store_reg(s, rt, tmp);
@@ -6361,8 +6378,7 @@ static int disas_coproc_insn(CPUARMState * env, DisasContext *s, uint32_t insn)
                 TCGv tmp;
                 if (ri->type & ARM_CP_CONST) {
                     /* NOTE: TrustZone: Banked constant value access */
-                    tmp = tcg_const_i32(bank ? ri->resetvalue.secure :
-                                        ri->resetvalue.normal);
+                    tmp = tcg_const_i32(ri->resetvalue);
                 } else if (ri->readfn) {
                     TCGv_ptr tmpptr;
                     gen_set_pc_im(s->pc);
@@ -6372,12 +6388,10 @@ static int disas_coproc_insn(CPUARMState * env, DisasContext *s, uint32_t insn)
                     tcg_temp_free_ptr(tmpptr);
                 } else {
                     /* NOTE: TrustZone: Banked field value access */
-                    tmp = load_cpu_offset(bank ?
-                                          ri->fieldoffset.secure :
-                                          ri->fieldoffset.normal);
+                    tmp = load_cpu_offset(ri->fieldoffset);
                 }
                 /* NOTE: TrustZone: Secure/normal world CP bank access logging */
-                log_cp_read32(s, ri, tmp);
+                log_cp32(s, ri, 0, tmp);
                 if (rt == 15) {
                     /* Destination register of r15 for 32 bit loads sets
                      * the condition codes from the high 4 bits of the value
@@ -6404,7 +6418,7 @@ static int disas_coproc_insn(CPUARMState * env, DisasContext *s, uint32_t insn)
                 tcg_temp_free_i32(tmplo);
                 tcg_temp_free_i32(tmphi);
                 /* NOTE: TrustZone: Secure/normal world CP bank access logging */
-                log_cp_write64(s, ri, tmp64);
+                log_cp64(s, ri, 1, tmp64);
                 if (ri->writefn) {
                     TCGv_ptr tmpptr = tcg_const_ptr(ri);
                     gen_set_pc_im(s->pc);
@@ -6412,9 +6426,7 @@ static int disas_coproc_insn(CPUARMState * env, DisasContext *s, uint32_t insn)
                     tcg_temp_free_ptr(tmpptr);
                 } else {
                     /* NOTE: TrustZone: Banked field value access */
-                    tcg_gen_st_i64(tmp64, cpu_env, IS_SECURE(s) ?
-                                   ri->fieldoffset.secure :
-                                   ri->fieldoffset.normal);
+                    tcg_gen_st_i64(tmp64, cpu_env, ri->fieldoffset);
                 }
                 tcg_temp_free_i64(tmp64);
             } else {
@@ -6424,7 +6436,7 @@ static int disas_coproc_insn(CPUARMState * env, DisasContext *s, uint32_t insn)
                     gen_set_pc_im(s->pc);
                     tmp = load_reg(s, rt);
                     /* NOTE: TrustZone: Secure/normal world CP bank access logging */
-                    log_cp_write32(s, ri, tmp);
+                    log_cp32(s, ri, 1, tmp);
                     tmpptr = tcg_const_ptr(ri);
                     gen_helper_set_cp_reg(cpu_env, tmpptr, tmp);
                     tcg_temp_free_ptr(tmpptr);
@@ -6433,10 +6445,8 @@ static int disas_coproc_insn(CPUARMState * env, DisasContext *s, uint32_t insn)
                     /* NOTE: TrustZone: Banked field value access */
                     TCGv tmp = load_reg(s, rt);
                     /* NOTE: TrustZone: Secure/normal world CP bank access logging */
-                    log_cp_write32(s, ri, tmp);
-                    store_cpu_offset(tmp, bank ?
-                                     ri->fieldoffset.secure :
-                                     ri->fieldoffset.normal);
+                    log_cp32(s, ri, 1, tmp);
+                    store_cpu_offset(tmp, ri->fieldoffset);
                 }
             }
             /* We default to ending the TB on a coprocessor register write,

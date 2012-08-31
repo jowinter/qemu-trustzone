@@ -70,9 +70,6 @@ struct arm_boot_info;
 /* NOTE: TrustZone: We represent banked register with a secure and
    a normal world version using the banked_uint32_t and the
    banked_uint64_t structures.
-
-   The banked_ptrdiff_t structure simplifies handling of field offsets
-   in ARM CP register definitions.
  */
 typedef struct {
     uint32_t secure; /* Secure world bank */
@@ -83,11 +80,6 @@ typedef struct {
     uint64_t secure; /* Secure world bank */
     uint64_t normal; /* Normal world bank */
 } banked_uint64_t;
-
-typedef struct {
-    ptrdiff_t secure; /* Field offset of a secure world CP register */
-    ptrdiff_t normal; /* Field offset of a normal world CP register */
-} banked_ptrdiff_t;
 
 /* NOTE: TrustZone: See CPU mode definitions further down, we use 2
    modes for normal world and 2 modes for secure world. */
@@ -452,12 +444,16 @@ void armv7m_nvic_complete_irq(void *opaque, int irq);
  *    or via MRRC/MCRR?)
  * We allow 4 bits for opc1 because MRRC/MCRR have a 4 bit field.
  * (In this case crn and opc2 should be zero.)
+ *
+ * NOTE: TrustZone: Secure world registers have bit[31]==0, normal
+ * world register have bit[31]==1.
  */
-#define ENCODE_CP_REG(cp, is64, crn, crm, opc1, opc2)   \
-    (((cp) << 16) | ((is64) << 15) | ((crn) << 11) |    \
+#define ENCODE_CP_REG(secure, cp, is64, crn, crm, opc1, opc2)            \
+    ((!(secure) << 31) | ((cp) << 16) | ((is64) << 15) | ((crn) << 11) | \
      ((crm) << 7) | ((opc1) << 3) | (opc2))
 
 #define DECODE_CPREG_CRN(enc) (((enc) >> 7) & 0xf)
+#define DECODE_CPREG_SECURE(enc) (((enc) >> 31) & 0x1)
 
 /* ARMCPRegInfo type field bits. If the SPECIAL bit is set this is a
  * special-behaviour cp reg and bits [15..8] indicate what behaviour
@@ -469,19 +465,35 @@ void armv7m_nvic_complete_irq(void *opaque, int irq);
  * a register definition to override a previous definition for the
  * same (cp, is64, crn, crm, opc1, opc2) tuple: either the new or the
  * old must have the OVERRIDE bit set.
+ *
+ * NOTE: TrustZone: The ARM_CP_SECURE, ARM_CP_NORMAL and ARM_CP_UNBANKED macros
+ * defined the target bank visibility of a register definition.
+ * Register which neither define ARM_CP_SECURE nor ARM_CP_NORMAL are assumed
+ * to be unbanked (ARM_CP_UNBANKED) registers at the moment.
+ *
+ * Note that bank visibility applies to the physical implementation of a
+ * register and does not affect the current world's access privileges.
+ * (Privileges are configured independently using the privilege level.)
+ *
+ * Each unbanked register is defined twice in the underlying CP register hashmap
+ * to allow separate overriding of the secure and the normal world versions with
+ * the OVERRIDE logic discussed above.
  */
 #define ARM_CP_SPECIAL 1
 #define ARM_CP_CONST 2
 #define ARM_CP_64BIT 4
 #define ARM_CP_SUPPRESS_TB_END 8
 #define ARM_CP_OVERRIDE 16
+#define ARM_CP_SECURE   32
+#define ARM_CP_NORMAL   64
+#define ARM_CP_UNBANKED (ARM_CP_SECURE | ARM_CP_NORMAL)
 #define ARM_CP_NOP (ARM_CP_SPECIAL | (1 << 8))
 #define ARM_CP_WFI (ARM_CP_SPECIAL | (2 << 8))
 #define ARM_LAST_SPECIAL ARM_CP_WFI
 /* Used only as a terminator for ARMCPRegInfo lists */
 #define ARM_CP_SENTINEL 0xffff
 /* Mask of only the flag bits in a type field */
-#define ARM_CP_FLAG_MASK 0x1f
+#define ARM_CP_FLAG_MASK 0x7f
 
 /* Return true if cptype is a valid type field. This is used to try to
  * catch errors where the sentinel has been accidentally left off the end
@@ -579,25 +591,9 @@ typedef void CPResetFn(CPUARMState *env, const ARMCPRegInfo *opaque);
 #define CP_ANY 0xff
 
 /* Definition of an ARM coprocessor register */
-/* NOTE: TrustZone: We use a banked_ptrdiff_t and a banked_uint64_t structure
- * to describe the the normal and secure world banks of a register.
- *
- * Unbanked registers simply use the same values for their offsets and reset
- * values. A set of macros is provided for initializing the register structures:
- *
- * CP_COMMON_OFFSET - initializes the field offset of an unbanked (common)
- *                    register.
- *
- * CP_COMMON_VALUE  - initializes the reset (or constant) value of an
- *                    unbanked (common) register.
- *
- * CP_BANKED_OFFSET - initializes the field offset of a banked register.
- *
- * CP_BANKED_VALUE  - initializes the reset (or constant) value of an
- *                    banked register.
- *
- * TODO: Can we integrate this logic with the CPU state load/save handlers
- * in target-arm/machine.c ? (i.e. auto-save all banked registers?)
+/*
+ * NOTE: TrustZone: We use ARM_CP_SECURE and ARM_CP_NORMAL to register the
+ * banked versions of a co-processor register.
  */
 struct ARMCPRegInfo {
     /* Name of register (useful mainly for debugging, need not be unique) */
@@ -629,13 +625,13 @@ struct ARMCPRegInfo {
     /* Value of this register, if it is ARM_CP_CONST. Otherwise, if
      * fieldoffset is non-zero, the reset value of the register.
      */
-    banked_uint64_t resetvalue;
+    uint64_t resetvalue;
     /* Offset of the field in CPUARMState for this register. This is not
      * needed if either:
      *  1. type is ARM_CP_CONST or one of the ARM_CP_SPECIALs
      *  2. both readfn and writefn are specified
      */
-    banked_ptrdiff_t fieldoffset; /* offsetof(CPUARMState, field) */
+    ptrdiff_t fieldoffset; /* offsetof(CPUARMState, field) */
     /* Function for handling reads of this register. If NULL, then reads
      * will be done by loading from the offset into CPUARMState specified
      * by fieldoffset.
@@ -653,61 +649,13 @@ struct ARMCPRegInfo {
     CPResetFn *resetfn;
 };
 
-/* Initialization helper macros */
-#define CPREG_COMMON_OFFSET(_field) {        \
-    .secure = offsetof(CPUARMState, _field), \
-    .normal = offsetof(CPUARMState, _field)  \
-   }
-
-#define CPREG_COMMON_VALUE(_value) {        \
-    .secure = (_value), .normal = (_value)  \
-   }
-
-#define CPREG_BANKED_OFFSET(_field) {        \
-    .secure = offsetof(CPUARMState, _field.secure), \
-    .normal = offsetof(CPUARMState, _field.normal)  \
-   }
-
-#define CPREG_BANKED_VALUE(_secure,_normal) { \
-    .secure = (_secure), .normal = (_normal)  \
-   }
-
 /* Macros which are lvalues for the field in CPUARMState for the
  * ARMCPRegInfo *ri.
  */
-
-/* Raw pointers to banked registers */
-#define CPREG_PTR(env, ri, type, bank)   \
-    ((type *) ((char *)(env) + (ri)->fieldoffset.bank))
-
-#define CPREG_ACTIVE_PTR(env, ri, type)  \
-    (arm_current_secure(env) ?           \
-     CPREG_PTR(env, ri, type, secure) :  \
-     CPREG_PTR(env, ri, type, normal))
-
-/* Secure-world bank access */
-#define CPREG_S_FIELD32(env, ri) \
-    (*CPREG_PTR(env, ri, uint32_t, secure))
-
-#define CPREG_S_FIELD64(env, ri) \
-    (*CPREG_PTR(env, ri, uint64_t, secure))
-
-/* Normal world bank access */
-#define CPREG_N_FIELD32(env, ri) \
-    (*CPREG_PTR(env, ri, uint32_t, normal))
-
-#define CPREG_N_FIELD64(env, ri) \
-    (*CPREG_PTR(env, ri, uint64_t, normal))
-
-/* Current bank access */
-#define CPREG_FIELD32(env, ri)   \
-    (*CPREG_ACTIVE_PTR(env, ri, uint32_t))
-
-#define CPREG_FIELD64(env, ri)   \
-    (arm_current_secure(env) ?   \
-     CPREG_FIELD64_SECURE(env, ri) : \
-     CPREG_FIELD64_NORMAL(env, ri))
-
+#define CPREG_FIELD32(env, ri) \
+    (*(uint32_t *)((char *)(env) + (ri)->fieldoffset))
+#define CPREG_FIELD64(env, ri) \
+    (*(uint64_t *)((char *)(env) + (ri)->fieldoffset))
 
 #define REGINFO_SENTINEL { .type = ARM_CP_SENTINEL }
 
@@ -723,6 +671,9 @@ static inline void define_one_arm_cp_reg(ARMCPU *cpu, const ARMCPRegInfo *regs)
 {
     define_one_arm_cp_reg_with_opaque(cpu, regs, 0);
 }
+/* NOTE: TrustZone: The secure parameter selects between the normal and the
+ * secure world version of a register. No access checking is done here.
+ */
 const ARMCPRegInfo *get_arm_cp_reginfo(ARMCPU *cpu, uint32_t encoded_cp);
 
 /* CPWriteFn that can be used to implement writes-ignored behaviour */
