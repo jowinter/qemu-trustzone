@@ -147,7 +147,7 @@ static const ARMCPRegInfo cp_reginfo[] = {
       .access = PL1_RW, .fieldoffset = offsetof(CPUARMState, cp15.c13_fcse),
       .resetvalue = 0, .writefn = fcse_write, .type = ARM_CP_BANKED },
     { .name = "CONTEXTIDR", .cp = 15, .crn = 13, .crm = 0, .opc1 = 0, .opc2 = 1,
-      .access = PL1_RW, .fieldoffset = offsetof(CPUARMState, cp15.c13_fcse),
+      .access = PL1_RW, .fieldoffset = offsetof(CPUARMState, cp15.c13_context),
       .resetvalue = 0, .writefn = contextidr_write, .type = ARM_CP_BANKED },
     /* ??? This covers not just the impdef TLB lockdown registers but also
      * some v7VMSA registers relating to TEX remap, so it is overly broad.
