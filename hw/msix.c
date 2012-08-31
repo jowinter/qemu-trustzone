@@ -307,13 +307,9 @@ int msix_init_exclusive_bar(PCIDevice *dev, unsigned short nentries,
         return -EINVAL;
     }
 
-    if (asprintf(&name, "%s-msix", dev->name) == -1) {
-        return -ENOMEM;
-    }
-
+    name = g_strdup_printf("%s-msix", dev->name);
     memory_region_init(&dev->msix_exclusive_bar, name, MSIX_EXCLUSIVE_BAR_SIZE);
-
-    free(name);
+    g_free(name);
 
     ret = msix_init(dev, nentries, &dev->msix_exclusive_bar, bar_nr,
                     MSIX_EXCLUSIVE_BAR_TABLE_OFFSET, &dev->msix_exclusive_bar,
@@ -336,6 +332,15 @@ static void msix_free_irq_entries(PCIDevice *dev)
 
     for (vector = 0; vector < dev->msix_entries_nr; ++vector) {
         dev->msix_entry_used[vector] = 0;
+        msix_clr_pending(dev, vector);
+    }
+}
+
+static void msix_clear_all_vectors(PCIDevice *dev)
+{
+    int vector;
+
+    for (vector = 0; vector < dev->msix_entries_nr; ++vector) {
         msix_clr_pending(dev, vector);
     }
 }
@@ -394,7 +399,7 @@ void msix_load(PCIDevice *dev, QEMUFile *f)
         return;
     }
 
-    msix_free_irq_entries(dev);
+    msix_clear_all_vectors(dev);
     qemu_get_buffer(f, dev->msix_table, n * PCI_MSIX_ENTRY_SIZE);
     qemu_get_buffer(f, dev->msix_pba, (n + 7) / 8);
     msix_update_function_masked(dev);
@@ -440,7 +445,7 @@ void msix_reset(PCIDevice *dev)
     if (!msix_present(dev)) {
         return;
     }
-    msix_free_irq_entries(dev);
+    msix_clear_all_vectors(dev);
     dev->config[dev->msix_cap + MSIX_CONTROL_OFFSET] &=
 	    ~dev->wmask[dev->msix_cap + MSIX_CONTROL_OFFSET];
     memset(dev->msix_table, 0, dev->msix_entries_nr * PCI_MSIX_ENTRY_SIZE);

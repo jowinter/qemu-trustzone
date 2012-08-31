@@ -131,6 +131,7 @@ static int virtio_pci_load_config(void * opaque, QEMUFile *f)
     if (ret) {
         return ret;
     }
+    msix_unuse_all_vectors(&proxy->pci_dev);
     msix_load(&proxy->pci_dev, f);
     if (msix_present(&proxy->pci_dev)) {
         qemu_get_be16s(f, &proxy->vdev->config_vector);
@@ -246,6 +247,7 @@ void virtio_pci_reset(DeviceState *d)
     VirtIOPCIProxy *proxy = container_of(d, VirtIOPCIProxy, pci_dev.qdev);
     virtio_pci_stop_ioeventfd(proxy);
     virtio_reset(proxy->vdev);
+    msix_unuse_all_vectors(&proxy->pci_dev);
     proxy->flags &= ~VIRTIO_PCI_FLAG_BUS_MASTER_BUG;
 }
 
@@ -886,6 +888,7 @@ static Property virtio_blk_properties[] = {
 #ifdef __linux__
     DEFINE_PROP_BIT("scsi", VirtIOPCIProxy, blk.scsi, 0, true),
 #endif
+    DEFINE_PROP_BIT("config-wce", VirtIOPCIProxy, blk.config_wce, 0, true),
     DEFINE_PROP_BIT("ioeventfd", VirtIOPCIProxy, flags, VIRTIO_PCI_FLAG_USE_IOEVENTFD_BIT, true),
     DEFINE_PROP_UINT32("vectors", VirtIOPCIProxy, nvectors, 2),
     DEFINE_VIRTIO_BLK_FEATURES(VirtIOPCIProxy, host_features),

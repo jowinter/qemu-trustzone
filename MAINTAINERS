@@ -405,6 +405,14 @@ M: Alexander Graf <agraf@suse.de>
 S: Maintained
 F: hw/s390-*.c
 
+UniCore32 Machines
+-------------
+PKUnity-3 SoC initramfs-with-busybox
+M: Guan Xuetao <gxt@mprc.pku.edu.cn>
+S: Maintained
+F: hw/puv3*
+F: hw/unicore32/
+
 X86 Machines
 ------------
 PC
@@ -560,7 +568,7 @@ F: monitor.c
 
 Network device layer
 M: Anthony Liguori <aliguori@us.ibm.com>
-M: Stefan Hajnoczi <stefanha@linux.vnet.ibm.com>
+M: Stefan Hajnoczi <stefanha@gmail.com>
 S: Maintained
 F: net/
 T: git git://github.com/stefanha/qemu.git net
@@ -580,7 +588,7 @@ F: slirp/
 T: git git://git.kiszka.org/qemu.git queues/slirp
 
 Tracing
-M: Stefan Hajnoczi <stefanha@linux.vnet.ibm.com>
+M: Stefan Hajnoczi <stefanha@gmail.com>
 S: Maintained
 F: trace/
 F: scripts/tracetool.py

@@ -822,8 +822,7 @@ void cpu_loop(CPUARMState *env)
                 } else if (n == ARM_NR_semihosting
                            || n == ARM_NR_thumb_semihosting) {
                     env->regs[0] = do_arm_semihosting (env);
-                } else if (n == 0 || n >= ARM_SYSCALL_BASE
-                           || (env->thumb && n == ARM_THUMB_SYSCALL)) {
+                } else if (n == 0 || n >= ARM_SYSCALL_BASE || env->thumb) {
                     /* linux syscall */
                     if (env->thumb || n == 0) {
                         n = env->regs[7];
@@ -958,7 +957,8 @@ void cpu_loop(CPUUniCore32State *env)
                 }
             }
             break;
-        case UC32_EXCP_TRAP:
+        case UC32_EXCP_DTRAP:
+        case UC32_EXCP_ITRAP:
             info.si_signo = SIGSEGV;
             info.si_errno = 0;
             /* XXX: check env->error_code */
@@ -3222,7 +3222,7 @@ struct qemu_argument {
     const char *help;
 };
 
-struct qemu_argument arg_table[] = {
+static const struct qemu_argument arg_table[] = {
     {"h",          "",                 false, handle_arg_help,
      "",           "print this help"},
     {"g",          "QEMU_GDB",         true,  handle_arg_gdb,
@@ -3264,7 +3264,7 @@ struct qemu_argument arg_table[] = {
 
 static void usage(void)
 {
-    struct qemu_argument *arginfo;
+    const struct qemu_argument *arginfo;
     int maxarglen;
     int maxenvlen;
 
@@ -3330,7 +3330,7 @@ static int parse_args(int argc, char **argv)
 {
     const char *r;
     int optind;
-    struct qemu_argument *arginfo;
+    const struct qemu_argument *arginfo;
 
     for (arginfo = arg_table; arginfo->handle_opt != NULL; arginfo++) {
         if (arginfo->env == NULL) {
@@ -3515,39 +3515,19 @@ int main(int argc, char **argv, char **envp)
      */
     guest_base = HOST_PAGE_ALIGN(guest_base);
 
-    if (reserved_va) {
-        void *p;
-        int flags;
-
-        flags = MAP_ANONYMOUS | MAP_PRIVATE | MAP_NORESERVE;
-        if (have_guest_base) {
-            flags |= MAP_FIXED;
-        }
-        p = mmap((void *)guest_base, reserved_va, PROT_NONE, flags, -1, 0);
-        if (p == MAP_FAILED) {
-            fprintf(stderr, "Unable to reserve guest address space\n");
-            exit(1);
-        }
-        guest_base = (unsigned long)p;
-        /* Make sure the address is properly aligned.  */
-        if (guest_base & ~qemu_host_page_mask) {
-            munmap(p, reserved_va);
-            p = mmap((void *)guest_base, reserved_va + qemu_host_page_size,
-                     PROT_NONE, flags, -1, 0);
-            if (p == MAP_FAILED) {
-                fprintf(stderr, "Unable to reserve guest address space\n");
-                exit(1);
-            }
-            guest_base = HOST_PAGE_ALIGN((unsigned long)p);
-        }
-        qemu_log("Reserved 0x%lx bytes of guest address space\n", reserved_va);
-        mmap_next_start = reserved_va;
-    }
-
     if (reserved_va || have_guest_base) {
-        if (!guest_validate_base(guest_base)) {
-            fprintf(stderr, "Guest base/Reserved VA rejected by guest code\n");
+        guest_base = init_guest_space(guest_base, reserved_va, 0,
+                                      have_guest_base);
+        if (guest_base == (unsigned long)-1) {
+            fprintf(stderr, "Unable to reserve 0x%lx bytes of virtual address "
+                    "space for use as guest address space (check your virtual "
+                    "memory ulimit setting or reserve less using -R option)\n",
+                    reserved_va);
             exit(1);
+        }
+
+        if (reserved_va) {
+            mmap_next_start = reserved_va;
         }
     }
 #endif /* CONFIG_USE_GUEST_BASE */

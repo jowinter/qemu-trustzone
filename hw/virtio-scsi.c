@@ -24,11 +24,6 @@
 #define VIRTIO_SCSI_MAX_TARGET  255
 #define VIRTIO_SCSI_MAX_LUN     16383
 
-/* Feature Bits */
-#define VIRTIO_SCSI_F_INOUT                    0
-#define VIRTIO_SCSI_F_HOTPLUG                  1
-#define VIRTIO_SCSI_F_CHANGE                   2
-
 /* Response codes */
 #define VIRTIO_SCSI_S_OK                       0
 #define VIRTIO_SCSI_S_OVERRUN                  1
@@ -305,11 +300,17 @@ static void virtio_scsi_do_tmf(VirtIOSCSI *s, VirtIOSCSIReq *req)
             goto incorrect_lun;
         }
         QTAILQ_FOREACH_SAFE(r, &d->requests, next, next) {
-            if (r->tag == req->req.tmf->tag) {
+            VirtIOSCSIReq *cmd_req = r->hba_private;
+            if (cmd_req && cmd_req->req.cmd->tag == req->req.tmf->tag) {
                 break;
             }
         }
-        if (r && r->hba_private) {
+        if (r) {
+            /*
+             * Assert that the request has not been completed yet, we
+             * check for it in the loop above.
+             */
+            assert(r->hba_private);
             if (req->req.tmf->subtype == VIRTIO_SCSI_T_TMF_QUERY_TASK) {
                 /* "If the specified command is present in the task set, then
                  * return a service response set to FUNCTION SUCCEEDED".
@@ -555,8 +556,6 @@ static void virtio_scsi_set_config(VirtIODevice *vdev,
 static uint32_t virtio_scsi_get_features(VirtIODevice *vdev,
                                          uint32_t requested_features)
 {
-    requested_features |= (1UL << VIRTIO_SCSI_F_HOTPLUG);
-    requested_features |= (1UL << VIRTIO_SCSI_F_CHANGE);
     return requested_features;
 }
 

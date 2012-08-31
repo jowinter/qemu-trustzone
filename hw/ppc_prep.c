@@ -39,6 +39,7 @@
 #include "blockdev.h"
 #include "arch_init.h"
 #include "exec-memory.h"
+#include "vga-pci.h"
 
 //#define HARD_DEBUG_PPC_IO
 //#define DEBUG_PPC_IO
@@ -470,7 +471,6 @@ static void ppc_prep_init (ram_addr_t ram_size,
     uint32_t kernel_base, initrd_base;
     long kernel_size, initrd_size;
     DeviceState *dev;
-    SysBusDevice *sys;
     PCIHostState *pcihost;
     PCIBus *pci_bus;
     PCIDevice *pci;
@@ -583,8 +583,7 @@ static void ppc_prep_init (ram_addr_t ram_size,
     }
 
     dev = qdev_create(NULL, "raven-pcihost");
-    sys = sysbus_from_qdev(dev);
-    pcihost = DO_UPCAST(PCIHostState, busdev, sys);
+    pcihost = PCI_HOST_BRIDGE(dev);
     pcihost->address_space = get_system_memory();
     object_property_add_child(qdev_get_machine(), "raven", OBJECT(dev), NULL);
     qdev_init_nofail(dev);

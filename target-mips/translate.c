@@ -5933,6 +5933,7 @@ static void gen_cp0 (CPUMIPSState *env, DisasContext *ctx, uint32_t opc, int rt,
 {
     const char *opn = "ldst";
 
+    check_cp0_enabled(ctx);
     switch (opc) {
     case OPC_MFC0:
         if (rt == 0) {
@@ -6805,7 +6806,7 @@ static void gen_farith (DisasContext *ctx, enum fopcode op1,
             TCGv_i32 fp1 = tcg_temp_new_i32();
 
             gen_load_fpr32(fp0, fs);
-            gen_load_fpr32(fp1, fd);
+            gen_load_fpr32(fp1, ft);
             gen_helper_float_recip2_s(fp0, fp0, fp1);
             tcg_temp_free_i32(fp1);
             gen_store_fpr32(fp0, fd);
@@ -6900,7 +6901,7 @@ static void gen_farith (DisasContext *ctx, enum fopcode op1,
 
             gen_load_fpr32(fp32_0, fs);
             gen_load_fpr32(fp32_1, ft);
-            tcg_gen_concat_i32_i64(fp64, fp32_0, fp32_1);
+            tcg_gen_concat_i32_i64(fp64, fp32_1, fp32_0);
             tcg_temp_free_i32(fp32_1);
             tcg_temp_free_i32(fp32_0);
             gen_store_fpr64(ctx, fp64, fd);
@@ -7543,7 +7544,7 @@ static void gen_farith (DisasContext *ctx, enum fopcode op1,
             TCGv_i64 fp1 = tcg_temp_new_i64();
 
             gen_load_fpr64(ctx, fp0, fs);
-            gen_load_fpr64(ctx, fp1, fd);
+            gen_load_fpr64(ctx, fp1, ft);
             gen_helper_float_recip2_ps(fp0, fp0, fp1);
             tcg_temp_free_i64(fp1);
             gen_store_fpr64(ctx, fp0, fd);
@@ -7742,8 +7743,7 @@ static void gen_flt3_ldst (DisasContext *ctx, uint32_t opc,
     } else if (index == 0) {
         gen_load_gpr(t0, base);
     } else {
-        gen_load_gpr(t0, index);
-        gen_op_addr_add(ctx, t0, cpu_gpr[base], t0);
+        gen_op_addr_add(ctx, t0, cpu_gpr[base], cpu_gpr[index]);
     }
     /* Don't do NOP if destination is zero: we must perform the actual
        memory access. */
@@ -8112,7 +8112,11 @@ gen_rdhwr (CPUMIPSState *env, DisasContext *ctx, int rt, int rd)
 {
     TCGv t0;
 
+#if !defined(CONFIG_USER_ONLY)
+    /* The Linux kernel will emulate rdhwr if it's not supported natively.
+       Therefore only check the ISA in system mode.  */
     check_insn(env, ctx, ISA_MIPS32R2);
+#endif
     t0 = tcg_temp_new();
 
     switch (rd) {
@@ -10027,7 +10031,7 @@ static void gen_ldst_pair (DisasContext *ctx, uint32_t opc, int rd,
     const char *opn = "ldst_pair";
     TCGv t0, t1;
 
-    if (ctx->hflags & MIPS_HFLAG_BMASK || rd == 31 || rd == base) {
+    if (ctx->hflags & MIPS_HFLAG_BMASK || rd == 31) {
         generate_exception(ctx, EXCP_RI);
         return;
     }
@@ -10039,6 +10043,10 @@ static void gen_ldst_pair (DisasContext *ctx, uint32_t opc, int rd,
 
     switch (opc) {
     case LWP:
+        if (rd == base) {
+            generate_exception(ctx, EXCP_RI);
+            return;
+        }
         save_cpu_state(ctx, 0);
         op_ld_lw(t1, t0, ctx);
         gen_store_gpr(t1, rd);
@@ -10060,6 +10068,10 @@ static void gen_ldst_pair (DisasContext *ctx, uint32_t opc, int rd,
         break;
 #ifdef TARGET_MIPS64
     case LDP:
+        if (rd == base) {
+            generate_exception(ctx, EXCP_RI);
+            return;
+        }
         save_cpu_state(ctx, 0);
         op_ld_ld(t1, t0, ctx);
         gen_store_gpr(t1, rd);
@@ -10118,6 +10130,7 @@ static void gen_pool32axf (CPUMIPSState *env, DisasContext *ctx, int rt, int rs,
 #ifndef CONFIG_USER_ONLY
     case MFC0:
     case MFC0 + 32:
+        check_cp0_enabled(ctx);
         if (rt == 0) {
             /* Treat as NOP. */
             break;
@@ -10126,6 +10139,7 @@ static void gen_pool32axf (CPUMIPSState *env, DisasContext *ctx, int rt, int rs,
         break;
     case MTC0:
     case MTC0 + 32:
+        check_cp0_enabled(ctx);
         {
             TCGv t0 = tcg_temp_new();
 
@@ -10222,10 +10236,12 @@ static void gen_pool32axf (CPUMIPSState *env, DisasContext *ctx, int rt, int rs,
     case 0x05:
         switch (minor) {
         case RDPGPR:
+            check_cp0_enabled(ctx);
             check_insn(env, ctx, ISA_MIPS32R2);
             gen_load_srsgpr(rt, rs);
             break;
         case WRPGPR:
+            check_cp0_enabled(ctx);
             check_insn(env, ctx, ISA_MIPS32R2);
             gen_store_srsgpr(rt, rs);
             break;
@@ -10266,6 +10282,7 @@ static void gen_pool32axf (CPUMIPSState *env, DisasContext *ctx, int rt, int rs,
     case 0x1d:
         switch (minor) {
         case DI:
+            check_cp0_enabled(ctx);
             {
                 TCGv t0 = tcg_temp_new();
 
@@ -10278,6 +10295,7 @@ static void gen_pool32axf (CPUMIPSState *env, DisasContext *ctx, int rt, int rs,
             }
             break;
         case EI:
+            check_cp0_enabled(ctx);
             {
                 TCGv t0 = tcg_temp_new();
 
@@ -10758,6 +10776,7 @@ static void decode_micromips32_opc (CPUMIPSState *env, DisasContext *ctx,
         minor = (ctx->opcode >> 12) & 0xf;
         switch (minor) {
         case CACHE:
+            check_cp0_enabled(ctx);
             /* Treat as no-op. */
             break;
         case LWC2:
@@ -12208,6 +12227,7 @@ static void decode_opc (CPUMIPSState *env, DisasContext *ctx, int *is_branch)
          gen_st_cond(ctx, op, rt, rs, imm);
          break;
     case OPC_CACHE:
+        check_cp0_enabled(ctx);
         check_insn(env, ctx, ISA_MIPS3 | ISA_MIPS32);
         /* Treat as NOP. */
         break;
@@ -12768,8 +12788,9 @@ void cpu_state_reset(CPUMIPSState *env)
 
 #if defined(CONFIG_USER_ONLY)
     env->hflags = MIPS_HFLAG_UM;
-    /* Enable access to the SYNCI_Step register.  */
-    env->CP0_HWREna |= (1 << 1);
+    /* Enable access to the CPUNum, SYNCI_Step, CC, and CCRes RDHWR
+       hardware registers.  */
+    env->CP0_HWREna |= 0x0000000F;
     if (env->CP0_Config1 & (1 << CP0C1_FP)) {
         env->hflags |= MIPS_HFLAG_FPU;
     }

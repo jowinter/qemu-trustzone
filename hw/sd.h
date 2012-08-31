@@ -67,15 +67,15 @@ typedef struct {
 
 typedef struct SDState SDState;
 
-SDState *sd_init(BlockDriverState *bs, int is_spi, int is_mmc);
+SDState *sd_init(BlockDriverState *bs, bool is_spi, bool is_mmc);
 void sd_reset(SDState *sd);
 int sd_do_command(SDState *sd, SDRequest *req,
                   uint8_t *response);
 void sd_write_data(SDState *sd, uint8_t value);
 uint8_t sd_read_data(SDState *sd);
 void sd_set_cb(SDState *sd, qemu_irq readonly, qemu_irq insert);
-int sd_data_ready(SDState *sd);
-void sd_enable(SDState *sd, int enable);
-int sd_is_mmc(SDState *sd);
+bool sd_data_ready(SDState *sd);
+void sd_enable(SDState *sd, bool enable);
+bool sd_is_mmc(SDState *sd);
 
 #endif	/* __hw_sd_h */

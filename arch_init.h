@@ -1,6 +1,8 @@
 #ifndef QEMU_ARCH_INIT_H
 #define QEMU_ARCH_INIT_H
 
+#include "qmp-commands.h"
+
 enum {
     QEMU_ARCH_ALL = -1,
     QEMU_ARCH_ALPHA = 1,
@@ -17,6 +19,7 @@ enum {
     QEMU_ARCH_SPARC = 2048,
     QEMU_ARCH_XTENSA = 4096,
     QEMU_ARCH_OPENRISC = 8192,
+    QEMU_ARCH_UNICORE32 = 0x4000,
 };
 
 extern const uint32_t arch_type;
@@ -30,5 +33,7 @@ void audio_init(ISABus *isa_bus, PCIBus *pci_bus);
 int tcg_available(void);
 int kvm_available(void);
 int xen_available(void);
+
+CpuDefinitionInfoList GCC_WEAK_DECL *arch_query_cpu_definitions(Error **errp);
 
 #endif

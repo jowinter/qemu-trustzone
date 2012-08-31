@@ -366,6 +366,10 @@ static void close_guest_eventfds(IVShmemState *s, int posn)
 {
     int i, guest_curr_max;
 
+    if (!ivshmem_has_feature(s, IVSHMEM_IOEVENTFD)) {
+        return;
+    }
+
     guest_curr_max = s->peers[posn].nb_eventfds;
 
     memory_region_transaction_begin();
@@ -379,17 +383,6 @@ static void close_guest_eventfds(IVShmemState *s, int posn)
 
     g_free(s->peers[posn].eventfds);
     s->peers[posn].nb_eventfds = 0;
-}
-
-static void setup_ioeventfds(IVShmemState *s) {
-
-    int i, j;
-
-    for (i = 0; i <= s->max_peer; i++) {
-        for (j = 0; j < s->peers[i].nb_eventfds; j++) {
-            ivshmem_add_eventfd(s, i, j);
-        }
-    }
 }
 
 /* this function increase the dynamic storage need to store data about other
@@ -677,7 +670,8 @@ static int pci_ivshmem_init(PCIDevice *dev)
     }
 
     if (s->role_val == IVSHMEM_PEER) {
-        error_set(&s->migration_blocker, QERR_DEVICE_FEATURE_BLOCKS_MIGRATION, "ivshmem", "peer mode");
+        error_set(&s->migration_blocker, QERR_DEVICE_FEATURE_BLOCKS_MIGRATION,
+                  "peer mode", "ivshmem");
         migrate_add_blocker(s->migration_blocker);
     }
 
@@ -690,10 +684,6 @@ static int pci_ivshmem_init(PCIDevice *dev)
 
     memory_region_init_io(&s->ivshmem_mmio, &ivshmem_mmio_ops, s,
                           "ivshmem-mmio", IVSHMEM_REG_BAR_SIZE);
-
-    if (ivshmem_has_feature(s, IVSHMEM_IOEVENTFD)) {
-        setup_ioeventfds(s);
-    }
 
     /* region for registers*/
     pci_register_bar(&s->dev, 0, PCI_BASE_ADDRESS_SPACE_MEMORY,

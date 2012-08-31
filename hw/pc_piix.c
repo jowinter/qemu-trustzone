@@ -360,6 +360,14 @@ static QEMUMachine pc_machine_v1_2 = {
 
 #define PC_COMPAT_1_1 \
         {\
+            .driver   = "virtio-scsi-pci",\
+            .property = "hotplug",\
+            .value    = "off",\
+        },{\
+            .driver   = "virtio-scsi-pci",\
+            .property = "param_change",\
+            .value    = "off",\
+        },{\
             .driver   = "VGA",\
             .property = "vgamem_mb",\
             .value    = stringify(8),\
@@ -375,6 +383,10 @@ static QEMUMachine pc_machine_v1_2 = {
             .driver   = "qxl",\
             .property = "vgamem_mb",\
             .value    = stringify(8),\
+        },{\
+            .driver   = "virtio-blk-pci",\
+            .property = "config-wce",\
+            .value    = "off",\
         }
 
 static QEMUMachine pc_machine_v1_1 = {
