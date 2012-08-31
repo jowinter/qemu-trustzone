@@ -811,7 +811,7 @@ static inline void cpu_clone_regs(CPUARMState *env, target_ulong newsp)
 #define ARM_TBFLAG_SECURE_SHIFT     17
 #define ARM_TBFLAG_SECURE_MASK      (1 << ARM_TBFLAG_SECURE_SHIFT)
 #define ARM_TBFLAG_SECURE_CP_SHIFT  18
-#define ARM_TBFLAG_SECURE_CP_MASK   (1 << ARM_TBFLAG_SECURE_SHIFT)
+#define ARM_TBFLAG_SECURE_CP_MASK   (1 << ARM_TBFLAG_SECURE_CP_SHIFT)
 /* Bits 31..19 are currently unused. */
 
 /* some convenience accessor macros */
