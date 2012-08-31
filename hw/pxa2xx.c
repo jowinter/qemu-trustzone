@@ -277,10 +277,11 @@ static int pxa2xx_pwrmode_write(CPUARMState *env, const ARMCPRegInfo *ri,
     case 3:
         s->cpu->env.uncached_cpsr =
             ARM_CPU_MODE_SVC | CPSR_A | CPSR_F | CPSR_I;
-        s->cpu->env.cp15.c1_sys = 0;
+        /* NOTE: TrustZone: PXA2XX does not have normal world ... */
+        CPU_REG_BANKED(&s->cpu->env, cp15.c1_sys, 1) = 0;
         s->cpu->env.cp15.c1_coproc = 0;
-        s->cpu->env.cp15.c2_base0 = 0;
-        s->cpu->env.cp15.c3 = 0;
+        CPU_REG_BANKED(&s->cpu->env, cp15.c2_base0, 1) = 0;
+        CPU_REG_BANKED(&s->cpu->env, cp15.c3, 1) = 0;
         s->pm_regs[PSSR >> 2] |= 0x8; /* Set STS */
         s->pm_regs[RCSR >> 2] |= 0x8; /* Set GPR */
 

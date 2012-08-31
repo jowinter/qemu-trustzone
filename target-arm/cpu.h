@@ -125,30 +125,30 @@ typedef struct CPUARMState {
     struct {
         uint32_t c0_cpuid;
         uint32_t c0_cssel; /* Cache size selection.  */
-        uint32_t c1_sys; /* System control register.  */
+        banked_uint32_t c1_sys; /* System control register.  */
         uint32_t c1_coproc; /* Coprocessor access register.  */
         uint32_t c1_xscaleauxcr; /* XScale auxiliary control register.  */
         uint32_t c1_scr; /* secure config register.  */
         uint32_t c1_sedbg; /* Secure debug enable register. */
         uint32_t c1_nseac; /* Non-secure access control register. */
-        uint32_t c2_base0; /* MMU translation table base 0.  */
-        uint32_t c2_base0_hi; /* MMU translation table base 0, high 32 bits */
-        uint32_t c2_base1; /* MMU translation table base 0.  */
-        uint32_t c2_base1_hi; /* MMU translation table base 1, high 32 bits */
-        uint32_t c2_control; /* MMU translation table base control.  */
-        uint32_t c2_mask; /* MMU translation table base selection mask.  */
-        uint32_t c2_base_mask; /* MMU translation table base 0 mask. */
-        uint32_t c2_data; /* MPU data cachable bits.  */
-        uint32_t c2_insn; /* MPU instruction cachable bits.  */
-        uint32_t c3; /* MMU domain access control register
+        banked_uint32_t c2_base0; /* MMU translation table base 0.  */
+        banked_uint32_t c2_base0_hi; /* MMU translation table base 0, high 32 bits */
+        banked_uint32_t c2_base1; /* MMU translation table base 0.  */
+        banked_uint32_t c2_base1_hi; /* MMU translation table base 1, high 32 bits */
+        banked_uint32_t c2_control; /* MMU translation table base control.  */
+        banked_uint32_t c2_mask; /* MMU translation table base selection mask.  */
+        banked_uint32_t c2_base_mask; /* MMU translation table base 0 mask. */
+        banked_uint32_t c2_data; /* MPU data cachable bits.  */
+        banked_uint32_t c2_insn; /* MPU instruction cachable bits.  */
+        banked_uint32_t c3; /* MMU domain access control register
                         MPU write buffer control.  */
-        uint32_t c5_insn; /* Fault status registers.  */
-        uint32_t c5_data;
+        banked_uint32_t c5_insn; /* Fault status registers.  */
+        banked_uint32_t c5_data;
         uint32_t c6_region[8]; /* MPU base/size registers.  */
-        uint32_t c6_insn; /* Fault address registers.  */
-        uint32_t c6_data;
-        uint32_t c7_par;  /* Translation result. */
-        uint32_t c7_par_hi;  /* Translation result, high 32 bits */
+        banked_uint32_t c6_insn; /* Fault address registers.  */
+        banked_uint32_t c6_data;
+        banked_uint32_t c7_par;  /* Translation result. */
+        banked_uint32_t c7_par_hi;  /* Translation result, high 32 bits */
         uint32_t c9_insn; /* Cache lockdown registers.  */
         uint32_t c9_data;
         uint32_t c9_pmcr; /* performance monitor control register */
@@ -157,13 +157,13 @@ typedef struct CPUARMState {
         uint32_t c9_pmxevtyper; /* perf monitor event type */
         uint32_t c9_pmuserenr; /* perf monitor user enable */
         uint32_t c9_pminten; /* perf monitor interrupt enables */
-        uint32_t c12_vbar; /* secure/nonsecure vector base address register. */
+        banked_uint32_t c12_vbar; /* secure/nonsecure vector base address register. */
         uint32_t c12_mvbar; /* monitor vector base address register. */
-        uint32_t c13_fcse; /* FCSE PID.  */
-        uint32_t c13_context; /* Context ID.  */
-        uint32_t c13_tls1; /* User RW Thread register.  */
-        uint32_t c13_tls2; /* User RO Thread register.  */
-        uint32_t c13_tls3; /* Privileged Thread register.  */
+        banked_uint32_t c13_fcse; /* FCSE PID.  */
+        banked_uint32_t c13_context; /* Context ID.  */
+        banked_uint32_t c13_tls1; /* User RW Thread register.  */
+        banked_uint32_t c13_tls2; /* User RO Thread register.  */
+        banked_uint32_t c13_tls3; /* Privileged Thread register.  */
         uint32_t c15_cpar; /* XScale Coprocessor Access Register */
         uint32_t c15_ticonfig; /* TI925T configuration byte.  */
         uint32_t c15_i_max; /* Maximum D-cache dirty line index.  */
@@ -269,11 +269,6 @@ int cpu_arm_signal_handler(int host_signum, void *pinfo,
 int cpu_arm_handle_mmu_fault (CPUARMState *env, target_ulong address, int rw,
                               int mmu_idx);
 #define cpu_handle_mmu_fault cpu_arm_handle_mmu_fault
-
-static inline void cpu_set_tls(CPUARMState *env, target_ulong newtls)
-{
-  env->cp15.c13_tls2 = newtls;
-}
 
 #define CPSR_M (0x1f)
 #define CPSR_T (1 << 5)
@@ -667,6 +662,23 @@ struct ARMCPRegInfo {
     (*(uint64_t *)((char *)(env) + (ri)->fieldoffset))
 
 #define REGINFO_SENTINEL { .type = ARM_CP_SENTINEL }
+
+/* NOTE: TrustZone: Macros to test for the bank a ARMCPRegInfo
+ * structure refers to. */
+#define CPREG_IS_SECURE(ri) \
+    ((ri)->type & ARM_CP_SECURE)
+
+/* NOTE: TrustZone: Macro which is an lvalues for banked CP registers
+ * in the CPUARMState.
+ */
+#define CPU_REG_BANKED(env, reg, secure_bank)                   \
+    (*((secure_bank) ? &((env)->reg.secure) : &((env)->reg.normal)))
+
+static inline void cpu_set_tls(CPUARMState *env, target_ulong newtls)
+{
+    int secure = arm_current_secure(env);
+    CPU_REG_BANKED(env, cp15.c13_tls2, secure) = newtls;
+}
 
 void define_arm_cp_regs_with_opaque(ARMCPU *cpu,
                                     const ARMCPRegInfo *regs, void *opaque);
