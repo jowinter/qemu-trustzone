@@ -1047,7 +1047,7 @@ static int scr_write(CPUARMState *env, const ARMCPRegInfo *ri, uint64_t value)
 {
     /* NOTE: TrustZone: We only accept writes to implemented bits */
     CPREG_FIELD32(env, ri) = value & (SCR_IRQ | SCR_FIQ | SCR_EA |
-                                      SCR_FW | SCR_AW);
+                                      SCR_FW | SCR_AW | SCR_NS);
     return 0;
 }
 
