@@ -1542,7 +1542,7 @@ void define_one_arm_cp_reg_with_opaque(ARMCPU *cpu,
     }
 
     /* Define the secure world register */
-    if (banks & ARM_CP_NORMAL) {
+    if (banks & ARM_CP_SECURE) {
         internal_define_arm_cp_reg(cpu, r, opaque, 1);
     }
 }

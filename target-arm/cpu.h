@@ -443,8 +443,8 @@ void armv7m_nvic_complete_irq(void *opaque, int irq);
  * NOTE: TrustZone: Secure world registers have bit[31]==0, normal
  * world register have bit[31]==1.
  */
-#define ENCODE_CP_REG(secure, cp, is64, crn, crm, opc1, opc2)            \
-    ((!(secure) << 31) | ((cp) << 16) | ((is64) << 15) | ((crn) << 11) | \
+#define ENCODE_CP_REG(secure, cp, is64, crn, crm, opc1, opc2)           \
+    (((secure) << 31) | ((cp) << 16) | ((is64) << 15) | ((crn) << 11) | \
      ((crm) << 7) | ((opc1) << 3) | (opc2))
 
 #define DECODE_CPREG_CRN(enc) (((enc) >> 7) & 0xf)
