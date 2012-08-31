@@ -1437,6 +1437,7 @@ static void internal_define_arm_cp_reg(ARMCPU *cpu,
                 uint32_t *key = g_new(uint32_t, 1);
                 ARMCPRegInfo *r2 = g_memdup(r, sizeof(ARMCPRegInfo));
                 int is64 = (r->type & ARM_CP_64BIT) ? 1 : 0;
+                int banks = r->type & ARM_CP_BANKED;
                 *key = ENCODE_CP_REG(secure, r->cp, is64,
                                      r->crn, crm, opc1, opc2);
                 r2->opaque = opaque;
@@ -1465,10 +1466,26 @@ static void internal_define_arm_cp_reg(ARMCPU *cpu,
                 /* NOTE: TrustZone: Encode the actual bank of the
                  * register info structure. This allows callbacks
                  * to easily identify the register bank being accessed by
-                 solely looking at ri->type.
-                 */
-                r2->type = (r2->type & ~ARM_CP_UNBANKED) |
+                 * solely looking at ri->type. */
+                r2->type = (r2->type & ~ARM_CP_BANKED) |
                     (secure ? ARM_CP_SECURE : ARM_CP_NORMAL);
+
+                /* NOTE: TrustZone: Banked register with banked_uintXX_t
+                 * implementation - adjust the field offsets. */
+                if (banks == ARM_CP_BANKED) {
+                    if (is64) {
+                        /* Banked 64-bit register */
+                        r2->fieldoffset += secure ?
+                            offsetof(banked_uint64_t, secure) :
+                            offsetof(banked_uint64_t, normal);
+                    } else {
+                        /* Banked 32-bit register */
+                        r2->fieldoffset += secure ?
+                            offsetof(banked_uint32_t, secure) :
+                            offsetof(banked_uint32_t, normal);
+                    }
+                }
+
                 g_hash_table_insert(cpu->cp_regs, key, r2);
             }
         }
@@ -1478,19 +1495,13 @@ static void internal_define_arm_cp_reg(ARMCPU *cpu,
 void define_one_arm_cp_reg_with_opaque(ARMCPU *cpu,
                                        const ARMCPRegInfo *r, void *opaque)
 {
-    int banks = r->type & ARM_CP_UNBANKED;
-    if (!banks) {
-        /* NOTE: TrustZone: No register banks given, issue a
-         * warning and assume a common register */
-        fprintf(stderr, "Assuming common CP register: cp=%d %d bit "
-                "crn=%d crm=%d opc1=%d opc2=%d, "
-                " %s\n", r->cp, r->type & ARM_CP_64BIT ? 64 : 32,
-                r->crn, r->crm, r->opc1, r->opc2,
-                r->name);
-
-        banks = ARM_CP_UNBANKED;
+    int banks = r->type & ARM_CP_BANKED;
+    if (banks == ARM_CP_UNBANKED) {
+        /* NOTE: TrustZone: This is an unbanked register,
+         * force instantiation of a secure and a normal
+         * world alias. */
+        banks = ARM_CP_BANKED;
     }
-
 
     /* Define the normal world register */
     if (banks & ARM_CP_NORMAL) {

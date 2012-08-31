@@ -466,27 +466,36 @@ void armv7m_nvic_complete_irq(void *opaque, int irq);
  * same (cp, is64, crn, crm, opc1, opc2) tuple: either the new or the
  * old must have the OVERRIDE bit set.
  *
- * NOTE: TrustZone: The ARM_CP_SECURE, ARM_CP_NORMAL and ARM_CP_UNBANKED macros
- * defined the target bank visibility of a register definition.
- * Register which neither define ARM_CP_SECURE nor ARM_CP_NORMAL are assumed
- * to be unbanked (ARM_CP_UNBANKED) registers at the moment.
+ * NOTE: TrustZone: The SECURE, NORMAL, UNBANKED and BANKED bits define
+ * the physical (storage) implementation of a register. Access permissions
+ * to the register are set implemented independently of the storage
+ * implementation by assigning a proper permission level.
  *
- * Note that bank visibility applies to the physical implementation of a
- * register and does not affect the current world's access privileges.
- * (Privileges are configured independently using the privilege level.)
+ * UNBANKED - Common register implemented as uint{32,64}_t field.
+ *            (This is the default we no other SECURE/NORMAL/BANKED flags
+ *             are given).
  *
- * Each unbanked register is defined twice in the underlying CP register hashmap
- * to allow separate overriding of the secure and the normal world versions with
- * the OVERRIDE logic discussed above.
+ * SECURE   - Secure-world register implemented as uint{32,64}_t field.
+ *
+ * NORMAL   - Normal-world register implemented as uint{32,64}_t field.
+ *
+ * BANKED   - Secure/Normal world banked register implemeneted as
+ *            banked_uint{32,64}_t structure. The same reset value is used
+ *            for secure and normal world.
+ *
+ * The define_arm_cp_regs_with_opaque() function resolves the UNBANKED
+ * and BANKED flags into two distinct register definitions (with only
+ * the SECURE, respectively NORMAL bits set).
  */
 #define ARM_CP_SPECIAL 1
 #define ARM_CP_CONST 2
 #define ARM_CP_64BIT 4
 #define ARM_CP_SUPPRESS_TB_END 8
 #define ARM_CP_OVERRIDE 16
+#define ARM_CP_UNBANKED 0
 #define ARM_CP_SECURE   32
 #define ARM_CP_NORMAL   64
-#define ARM_CP_UNBANKED (ARM_CP_SECURE | ARM_CP_NORMAL)
+#define ARM_CP_BANKED   (ARM_CP_SECURE | ARM_CP_NORMAL)
 #define ARM_CP_NOP (ARM_CP_SPECIAL | (1 << 8))
 #define ARM_CP_WFI (ARM_CP_SPECIAL | (2 << 8))
 #define ARM_LAST_SPECIAL ARM_CP_WFI
@@ -671,8 +680,9 @@ static inline void define_one_arm_cp_reg(ARMCPU *cpu, const ARMCPRegInfo *regs)
 {
     define_one_arm_cp_reg_with_opaque(cpu, regs, 0);
 }
-/* NOTE: TrustZone: The secure parameter selects between the normal and the
- * secure world version of a register. No access checking is done here.
+/* NOTE: TrustZone: The encoded_cp paramater selects between the normal and
+ * the secure world version of a register. No access checking is done here.
+ * (See ENCODE_CP_REG macro for more details).
  */
 const ARMCPRegInfo *get_arm_cp_reginfo(ARMCPU *cpu, uint32_t encoded_cp);
 
