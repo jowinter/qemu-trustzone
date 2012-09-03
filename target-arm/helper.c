@@ -2038,16 +2038,24 @@ void do_interrupt(CPUARMState *env)
         offset = 8;
         break;
     case EXCP_IRQ:
-        new_mode = (env->cp15.c1_scr & SCR_IRQ) ?
-            ARM_CPU_MODE_MON : ARM_CPU_MODE_IRQ;
+        if (env->cp15.c1_scr & SCR_IRQ) {
+            /* Monitor mode: Disable IRQ/FIQ and imprecise data aborts.  */
+            new_mode = ARM_CPU_MODE_MON;
+            mask = CPSR_A | CPSR_I | CPSR_F;
+        } else {
+            /* Disable IRQ and imprecise data aborts.  */
+            new_mode = ARM_CPU_MODE_IRQ;
+            mask = CPSR_A | CPSR_I;
+        }
         addr = 0x18;
-        /* Disable IRQ and imprecise data aborts.  */
-        mask = CPSR_A | CPSR_I;
         offset = 4;
         break;
     case EXCP_FIQ:
-        new_mode = (env->cp15.c1_scr & SCR_FIQ) ?
-            ARM_CPU_MODE_MON : ARM_CPU_MODE_FIQ;
+        if (env->cp15.c1_scr & SCR_FIQ) {
+            new_mode = ARM_CPU_MODE_MON;
+        } else {
+            new_mode = ARM_CPU_MODE_FIQ;
+        }
         addr = 0x1c;
         /* Disable FIQ, IRQ and imprecise data aborts.  */
         mask = CPSR_A | CPSR_I | CPSR_F;
