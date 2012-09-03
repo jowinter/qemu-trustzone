@@ -43,4 +43,6 @@ obj-y += pl041.o lm4549.o
 obj-$(CONFIG_FDT) += ../device_tree.o
 obj-$(CONFIG_KVM) += kvm/arm_gic.o
 
+obj-y += bp147.o tzc380.o
+
 obj-y := $(addprefix ../,$(obj-y))
