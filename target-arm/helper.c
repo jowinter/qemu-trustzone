@@ -6,6 +6,8 @@
 #include "bitops.h"
 
 #ifndef CONFIG_USER_ONLY
+#include "hw/arm_trustzone.h"
+
 static inline int get_phys_addr(CPUARMState *env, uint32_t address,
                                 int access_type, int is_user, int is_secure,
                                 target_phys_addr_t *phys_ptr, int *prot,
@@ -2717,7 +2719,12 @@ static inline int get_phys_addr(CPUARMState *env, uint32_t address,
                                phys_ptr, prot, page_size);
     }
 
-    /* TODO: TrustZone: Check current world address to target physical address */
+    /* NOTE: TrustZone: Delegate to the ARM TrustZone access permission check. */
+    if (arm_feature(env, ARM_FEATURE_TRUSTZONE) && ret == 0) {
+        ret = arm_check_phys_access(*phys_ptr, *page_size, is_user,
+                                    is_secure, *prot);
+    }
+
     return ret;
 }
 

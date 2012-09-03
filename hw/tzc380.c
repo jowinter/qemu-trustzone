@@ -8,6 +8,7 @@
  * This code is licenced under the GPL.
  */
 #include "sysbus.h"
+#include "arm_trustzone.h"
 
 /* TODO: TrustZone: Stub implementation */
 
