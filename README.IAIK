@@ -10,3 +10,73 @@ Code parts of particular interest are marked with comments including
 the word "TrustZone" to allow easy grepping. A simple "grep -r TrustZone ."
 should list the interesting parts without the need to go through the
 entire GIT history.
+
+--- Test Case Setup: OpenVirtualization
+The primary goals of this patch series is to allow open-source
+TrustZone software to be simulated with QEMU. OpenVirtualization
+recently released an SDK for their open-source TEE, which we will
+use as key test case for the patch series.
+
+----- Basic setup
+* Grab a Linux 2.6.38.7 tarball (sha1sum:
+
+* Grab or build a suitable ARM root filesystem image for use with
+  OpenVirtualization.
+
+  [Being lazy we simple converted the "alip-ael-armv5-min-debug.cramfs"
+  image from http://www.linux-arm.org/ into an ext2 image (using genext2fs)]
+
+* Grab a recent snapshot of OpenVirtualization's SDK from openvirtualization.org
+  [We used their SDK_june_4_2012.tar.bz2 snapshot]
+
+* Build an OpenVirtualization image for the Versatile Express board with
+  Cortex-A15 core-tile (standard configuration of the abovementioned SDK).
+
+  [NOTE: Depending on the toolchain version you are using it might be
+   necessary to slightly adjust the Makefiles. There is a simple workaround,
+   if you get lots of complaints about missing support for the 'SMC #0'
+   instruction: Simple add "-mcpu=cortex-a15" to the C compiler flags]
+
+  [NOTE: The last step of the build process wants Linux root privileges to
+   insert the OTZ files into the normal world root-fs image via
+   mount/cp/umount. It might should possible to use genext2fs with -x option
+   to achieve a similar effect without root privileges.]
+
+ Once your OpenVirtualization build is complete you have a "normal.elf" and
+ "otzone.elf" file in the "trustzone/tzone_sdk/bin" directory of your
+ OpenVirtualization tree.
+
+ Test 1: Test if the normal world Linux kernel - which should work as secure
+     world OS as well ;)
+
+   $ arm-softmmu/qemu-system-arm -M vexpress-a15 -m 2G -kernel normal.elf \
+       -sd <path/to/your/rootfs>
+
+   ... and there goes the virtual penguin!
+
+
+ Test 2: Test the OpenVirtualization TEE
+   $ arm-softmmu/qemu-system-arm -M vexpress-a15 -m 2G -kernel otzone.elf \
+       -sd <path/to/your/rootfs>
+
+   ... wait for the virtual penguin to boot. Then try the following commands
+   (inside your virtual environment):
+
+   # insmod /otz_client.ko
+   # /bin/otzapp.elf
+
+   The demo application currently should run some of its demo
+   testcases. Currently the demo hangs somewhere in the mutex demos, likely
+   due to our rudimentary (read: currently virtually non-existing) support for
+   TrustZone in the interrupt controller models ...
+
+   Further interesting experiments:
+    * Start QEMU with "-S -s" and attach GDB from a second console, then
+      define a HW breakpoint on your secure monitor vector ...
+      (NOTE: GDB gets a bit confused with secure/normal world and its
+       different, views of the MMU so do not expect it to do backtraces
+       over a "world-switch")
+
+    * Start QEMU with "-d cp15_secure,cp15_normal" to log coprocessor register
+      reads and writes from both worlds - in particular watch out for the MMU
+      control register :)
