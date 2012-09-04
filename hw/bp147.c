@@ -7,6 +7,7 @@
  * This code is licenced under the GPL.
  */
 #include "sysbus.h"
+#include "qdev.h"
 #include "arm_trustzone.h"
 
 /* TODO: TrustZone: Stub implementation */
@@ -172,9 +173,21 @@ static const VMStateDescription vmstate_bp147 = {
     .fields = (VMStateField[]) {
         VMSTATE_UINT32(secure_ram_size, bp147_state),
         VMSTATE_UINT32_ARRAY(decprot, bp147_state, BP147_NUM_DECPROT),
-        VMSTATE_UINT32_ARRAY(impmask, bp147_state, BP147_NUM_DECPROT),
         VMSTATE_END_OF_LIST()
     }
+};
+
+static Property bp147_properties[] = {
+    /* NOTE: TrustZone: For debugging: Implemented DECPROT bitmask */
+    DEFINE_PROP_HEX32("imp0", bp147_state, impmask[0], 0x00000000),
+    DEFINE_PROP_HEX32("imp1", bp147_state, impmask[1], 0x00000000),
+    DEFINE_PROP_HEX32("imp2", bp147_state, impmask[2], 0x00000000),
+    DEFINE_PROP_HEX32("imp3", bp147_state, impmask[3], 0x00000000),
+    DEFINE_PROP_HEX32("imp4", bp147_state, impmask[4], 0x00000000),
+    DEFINE_PROP_HEX32("imp5", bp147_state, impmask[5], 0x00000000),
+    DEFINE_PROP_HEX32("imp6", bp147_state, impmask[6], 0x00000000),
+    DEFINE_PROP_HEX32("imp7", bp147_state, impmask[7], 0x00000000),
+    DEFINE_PROP_END_OF_LIST(),
 };
 
 static void bp147_class_init(ObjectClass *klass, void *data)
@@ -186,7 +199,10 @@ static void bp147_class_init(ObjectClass *klass, void *data)
     dc->no_user = 1;
     dc->reset = bp147_reset;
     dc->vmsd = &vmstate_bp147;
+    dc->props = bp147_properties;
 }
+
+
 
 static TypeInfo bp147_info = {
     .name          = "bp147",
