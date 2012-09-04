@@ -291,6 +291,15 @@ static const MemoryRegionOps tzc380_ops = {
     .endianness = DEVICE_NATIVE_ENDIAN
 };
 
+DeviceState* tzc380_create_simple(target_phys_addr_t addr)
+{
+    DeviceState *dev;
+    dev = qdev_create(NULL, "tzc380");
+    qdev_init_nofail(dev);
+    sysbus_mmio_map(sysbus_from_qdev(dev), 0, addr);
+    return dev;
+}
+
 static int tzc380_init(SysBusDevice *dev)
 {
     tzc380_state *s = FROM_SYSBUS(tzc380_state, dev);

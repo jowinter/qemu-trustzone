@@ -30,21 +30,30 @@ static const uint8_t TZPERIPHID[4] = { 0x70, 0x18, 0x04, 0x00 };
  */
 static const uint8_t TZPCPCELLID[4] = { 0x0D, 0xF0, 0x05, 0xB1 };
 
+typedef struct BP147Region BP147Region;
+
+struct BP147Region {
+    BP147DecprotInfo info;
+    QSLIST_ENTRY(BP147Region) region_link;
+};
+
 typedef struct {
     SysBusDevice busdev;
     MemoryRegion iomem;
     uint32_t secure_ram_size;
     uint32_t decprot[BP147_NUM_DECPROT]; /* Decode protection bits */
     uint32_t impmask[BP147_NUM_DECPROT]; /* Implemented bits mask */
-} bp147_state;
+    QSLIST_HEAD(, BP147Region) regions;
+} BP147Device;
 
-static void bp147_decprot_update(bp147_state *s, int idx,
+static void bp147_decprot_update(BP147Device *s, unsigned idx,
                                  uint32_t or_mask,
                                  uint32_t and_mask)
 {
     uint32_t old_val = s->decprot[idx];
     uint32_t new_val = old_val;
     uint32_t changed;
+    BP147Region *rgn;
 
     new_val |= or_mask;
     new_val &= ~and_mask;
@@ -56,15 +65,28 @@ static void bp147_decprot_update(bp147_state *s, int idx,
         return;
     }
 
-    s->decprot[idx] = new_val;
+    QSLIST_FOREACH(rgn, &s->regions, region_link) {
+        uint32_t rgn_mask = 1 << rgn->info.bit;
+        if (rgn->info.reg == idx && (changed & rgn_mask)) {
+            int value = (new_val & rgn_mask) != 0;
+            if (rgn->info.update) {
+                /* User-callback */
+                (rgn->info.update)(rgn->info.opaque, value);
+            }
 
-    /* TODO: TrustZone: Indicate a change in memory access permissions */
+            if (rgn->info.size != 0) {
+                /* TODO: TrustZone: Update the physical protection map */
+            }
+        }
+    }
+
+    s->decprot[idx] = new_val;
 }
 
 static void bp147_write(void *opaque, target_phys_addr_t offset,
                         uint64_t val, unsigned size)
 {
-    bp147_state *s = opaque;
+    BP147Device *s = opaque;
 
     switch (offset) {
     case 0x000: /* Secure RAM Region Size Register */
@@ -101,7 +123,7 @@ static void bp147_write(void *opaque, target_phys_addr_t offset,
 static uint64_t bp147_read(void *opaque, target_phys_addr_t offset,
                            unsigned size)
 {
-    bp147_state *s = opaque;
+    BP147Device *s = opaque;
 
     switch (offset) {
     case 0x000: /* Secure RAM Region Size Register */
@@ -143,7 +165,7 @@ static const MemoryRegionOps bp147_ops = {
 
 static void bp147_reset(DeviceState *d)
 {
-    bp147_state *s = DO_UPCAST(bp147_state, busdev.qdev, d);
+    BP147Device *s = DO_UPCAST(BP147Device, busdev.qdev, d);
     int i;
 
     s->secure_ram_size = 0x200;
@@ -157,9 +179,42 @@ static void bp147_reset(DeviceState *d)
     /* TODO: Update settings */
 }
 
+void bp147_add_region(DeviceState *d, const BP147DecprotInfo *info)
+{
+    BP147Device *s = DO_UPCAST(BP147Device, busdev.qdev, d);
+    BP147Region *rgn = g_malloc0(sizeof(*rgn));
+
+    if (info->reg >= BP147_NUM_DECPROT || info->bit >= 32) {
+        hw_error("Invalid decode protection bit definition");
+    }
+
+    rgn->info = *info;
+
+    QSLIST_INSERT_HEAD(&s->regions, rgn, region_link);
+    s->impmask[info->reg] |= (1 << info->bit);
+}
+
+DeviceState* bp147_create_simple(target_phys_addr_t addr,
+                                 const BP147DecprotInfo *info, unsigned count)
+{
+    DeviceState *dev;
+    unsigned n;
+
+    dev = qdev_create(NULL, "bp147");
+
+    for (n = 0; n < count; ++n) {
+        bp147_add_region(dev, &info[n]);
+    }
+
+    qdev_init_nofail(dev);
+
+    sysbus_mmio_map(sysbus_from_qdev(dev), 0, addr);
+    return dev;
+}
+
 static int bp147_init(SysBusDevice *dev)
 {
-    bp147_state *s = FROM_SYSBUS(bp147_state, dev);
+    BP147Device *s = FROM_SYSBUS(BP147Device, dev);
 
     memory_region_init_io(&s->iomem, &bp147_ops, s, "bp147", 0x1000);
     sysbus_init_mmio(dev, &s->iomem);
@@ -171,23 +226,10 @@ static const VMStateDescription vmstate_bp147 = {
     .version_id = 1,
     .minimum_version_id = 1,
     .fields = (VMStateField[]) {
-        VMSTATE_UINT32(secure_ram_size, bp147_state),
-        VMSTATE_UINT32_ARRAY(decprot, bp147_state, BP147_NUM_DECPROT),
+        VMSTATE_UINT32(secure_ram_size, BP147Device),
+        VMSTATE_UINT32_ARRAY(decprot, BP147Device, BP147_NUM_DECPROT),
         VMSTATE_END_OF_LIST()
     }
-};
-
-static Property bp147_properties[] = {
-    /* NOTE: TrustZone: For debugging: Implemented DECPROT bitmask */
-    DEFINE_PROP_HEX32("imp0", bp147_state, impmask[0], 0x00000000),
-    DEFINE_PROP_HEX32("imp1", bp147_state, impmask[1], 0x00000000),
-    DEFINE_PROP_HEX32("imp2", bp147_state, impmask[2], 0x00000000),
-    DEFINE_PROP_HEX32("imp3", bp147_state, impmask[3], 0x00000000),
-    DEFINE_PROP_HEX32("imp4", bp147_state, impmask[4], 0x00000000),
-    DEFINE_PROP_HEX32("imp5", bp147_state, impmask[5], 0x00000000),
-    DEFINE_PROP_HEX32("imp6", bp147_state, impmask[6], 0x00000000),
-    DEFINE_PROP_HEX32("imp7", bp147_state, impmask[7], 0x00000000),
-    DEFINE_PROP_END_OF_LIST(),
 };
 
 static void bp147_class_init(ObjectClass *klass, void *data)
@@ -198,17 +240,32 @@ static void bp147_class_init(ObjectClass *klass, void *data)
     k->init = bp147_init;
     dc->no_user = 1;
     dc->reset = bp147_reset;
-    dc->vmsd = &vmstate_bp147;
-    dc->props = bp147_properties;
 }
 
+static void bp147_instance_init(Object *obj)
+{
+    BP147Device *s = OBJECT_CHECK(BP147Device, obj, "bp147");
+    QSLIST_INIT(&s->regions);
+}
 
+static void bp147_instance_finalize(Object *obj)
+{
+    BP147Device *s = OBJECT_CHECK(BP147Device, obj, "bp147");
+    BP147Region *rgn;
+    BP147Region *tmp;
+
+    QSLIST_FOREACH_SAFE(rgn, &s->regions, region_link, tmp) {
+        g_free(rgn);
+    }
+}
 
 static TypeInfo bp147_info = {
     .name          = "bp147",
     .parent        = TYPE_SYS_BUS_DEVICE,
-    .instance_size = sizeof(bp147_state),
+    .instance_size = sizeof(BP147Device),
     .class_init    = bp147_class_init,
+    .instance_init = bp147_instance_init,
+    .instance_finalize = bp147_instance_finalize
 };
 
 static void bp147_register_types(void)

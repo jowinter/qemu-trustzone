@@ -30,6 +30,8 @@
 #include "boards.h"
 #include "exec-memory.h"
 
+#include "arm_trustzone.h"
+
 #define VEXPRESS_BOARD_ID 0x8e0
 
 static struct arm_boot_info vexpress_binfo;
@@ -154,6 +156,16 @@ struct VEDBoardInfo {
     DBoardInitFn *init;
 };
 
+/*  NOTE: TrustZone: DECPROT register mapping for Cortex-A9 testchip */
+static const BP147DecprotInfo a9_daughterboard_tzpc[] = {
+    BP147_DECPROT(0, 0, 0x100e0000, 0x1000), /* DECPROT0[0]: PL341 APB */
+    BP147_DECPROT(0, 1, 0x100e1000, 0x1000), /* DECPROT0[1]: PL354 APB */
+    BP147_DECPROT(0, 2, 0x100e2000, 0x1000), /* DECPROT0[2]: SCC  */
+    BP147_DECPROT(0, 4, 0x100e4000, 0x1000), /* DECPROT0[4]: Dual-timer module (SP804) */
+    BP147_DECPROT(0, 5, 0x100e5000, 0x1000), /* DECPROT0[5]: SP805 Watchdog */
+    BP147_DECPROT(0, 6, 0x100ec000, 0x1000), /* DECPROT0[6]: TZPC */
+};
+
 static void a9_daughterboard_init(const VEDBoardInfo *daughterboard,
                                   ram_addr_t ram_size,
                                   const char *cpu_model,
@@ -237,21 +249,12 @@ static void a9_daughterboard_init(const VEDBoardInfo *daughterboard,
     sysbus_create_simple("sp804", 0x100e4000, pic[48]);
     /* 0x100e5000 SP805 Watchdog module */
     /* 0x100e6000 BP147 TrustZone Protection Controller */
-    dev = qdev_create(NULL, "bp147");
-    qdev_prop_set_uint32(dev, "imp0", 0xFFFFFFFF);
-    qdev_prop_set_uint32(dev, "imp1", 0xFFFFFFFF);
-    qdev_prop_set_uint32(dev, "imp2", 0xFFFFFFFF);
-    qdev_init_nofail(dev);
-    busdev = sysbus_from_qdev(dev);
-    sysbus_mmio_map(busdev, 0, 0x100e6000);
-
+    bp147_create_simple(0x100e6000, a9_daughterboard_tzpc,
+                        ARRAY_SIZE(a9_daughterboard_tzpc));
     /* 0x100e9000 PL301 'Fast' AXI matrix */
     /* 0x100ea000 PL301 'Slow' AXI matrix */
     /* 0x100ec000 TrustZone Address Space Controller */
-    dev = qdev_create(NULL, "tzc380");
-    qdev_init_nofail(dev);
-    busdev = sysbus_from_qdev(dev);
-    sysbus_mmio_map(busdev, 0, 0x100ec000);
+    tzc380_create_simple(0x100ec000);
 
     /* 0x10200000 CoreSight debug APB */
     /* 0x1e00a000 PL310 L2 Cache Controller */
