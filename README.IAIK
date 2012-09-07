@@ -11,6 +11,41 @@ the word "TrustZone" to allow easy grepping. A simple "grep -r TrustZone ."
 should list the interesting parts without the need to go through the
 entire GIT history.
 
+--- Integration with GDB
+IAIK's TrustZone patch series integrates with GDB in an attempt to allow
+debugging of QEMU and of (dual-world) target code itself. Simply attach a
+recent version of GDB with XML target descriptor support and do
+a "info all-registers" or a "maintenance print register-groups" to show the
+relevant registers. An invocation "info all-registers" may cause side-effects
+if your CPU model contains CP registers with side-effects on read.
+
+The target descriptor is automatically derived during arm_cpu_realize. Note
+that this code is stil HIGHLY experimental and does not (yet) integrate fully
+with the ARM_CP_OVERRIDE flag and with registers banks containing
+CP_ANY wildcards.
+
+The encoding for the GDB register number of a co-processor register is
+derived by adding 0x40000000 to the value returned by ENCODE_CP_REG, resulting
+in two sub-spaces:
+  0x40000000-0x5FFFFFFF Normal World CP registers
+  0x60000000-0x7FFFFFFF Secure World CP registers
+
+Note that we currently do _NOT_ override the current privilege level during
+GDB access, which may cause register with read/write hooks to report
+exceptions when e.g. accessed from user mode.
+
+The register names are derived by concatenating the coprocessor name with
+the name given in the corresponding ARMCPRegInfo structure. Normal world
+instances of banked registers additionally carry a "_NS" suffix, common or
+secure-only register do not have any suffix.
+
+We unconditionally assume secure-world operation on CPU models without
+the ARM_FEATURE_TRUSTZONE feature, thus no normal world registers with "_NS"
+suffix are exposed in the target descriptors for these cores.
+
+Note that GDB caches register values - so a "flushregs" command may be
+required by certain usage patterns.
+
 --- Test Case Setup: OpenVirtualization
 The primary goals of this patch series is to allow open-source
 TrustZone software to be simulated with QEMU. OpenVirtualization
@@ -77,6 +112,6 @@ use as key test case for the patch series.
        different, views of the MMU so do not expect it to do backtraces
        over a "world-switch")
 
-    * Start QEMU with "-d cp15_secure,cp15_normal" to log coprocessor register
+    * Start QEMU with "-d coproc,coproc_ns" to log coprocessor register
       reads and writes from both worlds - in particular watch out for the MMU
       control register :)

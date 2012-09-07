@@ -80,6 +80,14 @@ static void arm_cpu_reset(CPUState *s)
         env->iwmmxt.cregs[ARM_IWMMXT_wCID] = 0x69051000 | 'Q';
     }
 
+    if (!arm_feature(env, ARM_FEATURE_TRUSTZONE)) {
+        /* NOTE: TrustZone: Ensure sane initialization values CP15.VBAR
+         * and CP15.SCR (since we _always_ use these registers) */
+        env->cp15.c1_scr = 0x00000000;
+        env->cp15.c12_vbar.secure = 0x00000000;
+        env->cp15.c12_vbar.normal = 0x00000000;
+    }
+
 #if defined(CONFIG_USER_ONLY)
     env->uncached_cpsr = ARM_CPU_MODE_USR;
     /* For user mode we must enable access to coprocessors */

@@ -66,6 +66,41 @@ static int vfp_gdb_set_reg(CPUARMState *env, uint8_t *buf, int reg)
     return 0;
 }
 
+static void cp_gdb_log_reg(const ARMCPRegInfo *ri, int is_write, uint64_t value)
+{
+    if (qemu_loglevel_mask(CPU_LOG_CP_GDB)) {
+        int is64 = (ri->type & ARM_CP_64BIT);
+        if (is64) {
+            qemu_log("gdb: cp%u %s %s64 c%d, c%d, %d, %d <-> 0x%016llx\n",
+                     ri->cp,
+                     CPREG_IS_SECURE(ri)? "secure" : "normal",
+                     is_write ? "write" : "read",
+                     ri->crn, ri->crm, ri->opc1, ri->opc2,
+                     (unsigned long long) value);
+        } else {
+            qemu_log("gdb: cp%u %s %s32 c%d, c%d, %d, %d <-> 0x%08x\n",
+                     ri->cp,
+                     CPREG_IS_SECURE(ri)? "secure" : "normal",
+                     is_write ? "write" : "read",
+                     ri->crn, ri->crm, ri->opc1, ri->opc2,
+                     (unsigned) (value & 0xFFFFFFFFU));
+        }
+    }
+}
+
+static void cp_gdb_log_reg_fault(const ARMCPRegInfo *ri, int is_write, int status)
+{
+    if (qemu_loglevel_mask(CPU_LOG_CP_GDB)) {
+        qemu_log("gdb: cp%u %s %s%d c%d, c%d, %d, %d: failed with exception %d\n",
+                 ri->cp,
+                 CPREG_IS_SECURE(ri)? "secure" : "normal",
+                 is_write ? "write" : "read",
+                 (ri->type & ARM_CP_64BIT) ? 64 : 32,
+                 ri->crn, ri->crm, ri->opc1, ri->opc2,
+                 status);
+    }
+}
+
 static int cp_gdb_get_reg(CPUARMState *env, uint8_t *buf, int reg)
 {
     ARMCPU *cpu = arm_env_get_cpu(env);
@@ -77,14 +112,13 @@ static int cp_gdb_get_reg(CPUARMState *env, uint8_t *buf, int reg)
         return 0;
     }
 
-    fprintf(stderr, "GETREG %s\n", ri->name);
-
     is64 = (ri->type & ARM_CP_64BIT);
 
     if (ri->readfn) {
         ret = (ri->readfn)(env, ri, &value);
-        if (!ret) {
+        if (ret) {
             /* Exception */
+            cp_gdb_log_reg_fault(ri, 0, ret);
             return 0;
         }
     } else if (ri->type & ARM_CP_CONST) {
@@ -97,6 +131,8 @@ static int cp_gdb_get_reg(CPUARMState *env, uint8_t *buf, int reg)
         value = CPREG_FIELD32(env, ri);
     }
 
+    cp_gdb_log_reg(ri, 0, value);
+
     if (is64) {
         stq_p(buf, value);
         return 8;
@@ -107,7 +143,7 @@ static int cp_gdb_get_reg(CPUARMState *env, uint8_t *buf, int reg)
 }
 
 static int cp_gdb_set_reg(CPUARMState *env, uint8_t *buf, int reg)
-{   
+{
     ARMCPU *cpu = arm_env_get_cpu(env);
     const ARMCPRegInfo *ri = get_arm_cp_reginfo(cpu, GDB_DECODE_CPREG(reg));
     uint64_t value;
@@ -117,8 +153,6 @@ static int cp_gdb_set_reg(CPUARMState *env, uint8_t *buf, int reg)
         return 0;
     }
 
-    fprintf(stderr, "SETREG %s\n", ri->name);
-
     is64 = (ri->type & ARM_CP_64BIT);
     value = is64 ? ldq_p(buf) : ldl_p(buf);
 
@@ -126,6 +160,7 @@ static int cp_gdb_set_reg(CPUARMState *env, uint8_t *buf, int reg)
         ret = (ri->writefn)(env, ri, value);
         if (ret) {
             /* Exception */
+            cp_gdb_log_reg_fault(ri, 1, ret);
             return 0;
         }
     } else if (is64) {
@@ -136,6 +171,7 @@ static int cp_gdb_set_reg(CPUARMState *env, uint8_t *buf, int reg)
         CPREG_FIELD32(env, ri) = value;
     }
 
+    cp_gdb_log_reg(ri, 1, value);
     return is64 ? 8 : 4;
 }
 
@@ -638,7 +674,7 @@ static int ats_write(CPUARMState *env, const ARMCPRegInfo *ri, uint64_t value)
             /* We do not set any attribute bits in the PAR */
             if (page_size == (1 << 24)
                 && arm_feature(env, ARM_FEATURE_V7)) {
-                CPU_REG_BANKED(env, cp15.c7_par, is_secure) = 
+                CPU_REG_BANKED(env, cp15.c7_par, is_secure) =
                     (phys_addr & 0xff000000) | 1 << 1;
             } else {
                 CPU_REG_BANKED(env, cp15.c7_par, is_secure) =
@@ -1017,7 +1053,7 @@ static const ARMCPRegInfo mpidr_cp_reginfo[] = {
 static int par64_read(CPUARMState *env, const ARMCPRegInfo *ri, uint64_t *value)
 {
     int bank = CPREG_IS_SECURE(ri);
-    *value = ((uint64_t) CPU_REG_BANKED(env, cp15.c7_par_hi, bank) << 32) | 
+    *value = ((uint64_t) CPU_REG_BANKED(env, cp15.c7_par_hi, bank) << 32) |
         CPU_REG_BANKED(env, cp15.c7_par, bank);
     return 0;
 }
@@ -1108,11 +1144,11 @@ static const ARMCPRegInfo lpae_cp_reginfo[] = {
       .access = PL1_RW, .type = ARM_CP_64BIT | ARM_CP_BANKED,
       .readfn = par64_read, .writefn = par64_write, .resetfn = par64_reset },
     { .name = "TTBR0", .cp = 15, .crm = 2, .opc1 = 0,
-      .access = PL1_RW, .type = ARM_CP_64BIT | ARM_CP_BANKED, 
+      .access = PL1_RW, .type = ARM_CP_64BIT | ARM_CP_BANKED,
       .readfn = ttbr064_read,
       .writefn = ttbr064_write, .resetfn = ttbr064_reset },
     { .name = "TTBR1", .cp = 15, .crm = 2, .opc1 = 1,
-      .access = PL1_RW, .type = ARM_CP_64BIT | ARM_CP_BANKED, 
+      .access = PL1_RW, .type = ARM_CP_64BIT | ARM_CP_BANKED,
       .readfn = ttbr164_read,
       .writefn = ttbr164_write, .resetfn = ttbr164_reset },
     REGINFO_SENTINEL
@@ -1453,9 +1489,9 @@ ARMCPU *cpu_arm_init(const char *cpu_model)
     }
 
     /* Register the coprocessor access extension space */
-    if (cpu->cp_xml) {        
+    if (cpu->cp_xml) {
         gdb_register_coprocessor(env, cp_gdb_get_reg, cp_gdb_set_reg,
-                                 0x3FFFFFFF, "arm-cp.xml", 
+                                 0x3FFFFFFF, "arm-cp.xml",
                                  -0x40000000);
     }
 
@@ -1555,7 +1591,7 @@ static void internal_define_arm_cp_reg(ARMCPU *cpu,
                 ARMCPRegInfo *r2 = g_memdup(r, sizeof(ARMCPRegInfo));
                 int is64 = (r->type & ARM_CP_64BIT) ? 1 : 0;
                 int banks = r->type & ARM_CP_BANKED;
-                *key = ENCODE_CP_REG(secure, r->cp, is64,
+                *key = ENCODE_CP_REG(secure ? 1 : 0, r->cp, is64,
                                      r->crn, crm, opc1, opc2);
                 r2->opaque = opaque;
                 /* Make sure reginfo passed to helpers for wildcarded regs
@@ -1610,12 +1646,11 @@ static void internal_define_arm_cp_reg(ARMCPU *cpu,
 }
 
 static void gdb_arm_add_cp_reg_xml(ARMCPU *cpu, int cp,
-                                   const char *name, 
+                                   const char *name,
                                    const char *suffix,
                                    int bitsize, unsigned regnum)
 {
     if (cpu->cp_xml) {
-        // "<reg name=\"CP%d_%s_NS\" bitsize=\"%d\" regnum=\"%08x\" />\n",
         qstring_append(cpu->cp_xml, "<reg name=\"CP");
         qstring_append_int(cpu->cp_xml, cp);
         qstring_append_chr(cpu->cp_xml, '_');
@@ -1628,7 +1663,19 @@ static void gdb_arm_add_cp_reg_xml(ARMCPU *cpu, int cp,
         qstring_append_int(cpu->cp_xml, bitsize);
         qstring_append(cpu->cp_xml, "\" regnum=\"");
         qstring_append_int(cpu->cp_xml, regnum);
-        qstring_append(cpu->cp_xml, "\" />");
+
+        /* TODO: TrustZone: Some versions of GDB struggle with
+         * "info registers" / "info all-registers" and our registers.
+         * This issue seems to be similar or related
+         * to http://sourceware.org/ml/gdb/2010-07/msg00131.html.
+         *
+         * We just specify our own "cpXX" register group, which make
+         * GDB happy and prevents the CP registers from being queried
+         * by a normal "info registers".
+         */
+        qstring_append(cpu->cp_xml, "\" save-restore=\"no\" group=\"cp");
+        qstring_append_int(cpu->cp_xml, cp);
+        qstring_append(cpu->cp_xml, "\" />\n");
     }
 }
 
@@ -1653,9 +1700,11 @@ static void gdb_describe_one_arm_cp_reg(ARMCPU *cpu, const ARMCPRegInfo *r)
     if (worlds == ARM_CP_UNBANKED) {
         int nwd_access = (r->access & PL2_RW) & ~PL3_RW;
         if (nwd_access) {
-            /* This is a common unbanked register (no suffix) */
+            /* This is a common unbanked register (no suffix)
+             * we always access to secure world bank for simplified
+             * interaction with non-TrustZone systems. */
             gdb_arm_add_cp_reg_xml(cpu, cp, r->name, NULL, bitsize,
-                                   GDB_ENCODE_CPREG(0, cp, is64, crn, crm, 
+                                   GDB_ENCODE_CPREG(1, cp, is64, crn, crm,
                                                     opc1, opc2));
             return;
 
@@ -1669,7 +1718,7 @@ static void gdb_describe_one_arm_cp_reg(ARMCPU *cpu, const ARMCPRegInfo *r)
     if (worlds & ARM_CP_SECURE) {
         /* Register is visible in secure world (no suffix) */
         gdb_arm_add_cp_reg_xml(cpu, cp, r->name, NULL, bitsize,
-                               GDB_ENCODE_CPREG(1, cp, is64, crn, crm, 
+                               GDB_ENCODE_CPREG(1, cp, is64, crn, crm,
                                                 opc1, opc2));
     }
 
@@ -1677,7 +1726,7 @@ static void gdb_describe_one_arm_cp_reg(ARMCPU *cpu, const ARMCPRegInfo *r)
         (worlds & ARM_CP_NORMAL)) {
         /* Register is visible in normal world (_NS suffix) */
         gdb_arm_add_cp_reg_xml(cpu, cp, r->name, "_NS", bitsize,
-                               GDB_ENCODE_CPREG(0, cp, is64, crn, crm, 
+                               GDB_ENCODE_CPREG(0, cp, is64, crn, crm,
                                                 opc1, opc2));
     }
 }
@@ -1700,12 +1749,11 @@ void define_one_arm_cp_reg_with_opaque(ARMCPU *cpu,
     }
 
     /* Define the normal world register (only if TrustZone is enabled) */
-    if (arm_feature(&cpu->env, ARM_FEATURE_TRUSTZONE) &&
-        (banks & ARM_CP_NORMAL)) {
-        internal_define_arm_cp_reg(cpu, r, opaque, 0);        
+    if (banks & ARM_CP_NORMAL) {
+        internal_define_arm_cp_reg(cpu, r, opaque, 0);
     }
 
-    /* Define the secure world register (or common register if TrustZone 
+    /* Define the secure world register (or common register if TrustZone
      * is disabled) */
     if (banks & ARM_CP_SECURE) {
         internal_define_arm_cp_reg(cpu, r, opaque, 1);
@@ -2369,7 +2417,7 @@ static uint32_t get_level1_table_address(CPUARMState *env, uint32_t address,
     if (address & CPU_REG_BANKED(env, cp15.c2_mask, is_secure))
         table = CPU_REG_BANKED(env, cp15.c2_base1, is_secure) & 0xffffc000;
     else
-        table = CPU_REG_BANKED(env, cp15.c2_base0, is_secure) & 
+        table = CPU_REG_BANKED(env, cp15.c2_base0, is_secure) &
             CPU_REG_BANKED(env, cp15.c2_base_mask, is_secure);
 
     table |= (address >> 18) & 0x3ffc;
