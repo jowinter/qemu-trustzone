@@ -1531,14 +1531,16 @@ void define_one_arm_cp_reg_with_opaque(ARMCPU *cpu,
         /* NOTE: TrustZone: This is an unbanked register,
          * force instantiation of a secure and a normal
          * world alias. */
-
-        if (!(r->type & ARM_CP_CONST)) {
-            fprintf(stderr, "UNBANKED: %s\n", r->name);
-        }
         banks = ARM_CP_BANKED;
     }
 
-    /* Define the normal world register */
+    /* Supress normal world instantiation on non-TrustZone cores
+     * (always secure) */
+    if (!arm_feature(&cpu->env, ARM_FEATURE_TRUSTZONE)) {
+        banks &= ~ARM_CP_NORMAL;
+    }
+
+    /* Define the normal world register (only if TrustZone is enabled) */
     if (banks & ARM_CP_NORMAL) {
         internal_define_arm_cp_reg(cpu, r, opaque, 0);
     }
