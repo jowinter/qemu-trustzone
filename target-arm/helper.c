@@ -175,6 +175,10 @@ static int cp_gdb_set_reg(CPUARMState *env, uint8_t *buf, int reg)
         CPREG_FIELD32(env, ri) = value;
     }
 
+    /* Force TLB and TB flush */
+    tb_flush(env);
+    tlb_flush(env, 1);
+
     cp_gdb_log_reg(ri, 1, value);
     return is64 ? 8 : 4;
 }
@@ -2148,6 +2152,11 @@ static int sys_gdb_set_reg(CPUARMState *env, uint8_t *buf, int reg)
     }
 
     *ptr = ldl_p(buf);
+
+    /* Force TLB and TB flush */
+    tb_flush(env);
+    tlb_flush(env, 1);
+
     return 4;
 }
 
