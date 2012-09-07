@@ -11,7 +11,7 @@ the word "TrustZone" to allow easy grepping. A simple "grep -r TrustZone ."
 should list the interesting parts without the need to go through the
 entire GIT history.
 
---- Integration with GDB
+--- Integration with GDB (Coprocessor registers)
 IAIK's TrustZone patch series integrates with GDB in an attempt to allow
 debugging of QEMU and of (dual-world) target code itself. Simply attach a
 recent version of GDB with XML target descriptor support and do
@@ -45,6 +45,57 @@ suffix are exposed in the target descriptors for these cores.
 
 Note that GDB caches register values - so a "flushregs" command may be
 required by certain usage patterns.
+
+--- Integration with GDB (System registers)
+Similar to the coprocessor register we provide GDB integration for the
+regular ARM system register banks. We define the following GDB register
+numbers:
+
+  Banked SP registers:
+    0x30000000 sp_usr
+    0x30000001 sp_svc
+    0x30000002 sp_abt
+    0x30000003 sp_und
+    0x30000004 sp_irq
+    0x30000005 sp_fiq
+    0x30000006 sp_mon (only if target has ARM_FEATURE_TRUSTZONE)
+
+  Banked LR registers:
+    0x30000100 lr_usr
+    0x30000101 lr_svc
+    0x30000102 lr_abt
+    0x30000103 lr_und
+    0x30000104 lr_irq
+    0x30000105 lr_fiq
+    0x30000106 lr_mon (only if target has ARM_FEATURE_TRUSTZONE)
+
+  Banked SPSR registers:
+    0x30000201 spsr_svc
+    0x30000202 spsr_abt
+    0x30000203 spsr_und
+    0x30000204 spsr_irq
+    0x30000205 spsr_fiq
+    0x30000206 spsr_mon (only if target has ARM_FEATURE_TRUSTZONE)
+
+  Non-FIQ mode bank for r8-r12:
+    0x30000300 r8_usr
+    0x30000301 r9_usr
+    0x30000302 r10_usr
+    0x30000303 r11_usr
+    0x30000304 r12_usr
+
+  FIQ mode bank for r8-r12:
+    0x30000300 r8_fiq
+    0x30000301 r9_fiq
+    0x30000302 r10_fiq
+    0x30000303 r11_fiq
+    0x30000304 r12_fiq
+
+  The QEMU gdbstub side properly synchronizes register access to the
+  banked registers and the active "main" view. Note however that we
+  currently are unable to tell GDB that a write to the "banked"
+  or the "main" view changed the "other" view. Use the "flushregs" GDB
+  command to manually invalidate both views, when needed.
 
 --- Test Case Setup: OpenVirtualization
 The primary goals of this patch series is to allow open-source

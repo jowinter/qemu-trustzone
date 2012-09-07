@@ -12,6 +12,9 @@ static inline int get_phys_addr(CPUARMState *env, uint32_t address,
                                 int access_type, int is_user, int is_secure,
                                 target_phys_addr_t *phys_ptr, int *prot,
                                 target_ulong *page_size);
+
+static int sys_gdb_get_reg(CPUARMState *env, uint8_t *buf, int reg);
+static int sys_gdb_set_reg(CPUARMState *env, uint8_t *buf, int reg);
 #endif
 
 static int vfp_gdb_get_reg(CPUARMState *env, uint8_t *buf, int reg)
@@ -66,6 +69,7 @@ static int vfp_gdb_set_reg(CPUARMState *env, uint8_t *buf, int reg)
     return 0;
 }
 
+#ifndef CONFIG_USER_ONLY
 static void cp_gdb_log_reg(const ARMCPRegInfo *ri, int is_write, uint64_t value)
 {
     if (qemu_loglevel_mask(CPU_LOG_CP_GDB)) {
@@ -174,6 +178,7 @@ static int cp_gdb_set_reg(CPUARMState *env, uint8_t *buf, int reg)
     cp_gdb_log_reg(ri, 1, value);
     return is64 ? 8 : 4;
 }
+#endif
 
 static int dacr_write(CPUARMState *env, const ARMCPRegInfo *ri, uint64_t value)
 {
@@ -1488,12 +1493,24 @@ ARMCPU *cpu_arm_init(const char *cpu_model)
                                  19, "arm-vfp.xml", 0);
     }
 
-    /* Register the coprocessor access extension space */
+#ifndef CONFIG_USER_ONLY
+    /* System register space 0x30000000..0x30000FFE */
+    if (arm_feature(env, ARM_FEATURE_TRUSTZONE)) {
+        gdb_register_coprocessor(env, sys_gdb_get_reg, sys_gdb_set_reg,
+                                 0x00000FFF, "arm-sys-trustzone.xml",
+                                 -0x30000000);
+    } else {
+        gdb_register_coprocessor(env, sys_gdb_get_reg, sys_gdb_set_reg,
+                                 0x00000FFF, "arm-sys.xml", -0x30000000);
+    }
+
+    /* Coprocessor access extension space (0x40000000..0x7FFFFFFE) */
     if (cpu->cp_xml) {
         gdb_register_coprocessor(env, cp_gdb_get_reg, cp_gdb_set_reg,
                                  0x3FFFFFFF, "arm-cp.xml",
                                  -0x40000000);
     }
+#endif
 
     qemu_init_vcpu(env);
     return cpu;
@@ -2040,6 +2057,98 @@ void switch_mode(CPUARMState *env, int mode)
     env->regs[13] = env->banked_r13[i];
     env->regs[14] = env->banked_r14[i];
     env->spsr = env->banked_spsr[i];
+}
+
+
+static uint32_t *sys_gdb_reg_ptr(CPUARMState *env, int reg)
+{
+    unsigned group = reg & 0x00000F00;
+    unsigned idx   = reg & 0x000000FF;
+    int active_bank = bank_number(env, env->uncached_cpsr & CPSR_M);
+    uint32_t *ptr = NULL;
+
+    switch (group) {
+    case 0x000: /* Banked SP registers (0x30000000 + bank_number) */
+        if (idx == active_bank) {
+            ptr = env->regs + 13;
+        } else if (idx < 7) {
+            ptr = env->banked_r13 + idx;
+        }
+        break;
+
+    case 0x100: /* Banked LR registers (0x30000100 + bank_number) */
+        if (idx == active_bank) {
+            ptr = env->regs + 14;
+        } else if (idx < 7) {
+            ptr = env->banked_r14 + idx;
+        }
+        break;
+
+    case 0x200: /* Banked SPSR (0x30000200 + bank_bumber; bank_number != 0) */
+        if (idx >= 1) {
+            if (idx == active_bank) {
+                ptr = &env->spsr;
+            } else if (idx < 7) {
+                /* NOTE: idx=0 would be non-existing spsr_usr */
+                ptr = env->banked_spsr + idx;
+            }
+        }
+        break;
+
+    case 0x300: /* non-FIQ mode r8-r12 bank  (0x30000300 + regidx - 8) */
+        if (idx < 8) {
+            if (active_bank == 5) {
+                /* Active mode is FIQ, use saved usr_regs */
+                ptr = env->usr_regs + idx;
+            } else {
+                /* Active mode is not FIQ, use current regs */
+                ptr = env->regs + idx + 8;
+            }
+        }
+        break;
+
+    case 0x400: /* FIQ mode r8-r12 bank  (0x30000300 + regidx - 8) */
+        if (idx < 8) {
+            if (active_bank != 5) {
+                /* Active mode is not FIQ, use saved regs */
+                ptr = env->fiq_regs + idx;
+            } else {
+                /* Active mode is FIQ, use current regs */
+                ptr = env->regs + idx + 8;
+            }
+        }
+        break;
+
+    default:
+        /* Undefined register */
+        break;
+    }
+
+    return ptr;
+}
+
+static int sys_gdb_get_reg(CPUARMState *env, uint8_t *buf, int reg)
+{
+    uint32_t *ptr = sys_gdb_reg_ptr(env, reg);
+    if (!ptr) {
+        /* Invalid register */
+        return 0;
+    }
+
+    stl_p(buf, *ptr);
+    return 4;
+}
+
+static int sys_gdb_set_reg(CPUARMState *env, uint8_t *buf, int reg)
+{
+    uint32_t *ptr = sys_gdb_reg_ptr(env, reg);
+    if (!ptr) {
+        /* Invalid register */
+        return 0;
+    }
+
+    *ptr = ldl_p(buf);
+    return 4;
 }
 
 static void v7m_push(CPUARMState *env, uint32_t val)

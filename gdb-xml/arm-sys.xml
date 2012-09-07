@@ -1,0 +1,40 @@
+<?xml version="1.0"?>
+<!DOCTYPE feature SYSTEM "gdb-target.dtd">
+<feature name="org.gnu.gdb.arm.sys">
+  <!-- Banked SP registers (0x30000000 + bank_number) -->
+  <reg name="sp_usr" bitsize="32" regnum="805306368" save-restore="no" group="sys" />
+  <reg name="sp_svc" bitsize="32" regnum="805306369" save-restore="no" group="sys" />
+  <reg name="sp_abt" bitsize="32" regnum="805306370" save-restore="no" group="sys" />
+  <reg name="sp_und" bitsize="32" regnum="805306371" save-restore="no" group="sys" />
+  <reg name="sp_irq" bitsize="32" regnum="805306372" save-restore="no" group="sys" />
+  <reg name="sp_fiq" bitsize="32" regnum="805306373" save-restore="no" group="sys" />
+
+  <!-- Banked LR registers (0x30000100 + bank_number) -->
+  <reg name="lr_usr" bitsize="32" regnum="805306624" save-restore="no" group="sys" />
+  <reg name="lr_svc" bitsize="32" regnum="805306625" save-restore="no" group="sys" />
+  <reg name="lr_abt" bitsize="32" regnum="805306626" save-restore="no" group="sys" />
+  <reg name="lr_und" bitsize="32" regnum="805306627" save-restore="no" group="sys" />
+  <reg name="lr_irq" bitsize="32" regnum="805306628" save-restore="no" group="sys" />
+  <reg name="lr_fiq" bitsize="32" regnum="805306629" save-restore="no" group="sys" />
+
+  <!-- Banked SPSR registers (0x30000200 + bank_number) -->
+  <reg name="spsr_svc" bitsize="32" regnum="805306881" save-restore="no" group="sys" />
+  <reg name="spsr_abt" bitsize="32" regnum="805306882" save-restore="no" group="sys" />
+  <reg name="spsr_und" bitsize="32" regnum="805306883" save-restore="no" group="sys" />
+  <reg name="spsr_irq" bitsize="32" regnum="805306884" save-restore="no" group="sys" />
+  <reg name="spsr_fiq" bitsize="32" regnum="805306885" save-restore="no" group="sys" />
+
+  <!-- non-FIQ r8-r12 bank (0x30000300 + regidx - 8) -->
+  <reg name="r8_usr" bitsize="32" regnum="805307136" save-restore="no" group="sys" />
+  <reg name="r9_usr" bitsize="32" regnum="805307137" save-restore="no" group="sys" />
+  <reg name="r10_usr" bitsize="32" regnum="805307138" save-restore="no" group="sys" />
+  <reg name="r11_usr" bitsize="32" regnum="805307139" save-restore="no" group="sys" />
+  <reg name="r12_usr" bitsize="32" regnum="805307140" save-restore="no" group="sys" />
+
+  <!-- FIQ r8-r12 bank (0x30000400 + regidx - 8) -->
+  <reg name="r8_fiq" bitsize="32" regnum="805307392" save-restore="no" group="sys" />
+  <reg name="r9_fiq" bitsize="32" regnum="805307393" save-restore="no" group="sys" />
+  <reg name="r10_fiq" bitsize="32" regnum="805307394" save-restore="no" group="sys" />
+  <reg name="r11_fiq" bitsize="32" regnum="805307395" save-restore="no" group="sys" />
+  <reg name="r12_fiq" bitsize="32" regnum="805307396" save-restore="no" group="sys" />
+</feature>
