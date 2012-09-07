@@ -139,11 +139,13 @@ static void arm_cpu_initfn(Object *obj)
     cpu_exec_init(&cpu->env);
     cpu->cp_regs = g_hash_table_new_full(g_int_hash, g_int_equal,
                                          g_free, g_free);
+    cpu->cp_xml = NULL;
 }
 
 static void arm_cpu_finalizefn(Object *obj)
 {
     ARMCPU *cpu = ARM_CPU(obj);
+    QDECREF(cpu->cp_xml);
     g_hash_table_destroy(cpu->cp_regs);
 }
 
@@ -196,7 +198,17 @@ void arm_cpu_realize(ARMCPU *cpu)
         set_feature(env, ARM_FEATURE_PXN);
     }
 
+    /* NOTE: TrustZone: Start construction of the GDB target description */
+    assert (cpu->cp_xml == NULL);
+    cpu->cp_xml = qstring_new();
+    qstring_append(cpu->cp_xml, "<?xml version=\"1.0\"?>\n"
+                   "<!DOCTYPE feature SYSTEM \"gdb-target.dtd\">\n"
+                   "<feature name=\"org.gnu.gdb.arm.cp\">\n");
+
     register_cp_regs_for_features(cpu);
+
+    /* NOTE: TrustZone: Finish GDB target description */
+    qstring_append(cpu->cp_xml, "</feature>\n");
 }
 
 /* CPU models */

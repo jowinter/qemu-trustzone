@@ -21,6 +21,7 @@
 #define QEMU_ARM_CPU_QOM_H
 
 #include "qemu/cpu.h"
+#include "qstring.h"
 
 #define TYPE_ARM_CPU "arm-cpu"
 
@@ -60,6 +61,7 @@ typedef struct ARMCPU {
 
     /* Coprocessor information */
     GHashTable *cp_regs;
+    QString* cp_xml;
 
     /* The instance init functions for implementation-specific subclasses
      * set these fields to specify the implementation-dependent values of
@@ -109,5 +111,11 @@ static inline ARMCPU *arm_env_get_cpu(CPUARMState *env)
 
 void arm_cpu_realize(ARMCPU *cpu);
 void register_cp_regs_for_features(ARMCPU *cpu);
+
+static inline const char* arm_cpu_get_cp_xml(CPUARMState *env)
+{
+    ARMCPU *cpu = arm_env_get_cpu(env);
+    return cpu->cp_xml ? qstring_get_str(cpu->cp_xml) : NULL;
+}
 
 #endif

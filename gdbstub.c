@@ -942,6 +942,7 @@ static int cpu_gdb_write_register(CPUSPARCState *env, uint8_t *mem_buf, int n)
    newer gdb.  */
 #define NUM_CORE_REGS 26
 #define GDB_CORE_XML "arm-core.xml"
+#define GDB_DYN_XML  { "arm-cp.xml", arm_cpu_get_cp_xml }
 
 static int cpu_gdb_read_register(CPUARMState *env, uint8_t *mem_buf, int n)
 {
@@ -1754,6 +1755,18 @@ static int memtox(char *buf, const char *mem, int len)
     return p - buf;
 }
 
+#ifdef GDB_DYN_XML
+typedef struct GDBDynamicXmlFeature
+{
+    const char *name;
+    const char *(*get_xml)(CPUArchState *cpu);
+} GDBDynamicXmlFeature;
+
+static const GDBDynamicXmlFeature xml_dynamic[] = {
+    GDB_DYN_XML, { NULL, NULL }
+};
+#endif
+
 static const char *get_feature_xml(const char *p, const char **newp)
 {
     size_t len;
@@ -1788,6 +1801,18 @@ static const char *get_feature_xml(const char *p, const char **newp)
         }
         return target_xml;
     }
+#ifdef GDB_DYN_XML
+    for (i = 0; ; i++) {
+        name = xml_dynamic[i].name;
+        if (!name) {
+            break;
+        }
+
+        if (strncmp(name, p, len) == 0 && strlen(name) == len) {
+            return xml_dynamic[i].get_xml(first_cpu);
+        }
+    }
+#endif
     for (i = 0; ; i++) {
         name = xml_builtin[i][0];
         if (!name || (strncmp(name, p, len) == 0 && strlen(name) == len))
@@ -1832,6 +1857,9 @@ static int gdb_write_register(CPUArchState *env, uint8_t *mem_buf, int reg)
    specifies the first register number and these registers are included in
    a standard "g" packet.  Direction is relative to gdb, i.e. get_reg is
    gdb reading a CPU register, and set_reg is gdb modifying a CPU register.
+
+   NOTE: TrustZone: We interpret negative values of g_pos to place coprocessor
+   at particular register indices.
  */
 
 void gdb_register_coprocessor(CPUArchState * env,
@@ -1851,7 +1879,7 @@ void gdb_register_coprocessor(CPUArchState * env,
     }
 
     s = g_new0(GDBRegisterState, 1);
-    s->base_reg = last_reg;
+    s->base_reg = (g_pos < 0) ? -g_pos : last_reg;
     s->num_regs = num_regs;
     s->get_reg = get_reg;
     s->set_reg = set_reg;
@@ -1860,7 +1888,7 @@ void gdb_register_coprocessor(CPUArchState * env,
     /* Add to end of list.  */
     last_reg += num_regs;
     *p = s;
-    if (g_pos) {
+    if (g_pos > 0) {
         if (g_pos != s->base_reg) {
             fprintf(stderr, "Error: Bad gdb register numbering for '%s'\n"
                     "Expected %d got %d\n", xml, g_pos, s->base_reg);

@@ -66,6 +66,79 @@ static int vfp_gdb_set_reg(CPUARMState *env, uint8_t *buf, int reg)
     return 0;
 }
 
+static int cp_gdb_get_reg(CPUARMState *env, uint8_t *buf, int reg)
+{
+    ARMCPU *cpu = arm_env_get_cpu(env);
+    const ARMCPRegInfo *ri = get_arm_cp_reginfo(cpu, GDB_DECODE_CPREG(reg));
+    uint64_t value = 0;
+    int is64, ret;
+
+    if (!ri) {
+        return 0;
+    }
+
+    fprintf(stderr, "GETREG %s\n", ri->name);
+
+    is64 = (ri->type & ARM_CP_64BIT);
+
+    if (ri->readfn) {
+        ret = (ri->readfn)(env, ri, &value);
+        if (!ret) {
+            /* Exception */
+            return 0;
+        }
+    } else if (ri->type & ARM_CP_CONST) {
+        value = ri->resetvalue;
+    } else if (is64) {
+        /* 64-bit field read */
+        value = CPREG_FIELD64(env, ri);
+    } else {
+        /* 32-bit field read */
+        value = CPREG_FIELD32(env, ri);
+    }
+
+    if (is64) {
+        stq_p(buf, value);
+        return 8;
+    } else {
+        stl_p(buf, value);
+        return 4;
+    }
+}
+
+static int cp_gdb_set_reg(CPUARMState *env, uint8_t *buf, int reg)
+{   
+    ARMCPU *cpu = arm_env_get_cpu(env);
+    const ARMCPRegInfo *ri = get_arm_cp_reginfo(cpu, GDB_DECODE_CPREG(reg));
+    uint64_t value;
+    int is64, ret;
+
+    if (!ri || (ri->type & ARM_CP_CONST)) {
+        return 0;
+    }
+
+    fprintf(stderr, "SETREG %s\n", ri->name);
+
+    is64 = (ri->type & ARM_CP_64BIT);
+    value = is64 ? ldq_p(buf) : ldl_p(buf);
+
+    if (ri->writefn) {
+        ret = (ri->writefn)(env, ri, value);
+        if (ret) {
+            /* Exception */
+            return 0;
+        }
+    } else if (is64) {
+        /* 64-bit field write */
+        CPREG_FIELD64(env, ri) = value;
+    } else {
+        /* 32-bit field write */
+        CPREG_FIELD32(env, ri) = value;
+    }
+
+    return is64 ? 8 : 4;
+}
+
 static int dacr_write(CPUARMState *env, const ARMCPRegInfo *ri, uint64_t value)
 {
     /* NOTE: TrustZone: Active register bank cp15.c3 access */
@@ -201,7 +274,7 @@ static const ARMCPRegInfo not_v7_cp_reginfo[] = {
       .resetvalue = 0 },
     /* v6 doesn't have the cache ID registers but Linux reads them anyway */
     { .name = "DUMMY", .cp = 15, .crn = 0, .crm = 0, .opc1 = 1, .opc2 = CP_ANY,
-      .access = PL1_R, .type = ARM_CP_CONST, .resetvalue = 0 },
+      .access = PL1_R, .type = ARM_CP_CONST | ARM_CP_NOGDB, .resetvalue = 0 },
     REGINFO_SENTINEL
 };
 
@@ -1274,19 +1347,24 @@ void register_cp_regs_for_features(ARMCPU *cpu)
             /* crn = 0 op1 = 0 crm = 3..7 : currently unassigned; we RAZ. */
             { .name = "DUMMY",
               .cp = 15, .crn = 0, .crm = 3, .opc1 = 0, .opc2 = CP_ANY,
-              .access = PL1_R, .type = ARM_CP_CONST, .resetvalue = 0 },
+              .access = PL1_R, .type = ARM_CP_CONST | ARM_CP_NOGDB,
+              .resetvalue = 0 },
             { .name = "DUMMY",
               .cp = 15, .crn = 0, .crm = 4, .opc1 = 0, .opc2 = CP_ANY,
-              .access = PL1_R, .type = ARM_CP_CONST, .resetvalue = 0 },
+              .access = PL1_R, .type = ARM_CP_CONST | ARM_CP_NOGDB,
+              .resetvalue = 0 },
             { .name = "DUMMY",
               .cp = 15, .crn = 0, .crm = 5, .opc1 = 0, .opc2 = CP_ANY,
-              .access = PL1_R, .type = ARM_CP_CONST, .resetvalue = 0 },
+              .access = PL1_R, .type = ARM_CP_CONST | ARM_CP_NOGDB,
+              .resetvalue = 0 },
             { .name = "DUMMY",
               .cp = 15, .crn = 0, .crm = 6, .opc1 = 0, .opc2 = CP_ANY,
-              .access = PL1_R, .type = ARM_CP_CONST, .resetvalue = 0 },
+              .access = PL1_R, .type = ARM_CP_CONST | ARM_CP_NOGDB,
+              .resetvalue = 0 },
             { .name = "DUMMY",
               .cp = 15, .crn = 0, .crm = 7, .opc1 = 0, .opc2 = CP_ANY,
-              .access = PL1_R, .type = ARM_CP_CONST, .resetvalue = 0 },
+              .access = PL1_R, .type = ARM_CP_CONST | ARM_CP_NOGDB,
+              .resetvalue = 0 },
             REGINFO_SENTINEL
         };
         ARMCPRegInfo crn0_wi_reginfo = {
@@ -1373,6 +1451,14 @@ ARMCPU *cpu_arm_init(const char *cpu_model)
         gdb_register_coprocessor(env, vfp_gdb_get_reg, vfp_gdb_set_reg,
                                  19, "arm-vfp.xml", 0);
     }
+
+    /* Register the coprocessor access extension space */
+    if (cpu->cp_xml) {        
+        gdb_register_coprocessor(env, cp_gdb_get_reg, cp_gdb_set_reg,
+                                 0x3FFFFFFF, "arm-cp.xml", 
+                                 -0x40000000);
+    }
+
     qemu_init_vcpu(env);
     return cpu;
 }
@@ -1523,6 +1609,79 @@ static void internal_define_arm_cp_reg(ARMCPU *cpu,
     }
 }
 
+static void gdb_arm_add_cp_reg_xml(ARMCPU *cpu, int cp,
+                                   const char *name, 
+                                   const char *suffix,
+                                   int bitsize, unsigned regnum)
+{
+    if (cpu->cp_xml) {
+        // "<reg name=\"CP%d_%s_NS\" bitsize=\"%d\" regnum=\"%08x\" />\n",
+        qstring_append(cpu->cp_xml, "<reg name=\"CP");
+        qstring_append_int(cpu->cp_xml, cp);
+        qstring_append_chr(cpu->cp_xml, '_');
+        qstring_append(cpu->cp_xml, name);
+        if (suffix) {
+            qstring_append(cpu->cp_xml, suffix);
+        }
+
+        qstring_append(cpu->cp_xml, "\" bitsize=\"");
+        qstring_append_int(cpu->cp_xml, bitsize);
+        qstring_append(cpu->cp_xml, "\" regnum=\"");
+        qstring_append_int(cpu->cp_xml, regnum);
+        qstring_append(cpu->cp_xml, "\" />");
+    }
+}
+
+static void gdb_describe_one_arm_cp_reg(ARMCPU *cpu, const ARMCPRegInfo *r)
+{
+    int worlds = (r->type & ARM_CP_BANKED);
+    int is64 = ((r->type & ARM_CP_64BIT) != 0);
+    int bitsize = is64 ? 64 : 32;
+
+    if (r->type & (ARM_CP_SPECIAL | ARM_CP_NOGDB)) {
+        /* No GDB access */
+        return;
+    }
+
+    /* TODO: How to properly deal with CP_ANY? and CP_OVERRIDE? */
+    int cp = r->cp;
+    int crn = r->crn;
+    int crm = (r->crm == CP_ANY) ? 0 : r->crm;
+    int opc1 = (r->opc1 == CP_ANY) ? 0 : r->opc1;
+    int opc2 = (r->opc2 == CP_ANY) ? 0 : r->opc2;
+
+    if (worlds == ARM_CP_UNBANKED) {
+        int nwd_access = (r->access & PL2_RW) & ~PL3_RW;
+        if (nwd_access) {
+            /* This is a common unbanked register (no suffix) */
+            gdb_arm_add_cp_reg_xml(cpu, cp, r->name, NULL, bitsize,
+                                   GDB_ENCODE_CPREG(0, cp, is64, crn, crm, 
+                                                    opc1, opc2));
+            return;
+
+        } else {
+            /* This is a secure-world only register,
+             * fall-throught to case below */
+            worlds = ARM_CP_SECURE;
+        }
+    }
+
+    if (worlds & ARM_CP_SECURE) {
+        /* Register is visible in secure world (no suffix) */
+        gdb_arm_add_cp_reg_xml(cpu, cp, r->name, NULL, bitsize,
+                               GDB_ENCODE_CPREG(1, cp, is64, crn, crm, 
+                                                opc1, opc2));
+    }
+
+    if (arm_feature(&cpu->env, ARM_FEATURE_TRUSTZONE) &&
+        (worlds & ARM_CP_NORMAL)) {
+        /* Register is visible in normal world (_NS suffix) */
+        gdb_arm_add_cp_reg_xml(cpu, cp, r->name, "_NS", bitsize,
+                               GDB_ENCODE_CPREG(0, cp, is64, crn, crm, 
+                                                opc1, opc2));
+    }
+}
+
 void define_one_arm_cp_reg_with_opaque(ARMCPU *cpu,
                                        const ARMCPRegInfo *r, void *opaque)
 {
@@ -1541,14 +1700,19 @@ void define_one_arm_cp_reg_with_opaque(ARMCPU *cpu,
     }
 
     /* Define the normal world register (only if TrustZone is enabled) */
-    if (banks & ARM_CP_NORMAL) {
-        internal_define_arm_cp_reg(cpu, r, opaque, 0);
+    if (arm_feature(&cpu->env, ARM_FEATURE_TRUSTZONE) &&
+        (banks & ARM_CP_NORMAL)) {
+        internal_define_arm_cp_reg(cpu, r, opaque, 0);        
     }
 
-    /* Define the secure world register */
+    /* Define the secure world register (or common register if TrustZone 
+     * is disabled) */
     if (banks & ARM_CP_SECURE) {
         internal_define_arm_cp_reg(cpu, r, opaque, 1);
     }
+
+    /* Describe the register for GDB */
+    gdb_describe_one_arm_cp_reg(cpu, r);
 }
 
 void define_arm_cp_regs_with_opaque(ARMCPU *cpu,

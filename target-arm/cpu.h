@@ -440,15 +440,25 @@ void armv7m_nvic_complete_irq(void *opaque, int irq);
  * We allow 4 bits for opc1 because MRRC/MCRR have a 4 bit field.
  * (In this case crn and opc2 should be zero.)
  *
- * NOTE: TrustZone: Secure world registers have bit[31]==0, normal
- * world register have bit[31]==1.
+ * NOTE: TrustZone: Secure world registers have bit[29]==0, normal
+ * world register have bit[29]==1.
+ *
+ * NOTE: TrustZone: We use bit[30] top encode register numbers
+ *  for GDB
  */
 #define ENCODE_CP_REG(secure, cp, is64, crn, crm, opc1, opc2)           \
-    (((secure) << 31) | ((cp) << 16) | ((is64) << 15) | ((crn) << 11) | \
+    (((secure) << 29) | ((cp) << 16) | ((is64) << 15) | ((crn) << 11) | \
      ((crm) << 7) | ((opc1) << 3) | (opc2))
 
 #define DECODE_CPREG_CRN(enc) (((enc) >> 7) & 0xf)
-#define DECODE_CPREG_SECURE(enc) (((enc) >> 31) & 0x1)
+#define DECODE_CPREG_SECURE(enc) (((enc) >> 29) & 0x1)
+
+#define GDB_ENCODE_CPREG(secure, cp, is64, crn, crm, opc1, opc2) \
+    (0x40000000 | ENCODE_CP_REG(secure, cp, is64, crn, crm, opc1, opc2))
+
+#define GDB_DECODE_CPREG(enc) ((enc) & 0x3FFFFFFF)
+#define GDB_IS_CPREG(enc)     ((enc) & 0x40000000)
+
 
 /* ARMCPRegInfo type field bits. If the SPECIAL bit is set this is a
  * special-behaviour cp reg and bits [15..8] indicate what behaviour
@@ -491,13 +501,14 @@ void armv7m_nvic_complete_irq(void *opaque, int irq);
 #define ARM_CP_SECURE   32
 #define ARM_CP_NORMAL   64
 #define ARM_CP_BANKED   (ARM_CP_SECURE | ARM_CP_NORMAL)
+#define ARM_CP_NOGDB    128
 #define ARM_CP_NOP (ARM_CP_SPECIAL | (1 << 8))
 #define ARM_CP_WFI (ARM_CP_SPECIAL | (2 << 8))
 #define ARM_LAST_SPECIAL ARM_CP_WFI
 /* Used only as a terminator for ARMCPRegInfo lists */
 #define ARM_CP_SENTINEL 0xffff
 /* Mask of only the flag bits in a type field */
-#define ARM_CP_FLAG_MASK 0x7f
+#define ARM_CP_FLAG_MASK 0xff
 
 /* Return true if cptype is a valid type field. This is used to try to
  * catch errors where the sentinel has been accidentally left off the end
@@ -666,7 +677,7 @@ struct ARMCPRegInfo {
 /* NOTE: TrustZone: Macros to test for the bank a ARMCPRegInfo
  * structure refers to. */
 #define CPREG_IS_SECURE(ri) \
-    ((ri)->type & ARM_CP_SECURE)
+    (((ri)->type & ARM_CP_SECURE) != 0)
 
 /* NOTE: TrustZone: Macro which is an lvalues for banked CP registers
  * in the CPUARMState.
@@ -697,6 +708,9 @@ static inline void define_one_arm_cp_reg(ARMCPU *cpu, const ARMCPRegInfo *regs)
  * (See ENCODE_CP_REG macro for more details).
  */
 const ARMCPRegInfo *get_arm_cp_reginfo(ARMCPU *cpu, uint32_t encoded_cp);
+
+/* Describes the coprocessor registers of the given CPU as GDB XML target descriptor. */
+void arm_cp_describe(ARMCPU *cpu, fprintf_function cp_fprintf, void *cp_stream);
 
 /* CPWriteFn that can be used to implement writes-ignored behaviour */
 int arm_cp_write_ignore(CPUARMState *env, const ARMCPRegInfo *ri,
