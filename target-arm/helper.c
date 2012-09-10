@@ -1887,11 +1887,11 @@ void cpsr_write(CPUARMState *env, uint32_t val, uint32_t mask)
     /* NOTE: TrustZone: Disallow modification of F/A bits in
      * normal world when SCR.FW/SCR.AW are defined */
     if (!arm_current_secure(env)) {
-        if (env->cp15.c1_scr & SCR_FW) {
+        if (!(env->cp15.c1_scr & SCR_FW)) {
             mask &= ~CPSR_F;
         }
 
-        if (env->cp15.c1_scr & SCR_AW) {
+        if (!(env->cp15.c1_scr & SCR_AW)) {
             mask &= ~CPSR_A;
         }
     }

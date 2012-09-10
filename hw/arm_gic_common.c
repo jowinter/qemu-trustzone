@@ -54,6 +54,7 @@ static void gic_save(QEMUFile *f, void *opaque)
         qemu_put_byte(f, s->irq_state[i].pending);
         qemu_put_byte(f, s->irq_state[i].active);
         qemu_put_byte(f, s->irq_state[i].level);
+        qemu_put_byte(f, s->irq_state[i].secure);
         qemu_put_byte(f, s->irq_state[i].model);
         qemu_put_byte(f, s->irq_state[i].trigger);
     }
@@ -93,6 +94,7 @@ static int gic_load(QEMUFile *f, void *opaque, int version_id)
         s->irq_state[i].pending = qemu_get_byte(f);
         s->irq_state[i].active = qemu_get_byte(f);
         s->irq_state[i].level = qemu_get_byte(f);
+        s->irq_state[i].secure = qemu_get_byte(f);
         s->irq_state[i].model = qemu_get_byte(f);
         s->irq_state[i].trigger = qemu_get_byte(f);
     }
@@ -146,6 +148,10 @@ static void arm_gic_common_reset(DeviceState *dev)
     for (i = 0; i < 16; i++) {
         GIC_SET_ENABLED(i, ALL_CPU_MASK);
         GIC_SET_TRIGGER(i);
+    }
+    for (i = 0; i < GIC_MAXIRQ; ++i) {
+        /* NOTE: TrustZone: Assume that all IRQs are secure */
+        GIC_SET_SECURE(i, ALL_CPU_MASK);
     }
     if (s->num_cpu == 1) {
         /* For uniprocessor GICs all interrupts always target the sole CPU */

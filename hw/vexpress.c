@@ -179,6 +179,7 @@ static void a9_daughterboard_init(const VEDBoardInfo *daughterboard,
     qemu_irq *irqp;
     int n;
     qemu_irq cpu_irq[4];
+    qemu_irq cpu_fiq[4];
     ram_addr_t low_ram_size;
 
     if (!cpu_model) {
@@ -195,6 +196,7 @@ static void a9_daughterboard_init(const VEDBoardInfo *daughterboard,
         }
         irqp = arm_pic_init_cpu(cpu);
         cpu_irq[n] = irqp[ARM_PIC_CPU_IRQ];
+        cpu_fiq[n] = irqp[ARM_PIC_CPU_FIQ];
     }
 
     if (ram_size > 0x40000000) {
@@ -223,8 +225,10 @@ static void a9_daughterboard_init(const VEDBoardInfo *daughterboard,
     qdev_init_nofail(dev);
     busdev = sysbus_from_qdev(dev);
     sysbus_mmio_map(busdev, 0, 0x1e000000);
+    /* NOTE: TrustZone: Hook up IRQ and FIQ lines */
     for (n = 0; n < smp_cpus; n++) {
-        sysbus_connect_irq(busdev, n, cpu_irq[n]);
+        sysbus_connect_irq(busdev, 2*n, cpu_irq[n]);
+        sysbus_connect_irq(busdev, 2*n + 1, cpu_fiq[n]);
     }
     /* Interrupts [42:0] are from the motherboard;
      * [47:43] are reserved; [63:48] are daughterboard
@@ -278,6 +282,7 @@ static void a15_daughterboard_init(const VEDBoardInfo *daughterboard,
     MemoryRegion *ram = g_new(MemoryRegion, 1);
     MemoryRegion *sram = g_new(MemoryRegion, 1);
     qemu_irq cpu_irq[4];
+    qemu_irq cpu_fiq[4];
     DeviceState *dev;
     SysBusDevice *busdev;
 
@@ -298,6 +303,7 @@ static void a15_daughterboard_init(const VEDBoardInfo *daughterboard,
         }
         irqp = arm_pic_init_cpu(cpu);
         cpu_irq[n] = irqp[ARM_PIC_CPU_IRQ];
+        cpu_fiq[n] = irqp[ARM_PIC_CPU_FIQ];
     }
 
     {
@@ -323,8 +329,10 @@ static void a15_daughterboard_init(const VEDBoardInfo *daughterboard,
     qdev_init_nofail(dev);
     busdev = sysbus_from_qdev(dev);
     sysbus_mmio_map(busdev, 0, 0x2c000000);
+    /* NOTE: TrustZone: Hook up IRQ and FIQ lines */
     for (n = 0; n < smp_cpus; n++) {
-        sysbus_connect_irq(busdev, n, cpu_irq[n]);
+        sysbus_connect_irq(busdev, 2*n, cpu_irq[n]);
+        sysbus_connect_irq(busdev, 2*n+1, cpu_fiq[n]);
     }
     /* Interrupts [42:0] are from the motherboard;
      * [47:43] are reserved; [63:48] are daughterboard
