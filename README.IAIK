@@ -97,6 +97,17 @@ numbers:
   or the "main" view changed the "other" view. Use the "flushregs" GDB
   command to manually invalidate both views, when needed.
 
+--- Proof-of-concept security extensions for the ARM GIC
+
+Since commit 03b63ac2 there is proof-of-concept support for ARM
+security extensions in the ARM GIC device model on the vexpress-a9 and
+vexpress-a15 board models. Furthermore this commit includes a workaround
+to allow ill-behaved system software, which treats the write-only ICDSGIR
+register as read-modify-write register to work without causing a hw_error.
+
+The GIC security extensions are HIGHLY EXPERIMENTAL at the time of this
+writing.
+
 --- Test Case Setup: OpenVirtualization
 The primary goals of this patch series is to allow open-source
 TrustZone software to be simulated with QEMU. OpenVirtualization
@@ -151,10 +162,8 @@ use as key test case for the patch series.
    # insmod /otz_client.ko
    # /bin/otzapp.elf
 
-   The demo application currently should run some of its demo
-   testcases. Currently the demo hangs somewhere in the mutex demos, likely
-   due to our rudimentary (read: currently virtually non-existing) support for
-   TrustZone in the interrupt controller models ...
+   The demo application should complete all test successfully (given that the
+   ARM GIC security extensions patch is enabled in hw/arm_gic.c).
 
    Further interesting experiments:
     * Start QEMU with "-S -s" and attach GDB from a second console, then
@@ -166,3 +175,8 @@ use as key test case for the patch series.
     * Start QEMU with "-d coproc,coproc_ns" to log coprocessor register
       reads and writes from both worlds - in particular watch out for the MMU
       control register :)
+
+    * Ask GDB about system control registers (see "info all-registers")
+      Note that the GDB integration with system registers is still HIGHLY
+      EXPERIMENTAL (at the moment we do not eliminate duplicate register
+      descriptions ...)
