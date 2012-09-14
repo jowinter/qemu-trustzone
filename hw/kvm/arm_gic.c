@@ -43,24 +43,32 @@ static void kvm_arm_gic_set_irq(void *opaque, int irq, int level)
      *  [N..N+31] : PPI (internal) interrupts for CPU 0
      *  [N+32..N+63] : PPI (internal interrupts for CPU 1
      *  ...
+     * Convert this to the kernel's desired encoding, which
+     * has separate fields in the irq number for type,
+     * CPU number and interrupt number.
      */
     gic_state *s = (gic_state *)opaque;
-
+    int kvm_irq, irqtype, cpu;
 
     if (irq < (s->num_irq - GIC_INTERNAL)) {
-        /* External interrupt number 'irq' */
-        kvm_set_irq(kvm_state, irq + GIC_INTERNAL, !!level);
+        /* External interrupt. The kernel numbers these like the GIC
+         * hardware, with external interrupt IDs starting after the
+         * internal ones.
+         */
+        irqtype = KVM_ARM_IRQ_TYPE_SPI;
+        cpu = 0;
+        irq += GIC_INTERNAL;
     } else {
-        struct kvm_irq_level irq_level;
-        int cpu;
+        /* Internal interrupt: decode into (cpu, interrupt id) */
+        irqtype = KVM_ARM_IRQ_TYPE_PPI;
         irq -= (s->num_irq - GIC_INTERNAL);
         cpu = irq / GIC_INTERNAL;
         irq %= GIC_INTERNAL;
-        /* Internal interrupt 'irq' for CPU 'cpu' */
-        irq_level.irq = irq;
-        irq_level.level = !!level;
-        kvm_vcpu_ioctl(qemu_get_cpu(cpu), KVM_IRQ_LINE, &irq_level);
     }
+    kvm_irq = (irqtype << KVM_ARM_IRQ_TYPE_SHIFT)
+        | (cpu << KVM_ARM_IRQ_VCPU_SHIFT) | irq;
+
+    kvm_set_irq(kvm_state, kvm_irq, !!level);
 }
 
 static void kvm_arm_gic_put(gic_state *s)
@@ -143,6 +151,7 @@ static TypeInfo arm_gic_info = {
     .parent = TYPE_ARM_GIC_COMMON,
     .instance_size = sizeof(gic_state),
     .class_init = kvm_arm_gic_class_init,
+    .class_size = sizeof(KVMARMGICClass),
 };
 
 static void arm_gic_register_types(void)

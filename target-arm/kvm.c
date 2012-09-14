@@ -45,25 +45,87 @@ int kvm_arch_init_vcpu(CPUARMState *env)
     return kvm_vcpu_ioctl(env, KVM_ARM_VCPU_INIT, &init);
 }
 
-#define MSR32_INDEX_OF(coproc, crn, opc1, crm, opc2) \
-    (((coproc)<<16) | ((opc1)<<11) | ((crn)<<7) | ((opc2)<<4) | (crm))
+struct reg {
+    uint64_t id;
+    int offset;
+};
+
+#define COREREG(KERNELNAME, QEMUFIELD)                       \
+    {                                                        \
+        KVM_REG_ARM | KVM_REG_SIZE_U32 |                     \
+        KVM_REG_ARM_CORE | KVM_REG_ARM_CORE_REG(KERNELNAME), \
+        offsetof(CPUARMState, QEMUFIELD)                     \
+    }
+
+#define CP15REG(CRN, CRM, OPC1, OPC2, QEMUFIELD) \
+    {                                            \
+        KVM_REG_ARM | KVM_REG_SIZE_U32 |         \
+        (15 << KVM_REG_ARM_COPROC_SHIFT) |       \
+        ((CRN) << KVM_REG_ARM_32_CRN_SHIFT) |    \
+        ((CRM) << KVM_REG_ARM_CRM_SHIFT) |       \
+        ((OPC1) << KVM_REG_ARM_OPC1_SHIFT) |     \
+        ((OPC2) << KVM_REG_ARM_32_OPC2_SHIFT),   \
+        offsetof(CPUARMState, QEMUFIELD)         \
+    }
+
+const struct reg regs[] = {
+    /* R0_usr .. R14_usr */
+    COREREG(usr_regs[0], regs[0]),
+    COREREG(usr_regs[1], regs[1]),
+    COREREG(usr_regs[2], regs[2]),
+    COREREG(usr_regs[3], regs[3]),
+    COREREG(usr_regs[4], regs[4]),
+    COREREG(usr_regs[5], regs[5]),
+    COREREG(usr_regs[6], regs[6]),
+    COREREG(usr_regs[7], regs[7]),
+    COREREG(usr_regs[8], usr_regs[0]),
+    COREREG(usr_regs[9], usr_regs[1]),
+    COREREG(usr_regs[10], usr_regs[2]),
+    COREREG(usr_regs[11], usr_regs[3]),
+    COREREG(usr_regs[12], usr_regs[4]),
+    COREREG(usr_regs[13], banked_r13[0]),
+    COREREG(usr_regs[14], banked_r14[0]),
+    /* R13, R14, SPSR for SVC, ABT, UND, IRQ banks */
+    COREREG(svc_regs[0], banked_r13[1]),
+    COREREG(svc_regs[1], banked_r14[1]),
+    COREREG(svc_regs[2], banked_spsr[1]),
+    COREREG(abt_regs[0], banked_r13[2]),
+    COREREG(abt_regs[1], banked_r14[2]),
+    COREREG(abt_regs[2], banked_spsr[2]),
+    COREREG(und_regs[0], banked_r13[3]),
+    COREREG(und_regs[1], banked_r14[3]),
+    COREREG(und_regs[2], banked_spsr[3]),
+    COREREG(irq_regs[0], banked_r13[4]),
+    COREREG(irq_regs[1], banked_r14[4]),
+    COREREG(irq_regs[2], banked_spsr[4]),
+    /* R8_fiq .. R14_fiq and SPSR_fiq */
+    COREREG(fiq_regs[0], fiq_regs[0]),
+    COREREG(fiq_regs[1], fiq_regs[1]),
+    COREREG(fiq_regs[2], fiq_regs[2]),
+    COREREG(fiq_regs[3], fiq_regs[3]),
+    COREREG(fiq_regs[4], fiq_regs[4]),
+    COREREG(fiq_regs[0], banked_r13[5]),
+    COREREG(fiq_regs[1], banked_r14[5]),
+    COREREG(fiq_regs[2], banked_spsr[5]),
+    /* R15 */
+    COREREG(pc, regs[15]),
+    /* A non-comprehensive set of cp15 registers.
+     * TODO: drive this from the cp_regs hashtable instead.
+     */
+    CP15REG(1, 0, 0, 0, cp15.c1_sys), /* SCTLR */
+    CP15REG(2, 0, 0, 2, cp15.c2_control), /* TTBCR */
+    CP15REG(3, 0, 0, 0, cp15.c3), /* DACR */
+};
 
 int kvm_arch_put_registers(CPUARMState *env, int level)
 {
-    struct kvm_regs regs;
+    struct kvm_one_reg r;
     int mode, bn;
-    struct cp15 {
-        struct kvm_msrs hdr;
-        struct kvm_msr_entry e[2];
-    } cp15;
-    int ret;
+    int ret, i;
+    uint32_t cpsr;
+    uint64_t ttbr;
 
-    ret = kvm_vcpu_ioctl(env, KVM_GET_REGS, &regs);
-    if (ret < 0) {
-        return ret;
-    }
-
-    /* We make sure the banked regs are properly set */
+    /* Make sure the banked regs are properly set */
     mode = env->uncached_cpsr & CPSR_M;
     bn = bank_number(env, mode);
     if (mode == ARM_CPU_MODE_FIQ) {
@@ -76,84 +138,95 @@ int kvm_arch_put_registers(CPUARMState *env, int level)
     env->banked_spsr[bn] = env->spsr;
 
     /* Now we can safely copy stuff down to the kernel */
-    memcpy(regs.regs0_7, env->regs, sizeof(uint32_t) * 8);
-    memcpy(regs.usr_regs8_12, env->usr_regs, sizeof(uint32_t) * 5);
-    memcpy(regs.fiq_regs8_12, env->fiq_regs, sizeof(uint32_t) * 5);
-    regs.reg13[MODE_FIQ] = env->banked_r13[5];
-    regs.reg13[MODE_IRQ] = env->banked_r13[4];
-    regs.reg13[MODE_SVC] = env->banked_r13[1];
-    regs.reg13[MODE_ABT] = env->banked_r13[2];
-    regs.reg13[MODE_UND] = env->banked_r13[3];
-    regs.reg13[MODE_USR] = env->banked_r13[0];
-    regs.reg14[MODE_FIQ] = env->banked_r14[5];
-    regs.reg14[MODE_IRQ] = env->banked_r14[4];
-    regs.reg14[MODE_SVC] = env->banked_r14[1];
-    regs.reg14[MODE_ABT] = env->banked_r14[2];
-    regs.reg14[MODE_UND] = env->banked_r14[3];
-    regs.reg14[MODE_USR] = env->banked_r14[0];
-    regs.reg15 = env->regs[15];
-    regs.cpsr = cpsr_read(env);
-    regs.spsr[MODE_FIQ] = env->banked_spsr[5];
-    regs.spsr[MODE_IRQ] = env->banked_spsr[4];
-    regs.spsr[MODE_SVC] = env->banked_spsr[1];
-    regs.spsr[MODE_ABT] = env->banked_spsr[2];
-    regs.spsr[MODE_UND] = env->banked_spsr[3];
-
-    cp15.hdr.nmsrs = ARRAY_SIZE(cp15.e);
-    cp15.e[0].index = MSR32_INDEX_OF(15, 0, 0, 0, 0); /* MIDR */
-    cp15.e[0].data = env->cp15.c0_cpuid;
-    cp15.e[1].index = MSR32_INDEX_OF(15, 1, 0, 0, 0); /* SCTLR */
-    cp15.e[1].data = env->cp15.c1_sys;
-
-    ret = kvm_vcpu_ioctl(env, KVM_SET_REGS, &regs);
-    if (ret == 0) {
-        ret = kvm_vcpu_ioctl(env, KVM_SET_MSRS, &cp15);
+    for (i = 0; i < ARRAY_SIZE(regs); i++) {
+        r.id = regs[i].id;
+        r.addr = (uintptr_t)(env) + regs[i].offset;
+        ret = kvm_vcpu_ioctl(env, KVM_SET_ONE_REG, &r);
+        if (ret) {
+            return ret;
+        }
     }
+
+    /* Special cases which aren't a single CPUARMState field */
+    cpsr = cpsr_read(env);
+    r.id = KVM_REG_ARM | KVM_REG_SIZE_U32 |
+        KVM_REG_ARM_CORE | KVM_REG_ARM_CORE_REG(cpsr);
+    r.addr = (uintptr_t)(&cpsr);
+    ret = kvm_vcpu_ioctl(env, KVM_SET_ONE_REG, &r);
+    if (ret) {
+        return ret;
+    }
+
+    /* TTBR0: cp15 crm=2 opc1=0 */
+    ttbr = ((uint64_t)env->cp15.c2_base0_hi << 32) | env->cp15.c2_base0;
+    r.id = KVM_REG_ARM | KVM_REG_SIZE_U64 | (15 << KVM_REG_ARM_COPROC_SHIFT) |
+        (2 << KVM_REG_ARM_CRM_SHIFT) | (0 << KVM_REG_ARM_OPC1_SHIFT);
+    r.addr = (uintptr_t)(&ttbr);
+    ret = kvm_vcpu_ioctl(env, KVM_SET_ONE_REG, &r);
+    if (ret) {
+        return ret;
+    }
+
+    /* TTBR1: cp15 crm=2 opc1=1 */
+    ttbr = ((uint64_t)env->cp15.c2_base1_hi << 32) | env->cp15.c2_base1;
+    r.id = KVM_REG_ARM | KVM_REG_SIZE_U64 | (15 << KVM_REG_ARM_COPROC_SHIFT) |
+        (2 << KVM_REG_ARM_CRM_SHIFT) | (1 << KVM_REG_ARM_OPC1_SHIFT);
+    r.addr = (uintptr_t)(&ttbr);
+    ret = kvm_vcpu_ioctl(env, KVM_SET_ONE_REG, &r);
+
     return ret;
 }
 
 int kvm_arch_get_registers(CPUARMState *env)
 {
-    struct kvm_regs regs;
+    struct kvm_one_reg r;
     int mode, bn;
-    int32_t ret;
-    struct cp15 {
-        struct kvm_msrs hdr;
-        struct kvm_msr_entry e[6];
-    } cp15;
+    int ret, i;
+    uint32_t cpsr;
+    uint64_t ttbr;
 
-
-    ret = kvm_vcpu_ioctl(env, KVM_GET_REGS, &regs);
-    if (ret < 0) {
-        return ret;
+    for (i = 0; i < ARRAY_SIZE(regs); i++) {
+        r.id = regs[i].id;
+        r.addr = (uintptr_t)(env) + regs[i].offset;
+        ret = kvm_vcpu_ioctl(env, KVM_GET_ONE_REG, &r);
+        if (ret) {
+            return ret;
+        }
     }
 
-    /* First, let's transfer the banked state */
-    cpsr_write(env, regs.cpsr, 0xFFFFFFFF);
-    memcpy(env->regs, regs.regs0_7, sizeof(uint32_t) * 8);
-    memcpy(env->usr_regs, regs.usr_regs8_12, sizeof(uint32_t) * 5);
-    memcpy(env->fiq_regs, regs.fiq_regs8_12, sizeof(uint32_t) * 5);
+    /* Special cases which aren't a single CPUARMState field */
+    r.id = KVM_REG_ARM | KVM_REG_SIZE_U32 |
+        KVM_REG_ARM_CORE | KVM_REG_ARM_CORE_REG(cpsr);
+    r.addr = (uintptr_t)(&cpsr);
+    ret = kvm_vcpu_ioctl(env, KVM_GET_ONE_REG, &r);
+    if (ret) {
+        return ret;
+    }
+    cpsr_write(env, cpsr, 0xffffffff);
 
-    env->banked_r13[5] = regs.reg13[MODE_FIQ];
-    env->banked_r13[4] = regs.reg13[MODE_IRQ];
-    env->banked_r13[1] = regs.reg13[MODE_SVC];
-    env->banked_r13[2] = regs.reg13[MODE_ABT];
-    env->banked_r13[3] = regs.reg13[MODE_UND];
-    env->banked_r13[0] = regs.reg13[MODE_USR];
-    env->banked_r14[5] = regs.reg14[MODE_FIQ];
-    env->banked_r14[4] = regs.reg14[MODE_IRQ];
-    env->banked_r14[1] = regs.reg14[MODE_SVC];
-    env->banked_r14[2] = regs.reg14[MODE_ABT];
-    env->banked_r14[3] = regs.reg14[MODE_UND];
-    env->banked_r14[0] = regs.reg14[MODE_USR];
-    env->regs[15] = regs.reg15;
-    env->banked_spsr[5] = regs.spsr[MODE_FIQ];
-    env->banked_spsr[4] = regs.spsr[MODE_IRQ];
-    env->banked_spsr[1] = regs.spsr[MODE_SVC];
-    env->banked_spsr[2] = regs.spsr[MODE_ABT];
-    env->banked_spsr[3] = regs.spsr[MODE_UND];
+    /* TTBR0: cp15 crm=2 opc1=0 */
+    r.id = KVM_REG_ARM | KVM_REG_SIZE_U64 | (15 << KVM_REG_ARM_COPROC_SHIFT) |
+        (2 << KVM_REG_ARM_CRM_SHIFT) | (0 << KVM_REG_ARM_OPC1_SHIFT);
+    r.addr = (uintptr_t)(&ttbr);
+    ret = kvm_vcpu_ioctl(env, KVM_GET_ONE_REG, &r);
+    if (ret) {
+        return ret;
+    }
+    env->cp15.c2_base0_hi = ttbr >> 32;
+    env->cp15.c2_base0 = ttbr;
 
-    /* We make sure the current mode regs are properly set */
+    /* TTBR1: cp15 crm=2 opc1=1 */
+    r.id = KVM_REG_ARM | KVM_REG_SIZE_U64 | (15 << KVM_REG_ARM_COPROC_SHIFT) |
+        (2 << KVM_REG_ARM_CRM_SHIFT) | (1 << KVM_REG_ARM_OPC1_SHIFT);
+    r.addr = (uintptr_t)(&ttbr);
+    ret = kvm_vcpu_ioctl(env, KVM_GET_ONE_REG, &r);
+    if (ret) {
+        return ret;
+    }
+    env->cp15.c2_base1_hi = ttbr >> 32;
+    env->cp15.c2_base1 = ttbr;
+
+    /* Make sure the current mode regs are properly set */
     mode = env->uncached_cpsr & CPSR_M;
     bn = bank_number(env, mode);
     if (mode == ARM_CPU_MODE_FIQ) {
@@ -165,34 +238,15 @@ int kvm_arch_get_registers(CPUARMState *env)
     env->regs[14] = env->banked_r14[bn];
     env->spsr = env->banked_spsr[bn];
 
-    /* TODO: investigate automatically getting all registers
-     * we know about via the ARMCPU cp_regs hashtable.
+    /* The main GET_ONE_REG loop above set c2_control, but we need to
+     * update some extra cached precomputed values too.
+     * When this is driven from the cp_regs hashtable then this ugliness
+     * can disappear because we'll use the access function which sets
+     * these values automatically.
      */
-    cp15.hdr.nmsrs = ARRAY_SIZE(cp15.e);
-    cp15.e[0].index = MSR32_INDEX_OF(15, 0, 0, 0, 0); /* MIDR */
-    cp15.e[1].index = MSR32_INDEX_OF(15, 1, 0, 0, 0); /* SCTLR */
-    cp15.e[2].index = MSR32_INDEX_OF(15, 2, 0, 0, 0); /* TTBR0 */
-    cp15.e[3].index = MSR32_INDEX_OF(15, 2, 0, 0, 1); /* TTBR1 */
-    cp15.e[4].index = MSR32_INDEX_OF(15, 2, 0, 0, 2); /* TTBCR */
-    cp15.e[5].index = MSR32_INDEX_OF(15, 3, 0, 0, 0); /* DACR */
+    env->cp15.c2_mask = ~(((uint32_t)0xffffffffu) >> env->cp15.c2_control);
+    env->cp15.c2_base_mask = ~((uint32_t)0x3fffu >> env->cp15.c2_control);
 
-    ret = kvm_vcpu_ioctl(env, KVM_GET_MSRS, &cp15);
-    if (ret < 0) {
-        return ret;
-    }
-
-    env->cp15.c1_sys = cp15.e[1].data;
-    env->cp15.c2_base0 = cp15.e[2].data;
-    env->cp15.c2_base1 = cp15.e[3].data;
-
-    /* This is ugly, but necessary for GDB compatibility
-     * TODO: do this via an access function.
-     */
-    env->cp15.c2_control = cp15.e[4].data;
-    env->cp15.c2_mask = ~(((uint32_t)0xffffffffu) >> cp15.e[4].data);
-    env->cp15.c2_base_mask = ~((uint32_t)0x3fffu >> cp15.e[4].data);
-
-    env->cp15.c3 = cp15.e[5].data;
     return 0;
 }
 

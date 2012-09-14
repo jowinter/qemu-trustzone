@@ -24,39 +24,18 @@
 #define __KVM_HAVE_GUEST_DEBUG
 #define __KVM_HAVE_IRQ_LINE
 
-/*
- * KVM_IRQ_LINE macros to set/read IRQ/FIQ for specific VCPU index.
- */
-enum KVM_ARM_IRQ_LINE_TYPE {
-	KVM_ARM_IRQ_LINE = 0,
-	KVM_ARM_FIQ_LINE = 1,
-};
-
-/*
- * Modes used for short-hand mode determinition in the world-switch code and
- * in emulation code.
- *
- * Note: These indices do NOT correspond to the value of the CPSR mode bits!
- */
-enum vcpu_mode {
-	MODE_FIQ = 0,
-	MODE_IRQ,
-	MODE_SVC,
-	MODE_ABT,
-	MODE_UND,
-	MODE_USR,
-	MODE_SYS
-};
+#define KVM_REG_SIZE(id)						\
+	(1U << (((id) & KVM_REG_SIZE_MASK) >> KVM_REG_SIZE_SHIFT))
 
 struct kvm_regs {
-	__u32 regs0_7[8];	/* Unbanked regs. (r0 - r7)	   */
-	__u32 fiq_regs8_12[5];	/* Banked fiq regs. (r8 - r12)	   */
-	__u32 usr_regs8_12[5];	/* Banked usr registers (r8 - r12) */
-	__u32 reg13[6];		/* Banked r13, indexed by MODE_	   */
-	__u32 reg14[6];		/* Banked r13, indexed by MODE_	   */
-	__u32 reg15;
-	__u32 cpsr;
-	__u32 spsr[5];		/* Banked SPSR,  indexed by MODE_  */
+	__u32 usr_regs[15];	/* R0_usr - R14_usr */
+	__u32 svc_regs[3];	/* SP_svc, LR_svc, SPSR_svc */
+	__u32 abt_regs[3];	/* SP_abt, LR_abt, SPSR_abt */
+	__u32 und_regs[3];	/* SP_und, LR_und, SPSR_und */
+	__u32 irq_regs[3];	/* SP_irq, LR_irq, SPSR_irq */
+	__u32 fiq_regs[8];	/* R8_fiq - R14_fiq, SPSR_fiq */
+	__u32 pc;		/* The program counter (r15) */
+	__u32 cpsr;		/* The guest CPSR */
 };
 
 /* Supported Processor Types */
@@ -85,35 +64,46 @@ struct kvm_sync_regs {
 struct kvm_arch_memory_slot {
 };
 
-/* Based on x86, but we use KVM_GET_VCPU_MSR_INDEX_LIST. */
-struct kvm_msr_entry {
-	__u32 index;
-	__u32 reserved;
-	__u64 data;
+/* For KVM_VCPU_GET_REG_LIST. */
+struct kvm_reg_list {
+	__u64 n; /* number of regs */
+	__u64 reg[0];
 };
 
-/* for KVM_GET_MSRS and KVM_SET_MSRS */
-struct kvm_msrs {
-	__u32 nmsrs; /* number of msrs in entries */
-	__u32 pad;
+/* If you need to interpret the index values, here is the key: */
+#define KVM_REG_ARM_COPROC_MASK		0x000000000FFF0000
+#define KVM_REG_ARM_COPROC_SHIFT	16
+#define KVM_REG_ARM_32_OPC2_MASK	0x0000000000000007
+#define KVM_REG_ARM_32_OPC2_SHIFT	0
+#define KVM_REG_ARM_OPC1_MASK		0x0000000000000078
+#define KVM_REG_ARM_OPC1_SHIFT		3
+#define KVM_REG_ARM_CRM_MASK		0x0000000000000780
+#define KVM_REG_ARM_CRM_SHIFT		7
+#define KVM_REG_ARM_32_CRN_MASK		0x0000000000007800
+#define KVM_REG_ARM_32_CRN_SHIFT	11
 
-	struct kvm_msr_entry entries[0];
-};
+/* KVM_IRQ_LINE irq field index values */
+#define KVM_ARM_IRQ_TYPE_SHIFT		24
+#define KVM_ARM_IRQ_TYPE_MASK		0xff
+#define KVM_ARM_IRQ_VCPU_SHIFT		16
+#define KVM_ARM_IRQ_VCPU_MASK		0xff
+#define KVM_ARM_IRQ_NUM_SHIFT		0
+#define KVM_ARM_IRQ_NUM_MASK		0xffff
 
-/* for KVM_VCPU_GET_MSR_INDEX_LIST */
-struct kvm_msr_list {
-	__u32 nmsrs; /* number of msrs in entries */
-	__u32 indices[0];
-};
+/* irq_type field */
+#define KVM_ARM_IRQ_TYPE_CPU		0
+#define KVM_ARM_IRQ_TYPE_SPI		1
+#define KVM_ARM_IRQ_TYPE_PPI		2
 
-/* If you need to interpret the index values, here's the key. */
-#define KVM_ARM_MSR_COPROC_MASK		0xFFFF0000
-#define KVM_ARM_MSR_64_BIT_MASK		0x00008000
-#define KVM_ARM_MSR_64_OPC1_MASK	0x000000F0
-#define KVM_ARM_MSR_64_CRM_MASK		0x0000000F
-#define KVM_ARM_MSR_32_CRM_MASK		0x0000000F
-#define KVM_ARM_MSR_32_OPC2_MASK	0x00000070
-#define KVM_ARM_MSR_32_CRN_MASK		0x00000780
-#define KVM_ARM_MSR_32_OPC1_MASK	0x00003800
+/* out-of-kernel GIC cpu interrupt injection irq_number field */
+#define KVM_ARM_IRQ_CPU_IRQ		0
+#define KVM_ARM_IRQ_CPU_FIQ		1
+
+/* Highest supported SPI, from VGIC_NR_IRQS */
+#define KVM_ARM_IRQ_GIC_MAX		127
+
+/* Normal registers are mapped as coprocessor 16. */
+#define KVM_REG_ARM_CORE		(0x0010 << KVM_REG_ARM_COPROC_SHIFT)
+#define KVM_REG_ARM_CORE_REG(name)	(offsetof(struct kvm_regs, name) / 4)
 
 #endif /* __ARM_KVM_H__ */
