@@ -79,7 +79,7 @@ static void hb_reset_secondary(ARMCPU *cpu, const struct arm_boot_info *info)
 }
 
 #define NUM_REGS      0x200
-static void hb_regs_write(void *opaque, target_phys_addr_t offset,
+static void hb_regs_write(void *opaque, hwaddr offset,
                           uint64_t value, unsigned size)
 {
     uint32_t *regs = opaque;
@@ -95,7 +95,7 @@ static void hb_regs_write(void *opaque, target_phys_addr_t offset,
     regs[offset/4] = value;
 }
 
-static uint64_t hb_regs_read(void *opaque, target_phys_addr_t offset,
+static uint64_t hb_regs_read(void *opaque, hwaddr offset,
                              unsigned size)
 {
     uint32_t *regs = opaque;
@@ -187,11 +187,13 @@ static struct arm_boot_info highbank_binfo;
  * 32-bit host, set the reg value of memory to 0xf7ff00000 in the
  * device tree and pass -m 2047 to QEMU.
  */
-static void highbank_init(ram_addr_t ram_size,
-                     const char *boot_device,
-                     const char *kernel_filename, const char *kernel_cmdline,
-                     const char *initrd_filename, const char *cpu_model)
+static void highbank_init(QEMUMachineInitArgs *args)
 {
+    ram_addr_t ram_size = args->ram_size;
+    const char *cpu_model = args->cpu_model;
+    const char *kernel_filename = args->kernel_filename;
+    const char *kernel_cmdline = args->kernel_cmdline;
+    const char *initrd_filename = args->initrd_filename;
     DeviceState *dev;
     SysBusDevice *busdev;
     qemu_irq *irqp;

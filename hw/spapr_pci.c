@@ -258,7 +258,7 @@ static int spapr_msicfg_find(sPAPRPHBState *phb, uint32_t config_addr,
  * This is required for msi_notify()/msix_notify() which
  * will write at the addresses via spapr_msi_write().
  */
-static void spapr_msi_setmsg(PCIDevice *pdev, target_phys_addr_t addr,
+static void spapr_msi_setmsg(PCIDevice *pdev, hwaddr addr,
                              bool msix, unsigned req_num)
 {
     unsigned i;
@@ -351,7 +351,7 @@ static void rtas_ibm_change_msi(sPAPREnvironment *spapr,
 
     /* There is no cached config, allocate MSIs */
     if (!phb->msi_table[ndev].nvec) {
-        irq = spapr_allocate_irq_block(req_num, XICS_MSI);
+        irq = spapr_allocate_irq_block(req_num, true);
         if (irq < 0) {
             fprintf(stderr, "Cannot allocate MSIs for device#%d", ndev);
             rtas_st(rets, 0, -1); /* Hardware error */
@@ -439,7 +439,7 @@ static void pci_spapr_set_irq(void *opaque, int irq_num, int level)
     qemu_set_irq(spapr_phb_lsi_qirq(phb, irq_num), level);
 }
 
-static uint64_t spapr_io_read(void *opaque, target_phys_addr_t addr,
+static uint64_t spapr_io_read(void *opaque, hwaddr addr,
                               unsigned size)
 {
     switch (size) {
@@ -453,7 +453,7 @@ static uint64_t spapr_io_read(void *opaque, target_phys_addr_t addr,
     assert(0);
 }
 
-static void spapr_io_write(void *opaque, target_phys_addr_t addr,
+static void spapr_io_write(void *opaque, hwaddr addr,
                            uint64_t data, unsigned size)
 {
     switch (size) {
@@ -483,7 +483,7 @@ static const MemoryRegionOps spapr_io_ops = {
  * data is set to 0.
  * For MSI, the vector number is encoded in least bits in data.
  */
-static void spapr_msi_write(void *opaque, target_phys_addr_t addr,
+static void spapr_msi_write(void *opaque, hwaddr addr,
                             uint64_t data, unsigned size)
 {
     sPAPRPHBState *phb = opaque;
@@ -595,6 +595,15 @@ static int spapr_phb_init(SysBusDevice *s)
     return 0;
 }
 
+static void spapr_phb_reset(DeviceState *qdev)
+{
+    SysBusDevice *s = sysbus_from_qdev(qdev);
+    sPAPRPHBState *sphb = SPAPR_PCI_HOST_BRIDGE(s);
+
+    /* Reset the IOMMU state */
+    spapr_tce_reset(sphb->dma);
+}
+
 static Property spapr_phb_properties[] = {
     DEFINE_PROP_HEX64("buid", sPAPRPHBState, buid, 0),
     DEFINE_PROP_STRING("busname", sPAPRPHBState, busname),
@@ -613,6 +622,7 @@ static void spapr_phb_class_init(ObjectClass *klass, void *data)
 
     sdc->init = spapr_phb_init;
     dc->props = spapr_phb_properties;
+    dc->reset = spapr_phb_reset;
 }
 
 static const TypeInfo spapr_phb_info = {

@@ -1470,12 +1470,10 @@ static void ohci_port_set_status(OHCIState *ohci, int portnum, uint32_t val)
 
     if (old_state != port->ctrl)
         ohci_set_interrupt(ohci, OHCI_INTR_RHSC);
-
-    return;
 }
 
 static uint64_t ohci_mem_read(void *opaque,
-                              target_phys_addr_t addr,
+                              hwaddr addr,
                               unsigned size)
 {
     OHCIState *ohci = opaque;
@@ -1598,7 +1596,7 @@ static uint64_t ohci_mem_read(void *opaque,
 }
 
 static void ohci_mem_write(void *opaque,
-                           target_phys_addr_t addr,
+                           hwaddr addr,
                            uint64_t val,
                            unsigned size)
 {
@@ -1848,7 +1846,7 @@ static int ohci_init_pxa(SysBusDevice *dev)
 
     /* Cannot fail as we pass NULL for masterbus */
     usb_ohci_init(&s->ohci, &dev->qdev, s->num_ports, s->dma_offset, NULL, 0,
-                  NULL);
+                  &dma_context_memory);
     sysbus_init_irq(dev, &s->ohci.irq);
     sysbus_init_mmio(dev, &s->ohci.mem);
 

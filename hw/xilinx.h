@@ -3,7 +3,7 @@
 #include "net.h"
 
 static inline DeviceState *
-xilinx_intc_create(target_phys_addr_t base, qemu_irq irq, int kind_of_intr)
+xilinx_intc_create(hwaddr base, qemu_irq irq, int kind_of_intr)
 {
     DeviceState *dev;
 
@@ -17,13 +17,13 @@ xilinx_intc_create(target_phys_addr_t base, qemu_irq irq, int kind_of_intr)
 
 /* OPB Timer/Counter.  */
 static inline DeviceState *
-xilinx_timer_create(target_phys_addr_t base, qemu_irq irq, int oto, int freq)
+xilinx_timer_create(hwaddr base, qemu_irq irq, int oto, int freq)
 {
     DeviceState *dev;
 
-    dev = qdev_create(NULL, "xlnx,xps-timer");
+    dev = qdev_create(NULL, "xlnx.xps-timer");
     qdev_prop_set_uint32(dev, "one-timer-only", oto);
-    qdev_prop_set_uint32(dev, "frequency", freq);
+    qdev_prop_set_uint32(dev, "clock-frequency", freq);
     qdev_init_nofail(dev);
     sysbus_mmio_map(sysbus_from_qdev(dev), 0, base);
     sysbus_connect_irq(sysbus_from_qdev(dev), 0, irq);
@@ -32,7 +32,7 @@ xilinx_timer_create(target_phys_addr_t base, qemu_irq irq, int oto, int freq)
 
 /* XPS Ethernet Lite MAC.  */
 static inline DeviceState *
-xilinx_ethlite_create(NICInfo *nd, target_phys_addr_t base, qemu_irq irq,
+xilinx_ethlite_create(NICInfo *nd, hwaddr base, qemu_irq irq,
                       int txpingpong, int rxpingpong)
 {
     DeviceState *dev;
@@ -51,17 +51,21 @@ xilinx_ethlite_create(NICInfo *nd, target_phys_addr_t base, qemu_irq irq,
 
 static inline DeviceState *
 xilinx_axiethernet_create(NICInfo *nd, StreamSlave *peer,
-                          target_phys_addr_t base, qemu_irq irq,
+                          hwaddr base, qemu_irq irq,
                           int txmem, int rxmem)
 {
     DeviceState *dev;
+    Error *errp = NULL;
+
     qemu_check_nic_model(nd, "xlnx.axi-ethernet");
 
     dev = qdev_create(NULL, "xlnx.axi-ethernet");
     qdev_set_nic_properties(dev, nd);
     qdev_prop_set_uint32(dev, "rxmem", rxmem);
     qdev_prop_set_uint32(dev, "txmem", txmem);
-    object_property_set_link(OBJECT(dev), OBJECT(peer), "tx_dev", NULL);
+    object_property_set_link(OBJECT(dev), OBJECT(peer), "axistream-connected",
+                             &errp);
+    assert_no_error(errp);
     qdev_init_nofail(dev);
     sysbus_mmio_map(sysbus_from_qdev(dev), 0, base);
     sysbus_connect_irq(sysbus_from_qdev(dev), 0, irq);
@@ -71,11 +75,15 @@ xilinx_axiethernet_create(NICInfo *nd, StreamSlave *peer,
 
 static inline void
 xilinx_axiethernetdma_init(DeviceState *dev, StreamSlave *peer,
-                           target_phys_addr_t base, qemu_irq irq,
+                           hwaddr base, qemu_irq irq,
                            qemu_irq irq2, int freqhz)
 {
+    Error *errp = NULL;
+
     qdev_prop_set_uint32(dev, "freqhz", freqhz);
-    object_property_set_link(OBJECT(dev), OBJECT(peer), "tx_dev", NULL);
+    object_property_set_link(OBJECT(dev), OBJECT(peer), "axistream-connected",
+                             &errp);
+    assert_no_error(errp);
     qdev_init_nofail(dev);
 
     sysbus_mmio_map(sysbus_from_qdev(dev), 0, base);

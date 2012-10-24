@@ -182,7 +182,7 @@ static void omap_i2c_reset(DeviceState *dev)
     i2c_end_transfer(s->bus);
 }
 
-static uint32_t omap_i2c_read(void *opaque, target_phys_addr_t addr)
+static uint32_t omap_i2c_read(void *opaque, hwaddr addr)
 {
     OMAPI2CState *s = opaque;
     int offset = addr & OMAP_MPUI_REG_MASK;
@@ -325,7 +325,7 @@ static uint32_t omap_i2c_read(void *opaque, target_phys_addr_t addr)
     return 0;
 }
 
-static uint32_t omap_i2c_readb(void *opaque, target_phys_addr_t addr)
+static uint32_t omap_i2c_readb(void *opaque, hwaddr addr)
 {
     OMAPI2CState *s = opaque;
     int offset = addr & OMAP_MPUI_REG_MASK;
@@ -380,7 +380,7 @@ static uint32_t omap_i2c_readb(void *opaque, target_phys_addr_t addr)
     return 0;
 }
 
-static void omap_i2c_write(void *opaque, target_phys_addr_t addr,
+static void omap_i2c_write(void *opaque, hwaddr addr,
                 uint32_t value)
 {
     OMAPI2CState *s = opaque;
@@ -609,7 +609,7 @@ static void omap_i2c_write(void *opaque, target_phys_addr_t addr,
     }
 }
 
-static void omap_i2c_writeb(void *opaque, target_phys_addr_t addr,
+static void omap_i2c_writeb(void *opaque, hwaddr addr,
                 uint32_t value)
 {
     OMAPI2CState *s = opaque;

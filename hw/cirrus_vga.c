@@ -28,7 +28,6 @@
  */
 #include "hw.h"
 #include "pci.h"
-#include "vga-pci.h"
 #include "console.h"
 #include "vga_int.h"
 #include "loader.h"
@@ -1953,7 +1952,7 @@ static void cirrus_mem_writeb_mode4and5_16bpp(CirrusVGAState * s,
  ***************************************/
 
 static uint64_t cirrus_vga_mem_read(void *opaque,
-                                    target_phys_addr_t addr,
+                                    hwaddr addr,
                                     uint32_t size)
 {
     CirrusVGAState *s = opaque;
@@ -1997,7 +1996,7 @@ static uint64_t cirrus_vga_mem_read(void *opaque,
 }
 
 static void cirrus_vga_mem_write(void *opaque,
-                                 target_phys_addr_t addr,
+                                 hwaddr addr,
                                  uint64_t mem_value,
                                  uint32_t size)
 {
@@ -2256,7 +2255,7 @@ static void cirrus_cursor_draw_line(VGACommonState *s1, uint8_t *d1, int scr_y)
  *
  ***************************************/
 
-static uint64_t cirrus_linear_read(void *opaque, target_phys_addr_t addr,
+static uint64_t cirrus_linear_read(void *opaque, hwaddr addr,
                                    unsigned size)
 {
     CirrusVGAState *s = opaque;
@@ -2285,7 +2284,7 @@ static uint64_t cirrus_linear_read(void *opaque, target_phys_addr_t addr,
     return ret;
 }
 
-static void cirrus_linear_write(void *opaque, target_phys_addr_t addr,
+static void cirrus_linear_write(void *opaque, hwaddr addr,
                                 uint64_t val, unsigned size)
 {
     CirrusVGAState *s = opaque;
@@ -2334,7 +2333,7 @@ static void cirrus_linear_write(void *opaque, target_phys_addr_t addr,
 
 
 static uint64_t cirrus_linear_bitblt_read(void *opaque,
-                                          target_phys_addr_t addr,
+                                          hwaddr addr,
                                           unsigned size)
 {
     CirrusVGAState *s = opaque;
@@ -2347,7 +2346,7 @@ static uint64_t cirrus_linear_bitblt_read(void *opaque,
 }
 
 static void cirrus_linear_bitblt_write(void *opaque,
-                                       target_phys_addr_t addr,
+                                       hwaddr addr,
                                        uint64_t val,
                                        unsigned size)
 {
@@ -2441,6 +2440,8 @@ static uint32_t cirrus_vga_ioport_read(void *opaque, uint32_t addr)
     VGACommonState *s = &c->vga;
     int val, index;
 
+    qemu_flush_coalesced_mmio_buffer();
+
     if (vga_ioport_invalid(s, addr)) {
 	val = 0xff;
     } else {
@@ -2533,6 +2534,8 @@ static void cirrus_vga_ioport_write(void *opaque, uint32_t addr, uint32_t val)
     CirrusVGAState *c = opaque;
     VGACommonState *s = &c->vga;
     int index;
+
+    qemu_flush_coalesced_mmio_buffer();
 
     /* check port range access depending on color/monochrome mode */
     if (vga_ioport_invalid(s, addr)) {
@@ -2637,7 +2640,7 @@ static void cirrus_vga_ioport_write(void *opaque, uint32_t addr, uint32_t val)
  *
  ***************************************/
 
-static uint64_t cirrus_mmio_read(void *opaque, target_phys_addr_t addr,
+static uint64_t cirrus_mmio_read(void *opaque, hwaddr addr,
                                  unsigned size)
 {
     CirrusVGAState *s = opaque;
@@ -2649,7 +2652,7 @@ static uint64_t cirrus_mmio_read(void *opaque, target_phys_addr_t addr,
     }
 }
 
-static void cirrus_mmio_write(void *opaque, target_phys_addr_t addr,
+static void cirrus_mmio_write(void *opaque, hwaddr addr,
                               uint64_t val, unsigned size)
 {
     CirrusVGAState *s = opaque;
@@ -2854,6 +2857,7 @@ static void cirrus_init_common(CirrusVGAState * s, int device_id, int is_pci,
     /* I/O handler for LFB */
     memory_region_init_io(&s->cirrus_linear_io, &cirrus_linear_io_ops, s,
                           "cirrus-linear-io", VGA_RAM_SIZE);
+    memory_region_set_flush_coalesced(&s->cirrus_linear_io);
 
     /* I/O handler for LFB */
     memory_region_init_io(&s->cirrus_linear_bitblt_io,
@@ -2861,10 +2865,12 @@ static void cirrus_init_common(CirrusVGAState * s, int device_id, int is_pci,
                           s,
                           "cirrus-bitblt-mmio",
                           0x400000);
+    memory_region_set_flush_coalesced(&s->cirrus_linear_bitblt_io);
 
     /* I/O handler for memory-mapped I/O */
     memory_region_init_io(&s->cirrus_mmio_io, &cirrus_mmio_io_ops, s,
                           "cirrus-mmio", CIRRUS_PNPMMIO_SIZE);
+    memory_region_set_flush_coalesced(&s->cirrus_mmio_io);
 
     s->real_vram_size =
         (s->device_id == CIRRUS_ID_CLGD5446) ? 4096 * 1024 : 2048 * 1024;
@@ -2961,11 +2967,6 @@ static int pci_cirrus_vga_initfn(PCIDevice *dev)
          pci_register_bar(&d->dev, 1, 0, &s->cirrus_mmio_io);
      }
      return 0;
-}
-
-DeviceState *pci_cirrus_vga_init(PCIBus *bus)
-{
-    return &pci_create_simple(bus, -1, "cirrus-vga")->qdev;
 }
 
 static void cirrus_vga_class_init(ObjectClass *klass, void *data)

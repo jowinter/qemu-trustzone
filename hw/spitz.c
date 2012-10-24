@@ -60,7 +60,7 @@ typedef struct {
     ECCState ecc;
 } SLNANDState;
 
-static uint64_t sl_read(void *opaque, target_phys_addr_t addr, unsigned size)
+static uint64_t sl_read(void *opaque, hwaddr addr, unsigned size)
 {
     SLNANDState *s = (SLNANDState *) opaque;
     int ryby;
@@ -102,7 +102,7 @@ static uint64_t sl_read(void *opaque, target_phys_addr_t addr, unsigned size)
     return 0;
 }
 
-static void sl_write(void *opaque, target_phys_addr_t addr,
+static void sl_write(void *opaque, hwaddr addr,
                      uint64_t value, unsigned size)
 {
     SLNANDState *s = (SLNANDState *) opaque;
@@ -936,38 +936,46 @@ static void spitz_common_init(ram_addr_t ram_size,
     sl_bootparam_write(SL_PXA_PARAM_BASE);
 }
 
-static void spitz_init(ram_addr_t ram_size,
-                const char *boot_device,
-                const char *kernel_filename, const char *kernel_cmdline,
-                const char *initrd_filename, const char *cpu_model)
+static void spitz_init(QEMUMachineInitArgs *args)
 {
+    ram_addr_t ram_size = args->ram_size;
+    const char *cpu_model = args->cpu_model;
+    const char *kernel_filename = args->kernel_filename;
+    const char *kernel_cmdline = args->kernel_cmdline;
+    const char *initrd_filename = args->initrd_filename;
     spitz_common_init(ram_size, kernel_filename,
                 kernel_cmdline, initrd_filename, cpu_model, spitz, 0x2c9);
 }
 
-static void borzoi_init(ram_addr_t ram_size,
-                const char *boot_device,
-                const char *kernel_filename, const char *kernel_cmdline,
-                const char *initrd_filename, const char *cpu_model)
+static void borzoi_init(QEMUMachineInitArgs *args)
 {
+    ram_addr_t ram_size = args->ram_size;
+    const char *cpu_model = args->cpu_model;
+    const char *kernel_filename = args->kernel_filename;
+    const char *kernel_cmdline = args->kernel_cmdline;
+    const char *initrd_filename = args->initrd_filename;
     spitz_common_init(ram_size, kernel_filename,
                 kernel_cmdline, initrd_filename, cpu_model, borzoi, 0x33f);
 }
 
-static void akita_init(ram_addr_t ram_size,
-                const char *boot_device,
-                const char *kernel_filename, const char *kernel_cmdline,
-                const char *initrd_filename, const char *cpu_model)
+static void akita_init(QEMUMachineInitArgs *args)
 {
+    ram_addr_t ram_size = args->ram_size;
+    const char *cpu_model = args->cpu_model;
+    const char *kernel_filename = args->kernel_filename;
+    const char *kernel_cmdline = args->kernel_cmdline;
+    const char *initrd_filename = args->initrd_filename;
     spitz_common_init(ram_size, kernel_filename,
                 kernel_cmdline, initrd_filename, cpu_model, akita, 0x2e8);
 }
 
-static void terrier_init(ram_addr_t ram_size,
-                const char *boot_device,
-                const char *kernel_filename, const char *kernel_cmdline,
-                const char *initrd_filename, const char *cpu_model)
+static void terrier_init(QEMUMachineInitArgs *args)
 {
+    ram_addr_t ram_size = args->ram_size;
+    const char *cpu_model = args->cpu_model;
+    const char *kernel_filename = args->kernel_filename;
+    const char *kernel_cmdline = args->kernel_cmdline;
+    const char *initrd_filename = args->initrd_filename;
     spitz_common_init(ram_size, kernel_filename,
                 kernel_cmdline, initrd_filename, cpu_model, terrier, 0x33f);
 }
@@ -1083,10 +1091,11 @@ static TypeInfo spitz_keyboard_info = {
 
 static const VMStateDescription vmstate_corgi_ssp_regs = {
     .name = "corgi-ssp",
-    .version_id = 1,
-    .minimum_version_id = 1,
-    .minimum_version_id_old = 1,
+    .version_id = 2,
+    .minimum_version_id = 2,
+    .minimum_version_id_old = 2,
     .fields = (VMStateField []) {
+        VMSTATE_SSI_SLAVE(ssidev, CorgiSSPState),
         VMSTATE_UINT32_ARRAY(enable, CorgiSSPState, 3),
         VMSTATE_END_OF_LIST(),
     }
@@ -1115,6 +1124,7 @@ static const VMStateDescription vmstate_spitz_lcdtg_regs = {
     .minimum_version_id = 1,
     .minimum_version_id_old = 1,
     .fields = (VMStateField []) {
+        VMSTATE_SSI_SLAVE(ssidev, SpitzLCDTG),
         VMSTATE_UINT32(bl_intensity, SpitzLCDTG),
         VMSTATE_UINT32(bl_power, SpitzLCDTG),
         VMSTATE_END_OF_LIST(),

@@ -85,8 +85,10 @@ static void log_writeb(PCIXenPlatformState *s, char val)
 
 static void unplug_nic(PCIBus *b, PCIDevice *d, void *o)
 {
+    /* We have to ignore passthrough devices */
     if (pci_get_word(d->config + PCI_CLASS_DEVICE) ==
-            PCI_CLASS_NETWORK_ETHERNET) {
+            PCI_CLASS_NETWORK_ETHERNET
+            && strcmp(d->name, "xen-pci-passthrough") != 0) {
         qdev_free(&d->qdev);
     }
 }
@@ -98,8 +100,10 @@ static void pci_unplug_nics(PCIBus *bus)
 
 static void unplug_disks(PCIBus *b, PCIDevice *d, void *o)
 {
+    /* We have to ignore passthrough devices */
     if (pci_get_word(d->config + PCI_CLASS_DEVICE) ==
-            PCI_CLASS_STORAGE_IDE) {
+            PCI_CLASS_STORAGE_IDE
+            && strcmp(d->name, "xen-pci-passthrough") != 0) {
         qdev_unplug(&(d->qdev), NULL);
     }
 }
@@ -288,7 +292,7 @@ static void platform_ioport_bar_setup(PCIXenPlatformState *d)
     memory_region_init_io(&d->bar, &xen_pci_io_ops, d, "xen-pci", 0x100);
 }
 
-static uint64_t platform_mmio_read(void *opaque, target_phys_addr_t addr,
+static uint64_t platform_mmio_read(void *opaque, hwaddr addr,
                                    unsigned size)
 {
     DPRINTF("Warning: attempted read from physical address "
@@ -297,7 +301,7 @@ static uint64_t platform_mmio_read(void *opaque, target_phys_addr_t addr,
     return 0;
 }
 
-static void platform_mmio_write(void *opaque, target_phys_addr_t addr,
+static void platform_mmio_write(void *opaque, hwaddr addr,
                                 uint64_t val, unsigned size)
 {
     DPRINTF("Warning: attempted write of 0x%"PRIx64" to physical "

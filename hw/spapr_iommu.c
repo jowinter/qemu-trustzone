@@ -21,6 +21,7 @@
 #include "qdev.h"
 #include "kvm_ppc.h"
 #include "dma.h"
+#include "exec-memory.h"
 
 #include "hw/spapr.h"
 
@@ -42,6 +43,7 @@ struct sPAPRTCETable {
     uint32_t liobn;
     uint32_t window_size;
     sPAPRTCE *table;
+    bool bypass;
     int fd;
     QLIST_ENTRY(sPAPRTCETable) list;
 };
@@ -64,8 +66,8 @@ static sPAPRTCETable *spapr_tce_find_by_liobn(uint32_t liobn)
 
 static int spapr_tce_translate(DMAContext *dma,
                                dma_addr_t addr,
-                               target_phys_addr_t *paddr,
-                               target_phys_addr_t *len,
+                               hwaddr *paddr,
+                               hwaddr *len,
                                DMADirection dir)
 {
     sPAPRTCETable *tcet = DO_UPCAST(sPAPRTCETable, dma, dma);
@@ -77,6 +79,12 @@ static int spapr_tce_translate(DMAContext *dma,
     fprintf(stderr, "spapr_tce_translate liobn=0x%" PRIx32 " addr=0x"
             DMA_ADDR_FMT "\n", tcet->liobn, addr);
 #endif
+
+    if (tcet->bypass) {
+        *paddr = addr;
+        *len = (hwaddr)-1;
+        return 0;
+    }
 
     /* Check if we are in bound */
     if (addr >= tcet->window_size) {
@@ -117,7 +125,7 @@ DMAContext *spapr_tce_new_dma_context(uint32_t liobn, size_t window_size)
     }
 
     tcet = g_malloc0(sizeof(*tcet));
-    dma_context_init(&tcet->dma, spapr_tce_translate, NULL, NULL);
+    dma_context_init(&tcet->dma, &address_space_memory, spapr_tce_translate, NULL, NULL);
 
     tcet->liobn = liobn;
     tcet->window_size = window_size;
@@ -160,6 +168,23 @@ void spapr_tce_free(DMAContext *dma)
 
         g_free(tcet);
     }
+}
+
+void spapr_tce_set_bypass(DMAContext *dma, bool bypass)
+{
+    sPAPRTCETable *tcet = DO_UPCAST(sPAPRTCETable, dma, dma);
+
+    tcet->bypass = bypass;
+}
+
+void spapr_tce_reset(DMAContext *dma)
+{
+    sPAPRTCETable *tcet = DO_UPCAST(sPAPRTCETable, dma, dma);
+    size_t table_size = (tcet->window_size >> SPAPR_TCE_PAGE_SHIFT)
+        * sizeof(sPAPRTCE);
+
+    tcet->bypass = false;
+    memset(tcet->table, 0, table_size);
 }
 
 static target_ulong put_tce_emu(sPAPRTCETable *tcet, target_ulong ioba,

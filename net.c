@@ -21,17 +21,14 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
-#include "net.h"
-
 #include "config-host.h"
 
-#include "net/tap.h"
-#include "net/socket.h"
-#include "net/dump.h"
-#include "net/slirp.h"
-#include "net/vde.h"
+#include "net.h"
+#include "net/clients.h"
 #include "net/hub.h"
+#include "net/slirp.h"
 #include "net/util.h"
+
 #include "monitor.h"
 #include "qemu-common.h"
 #include "qemu_socket.h"
@@ -357,7 +354,12 @@ void qemu_flush_queued_packets(NetClientState *nc)
 {
     nc->receive_disabled = 0;
 
-    qemu_net_queue_flush(nc->send_queue);
+    if (qemu_net_queue_flush(nc->send_queue)) {
+        /* We emptied the queue successfully, signal to the IO thread to repoll
+         * the file descriptor (for tap, for example).
+         */
+        qemu_notify_event();
+    }
 }
 
 static ssize_t qemu_send_packet_async_with_flags(NetClientState *sender,
@@ -418,16 +420,27 @@ ssize_t qemu_deliver_packet_iov(NetClientState *sender,
                                 void *opaque)
 {
     NetClientState *nc = opaque;
+    int ret;
 
     if (nc->link_down) {
         return iov_size(iov, iovcnt);
     }
 
-    if (nc->info->receive_iov) {
-        return nc->info->receive_iov(nc, iov, iovcnt);
-    } else {
-        return nc_sendv_compat(nc, iov, iovcnt);
+    if (nc->receive_disabled) {
+        return 0;
     }
+
+    if (nc->info->receive_iov) {
+        ret = nc->info->receive_iov(nc, iov, iovcnt);
+    } else {
+        ret = nc_sendv_compat(nc, iov, iovcnt);
+    }
+
+    if (ret == 0) {
+        nc->receive_disabled = 1;
+    }
+
+    return ret;
 }
 
 ssize_t qemu_sendv_packet_async(NetClientState *sender,
@@ -520,24 +533,6 @@ int qemu_find_nic_model(NICInfo *nd, const char * const *models,
 
     error_report("Unsupported NIC model: %s", nd->model);
     return -1;
-}
-
-int net_handle_fd_param(Monitor *mon, const char *param)
-{
-    int fd;
-
-    if (!qemu_isdigit(param[0]) && mon) {
-
-        fd = monitor_get_fd(mon, param);
-        if (fd == -1) {
-            error_report("No file descriptor named %s found", param);
-            return -1;
-        }
-    } else {
-        fd = qemu_parse_fd(param);
-    }
-
-    return fd;
 }
 
 static int net_init_nic(const NetClientOptions *opts, const char *name,

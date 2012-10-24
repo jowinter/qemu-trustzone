@@ -89,7 +89,7 @@ static void omap3_hsusb_otg_reset(DeviceState *dev)
 
 static uint32_t omap3_hsusb_otg_read(int access,
                                      void *opaque,
-                                     target_phys_addr_t addr)
+                                     hwaddr addr)
 {
     OMAP3HSUSBOTGState *s = opaque;
     
@@ -125,7 +125,7 @@ static uint32_t omap3_hsusb_otg_read(int access,
 
 static void omap3_hsusb_otg_write(int access,
                                   void *opaque,
-                                  target_phys_addr_t addr,
+                                  hwaddr addr,
                                   uint32_t value)
 {
     OMAP3HSUSBOTGState *s = opaque;
@@ -166,34 +166,34 @@ static void omap3_hsusb_otg_write(int access,
     }
 }
 
-static uint32_t omap3_hsusb_otg_readb(void *opaque, target_phys_addr_t addr)
+static uint32_t omap3_hsusb_otg_readb(void *opaque, hwaddr addr)
 {
     return omap3_hsusb_otg_read(0, opaque, addr);
 }
 
-static uint32_t omap3_hsusb_otg_readh(void *opaque, target_phys_addr_t addr)
+static uint32_t omap3_hsusb_otg_readh(void *opaque, hwaddr addr)
 {
     return omap3_hsusb_otg_read(1, opaque, addr);
 }
 
-static uint32_t omap3_hsusb_otg_readw(void *opaque, target_phys_addr_t addr)
+static uint32_t omap3_hsusb_otg_readw(void *opaque, hwaddr addr)
 {
     return omap3_hsusb_otg_read(2, opaque, addr);
 }
 
-static void omap3_hsusb_otg_writeb(void *opaque, target_phys_addr_t addr,
+static void omap3_hsusb_otg_writeb(void *opaque, hwaddr addr,
                                    uint32_t value)
 {
     omap3_hsusb_otg_write(0, opaque, addr, value);
 }
 
-static void omap3_hsusb_otg_writeh(void *opaque, target_phys_addr_t addr,
+static void omap3_hsusb_otg_writeh(void *opaque, hwaddr addr,
                                    uint32_t value)
 {
     omap3_hsusb_otg_write(1, opaque, addr, value);
 }
 
-static void omap3_hsusb_otg_writew(void *opaque, target_phys_addr_t addr,
+static void omap3_hsusb_otg_writew(void *opaque, hwaddr addr,
                                    uint32_t value)
 {
     omap3_hsusb_otg_write(2, opaque, addr, value);
@@ -293,7 +293,7 @@ static void omap3_hsusb_host_reset(DeviceState *dev)
     s->tll_sysconfig = 1;
 }
 
-static uint32_t omap3_hsusb_host_read(void *opaque, target_phys_addr_t addr)
+static uint32_t omap3_hsusb_host_read(void *opaque, hwaddr addr)
 {
     OMAP3HSUSBHostState *s = opaque;
     TRACE(OMAP_FMT_plx, addr);
@@ -316,7 +316,7 @@ static uint32_t omap3_hsusb_host_read(void *opaque, target_phys_addr_t addr)
     return 0;
 }
 
-static void omap3_hsusb_host_write(void *opaque, target_phys_addr_t addr,
+static void omap3_hsusb_host_write(void *opaque, hwaddr addr,
                                    uint32_t value)
 {
     OMAP3HSUSBHostState *s = opaque;
@@ -361,7 +361,7 @@ static const MemoryRegionOps omap3_hsusb_host_ops = {
     .endianness = DEVICE_NATIVE_ENDIAN,
 };
 
-static uint32_t omap3_hsusb_ehci_read(void *opaque, target_phys_addr_t addr)
+static uint32_t omap3_hsusb_ehci_read(void *opaque, hwaddr addr)
 {
     OMAP3HSUSBHostState *s = opaque;
     TRACE(OMAP_FMT_plx, addr);
@@ -374,7 +374,7 @@ static uint32_t omap3_hsusb_ehci_read(void *opaque, target_phys_addr_t addr)
     return 0;
 }
 
-static void omap3_hsusb_ehci_write(void *opaque, target_phys_addr_t addr,
+static void omap3_hsusb_ehci_write(void *opaque, hwaddr addr,
                                    uint32_t value)
 {
     OMAP3HSUSBHostState *s = opaque;
@@ -404,7 +404,7 @@ static const MemoryRegionOps omap3_hsusb_ehci_ops = {
     .endianness = DEVICE_NATIVE_ENDIAN,
 };
 
-static uint32_t omap3_hsusb_tll_read(void *opaque, target_phys_addr_t addr)
+static uint32_t omap3_hsusb_tll_read(void *opaque, hwaddr addr)
 {
     OMAP3HSUSBHostState *s = opaque;
     TRACE(OMAP_FMT_plx, addr);
@@ -426,7 +426,7 @@ static uint32_t omap3_hsusb_tll_read(void *opaque, target_phys_addr_t addr)
     return 0;
 }
 
-static void omap3_hsusb_tll_write(void *opaque, target_phys_addr_t addr,
+static void omap3_hsusb_tll_write(void *opaque, hwaddr addr,
                                   uint32_t value)
 {
     OMAP3HSUSBHostState *s = opaque;

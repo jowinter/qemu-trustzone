@@ -729,11 +729,6 @@ static int uhci_complete_td(UHCIState *s, UHCI_TD *td, UHCIAsync *async, uint32_
         *int_mask |= 0x01;
 
     if (pid == USB_TOKEN_IN) {
-        if (len > max_len) {
-            ret = USB_RET_BABBLE;
-            goto out;
-        }
-
         if ((td->ctrl & TD_CTRL_SPD) && len < max_len) {
             *int_mask |= 0x02;
             /* short packet: do not update QH */
@@ -831,8 +826,16 @@ static int uhci_handle_td(UHCIState *s, uint32_t addr, UHCI_TD *td,
     USBEndpoint *ep;
 
     /* Is active ? */
-    if (!(td->ctrl & TD_CTRL_ACTIVE))
+    if (!(td->ctrl & TD_CTRL_ACTIVE)) {
+        /*
+         * ehci11d spec page 22: "Even if the Active bit in the TD is already
+         * cleared when the TD is fetched ... an IOC interrupt is generated"
+         */
+        if (td->ctrl & TD_CTRL_IOC) {
+                *int_mask |= 0x01;
+        }
         return TD_RESULT_NEXT_QH;
+    }
 
     async = uhci_async_find_td(s, addr, td);
     if (async) {
@@ -1005,6 +1008,9 @@ static void uhci_fill_queue(UHCIState *s, UHCI_TD *td)
         }
         assert(ret == TD_RESULT_ASYNC_START);
         assert(int_mask == 0);
+        if (ptd.ctrl & TD_CTRL_SPD) {
+            break;
+        }
         plink = ptd.link;
     }
 }
@@ -1102,7 +1108,7 @@ static void uhci_process_frame(UHCIState *s)
 
         case TD_RESULT_ASYNC_START:
             trace_usb_uhci_td_async(curr_qh & ~0xf, link & ~0xf);
-            if (is_valid(td.link)) {
+            if (is_valid(td.link) && !(td.ctrl & TD_CTRL_SPD)) {
                 uhci_fill_queue(s, &td);
             }
             link = curr_qh ? qh.link : td.link;

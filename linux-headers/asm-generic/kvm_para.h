@@ -1,5 +1,4 @@
-#ifndef _ASM_GENERIC_KVM_PARA_H
-#define _ASM_GENERIC_KVM_PARA_H
-
-
-#endif
+/*
+ * There isn't anything here, but the file must not be empty or patch
+ * will delete it.
+ */

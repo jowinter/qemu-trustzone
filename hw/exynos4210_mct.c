@@ -574,8 +574,6 @@ static void exynos4210_gfrc_event(void *opaque)
     exynos4210_gfrc_set_count(&s->g_timer, distance);
 
     exynos4210_gfrc_start(&s->g_timer);
-
-    return;
 }
 
 /*
@@ -987,7 +985,7 @@ static void exynos4210_mct_reset(DeviceState *d)
 }
 
 /* Multi Core Timer read */
-static uint64_t exynos4210_mct_read(void *opaque, target_phys_addr_t offset,
+static uint64_t exynos4210_mct_read(void *opaque, hwaddr offset,
         unsigned size)
 {
     Exynos4210MCTState *s = (Exynos4210MCTState *)opaque;
@@ -1100,7 +1098,7 @@ static uint64_t exynos4210_mct_read(void *opaque, target_phys_addr_t offset,
 }
 
 /* MCT write */
-static void exynos4210_mct_write(void *opaque, target_phys_addr_t offset,
+static void exynos4210_mct_write(void *opaque, hwaddr offset,
         uint64_t value, unsigned size)
 {
     Exynos4210MCTState *s = (Exynos4210MCTState *)opaque;

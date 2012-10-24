@@ -295,6 +295,7 @@ set_rx_control(E1000State *s, int index, uint32_t val)
     s->rxbuf_min_shift = ((val / E1000_RCTL_RDMTS_QUAT) & 3) + 1;
     DBGOUT(RX, "RCTL: %d, mac_reg[RCTL] = 0x%x\n", s->mac_reg[RDT],
            s->mac_reg[RCTL]);
+    qemu_flush_queued_packets(&s->nic->nc);
 }
 
 static void
@@ -926,6 +927,9 @@ set_rdt(E1000State *s, int index, uint32_t val)
 {
     s->check_rxov = 0;
     s->mac_reg[index] = val & 0xffff;
+    if (e1000_has_rxbufs(s, 1)) {
+        qemu_flush_queued_packets(&s->nic->nc);
+    }
 }
 
 static void
@@ -1007,7 +1011,7 @@ static void (*macreg_writeops[])(E1000State *, int, uint32_t) = {
 enum { NWRITEOPS = ARRAY_SIZE(macreg_writeops) };
 
 static void
-e1000_mmio_write(void *opaque, target_phys_addr_t addr, uint64_t val,
+e1000_mmio_write(void *opaque, hwaddr addr, uint64_t val,
                  unsigned size)
 {
     E1000State *s = opaque;
@@ -1024,7 +1028,7 @@ e1000_mmio_write(void *opaque, target_phys_addr_t addr, uint64_t val,
 }
 
 static uint64_t
-e1000_mmio_read(void *opaque, target_phys_addr_t addr, unsigned size)
+e1000_mmio_read(void *opaque, hwaddr addr, unsigned size)
 {
     E1000State *s = opaque;
     unsigned int index = (addr & 0x1ffff) >> 2;
@@ -1047,7 +1051,7 @@ static const MemoryRegionOps e1000_mmio_ops = {
     },
 };
 
-static uint64_t e1000_io_read(void *opaque, target_phys_addr_t addr,
+static uint64_t e1000_io_read(void *opaque, hwaddr addr,
                               unsigned size)
 {
     E1000State *s = opaque;
@@ -1056,7 +1060,7 @@ static uint64_t e1000_io_read(void *opaque, target_phys_addr_t addr,
     return 0;
 }
 
-static void e1000_io_write(void *opaque, target_phys_addr_t addr,
+static void e1000_io_write(void *opaque, hwaddr addr,
                            uint64_t val, unsigned size)
 {
     E1000State *s = opaque;
@@ -1075,11 +1079,23 @@ static bool is_version_1(void *opaque, int version_id)
     return version_id == 1;
 }
 
+static int e1000_post_load(void *opaque, int version_id)
+{
+    E1000State *s = opaque;
+
+    /* nc.link_down can't be migrated, so infer link_down according
+     * to link status bit in mac_reg[STATUS] */
+    s->nic->nc.link_down = (s->mac_reg[STATUS] & E1000_STATUS_LU) == 0;
+
+    return 0;
+}
+
 static const VMStateDescription vmstate_e1000 = {
     .name = "e1000",
     .version_id = 2,
     .minimum_version_id = 1,
     .minimum_version_id_old = 1,
+    .post_load = e1000_post_load,
     .fields      = (VMStateField []) {
         VMSTATE_PCI_DEVICE(dev, E1000State),
         VMSTATE_UNUSED_TEST(is_version_1, 4), /* was instance id */

@@ -14,8 +14,10 @@ config-host.mak: $(SRC_PATH)/configure
 	@sed -n "/.*Configured with/s/[^:]*: //p" $@ | sh
 else
 config-host.mak:
+ifneq ($(filter-out %clean,$(MAKECMDGOALS)),$(if $(MAKECMDGOALS),,fail))
 	@echo "Please call configure before running make!"
 	@exit 1
+endif
 endif
 
 GENERATED_HEADERS = config-host.h trace.h qemu-options.def
@@ -52,8 +54,13 @@ SUBDIR_MAKEFLAGS=$(if $(V),,--no-print-directory) BUILD_DIR=$(BUILD_DIR)
 SUBDIR_DEVICES_MAK=$(patsubst %, %/config-devices.mak, $(TARGET_DIRS))
 SUBDIR_DEVICES_MAK_DEP=$(patsubst %, %/config-devices.mak.d, $(TARGET_DIRS))
 
+ifeq ($(SUBDIR_DEVICES_MAK),)
+config-all-devices.mak:
+	$(call quiet-command,echo '# no devices' > $@,"  GEN   $@")
+else
 config-all-devices.mak: $(SUBDIR_DEVICES_MAK)
 	$(call quiet-command,cat $(SUBDIR_DEVICES_MAK) | grep =y | sort -u > $@,"  GEN   $@")
+endif
 
 -include $(SUBDIR_DEVICES_MAK_DEP)
 
@@ -157,7 +164,8 @@ tools-obj-y = $(oslib-obj-y) $(trace-obj-y) qemu-tool.o qemu-timer.o \
 	iohandler.o cutils.o iov.o async.o
 tools-obj-$(CONFIG_POSIX) += compatfd.o
 
-qemu-img$(EXESUF): qemu-img.o $(tools-obj-y) $(block-obj-y)
+qemu-img$(EXESUF): qemu-img.o $(tools-obj-y) $(block-obj-y) $(qapi-obj-y) \
+                              qapi-visit.o qapi-types.o
 qemu-nbd$(EXESUF): qemu-nbd.o $(tools-obj-y) $(block-obj-y)
 qemu-io$(EXESUF): qemu-io.o cmd.o $(tools-obj-y) $(block-obj-y)
 
@@ -208,7 +216,7 @@ $(qga-obj-y) qemu-ga.o: $(QGALIB_GEN)
 
 qemu-ga$(EXESUF): qemu-ga.o $(qga-obj-y) $(tools-obj-y) $(qapi-obj-y) $(qobject-obj-y) $(version-obj-y)
 
-QEMULIBS=libhw32 libhw64 libuser libdis libdis-user
+QEMULIBS=libuser libdis libdis-user
 
 clean:
 # avoid old build problems by removing potentially incorrect old files
@@ -297,7 +305,6 @@ install-confdir:
 
 install-sysconfig: install-datadir install-confdir
 	$(INSTALL_DATA) $(SRC_PATH)/sysconfigs/target/target-x86_64.conf "$(DESTDIR)$(qemu_confdir)"
-	$(INSTALL_DATA) $(SRC_PATH)/sysconfigs/target/cpus-x86_64.conf "$(DESTDIR)$(qemu_datadir)"
 
 install: all $(if $(BUILD_DOCS),install-doc) install-sysconfig install-datadir
 	$(INSTALL_DIR) "$(DESTDIR)$(bindir)"
@@ -399,7 +406,9 @@ qemu-doc.dvi qemu-doc.html qemu-doc.info qemu-doc.pdf: \
 
 # Add a dependency on the generated files, so that they are always
 # rebuilt before other object files
+ifneq ($(filter-out %clean,$(MAKECMDGOALS)),$(if $(MAKECMDGOALS),,fail))
 Makefile: $(GENERATED_HEADERS)
+endif
 
 # Include automatically generated dependency files
 # Dependencies in Makefile.objs files come from our recursive subdir rules

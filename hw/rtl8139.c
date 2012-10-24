@@ -167,7 +167,7 @@ enum IntrStatusBits {
     PCIErr = 0x8000,
     PCSTimeout = 0x4000,
     RxFIFOOver = 0x40,
-    RxUnderrun = 0x20,
+    RxUnderrun = 0x20, /* Packet Underrun / Link Change */
     RxOverflow = 0x10,
     TxErr = 0x08,
     TxOK = 0x04,
@@ -774,11 +774,7 @@ static void rtl8139_write_buffer(RTL8139State *s, const void *buf, int size)
 #define MIN_BUF_SIZE 60
 static inline dma_addr_t rtl8139_addr64(uint32_t low, uint32_t high)
 {
-#if TARGET_PHYS_ADDR_BITS > 32
-    return low | ((target_phys_addr_t)high << 32);
-#else
-    return low;
-#endif
+    return low | ((uint64_t)high << 32);
 }
 
 /* Workaround for buggy guest driver such as linux who allocates rx
@@ -2459,7 +2455,7 @@ static void rtl8139_TxStatus_write(RTL8139State *s, uint32_t txRegOffset, uint32
 
         if (descriptor == 0 && (val & 0x8))
         {
-            target_phys_addr_t tc_addr = rtl8139_addr64(s->TxStatus[0] & ~0x3f, s->TxStatus[1]);
+            hwaddr tc_addr = rtl8139_addr64(s->TxStatus[0] & ~0x3f, s->TxStatus[1]);
 
             /* dump tally counters to specified memory location */
             RTL8139TallyCounters_dma_write(s, tc_addr);
@@ -3007,7 +3003,8 @@ static uint32_t rtl8139_io_readb(void *opaque, uint8_t addr)
             break;
 
         case MediaStatus:
-            ret = 0xd0;
+            /* The LinkDown bit of MediaStatus is inverse with link status */
+            ret = 0xd0 | (~s->BasicModeStatus & 0x04);
             DPRINTF("MediaStatus read 0x%x\n", ret);
             break;
 
@@ -3222,33 +3219,33 @@ static uint32_t rtl8139_ioport_readl(void *opaque, uint32_t addr)
 
 /* */
 
-static void rtl8139_mmio_writeb(void *opaque, target_phys_addr_t addr, uint32_t val)
+static void rtl8139_mmio_writeb(void *opaque, hwaddr addr, uint32_t val)
 {
     rtl8139_io_writeb(opaque, addr & 0xFF, val);
 }
 
-static void rtl8139_mmio_writew(void *opaque, target_phys_addr_t addr, uint32_t val)
+static void rtl8139_mmio_writew(void *opaque, hwaddr addr, uint32_t val)
 {
     rtl8139_io_writew(opaque, addr & 0xFF, val);
 }
 
-static void rtl8139_mmio_writel(void *opaque, target_phys_addr_t addr, uint32_t val)
+static void rtl8139_mmio_writel(void *opaque, hwaddr addr, uint32_t val)
 {
     rtl8139_io_writel(opaque, addr & 0xFF, val);
 }
 
-static uint32_t rtl8139_mmio_readb(void *opaque, target_phys_addr_t addr)
+static uint32_t rtl8139_mmio_readb(void *opaque, hwaddr addr)
 {
     return rtl8139_io_readb(opaque, addr & 0xFF);
 }
 
-static uint32_t rtl8139_mmio_readw(void *opaque, target_phys_addr_t addr)
+static uint32_t rtl8139_mmio_readw(void *opaque, hwaddr addr)
 {
     uint32_t val = rtl8139_io_readw(opaque, addr & 0xFF);
     return val;
 }
 
-static uint32_t rtl8139_mmio_readl(void *opaque, target_phys_addr_t addr)
+static uint32_t rtl8139_mmio_readl(void *opaque, hwaddr addr)
 {
     uint32_t val = rtl8139_io_readl(opaque, addr & 0xFF);
     return val;
@@ -3261,6 +3258,10 @@ static int rtl8139_post_load(void *opaque, int version_id)
     if (version_id < 4) {
         s->cplus_enabled = s->CpCmd != 0;
     }
+
+    /* nc.link_down can't be migrated, so infer link_down according
+     * to link status bit in BasicModeStatus */
+    s->nic->nc.link_down = (s->BasicModeStatus & 0x04) == 0;
 
     return 0;
 }
@@ -3453,12 +3454,27 @@ static void pci_rtl8139_uninit(PCIDevice *dev)
     qemu_del_net_client(&s->nic->nc);
 }
 
+static void rtl8139_set_link_status(NetClientState *nc)
+{
+    RTL8139State *s = DO_UPCAST(NICState, nc, nc)->opaque;
+
+    if (nc->link_down) {
+        s->BasicModeStatus &= ~0x04;
+    } else {
+        s->BasicModeStatus |= 0x04;
+    }
+
+    s->IntrStatus |= RxUnderrun;
+    rtl8139_update_irq(s);
+}
+
 static NetClientInfo net_rtl8139_info = {
     .type = NET_CLIENT_OPTIONS_KIND_NIC,
     .size = sizeof(NICState),
     .can_receive = rtl8139_can_receive,
     .receive = rtl8139_receive,
     .cleanup = rtl8139_cleanup,
+    .link_status_changed = rtl8139_set_link_status,
 };
 
 static int pci_rtl8139_init(PCIDevice *dev)

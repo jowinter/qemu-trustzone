@@ -447,10 +447,6 @@ static void virtio_net_handle_rx(VirtIODevice *vdev, VirtQueue *vq)
     VirtIONet *n = to_virtio_net(vdev);
 
     qemu_flush_queued_packets(&n->nic->nc);
-
-    /* We now have RX buffers, signal to the IO thread to break out of the
-     * select to re-poll the tap file descriptor */
-    qemu_notify_event();
 }
 
 static int virtio_net_can_receive(NetClientState *nc)
@@ -694,7 +690,7 @@ static void virtio_net_tx_complete(NetClientState *nc, ssize_t len)
 {
     VirtIONet *n = DO_UPCAST(NICState, nc, nc)->opaque;
 
-    virtqueue_push(n->tx_vq, &n->async_tx.elem, n->async_tx.len);
+    virtqueue_push(n->tx_vq, &n->async_tx.elem, 0);
     virtio_notify(&n->vdev, n->tx_vq);
 
     n->async_tx.elem.out_num = n->async_tx.len = 0;
@@ -758,7 +754,7 @@ static int32_t virtio_net_flush_tx(VirtIONet *n, VirtQueue *vq)
 
         len += ret;
 
-        virtqueue_push(vq, &elem, len);
+        virtqueue_push(vq, &elem, 0);
         virtio_notify(&n->vdev, vq);
 
         if (++num_packets >= n->tx_burst) {
@@ -925,7 +921,9 @@ static int virtio_net_load(QEMUFile *f, void *opaque, int version_id)
             qemu_get_buffer(f, n->mac_table.macs,
                             n->mac_table.in_use * ETH_ALEN);
         } else if (n->mac_table.in_use) {
-            qemu_fseek(f, n->mac_table.in_use * ETH_ALEN, SEEK_CUR);
+            uint8_t *buf = g_malloc0(n->mac_table.in_use);
+            qemu_get_buffer(f, buf, n->mac_table.in_use * ETH_ALEN);
+            g_free(buf);
             n->mac_table.multi_overflow = n->mac_table.uni_overflow = 1;
             n->mac_table.in_use = 0;
         }
@@ -977,6 +975,11 @@ static int virtio_net_load(QEMUFile *f, void *opaque, int version_id)
         }
     }
     n->mac_table.first_multi = i;
+
+    /* nc.link_down can't be migrated, so infer link_down according
+     * to link status bit in n->status */
+    n->nic->nc.link_down = (n->status & VIRTIO_NET_S_LINK_UP) == 0;
+
     return 0;
 }
 

@@ -32,8 +32,6 @@
 #define MEMSLOT_GROUP_GUEST 1
 #define NUM_MEMSLOTS_GROUPS 2
 
-#define NUM_SURFACES 1024
-
 /*
  * Internal enum to differenciate between options for
  * io calls that have a sync (old) version and an _async (new)
@@ -51,6 +49,7 @@ typedef enum qxl_async_io {
 enum {
     QXL_COOKIE_TYPE_IO,
     QXL_COOKIE_TYPE_RENDER_UPDATE_AREA,
+    QXL_COOKIE_TYPE_POST_LOAD_MONITORS_CONFIG,
 };
 
 typedef struct QXLCookie {
@@ -73,16 +72,17 @@ typedef struct SimpleSpiceUpdate SimpleSpiceUpdate;
 
 struct SimpleSpiceDisplay {
     DisplayState *ds;
+    uint8_t *ds_mirror;
     void *buf;
     int bufsize;
     QXLWorker *worker;
     QXLInstance qxl;
     uint32_t unique;
     QemuPfConv *conv;
+    int32_t num_surfaces;
 
     QXLRect dirty;
     int notify;
-    int running;
 
     /*
      * All struct members below this comment can be accessed from
@@ -90,7 +90,7 @@ struct SimpleSpiceDisplay {
      * to them must be protected by the lock.
      */
     QemuMutex lock;
-    SimpleSpiceUpdate *update;
+    QTAILQ_HEAD(, SimpleSpiceUpdate) updates;
     QEMUCursor *cursor;
     int mouse_x, mouse_y;
 };
@@ -100,6 +100,7 @@ struct SimpleSpiceUpdate {
     QXLImage image;
     QXLCommandExt ext;
     uint8_t *bitmap;
+    QTAILQ_ENTRY(SimpleSpiceUpdate) next;
 };
 
 int qemu_spice_rect_is_empty(const QXLRect* r);
@@ -129,5 +130,6 @@ void qemu_spice_create_primary_surface(SimpleSpiceDisplay *ssd, uint32_t id,
 void qemu_spice_destroy_primary_surface(SimpleSpiceDisplay *ssd,
                                         uint32_t id, qxl_async_io async);
 void qemu_spice_wakeup(SimpleSpiceDisplay *ssd);
-void qemu_spice_start(SimpleSpiceDisplay *ssd);
-void qemu_spice_stop(SimpleSpiceDisplay *ssd);
+void qemu_spice_display_start(void);
+void qemu_spice_display_stop(void);
+int qemu_spice_display_is_running(SimpleSpiceDisplay *ssd);

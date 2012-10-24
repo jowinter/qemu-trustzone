@@ -195,7 +195,7 @@ static void pc_init1(MemoryRegion *system_memory,
                               below_4g_mem_size,
                               0x100000000ULL - below_4g_mem_size,
                               0x100000000ULL + above_4g_mem_size,
-                              (sizeof(target_phys_addr_t) == 4
+                              (sizeof(hwaddr) == 4
                                ? 0
                                : ((uint64_t)1 << 62)),
                               pci_memory, ram_memory);
@@ -287,13 +287,14 @@ static void pc_init1(MemoryRegion *system_memory,
     }
 }
 
-static void pc_init_pci(ram_addr_t ram_size,
-                        const char *boot_device,
-                        const char *kernel_filename,
-                        const char *kernel_cmdline,
-                        const char *initrd_filename,
-                        const char *cpu_model)
+static void pc_init_pci(QEMUMachineInitArgs *args)
 {
+    ram_addr_t ram_size = args->ram_size;
+    const char *cpu_model = args->cpu_model;
+    const char *kernel_filename = args->kernel_filename;
+    const char *kernel_cmdline = args->kernel_cmdline;
+    const char *initrd_filename = args->initrd_filename;
+    const char *boot_device = args->boot_device;
     pc_init1(get_system_memory(),
              get_system_io(),
              ram_size, boot_device,
@@ -301,13 +302,14 @@ static void pc_init_pci(ram_addr_t ram_size,
              initrd_filename, cpu_model, 1, 1);
 }
 
-static void pc_init_pci_no_kvmclock(ram_addr_t ram_size,
-                                    const char *boot_device,
-                                    const char *kernel_filename,
-                                    const char *kernel_cmdline,
-                                    const char *initrd_filename,
-                                    const char *cpu_model)
+static void pc_init_pci_no_kvmclock(QEMUMachineInitArgs *args)
 {
+    ram_addr_t ram_size = args->ram_size;
+    const char *cpu_model = args->cpu_model;
+    const char *kernel_filename = args->kernel_filename;
+    const char *kernel_cmdline = args->kernel_cmdline;
+    const char *initrd_filename = args->initrd_filename;
+    const char *boot_device = args->boot_device;
     pc_init1(get_system_memory(),
              get_system_io(),
              ram_size, boot_device,
@@ -315,13 +317,14 @@ static void pc_init_pci_no_kvmclock(ram_addr_t ram_size,
              initrd_filename, cpu_model, 1, 0);
 }
 
-static void pc_init_isa(ram_addr_t ram_size,
-                        const char *boot_device,
-                        const char *kernel_filename,
-                        const char *kernel_cmdline,
-                        const char *initrd_filename,
-                        const char *cpu_model)
+static void pc_init_isa(QEMUMachineInitArgs *args)
 {
+    ram_addr_t ram_size = args->ram_size;
+    const char *cpu_model = args->cpu_model;
+    const char *kernel_filename = args->kernel_filename;
+    const char *kernel_cmdline = args->kernel_cmdline;
+    const char *initrd_filename = args->initrd_filename;
+    const char *boot_device = args->boot_device;
     if (cpu_model == NULL)
         cpu_model = "486";
     pc_init1(get_system_memory(),
@@ -332,25 +335,18 @@ static void pc_init_isa(ram_addr_t ram_size,
 }
 
 #ifdef CONFIG_XEN
-static void pc_xen_hvm_init(ram_addr_t ram_size,
-                            const char *boot_device,
-                            const char *kernel_filename,
-                            const char *kernel_cmdline,
-                            const char *initrd_filename,
-                            const char *cpu_model)
+static void pc_xen_hvm_init(QEMUMachineInitArgs *args)
 {
     if (xen_hvm_init() != 0) {
         hw_error("xen hardware virtual machine initialisation failed");
     }
-    pc_init_pci_no_kvmclock(ram_size, boot_device,
-                            kernel_filename, kernel_cmdline,
-                            initrd_filename, cpu_model);
+    pc_init_pci_no_kvmclock(args);
     xen_vcpu_init();
 }
 #endif
 
-static QEMUMachine pc_machine_v1_2 = {
-    .name = "pc-1.2",
+static QEMUMachine pc_machine_v1_3 = {
+    .name = "pc-1.3",
     .alias = "pc",
     .desc = "Standard PC",
     .init = pc_init_pci,
@@ -358,7 +354,46 @@ static QEMUMachine pc_machine_v1_2 = {
     .is_default = 1,
 };
 
+#define PC_COMPAT_1_2 \
+        {\
+            .driver   = "nec-usb-xhci",\
+            .property = "msi",\
+            .value    = "off",\
+        },{\
+            .driver   = "nec-usb-xhci",\
+            .property = "msix",\
+            .value    = "off",\
+        },{\
+            .driver   = "ivshmem",\
+            .property = "use64",\
+            .value    = "0",\
+        },{\
+            .driver   = "qxl",\
+            .property = "revision",\
+            .value    = stringify(3),\
+        },{\
+            .driver   = "qxl-vga",\
+            .property = "revision",\
+            .value    = stringify(3),\
+        },{\
+            .driver   = "VGA",\
+            .property = "mmio",\
+            .value    = "off",\
+        }
+
+static QEMUMachine pc_machine_v1_2 = {
+    .name = "pc-1.2",
+    .desc = "Standard PC",
+    .init = pc_init_pci,
+    .max_cpus = 255,
+    .compat_props = (GlobalProperty[]) {
+        PC_COMPAT_1_2,
+        { /* end of list */ }
+    },
+};
+
 #define PC_COMPAT_1_1 \
+        PC_COMPAT_1_2,\
         {\
             .driver   = "virtio-scsi-pci",\
             .property = "hotplug",\
@@ -655,6 +690,7 @@ static QEMUMachine xenfv_machine = {
 
 static void pc_machine_init(void)
 {
+    qemu_register_machine(&pc_machine_v1_3);
     qemu_register_machine(&pc_machine_v1_2);
     qemu_register_machine(&pc_machine_v1_1);
     qemu_register_machine(&pc_machine_v1_0);

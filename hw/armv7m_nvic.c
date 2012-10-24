@@ -17,7 +17,7 @@
 #include "arm_gic_internal.h"
 
 typedef struct {
-    gic_state gic;
+    GICState gic;
     struct {
         uint32_t control;
         uint32_t reload;
@@ -392,7 +392,7 @@ static void nvic_writel(void *opaque, uint32_t offset, uint32_t value)
     }
 }
 
-static uint64_t nvic_sysreg_read(void *opaque, target_phys_addr_t addr,
+static uint64_t nvic_sysreg_read(void *opaque, hwaddr addr,
                                  unsigned size)
 {
     /* At the moment we only support the ID registers for byte/word access.
@@ -412,7 +412,7 @@ static uint64_t nvic_sysreg_read(void *opaque, target_phys_addr_t addr,
     hw_error("NVIC: Bad read of size %d at offset 0x%x\n", size, offset);
 }
 
-static void nvic_sysreg_write(void *opaque, target_phys_addr_t addr,
+static void nvic_sysreg_write(void *opaque, hwaddr addr,
                               uint64_t value, unsigned size)
 {
     uint32_t offset = addr;
@@ -489,7 +489,8 @@ static int armv7m_nvic_init(SysBusDevice *dev)
      */
     memory_region_init_alias(&s->gic_iomem_alias, "nvic-gic", &s->gic.iomem,
                              0x100, 0xc00);
-    memory_region_add_subregion_overlap(&s->container, 0x100, &s->gic.iomem, 1);
+    memory_region_add_subregion_overlap(&s->container, 0x100,
+                                        &s->gic_iomem_alias, 1);
     /* Map the whole thing into system memory at the location required
      * by the v7M architecture.
      */
@@ -504,9 +505,9 @@ static void armv7m_nvic_instance_init(Object *obj)
      * than our superclass. This function runs after qdev init
      * has set the defaults from the Property array and before
      * any user-specified property setting, so just modify the
-     * value in the gic_state struct.
+     * value in the GICState struct.
      */
-    gic_state *s = ARM_GIC_COMMON(obj);
+    GICState *s = ARM_GIC_COMMON(obj);
     /* The ARM v7m may have anything from 0 to 496 external interrupt
      * IRQ lines. We default to 64. Other boards may differ and should
      * set the num-irq property appropriately.

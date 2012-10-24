@@ -20,11 +20,12 @@
 
 #include "hw/sysbus.h"
 #include "kvm.h"
+#include "kvm_arm.h"
 #include "hw/arm_gic_internal.h"
 
-#define TYPE_KVM_ARM_GIC "kvm-arm_gic"
+#define TYPE_KVM_ARM_GIC "kvm-arm-gic"
 #define KVM_ARM_GIC(obj) \
-     OBJECT_CHECK(gic_state, (obj), TYPE_KVM_ARM_GIC)
+     OBJECT_CHECK(GICState, (obj), TYPE_KVM_ARM_GIC)
 #define KVM_ARM_GIC_CLASS(klass) \
      OBJECT_CLASS_CHECK(KVMARMGICClass, (klass), TYPE_KVM_ARM_GIC)
 #define KVM_ARM_GIC_GET_CLASS(obj) \
@@ -47,7 +48,7 @@ static void kvm_arm_gic_set_irq(void *opaque, int irq, int level)
      * has separate fields in the irq number for type,
      * CPU number and interrupt number.
      */
-    gic_state *s = (gic_state *)opaque;
+    GICState *s = (GICState *)opaque;
     int kvm_irq, irqtype, cpu;
 
     if (irq < (s->num_irq - GIC_INTERNAL)) {
@@ -71,19 +72,19 @@ static void kvm_arm_gic_set_irq(void *opaque, int irq, int level)
     kvm_set_irq(kvm_state, kvm_irq, !!level);
 }
 
-static void kvm_arm_gic_put(gic_state *s)
+static void kvm_arm_gic_put(GICState *s)
 {
     /* TODO: there isn't currently a kernel interface to set the GIC state */
 }
 
-static void kvm_arm_gic_get(gic_state *s)
+static void kvm_arm_gic_get(GICState *s)
 {
     /* TODO: there isn't currently a kernel interface to get the GIC state */
 }
 
 static void kvm_arm_gic_reset(DeviceState *dev)
 {
-    gic_state *s = ARM_GIC_COMMON(dev);
+    GICState *s = ARM_GIC_COMMON(dev);
     KVMARMGICClass *kgc = KVM_ARM_GIC_GET_CLASS(s);
     kgc->parent_reset(dev);
     kvm_arm_gic_put(s);
@@ -93,7 +94,7 @@ static int kvm_arm_gic_init(SysBusDevice *dev)
 {
     /* Device instance init function for the GIC sysbus device */
     int i;
-    gic_state *s = FROM_SYSBUS(gic_state, dev);
+    GICState *s = FROM_SYSBUS(GICState, dev);
     KVMARMGICClass *kgc = KVM_ARM_GIC_GET_CLASS(s);
 
     kgc->parent_init(dev);
@@ -117,12 +118,18 @@ static int kvm_arm_gic_init(SysBusDevice *dev)
     /* Distributor */
     memory_region_init_reservation(&s->iomem, "kvm-gic_dist", 0x1000);
     sysbus_init_mmio(dev, &s->iomem);
+    kvm_arm_register_device(&s->iomem,
+                            (KVM_ARM_DEVICE_VGIC_V2 << KVM_DEVICE_ID_SHIFT) |
+                            KVM_VGIC_V2_ADDR_TYPE_DIST);
     /* CPU interface for current core. Unlike arm_gic, we don't
      * provide the "interface for core #N" memory regions, because
      * cores with a VGIC don't have those.
      */
     memory_region_init_reservation(&s->cpuiomem[0], "kvm-gic_cpu", 0x1000);
     sysbus_init_mmio(dev, &s->cpuiomem[0]);
+    kvm_arm_register_device(&s->cpuiomem[0],
+                            (KVM_ARM_DEVICE_VGIC_V2 << KVM_DEVICE_ID_SHIFT) |
+                            KVM_VGIC_V2_ADDR_TYPE_CPU);
     /* TODO: we should tell the kernel at some point the address
      * of the private peripheral base. However we don't currently have
      * any convenient infrastructure to do that, and in any case the
@@ -146,17 +153,17 @@ static void kvm_arm_gic_class_init(ObjectClass *klass, void *data)
     dc->no_user = 1;
 }
 
-static TypeInfo arm_gic_info = {
+static const TypeInfo kvm_arm_gic_info = {
     .name = TYPE_KVM_ARM_GIC,
     .parent = TYPE_ARM_GIC_COMMON,
-    .instance_size = sizeof(gic_state),
+    .instance_size = sizeof(GICState),
     .class_init = kvm_arm_gic_class_init,
     .class_size = sizeof(KVMARMGICClass),
 };
 
-static void arm_gic_register_types(void)
+static void kvm_arm_gic_register_types(void)
 {
-    type_register_static(&arm_gic_info);
+    type_register_static(&kvm_arm_gic_info);
 }
 
-type_init(arm_gic_register_types)
+type_init(kvm_arm_gic_register_types)

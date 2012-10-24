@@ -31,6 +31,7 @@
 #include "hw/apic.h"
 #include "ioport.h"
 #include "hyperv.h"
+#include "hw/pci.h"
 
 //#define DEBUG_KVM
 
@@ -164,7 +165,7 @@ uint32_t kvm_arch_get_supported_cpuid(KVMState *s, uint32_t function,
                      * so add missing bits according to the AMD spec:
                      */
                     cpuid_1_edx = kvm_arch_get_supported_cpuid(s, 1, 0, R_EDX);
-                    ret |= cpuid_1_edx & 0x183f7ff;
+                    ret |= cpuid_1_edx & CPUID_EXT2_AMD_ALIASES;
                     break;
                 }
                 break;
@@ -228,7 +229,7 @@ static int kvm_get_mce_cap_supported(KVMState *s, uint64_t *mce_cap,
     return -ENOSYS;
 }
 
-static void kvm_mce_inject(CPUX86State *env, target_phys_addr_t paddr, int code)
+static void kvm_mce_inject(CPUX86State *env, hwaddr paddr, int code)
 {
     uint64_t status = MCI_STATUS_VAL | MCI_STATUS_UC | MCI_STATUS_EN |
                       MCI_STATUS_MISCV | MCI_STATUS_ADDRV | MCI_STATUS_S;
@@ -256,7 +257,7 @@ static void hardware_memory_error(void)
 int kvm_arch_on_sigbus_vcpu(CPUX86State *env, int code, void *addr)
 {
     ram_addr_t ram_addr;
-    target_phys_addr_t paddr;
+    hwaddr paddr;
 
     if ((env->mcg_cap & MCG_SER_P) && addr
         && (code == BUS_MCEERR_AR || code == BUS_MCEERR_AO)) {
@@ -289,7 +290,7 @@ int kvm_arch_on_sigbus(int code, void *addr)
 {
     if ((first_cpu->mcg_cap & MCG_SER_P) && addr && code == BUS_MCEERR_AO) {
         ram_addr_t ram_addr;
-        target_phys_addr_t paddr;
+        hwaddr paddr;
 
         /* Hope we are lucky for AO MCE */
         if (qemu_ram_addr_from_host(addr, &ram_addr) ||
@@ -2067,4 +2068,144 @@ void kvm_arch_init_irq_routing(KVMState *s)
     kvm_irqfds_allowed = true;
     kvm_msi_via_irqfd_allowed = true;
     kvm_gsi_routing_allowed = true;
+}
+
+/* Classic KVM device assignment interface. Will remain x86 only. */
+int kvm_device_pci_assign(KVMState *s, PCIHostDeviceAddress *dev_addr,
+                          uint32_t flags, uint32_t *dev_id)
+{
+    struct kvm_assigned_pci_dev dev_data = {
+        .segnr = dev_addr->domain,
+        .busnr = dev_addr->bus,
+        .devfn = PCI_DEVFN(dev_addr->slot, dev_addr->function),
+        .flags = flags,
+    };
+    int ret;
+
+    dev_data.assigned_dev_id =
+        (dev_addr->domain << 16) | (dev_addr->bus << 8) | dev_data.devfn;
+
+    ret = kvm_vm_ioctl(s, KVM_ASSIGN_PCI_DEVICE, &dev_data);
+    if (ret < 0) {
+        return ret;
+    }
+
+    *dev_id = dev_data.assigned_dev_id;
+
+    return 0;
+}
+
+int kvm_device_pci_deassign(KVMState *s, uint32_t dev_id)
+{
+    struct kvm_assigned_pci_dev dev_data = {
+        .assigned_dev_id = dev_id,
+    };
+
+    return kvm_vm_ioctl(s, KVM_DEASSIGN_PCI_DEVICE, &dev_data);
+}
+
+static int kvm_assign_irq_internal(KVMState *s, uint32_t dev_id,
+                                   uint32_t irq_type, uint32_t guest_irq)
+{
+    struct kvm_assigned_irq assigned_irq = {
+        .assigned_dev_id = dev_id,
+        .guest_irq = guest_irq,
+        .flags = irq_type,
+    };
+
+    if (kvm_check_extension(s, KVM_CAP_ASSIGN_DEV_IRQ)) {
+        return kvm_vm_ioctl(s, KVM_ASSIGN_DEV_IRQ, &assigned_irq);
+    } else {
+        return kvm_vm_ioctl(s, KVM_ASSIGN_IRQ, &assigned_irq);
+    }
+}
+
+int kvm_device_intx_assign(KVMState *s, uint32_t dev_id, bool use_host_msi,
+                           uint32_t guest_irq)
+{
+    uint32_t irq_type = KVM_DEV_IRQ_GUEST_INTX |
+        (use_host_msi ? KVM_DEV_IRQ_HOST_MSI : KVM_DEV_IRQ_HOST_INTX);
+
+    return kvm_assign_irq_internal(s, dev_id, irq_type, guest_irq);
+}
+
+int kvm_device_intx_set_mask(KVMState *s, uint32_t dev_id, bool masked)
+{
+    struct kvm_assigned_pci_dev dev_data = {
+        .assigned_dev_id = dev_id,
+        .flags = masked ? KVM_DEV_ASSIGN_MASK_INTX : 0,
+    };
+
+    return kvm_vm_ioctl(s, KVM_ASSIGN_SET_INTX_MASK, &dev_data);
+}
+
+static int kvm_deassign_irq_internal(KVMState *s, uint32_t dev_id,
+                                     uint32_t type)
+{
+    struct kvm_assigned_irq assigned_irq = {
+        .assigned_dev_id = dev_id,
+        .flags = type,
+    };
+
+    return kvm_vm_ioctl(s, KVM_DEASSIGN_DEV_IRQ, &assigned_irq);
+}
+
+int kvm_device_intx_deassign(KVMState *s, uint32_t dev_id, bool use_host_msi)
+{
+    return kvm_deassign_irq_internal(s, dev_id, KVM_DEV_IRQ_GUEST_INTX |
+        (use_host_msi ? KVM_DEV_IRQ_HOST_MSI : KVM_DEV_IRQ_HOST_INTX));
+}
+
+int kvm_device_msi_assign(KVMState *s, uint32_t dev_id, int virq)
+{
+    return kvm_assign_irq_internal(s, dev_id, KVM_DEV_IRQ_HOST_MSI |
+                                              KVM_DEV_IRQ_GUEST_MSI, virq);
+}
+
+int kvm_device_msi_deassign(KVMState *s, uint32_t dev_id)
+{
+    return kvm_deassign_irq_internal(s, dev_id, KVM_DEV_IRQ_GUEST_MSI |
+                                                KVM_DEV_IRQ_HOST_MSI);
+}
+
+bool kvm_device_msix_supported(KVMState *s)
+{
+    /* The kernel lacks a corresponding KVM_CAP, so we probe by calling
+     * KVM_ASSIGN_SET_MSIX_NR with an invalid parameter. */
+    return kvm_vm_ioctl(s, KVM_ASSIGN_SET_MSIX_NR, NULL) == -EFAULT;
+}
+
+int kvm_device_msix_init_vectors(KVMState *s, uint32_t dev_id,
+                                 uint32_t nr_vectors)
+{
+    struct kvm_assigned_msix_nr msix_nr = {
+        .assigned_dev_id = dev_id,
+        .entry_nr = nr_vectors,
+    };
+
+    return kvm_vm_ioctl(s, KVM_ASSIGN_SET_MSIX_NR, &msix_nr);
+}
+
+int kvm_device_msix_set_vector(KVMState *s, uint32_t dev_id, uint32_t vector,
+                               int virq)
+{
+    struct kvm_assigned_msix_entry msix_entry = {
+        .assigned_dev_id = dev_id,
+        .gsi = virq,
+        .entry = vector,
+    };
+
+    return kvm_vm_ioctl(s, KVM_ASSIGN_SET_MSIX_ENTRY, &msix_entry);
+}
+
+int kvm_device_msix_assign(KVMState *s, uint32_t dev_id)
+{
+    return kvm_assign_irq_internal(s, dev_id, KVM_DEV_IRQ_HOST_MSIX |
+                                              KVM_DEV_IRQ_GUEST_MSIX, 0);
+}
+
+int kvm_device_msix_deassign(KVMState *s, uint32_t dev_id)
+{
+    return kvm_deassign_irq_internal(s, dev_id, KVM_DEV_IRQ_GUEST_MSIX |
+                                                KVM_DEV_IRQ_HOST_MSIX);
 }

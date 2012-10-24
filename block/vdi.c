@@ -454,6 +454,12 @@ static int vdi_open(BlockDriverState *bs, int flags)
     return -1;
 }
 
+static int vdi_reopen_prepare(BDRVReopenState *state,
+                              BlockReopenQueue *queue, Error **errp)
+{
+    return 0;
+}
+
 static int coroutine_fn vdi_co_is_allocated(BlockDriverState *bs,
         int64_t sector_num, int nb_sectors, int *pnum)
 {
@@ -628,7 +634,6 @@ static int vdi_create(const char *filename, QEMUOptionParameter *options)
     VdiHeader header;
     size_t i;
     size_t bmap_size;
-    uint32_t *bmap;
 
     logout("\n");
 
@@ -693,21 +698,21 @@ static int vdi_create(const char *filename, QEMUOptionParameter *options)
         result = -errno;
     }
 
-    bmap = NULL;
     if (bmap_size > 0) {
-        bmap = (uint32_t *)g_malloc0(bmap_size);
-    }
-    for (i = 0; i < blocks; i++) {
-        if (image_type == VDI_TYPE_STATIC) {
-            bmap[i] = i;
-        } else {
-            bmap[i] = VDI_UNALLOCATED;
+        uint32_t *bmap = g_malloc0(bmap_size);
+        for (i = 0; i < blocks; i++) {
+            if (image_type == VDI_TYPE_STATIC) {
+                bmap[i] = i;
+            } else {
+                bmap[i] = VDI_UNALLOCATED;
+            }
         }
+        if (write(fd, bmap, bmap_size) < 0) {
+            result = -errno;
+        }
+        g_free(bmap);
     }
-    if (write(fd, bmap, bmap_size) < 0) {
-        result = -errno;
-    }
-    g_free(bmap);
+
     if (image_type == VDI_TYPE_STATIC) {
         if (ftruncate(fd, sizeof(header) + bmap_size + blocks * block_size)) {
             result = -errno;
@@ -762,6 +767,7 @@ static BlockDriver bdrv_vdi = {
     .bdrv_probe = vdi_probe,
     .bdrv_open = vdi_open,
     .bdrv_close = vdi_close,
+    .bdrv_reopen_prepare = vdi_reopen_prepare,
     .bdrv_create = vdi_create,
     .bdrv_co_is_allocated = vdi_co_is_allocated,
     .bdrv_make_empty = vdi_make_empty,

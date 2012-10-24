@@ -276,7 +276,7 @@ static void omap_mcspi_bus_reset(OMAPSPIBusState *s)
     omap_mcspi_interrupt_update(s);
 }
 
-static uint64_t omap_mcspi_read(void *opaque, target_phys_addr_t addr,
+static uint64_t omap_mcspi_read(void *opaque, hwaddr addr,
                                 unsigned size)
 {
     OMAPSPIBusState *s = (OMAPSPIBusState *) opaque;
@@ -406,7 +406,7 @@ static uint64_t omap_mcspi_read(void *opaque, target_phys_addr_t addr,
     return 0;
 }
 
-static void omap_mcspi_write(void *opaque, target_phys_addr_t addr,
+static void omap_mcspi_write(void *opaque, hwaddr addr,
                              uint64_t value, unsigned size)
 {
     OMAPSPIBusState *s = (OMAPSPIBusState *) opaque;

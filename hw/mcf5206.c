@@ -371,14 +371,14 @@ static const int m5206_mbar_width[] =
   /* 1c0-200 */ 1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,  1, 1, 1, 1,
 };
 
-static uint32_t m5206_mbar_readw(void *opaque, target_phys_addr_t offset);
-static uint32_t m5206_mbar_readl(void *opaque, target_phys_addr_t offset);
+static uint32_t m5206_mbar_readw(void *opaque, hwaddr offset);
+static uint32_t m5206_mbar_readl(void *opaque, hwaddr offset);
 
-static uint32_t m5206_mbar_readb(void *opaque, target_phys_addr_t offset)
+static uint32_t m5206_mbar_readb(void *opaque, hwaddr offset)
 {
     m5206_mbar_state *s = (m5206_mbar_state *)opaque;
     offset &= 0x3ff;
-    if (offset > 0x200) {
+    if (offset >= 0x200) {
         hw_error("Bad MBAR read offset 0x%x", (int)offset);
     }
     if (m5206_mbar_width[offset >> 2] > 1) {
@@ -392,12 +392,12 @@ static uint32_t m5206_mbar_readb(void *opaque, target_phys_addr_t offset)
     return m5206_mbar_read(s, offset, 1);
 }
 
-static uint32_t m5206_mbar_readw(void *opaque, target_phys_addr_t offset)
+static uint32_t m5206_mbar_readw(void *opaque, hwaddr offset)
 {
     m5206_mbar_state *s = (m5206_mbar_state *)opaque;
     int width;
     offset &= 0x3ff;
-    if (offset > 0x200) {
+    if (offset >= 0x200) {
         hw_error("Bad MBAR read offset 0x%x", (int)offset);
     }
     width = m5206_mbar_width[offset >> 2];
@@ -416,12 +416,12 @@ static uint32_t m5206_mbar_readw(void *opaque, target_phys_addr_t offset)
     return m5206_mbar_read(s, offset, 2);
 }
 
-static uint32_t m5206_mbar_readl(void *opaque, target_phys_addr_t offset)
+static uint32_t m5206_mbar_readl(void *opaque, hwaddr offset)
 {
     m5206_mbar_state *s = (m5206_mbar_state *)opaque;
     int width;
     offset &= 0x3ff;
-    if (offset > 0x200) {
+    if (offset >= 0x200) {
         hw_error("Bad MBAR read offset 0x%x", (int)offset);
     }
     width = m5206_mbar_width[offset >> 2];
@@ -434,18 +434,18 @@ static uint32_t m5206_mbar_readl(void *opaque, target_phys_addr_t offset)
     return m5206_mbar_read(s, offset, 4);
 }
 
-static void m5206_mbar_writew(void *opaque, target_phys_addr_t offset,
+static void m5206_mbar_writew(void *opaque, hwaddr offset,
                               uint32_t value);
-static void m5206_mbar_writel(void *opaque, target_phys_addr_t offset,
+static void m5206_mbar_writel(void *opaque, hwaddr offset,
                               uint32_t value);
 
-static void m5206_mbar_writeb(void *opaque, target_phys_addr_t offset,
+static void m5206_mbar_writeb(void *opaque, hwaddr offset,
                               uint32_t value)
 {
     m5206_mbar_state *s = (m5206_mbar_state *)opaque;
     int width;
     offset &= 0x3ff;
-    if (offset > 0x200) {
+    if (offset >= 0x200) {
         hw_error("Bad MBAR write offset 0x%x", (int)offset);
     }
     width = m5206_mbar_width[offset >> 2];
@@ -463,13 +463,13 @@ static void m5206_mbar_writeb(void *opaque, target_phys_addr_t offset,
     m5206_mbar_write(s, offset, value, 1);
 }
 
-static void m5206_mbar_writew(void *opaque, target_phys_addr_t offset,
+static void m5206_mbar_writew(void *opaque, hwaddr offset,
                               uint32_t value)
 {
     m5206_mbar_state *s = (m5206_mbar_state *)opaque;
     int width;
     offset &= 0x3ff;
-    if (offset > 0x200) {
+    if (offset >= 0x200) {
         hw_error("Bad MBAR write offset 0x%x", (int)offset);
     }
     width = m5206_mbar_width[offset >> 2];
@@ -491,13 +491,13 @@ static void m5206_mbar_writew(void *opaque, target_phys_addr_t offset,
     m5206_mbar_write(s, offset, value, 2);
 }
 
-static void m5206_mbar_writel(void *opaque, target_phys_addr_t offset,
+static void m5206_mbar_writel(void *opaque, hwaddr offset,
                               uint32_t value)
 {
     m5206_mbar_state *s = (m5206_mbar_state *)opaque;
     int width;
     offset &= 0x3ff;
-    if (offset > 0x200) {
+    if (offset >= 0x200) {
         hw_error("Bad MBAR write offset 0x%x", (int)offset);
     }
     width = m5206_mbar_width[offset >> 2];

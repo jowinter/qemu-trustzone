@@ -52,6 +52,7 @@ void qemu_system_wakeup_enable(WakeupReason reason, bool enabled);
 void qemu_register_wakeup_notifier(Notifier *notifier);
 void qemu_system_shutdown_request(void);
 void qemu_system_powerdown_request(void);
+void qemu_register_powerdown_notifier(Notifier *notifier);
 void qemu_system_debug_request(void);
 void qemu_system_vmstop_request(RunState reason);
 int qemu_shutdown_requested_get(void);
@@ -61,7 +62,6 @@ int qemu_reset_requested(void);
 int qemu_powerdown_requested(void);
 void qemu_system_killed(int signal, pid_t pid);
 void qemu_kill_report(void);
-extern qemu_irq qemu_system_powerdown;
 void qemu_devices_reset(void);
 void qemu_system_reset(bool report);
 
@@ -105,10 +105,7 @@ typedef enum {
 } VGAInterfaceType;
 
 extern int vga_interface_type;
-#define cirrus_vga_enabled (vga_interface_type == VGA_CIRRUS)
-#define std_vga_enabled (vga_interface_type == VGA_STD)
 #define xenfb_enabled (vga_interface_type == VGA_XENFB)
-#define vmsvga_enabled (vga_interface_type == VGA_VMWARE)
 #define qxl_enabled (vga_interface_type == VGA_QXL)
 
 extern int graphic_width;

@@ -25,7 +25,6 @@
 #include "loader.h"
 #include "console.h"
 #include "pci.h"
-#include "vmware_vga.h"
 
 #undef VERBOSE
 #define HW_RECT_ACCEL
@@ -1003,18 +1002,19 @@ static void vmsvga_invalidate_display(void *opaque)
 
 /* save the vga display in a PPM image even if no display is
    available */
-static void vmsvga_screen_dump(void *opaque, const char *filename, bool cswitch)
+static void vmsvga_screen_dump(void *opaque, const char *filename, bool cswitch,
+                               Error **errp)
 {
     struct vmsvga_state_s *s = opaque;
     if (!s->enable) {
-        s->vga.screen_dump(&s->vga, filename, cswitch);
+        s->vga.screen_dump(&s->vga, filename, cswitch, errp);
         return;
     }
 
     if (s->depth == 32) {
         DisplaySurface *ds = qemu_create_displaysurface_from(s->width,
                 s->height, 32, ds_get_linesize(s->vga.ds), s->vga.vram_ptr);
-        ppm_save(filename, ds);
+        ppm_save(filename, ds, errp);
         g_free(ds);
     }
 }
@@ -1130,7 +1130,7 @@ static void vmsvga_init(struct vmsvga_state_s *s,
     }
 }
 
-static uint64_t vmsvga_io_read(void *opaque, target_phys_addr_t addr,
+static uint64_t vmsvga_io_read(void *opaque, hwaddr addr,
                                unsigned size)
 {
     struct vmsvga_state_s *s = opaque;
@@ -1143,7 +1143,7 @@ static uint64_t vmsvga_io_read(void *opaque, target_phys_addr_t addr,
     }
 }
 
-static void vmsvga_io_write(void *opaque, target_phys_addr_t addr,
+static void vmsvga_io_write(void *opaque, hwaddr addr,
                             uint64_t data, unsigned size)
 {
     struct vmsvga_state_s *s = opaque;
@@ -1185,6 +1185,7 @@ static int pci_vmsvga_initfn(PCIDevice *dev)
 
     memory_region_init_io(&s->io_bar, &vmsvga_io_ops, &s->chip,
                           "vmsvga-io", 0x10);
+    memory_region_set_flush_coalesced(&s->io_bar);
     pci_register_bar(&s->card, 0, PCI_BASE_ADDRESS_SPACE_IO, &s->io_bar);
 
     vmsvga_init(&s->chip, pci_address_space(dev),

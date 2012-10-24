@@ -67,7 +67,6 @@
 #include "hw/usb.h"
 #include "blockdev.h"
 #include "exec-memory.h"
-#include "vga-pci.h"
 
 #define MAX_IDE_BUS 2
 #define CFG_ADDR 0xf0000510
@@ -83,13 +82,13 @@
 #endif
 
 /* UniN device */
-static void unin_write(void *opaque, target_phys_addr_t addr, uint64_t value,
+static void unin_write(void *opaque, hwaddr addr, uint64_t value,
                        unsigned size)
 {
     UNIN_DPRINTF("write addr " TARGET_FMT_plx " val %"PRIx64"\n", addr, value);
 }
 
-static uint64_t unin_read(void *opaque, target_phys_addr_t addr, unsigned size)
+static uint64_t unin_read(void *opaque, hwaddr addr, unsigned size)
 {
     uint32_t value;
 
@@ -116,7 +115,7 @@ static uint64_t translate_kernel_address(void *opaque, uint64_t addr)
     return (addr & 0x0fffffff) + KERNEL_LOAD_ADDR;
 }
 
-static target_phys_addr_t round_page(target_phys_addr_t addr)
+static hwaddr round_page(hwaddr addr)
 {
     return (addr + TARGET_PAGE_SIZE - 1) & TARGET_PAGE_MASK;
 }
@@ -129,13 +128,14 @@ static void ppc_core99_reset(void *opaque)
 }
 
 /* PowerPC Mac99 hardware initialisation */
-static void ppc_core99_init (ram_addr_t ram_size,
-                             const char *boot_device,
-                             const char *kernel_filename,
-                             const char *kernel_cmdline,
-                             const char *initrd_filename,
-                             const char *cpu_model)
+static void ppc_core99_init(QEMUMachineInitArgs *args)
 {
+    ram_addr_t ram_size = args->ram_size;
+    const char *cpu_model = args->cpu_model;
+    const char *kernel_filename = args->kernel_filename;
+    const char *kernel_cmdline = args->kernel_cmdline;
+    const char *initrd_filename = args->initrd_filename;
+    const char *boot_device = args->boot_device;
     PowerPCCPU *cpu = NULL;
     CPUPPCState *env = NULL;
     char *filename;
@@ -143,7 +143,7 @@ static void ppc_core99_init (ram_addr_t ram_size,
     MemoryRegion *unin_memory = g_new(MemoryRegion, 1);
     int linux_boot, i;
     MemoryRegion *ram = g_new(MemoryRegion, 1), *bios = g_new(MemoryRegion, 1);
-    target_phys_addr_t kernel_base, initrd_base, cmdline_base = 0;
+    hwaddr kernel_base, initrd_base, cmdline_base = 0;
     long kernel_size, initrd_size;
     PCIBus *pci_bus;
     MacIONVRAMState *nvr;

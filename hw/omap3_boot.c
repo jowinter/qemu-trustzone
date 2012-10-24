@@ -211,7 +211,7 @@ static inline uint32_t omap3_get_le16(const void *p)
     return v;
 }
 
-static inline void omap3_boot_setlsb(target_phys_addr_t addr, uint16_t lsb)
+static inline void omap3_boot_setlsb(hwaddr addr, uint16_t lsb)
 {
     uint8_t x[4];
     
@@ -245,7 +245,7 @@ struct omap3_boot_s {
         done
     } state;
     uint8_t chflags;
-    target_phys_addr_t addr;
+    hwaddr addr;
     uint32_t count;
 };
 

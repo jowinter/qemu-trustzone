@@ -372,6 +372,10 @@ VncInfo *qmp_query_vnc(Error **errp)
             }
         }
 
+        if (vnc_display->lsock == -1) {
+            return info;
+        }
+
         if (getsockname(vnc_display->lsock, (struct sockaddr *)&sa,
                         &salen) == -1) {
             error_set(errp, QERR_UNDEFINED_ERROR);
@@ -1802,10 +1806,12 @@ static void set_encodings(VncState *vs, int32_t *encodings, size_t n_encodings)
             vs->features |= VNC_FEATURE_TIGHT_MASK;
             vs->vnc_encoding = enc;
             break;
+#ifdef CONFIG_VNC_PNG
         case VNC_ENCODING_TIGHT_PNG:
             vs->features |= VNC_FEATURE_TIGHT_PNG_MASK;
             vs->vnc_encoding = enc;
             break;
+#endif
         case VNC_ENCODING_ZLIB:
             vs->features |= VNC_FEATURE_ZLIB_MASK;
             vs->vnc_encoding = enc;
@@ -3061,7 +3067,7 @@ int vnc_display_open(DisplayState *ds, const char *display)
         if (strncmp(display, "unix:", 5) == 0)
             vs->lsock = unix_connect(display+5);
         else
-            vs->lsock = inet_connect(display, true, NULL, NULL);
+            vs->lsock = inet_connect(display, NULL);
         if (-1 == vs->lsock) {
             g_free(vs->display);
             vs->display = NULL;

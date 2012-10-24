@@ -89,19 +89,6 @@ int cpu_get_pic_interrupt(CPUX86State *env)
 }
 #endif
 
-/* timers for rdtsc */
-
-#if 0
-
-static uint64_t emu_time;
-
-int64_t cpu_get_real_ticks(void)
-{
-    return emu_time++;
-}
-
-#endif
-
 #if defined(CONFIG_USE_NPTL)
 /***********************************************************/
 /* Helper routines for implementing atomic operations.  */
@@ -1126,6 +1113,11 @@ void cpu_loop (CPUSPARCState *env)
 
     while (1) {
         trapnr = cpu_sparc_exec (env);
+
+        /* Compute PSR before exposing state.  */
+        if (env->cc_op != CC_OP_FLAGS) {
+            cpu_get_psr(env);
+        }
 
         switch (trapnr) {
 #ifndef TARGET_SPARC64
@@ -2535,6 +2527,7 @@ void cpu_loop(CPUMBState *env)
         case EXCP_BREAK:
             /* Return address is 4 bytes after the call.  */
             env->regs[14] += 4;
+            env->sregs[SR_PC] = env->regs[14];
             ret = do_syscall(env, 
                              env->regs[12], 
                              env->regs[5], 
@@ -2545,7 +2538,6 @@ void cpu_loop(CPUMBState *env)
                              env->regs[10],
                              0, 0);
             env->regs[3] = ret;
-            env->sregs[SR_PC] = env->regs[14];
             break;
         case EXCP_HW_EXCP:
             env->regs[17] = env->sregs[SR_PC] + 4;
@@ -3143,10 +3135,8 @@ static void handle_arg_cpu(const char *arg)
     cpu_model = strdup(arg);
     if (cpu_model == NULL || is_help_option(cpu_model)) {
         /* XXX: implement xxx_cpu_list for targets that still miss it */
-#if defined(cpu_list_id)
-        cpu_list_id(stdout, &fprintf, "");
-#elif defined(cpu_list)
-        cpu_list(stdout, &fprintf); /* deprecated */
+#if defined(cpu_list)
+        cpu_list(stdout, &fprintf);
 #endif
         exit(1);
     }
@@ -3584,7 +3574,7 @@ int main(int argc, char **argv, char **envp)
     ret = loader_exec(filename, target_argv, target_environ, regs,
         info, &bprm);
     if (ret != 0) {
-        printf("Error %d while loading %s\n", ret, filename);
+        printf("Error while loading %s: %s\n", filename, strerror(-ret));
         _exit(1);
     }
 

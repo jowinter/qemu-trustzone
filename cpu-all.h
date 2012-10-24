@@ -260,14 +260,6 @@ extern unsigned long reserved_va;
 #define stfl(p, v) stfl_raw(p, v)
 #define stfq(p, v) stfq_raw(p, v)
 
-#ifndef CONFIG_TCG_PASS_AREG0
-#define ldub_code(p) ldub_raw(p)
-#define ldsb_code(p) ldsb_raw(p)
-#define lduw_code(p) lduw_raw(p)
-#define ldsw_code(p) ldsw_raw(p)
-#define ldl_code(p) ldl_raw(p)
-#define ldq_code(p) ldq_raw(p)
-#else
 #define cpu_ldub_code(env1, p) ldub_raw(p)
 #define cpu_ldsb_code(env1, p) ldsb_raw(p)
 #define cpu_lduw_code(env1, p) lduw_raw(p)
@@ -296,7 +288,6 @@ extern unsigned long reserved_va;
 #define cpu_stw_kernel(env, addr, data) stw_raw(addr, data)
 #define cpu_stl_kernel(env, addr, data) stl_raw(addr, data)
 #define cpu_stq_kernel(env, addr, data) stq_raw(addr, data)
-#endif
 
 #define ldub_kernel(p) ldub_raw(p)
 #define ldsb_kernel(p) ldsb_raw(p)
@@ -313,7 +304,6 @@ extern unsigned long reserved_va;
 #define stfl_kernel(p, v) stfl_raw(p, v)
 #define stfq_kernel(p, vt) stfq_raw(p, v)
 
-#ifdef CONFIG_TCG_PASS_AREG0
 #define cpu_ldub_data(env, addr) ldub_raw(addr)
 #define cpu_lduw_data(env, addr) lduw_raw(addr)
 #define cpu_ldl_data(env, addr) ldl_raw(addr)
@@ -321,7 +311,6 @@ extern unsigned long reserved_va;
 #define cpu_stb_data(env, addr, data) stb_raw(addr, data)
 #define cpu_stw_data(env, addr, data) stw_raw(addr, data)
 #define cpu_stl_data(env, addr, data) stl_raw(addr, data)
-#endif
 #endif /* defined(CONFIG_USER_ONLY) */
 
 /* page related stuff */
@@ -367,6 +356,9 @@ CPUArchState *cpu_copy(CPUArchState *env);
 CPUArchState *qemu_get_cpu(int cpu);
 
 #define CPU_DUMP_CODE 0x00010000
+#define CPU_DUMP_FPU 0x00020000 /* dump FPU register state, not just integer */
+/* dump info about TCG QEMU's condition code optimization state */
+#define CPU_DUMP_CCOP 0x00040000
 
 void cpu_dump_state(CPUArchState *env, FILE *f, fprintf_function cpu_fprintf,
                     int flags);
@@ -482,7 +474,7 @@ void run_on_cpu(CPUArchState *env, void (*func)(void *data), void *data);
 /* Return the physical page corresponding to a virtual one. Use it
    only for debugging because no protection checks are done. Return -1
    if no page found. */
-target_phys_addr_t cpu_get_phys_page_debug(CPUArchState *env, target_ulong addr);
+hwaddr cpu_get_phys_page_debug(CPUArchState *env, target_ulong addr);
 
 /* memory API */
 
@@ -508,7 +500,6 @@ typedef struct RAMBlock {
 typedef struct RAMList {
     uint8_t *phys_dirty;
     QLIST_HEAD(, RAMBlock) blocks;
-    uint64_t dirty_pages;
 } RAMList;
 extern RAMList ram_list;
 
@@ -526,6 +517,7 @@ extern int mem_prealloc;
 #define TLB_MMIO        (1 << 5)
 
 void dump_exec_info(FILE *f, fprintf_function cpu_fprintf);
+ram_addr_t last_ram_offset(void);
 #endif /* !CONFIG_USER_ONLY */
 
 int cpu_memory_rw_debug(CPUArchState *env, target_ulong addr,

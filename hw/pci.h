@@ -211,6 +211,8 @@ struct PCIDevice {
     int32_t devfn;
     char name[64];
     PCIIORegion io_regions[PCI_NUM_REGIONS];
+    AddressSpace bus_master_as;
+    MemoryRegion bus_master_enable_region;
     DMAContext *dma;
 
     /* do not access the following fields */
@@ -334,6 +336,9 @@ PCIDevice *pci_nic_init(NICInfo *nd, const char *default_model,
                         const char *default_devaddr);
 PCIDevice *pci_nic_init_nofail(NICInfo *nd, const char *default_model,
                                const char *default_devaddr);
+
+PCIDevice *pci_vga_init(PCIBus *bus);
+
 int pci_bus_num(PCIBus *s);
 void pci_for_each_device(PCIBus *bus, int bus_num,
                          void (*fn)(PCIBus *bus, PCIDevice *d, void *opaque),

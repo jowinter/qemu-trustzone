@@ -31,7 +31,7 @@ struct omap_dma_channel_s {
     int endian_lock[2];
     int translate[2];
     enum omap_dma_port port[2];
-    target_phys_addr_t addr[2];
+    hwaddr addr[2];
     omap_dma_addressing_t mode[2];
     uint32_t elements;
     uint16_t frames;
@@ -78,7 +78,7 @@ struct omap_dma_channel_s {
     struct omap_dma_channel_s *sibling;
 
     struct omap_dma_reg_set_s {
-        target_phys_addr_t src, dest;
+        hwaddr src, dest;
         int frame;
         int element;
         int pck_element;
@@ -285,7 +285,7 @@ static int omap_dma_sgl_next(struct omap_dma_s *s,
     if (type < 1 || type > 3) {
         hw_error("%s: unknown descriptor type %d\n", __func__, type);
     }
-    target_phys_addr_t addr = (target_phys_addr_t)ch->sgl.next;
+    hwaddr addr = (hwaddr)ch->sgl.next;
     ch->sgl.ptr &= ~0xff;
     uint8_t data[4];
     cpu_physical_memory_read(addr, data, 4);
@@ -1027,7 +1027,7 @@ static int omap_dma_ch_reg_write(struct omap_dma_s *s,
         break;
 
     case 0x06:	/* SYS_DMA_CSR_CH0 */
-        OMAP_RO_REG((target_phys_addr_t) reg);
+        OMAP_RO_REG((hwaddr) reg);
         break;
 
     case 0x08:	/* SYS_DMA_CSSA_L_CH0 */
@@ -1067,7 +1067,7 @@ static int omap_dma_ch_reg_write(struct omap_dma_s *s,
         break;
 
     case 0x18:	/* SYS_DMA_CPC_CH0 or DMA_CSAC */
-        OMAP_RO_REG((target_phys_addr_t) reg);
+        OMAP_RO_REG((hwaddr) reg);
         break;
 
     case 0x1c:	/* DMA_CDEI */
@@ -1559,7 +1559,7 @@ static int omap_dma_sys_read(struct omap_dma_s *s, int offset,
     return 0;
 }
 
-static uint64_t omap_dma_read(void *opaque, target_phys_addr_t addr,
+static uint64_t omap_dma_read(void *opaque, hwaddr addr,
                               unsigned size)
 {
     struct omap_dma_s *s = (struct omap_dma_s *) opaque;
@@ -1607,7 +1607,7 @@ static uint64_t omap_dma_read(void *opaque, target_phys_addr_t addr,
     return 0;
 }
 
-static void omap_dma_write(void *opaque, target_phys_addr_t addr,
+static void omap_dma_write(void *opaque, hwaddr addr,
                            uint64_t value, unsigned size)
 {
     struct omap_dma_s *s = (struct omap_dma_s *) opaque;
@@ -1743,7 +1743,7 @@ static void omap_dma_setcaps(struct omap_dma_s *s)
     }
 }
 
-struct soc_dma_s *omap_dma_init(target_phys_addr_t base, qemu_irq *irqs,
+struct soc_dma_s *omap_dma_init(hwaddr base, qemu_irq *irqs,
                 MemoryRegion *sysmem,
                 qemu_irq lcd_irq, struct omap_mpu_state_s *mpu, omap_clk clk,
                 enum omap_dma_model model)
@@ -1817,7 +1817,7 @@ static void omap_dma_interrupts_4_update(struct omap_dma_s *s)
         qemu_irq_raise(s->irq[3]);
 }
 
-static uint64_t omap_dma4_read(void *opaque, target_phys_addr_t addr,
+static uint64_t omap_dma4_read(void *opaque, hwaddr addr,
                                unsigned size)
 {
     struct omap_dma_s *s = (struct omap_dma_s *) opaque;
@@ -2080,12 +2080,12 @@ static void omap_dma4_write_ch(struct omap_dma_s *s,
         break;
 
     case 0x1c:	/* DMA4_CSSA */
-        ch->addr[0] = (target_phys_addr_t) (uint32_t) value;
+        ch->addr[0] = (hwaddr) (uint32_t) value;
         ch->set_update = 1;
         break;
 
     case 0x20:	/* DMA4_CDSA */
-        ch->addr[1] = (target_phys_addr_t) (uint32_t) value;
+        ch->addr[1] = (hwaddr) (uint32_t) value;
         ch->set_update = 1;
         break;
 
@@ -2146,7 +2146,7 @@ static void omap_dma4_write_ch(struct omap_dma_s *s,
     }
 }
 
-static void omap_dma4_write(void *opaque, target_phys_addr_t addr,
+static void omap_dma4_write(void *opaque, hwaddr addr,
                             uint64_t value, unsigned size)
 {
     struct omap_dma_s *s = (struct omap_dma_s *) opaque;
@@ -2264,7 +2264,7 @@ static struct omap_dma_s *omap_dma4_init_internal(struct omap_mpu_state_s *mpu,
     return s;
 }
 
-struct soc_dma_s *omap_dma4_init(target_phys_addr_t base, qemu_irq *irqs,
+struct soc_dma_s *omap_dma4_init(hwaddr base, qemu_irq *irqs,
                 MemoryRegion *sysmem,
                 struct omap_mpu_state_s *mpu, int fifo,
                 int chans, omap_clk iclk, omap_clk fclk)

@@ -255,7 +255,7 @@ static void virtio_ioport_write(void *opaque, uint32_t addr, uint32_t val)
 {
     VirtIOPCIProxy *proxy = opaque;
     VirtIODevice *vdev = proxy->vdev;
-    target_phys_addr_t pa;
+    hwaddr pa;
 
     switch (addr) {
     case VIRTIO_PCI_GUEST_FEATURES:
@@ -266,7 +266,7 @@ static void virtio_ioport_write(void *opaque, uint32_t addr, uint32_t val)
         virtio_set_features(vdev, val);
         break;
     case VIRTIO_PCI_QUEUE_PFN:
-        pa = (target_phys_addr_t)val << VIRTIO_PCI_QUEUE_ADDR_SHIFT;
+        pa = (hwaddr)val << VIRTIO_PCI_QUEUE_ADDR_SHIFT;
         if (pa == 0) {
             virtio_pci_stop_ioeventfd(proxy);
             virtio_reset(proxy->vdev);
@@ -517,7 +517,7 @@ static int kvm_virtio_pci_vq_vector_use(VirtIOPCIProxy *proxy,
     }
     irqfd->users++;
 
-    ret = kvm_irqchip_add_irq_notifier(kvm_state, n, irqfd->virq);
+    ret = kvm_irqchip_add_irqfd_notifier(kvm_state, n, irqfd->virq);
     if (ret < 0) {
         if (--irqfd->users == 0) {
             kvm_irqchip_release_virq(kvm_state, irqfd->virq);
@@ -538,7 +538,7 @@ static void kvm_virtio_pci_vq_vector_release(VirtIOPCIProxy *proxy,
     VirtIOIRQFD *irqfd = &proxy->vector_irqfd[vector];
     int ret;
 
-    ret = kvm_irqchip_remove_irq_notifier(kvm_state, n, irqfd->virq);
+    ret = kvm_irqchip_remove_irqfd_notifier(kvm_state, n, irqfd->virq);
     assert(ret == 0);
 
     if (--irqfd->users == 0) {

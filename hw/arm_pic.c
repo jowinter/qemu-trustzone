@@ -35,9 +35,9 @@ static void arm_pic_cpu_handler(void *opaque, int irq, int level)
     }
 }
 
-#ifdef CONFIG_KVM
 static void kvm_arm_pic_cpu_handler(void *opaque, int irq, int level)
 {
+#ifdef CONFIG_KVM
     ARMCPU *cpu = opaque;
     CPUARMState *env = &cpu->env;
     int kvm_irq = KVM_ARM_IRQ_TYPE_CPU << KVM_ARM_IRQ_TYPE_SHIFT;
@@ -54,15 +54,13 @@ static void kvm_arm_pic_cpu_handler(void *opaque, int irq, int level)
     }
     kvm_irq |= env->cpu_index << KVM_ARM_IRQ_VCPU_SHIFT;
     kvm_set_irq(kvm_state, kvm_irq, level ? 1 : 0);
-}
 #endif
+}
 
 qemu_irq *arm_pic_init_cpu(ARMCPU *cpu)
 {
-#ifdef CONFIG_KVM
     if (kvm_enabled()) {
         return qemu_allocate_irqs(kvm_arm_pic_cpu_handler, cpu, 2);
     }
-#endif
     return qemu_allocate_irqs(arm_pic_cpu_handler, cpu, 2);
 }

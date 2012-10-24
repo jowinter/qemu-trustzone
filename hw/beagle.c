@@ -52,12 +52,8 @@ struct beagle_s {
     DeviceState *ddc;
 };
 
-static void beagle_common_init(ram_addr_t ram_size,
-                        const char *boot_device,
-                        const char *kernel_filename,
-                        const char *kernel_cmdline,
-                        const char *initrd_filename,
-                        int cpu_model)
+static void beagle_common_init(QEMUMachineInitArgs *args,
+                               ram_addr_t ram_size, int cpu_model)
 {
     MemoryRegion *sysmem = get_system_memory();
     struct beagle_s *s = (struct beagle_s *) g_malloc0(sizeof(*s));
@@ -99,25 +95,13 @@ static void beagle_common_init(ram_addr_t ram_size,
     omap_lcd_panel_attach(s->cpu->dss);
 }
 
-static void beagle_xm_init(ram_addr_t ram_size,
-                        const char *boot_device,
-                        const char *kernel_filename,
-                        const char *kernel_cmdline,
-                        const char *initrd_filename,
-                        const char *cpu_model)
+static void beagle_xm_init(QEMUMachineInitArgs *args)
 {
-    beagle_common_init(BEAGLE_XM_SDRAM_SIZE, boot_device, kernel_filename,
-                       kernel_cmdline, initrd_filename, omap3630);
+    beagle_common_init(args, BEAGLE_XM_SDRAM_SIZE, omap3630);
 }
-static void beagle_init(ram_addr_t ram_size,
-                        const char *boot_device,
-                        const char *kernel_filename,
-                        const char *kernel_cmdline,
-                        const char *initrd_filename,
-                        const char *cpu_model)
+static void beagle_init(QEMUMachineInitArgs *args)
 {
-    beagle_common_init(BEAGLE_SDRAM_SIZE, boot_device, kernel_filename,
-                       kernel_cmdline, initrd_filename, omap3430);
+    beagle_common_init(args, BEAGLE_SDRAM_SIZE, omap3430);
 }
 
 QEMUMachine beagle_machine = {

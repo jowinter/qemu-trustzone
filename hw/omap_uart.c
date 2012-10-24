@@ -20,8 +20,7 @@
 #include "qemu-char.h"
 #include "hw.h"
 #include "omap.h"
-/* We use pc-style serial ports.  */
-#include "pc.h"
+#include "serial.h"
 #include "exec-memory.h"
 #include "sysbus.h"
 
@@ -103,7 +102,7 @@ static void omap_uart_reset(DeviceState *qdev)
     s->xoff[0] = s->xoff[1] = 0;
 }
 
-static uint64_t omap_uart_read(void *opaque, target_phys_addr_t addr,
+static uint64_t omap_uart_read(void *opaque, hwaddr addr,
                                unsigned size)
 {
     struct omap_uart_s *s = (struct omap_uart_s *) opaque;
@@ -191,7 +190,7 @@ static uint64_t omap_uart_read(void *opaque, target_phys_addr_t addr,
     return 0;
 }
 
-static void omap_uart_write(void *opaque, target_phys_addr_t addr,
+static void omap_uart_write(void *opaque, hwaddr addr,
                             uint64_t value, unsigned size)
 {
     struct omap_uart_s *s = (struct omap_uart_s *) opaque;

@@ -51,7 +51,7 @@ typedef struct TranslationBlock TranslationBlock;
 #else
 #define MAX_OPC_PARAM_PER_ARG 1
 #endif
-#define MAX_OPC_PARAM_IARGS 4
+#define MAX_OPC_PARAM_IARGS 5
 #define MAX_OPC_PARAM_OARGS 1
 #define MAX_OPC_PARAM_ARGS (MAX_OPC_PARAM_IARGS + MAX_OPC_PARAM_OARGS)
 
@@ -103,9 +103,9 @@ void tb_invalidate_phys_range(tb_page_addr_t start, tb_page_addr_t end,
 void tlb_flush_page(CPUArchState *env, target_ulong addr);
 void tlb_flush(CPUArchState *env, int flush_global);
 void tlb_set_page(CPUArchState *env, target_ulong vaddr,
-                  target_phys_addr_t paddr, int prot,
+                  hwaddr paddr, int prot,
                   int mmu_idx, target_ulong size);
-void tb_invalidate_phys_addr(target_phys_addr_t addr);
+void tb_invalidate_phys_addr(hwaddr addr);
 #else
 static inline void tlb_flush_page(CPUArchState *env, target_ulong addr)
 {
@@ -121,8 +121,6 @@ static inline void tlb_flush(CPUArchState *env, int flush_global)
 #define CODE_GEN_PHYS_HASH_BITS     15
 #define CODE_GEN_PHYS_HASH_SIZE     (1 << CODE_GEN_PHYS_HASH_BITS)
 
-#define MIN_CODE_GEN_BUFFER_SIZE     (1024 * 1024)
-
 /* estimated block size for TB allocation */
 /* XXX: use a per code average code fragment size and modulate it
    according to the host CPU */
@@ -132,9 +130,10 @@ static inline void tlb_flush(CPUArchState *env, int flush_global)
 #define CODE_GEN_AVG_BLOCK_SIZE 64
 #endif
 
-#if defined(_ARCH_PPC) || defined(__x86_64__) || defined(__arm__) || defined(__i386__)
-#define USE_DIRECT_JUMP
-#elif defined(CONFIG_TCG_INTERPRETER)
+#if defined(__arm__) || defined(_ARCH_PPC) \
+    || defined(__x86_64__) || defined(__i386__) \
+    || defined(__sparc__) \
+    || defined(CONFIG_TCG_INTERPRETER)
 #define USE_DIRECT_JUMP
 #endif
 
@@ -244,6 +243,8 @@ static inline void tb_set_jmp_target1(uintptr_t jmp_addr, uintptr_t addr)
     __asm __volatile__ ("swi 0x9f0002" : : "r" (_beg), "r" (_end), "r" (_flg));
 #endif
 }
+#elif defined(__sparc__)
+void tb_set_jmp_target1(uintptr_t jmp_addr, uintptr_t addr);
 #else
 #error tb_set_jmp_target1 is missing
 #endif
@@ -293,7 +294,8 @@ extern int tb_invalidated_flag;
 #if defined(CONFIG_TCG_INTERPRETER)
 /* Alpha and SH4 user mode emulations and Softmmu call GETPC().
    For all others, GETPC remains undefined (which makes TCI a little faster. */
-# if defined(CONFIG_SOFTMMU) || defined(TARGET_ALPHA) || defined(TARGET_SH4)
+# if defined(CONFIG_SOFTMMU) || defined(TARGET_ALPHA) || defined(TARGET_SH4) \
+     || defined(TARGET_SPARC)
 extern uintptr_t tci_tb_ptr;
 #  define GETPC() tci_tb_ptr
 # endif
@@ -310,10 +312,10 @@ extern uintptr_t tci_tb_ptr;
 
 #if !defined(CONFIG_USER_ONLY)
 
-struct MemoryRegion *iotlb_to_region(target_phys_addr_t index);
-uint64_t io_mem_read(struct MemoryRegion *mr, target_phys_addr_t addr,
+struct MemoryRegion *iotlb_to_region(hwaddr index);
+uint64_t io_mem_read(struct MemoryRegion *mr, hwaddr addr,
                      unsigned size);
-void io_mem_write(struct MemoryRegion *mr, target_phys_addr_t addr,
+void io_mem_write(struct MemoryRegion *mr, hwaddr addr,
                   uint64_t value, unsigned size);
 
 void tlb_fill(CPUArchState *env1, target_ulong addr, int is_write, int mmu_idx,
@@ -323,9 +325,6 @@ void tlb_fill(CPUArchState *env1, target_ulong addr, int is_write, int mmu_idx,
 
 #define ACCESS_TYPE (NB_MMU_MODES + 1)
 #define MEMSUFFIX _code
-#ifndef CONFIG_TCG_PASS_AREG0
-#define env cpu_single_env
-#endif
 
 #define DATA_SIZE 1
 #include "softmmu_header.h"
@@ -341,7 +340,6 @@ void tlb_fill(CPUArchState *env1, target_ulong addr, int is_write, int mmu_idx,
 
 #undef ACCESS_TYPE
 #undef MEMSUFFIX
-#undef env
 
 #endif
 

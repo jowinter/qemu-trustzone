@@ -184,6 +184,11 @@ static void rtas_start_cpu(sPAPREnvironment *spapr,
             return;
         }
 
+        /* This will make sure qemu state is up to date with kvm, and
+         * mark it dirty so our changes get flushed back before the
+         * new cpu enters */
+        kvm_cpu_synchronize_state(env);
+
         env->msr = (1ULL << MSR_SF) | (1ULL << MSR_ME);
         env->nip = start;
         env->gpr[3] = r3;
@@ -244,8 +249,8 @@ void spapr_rtas_register(const char *name, spapr_rtas_fn fn)
     rtas_next++;
 }
 
-int spapr_rtas_device_tree_setup(void *fdt, target_phys_addr_t rtas_addr,
-                                 target_phys_addr_t rtas_size)
+int spapr_rtas_device_tree_setup(void *fdt, hwaddr rtas_addr,
+                                 hwaddr rtas_size)
 {
     int ret;
     int i;

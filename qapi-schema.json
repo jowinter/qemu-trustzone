@@ -33,6 +33,31 @@
             'MigrationExpected' ] }
 
 ##
+# @add_client
+#
+# Allow client connections for VNC, Spice and socket based
+# character devices to be passed in to QEMU via SCM_RIGHTS.
+#
+# @protocol: protocol name. Valid names are "vnc", "spice" or the
+#            name of a character device (eg. from -chardev id=XXXX)
+#
+# @fdname: file descriptor name previously passed via 'getfd' command
+#
+# @skipauth: #optional whether to skip authentication. Only applies
+#            to "vnc" and "spice" protocols
+#
+# @tls: #optional whether to perform TLS. Only applies to the "spice"
+#       protocol
+#
+# Returns: nothing on success.
+#
+# Since: 0.14.0
+##
+{ 'command': 'add_client',
+  'data': { 'protocol': 'str', 'fdname': 'str', '*skipauth': 'bool',
+            '*tls': 'bool' } }
+
+##
 # @NameInfo:
 #
 # Guest name information.
@@ -118,7 +143,7 @@
 ##
 # @RunState
 #
-# An enumation of VM run states.
+# An enumeration of VM run states.
 #
 # @debug: QEMU is running on a debugger
 #
@@ -154,6 +179,70 @@
   'data': [ 'debug', 'inmigrate', 'internal-error', 'io-error', 'paused',
             'postmigrate', 'prelaunch', 'finish-migrate', 'restore-vm',
             'running', 'save-vm', 'shutdown', 'suspended', 'watchdog' ] }
+
+##
+# @SnapshotInfo
+#
+# @id: unique snapshot id
+#
+# @name: user chosen name
+#
+# @vm-state-size: size of the VM state
+#
+# @date-sec: UTC date of the snapshot in seconds
+#
+# @date-nsec: fractional part in nano seconds to be used with date-sec
+#
+# @vm-clock-sec: VM clock relative to boot in seconds
+#
+# @vm-clock-nsec: fractional part in nano seconds to be used with vm-clock-sec
+#
+# Since: 1.3
+#
+##
+
+{ 'type': 'SnapshotInfo',
+  'data': { 'id': 'str', 'name': 'str', 'vm-state-size': 'int',
+            'date-sec': 'int', 'date-nsec': 'int',
+            'vm-clock-sec': 'int', 'vm-clock-nsec': 'int' } }
+
+##
+# @ImageInfo:
+#
+# Information about a QEMU image file
+#
+# @filename: name of the image file
+#
+# @format: format of the image file
+#
+# @virtual-size: maximum capacity in bytes of the image
+#
+# @actual-size: #optional actual size on disk in bytes of the image
+#
+# @dirty-flag: #optional true if image is not cleanly closed
+#
+# @cluster-size: #optional size of a cluster in bytes
+#
+# @encrypted: #optional true if the image is encrypted
+#
+# @backing-filename: #optional name of the backing file
+#
+# @full-backing-filename: #optional full path of the backing file
+#
+# @backing-filename-format: #optional the format of the backing file
+#
+# @snapshots: #optional list of VM snapshots
+#
+# Since: 1.3
+#
+##
+
+{ 'type': 'ImageInfo',
+  'data': {'filename': 'str', 'format': 'str', '*dirty-flag': 'bool',
+           '*actual-size': 'int', 'virtual-size': 'int',
+           '*cluster-size': 'int', '*encrypted': 'bool',
+           '*backing-filename': 'str', '*full-backing-filename': 'str',
+           '*backing-filename-format': 'str', '*snapshots': ['SnapshotInfo'] } }
 
 ##
 # @StatusInfo:
@@ -294,13 +383,17 @@
 #
 # @normal : number of normal pages (since 1.2)
 #
-# @normal-bytes : number of normal bytes sent (since 1.2)
+# @normal-bytes: number of normal bytes sent (since 1.2)
+#
+# @dirty-pages-rate: number of pages dirtied by second by the
+#        guest (since 1.3)
 #
 # Since: 0.14.0
 ##
 { 'type': 'MigrationStats',
   'data': {'transferred': 'int', 'remaining': 'int', 'total': 'int' ,
-           'duplicate': 'int', 'normal': 'int', 'normal-bytes': 'int' } }
+           'duplicate': 'int', 'normal': 'int', 'normal-bytes': 'int',
+           'dirty-pages-rate' : 'int' } }
 
 ##
 # @XBZRLECacheStats
@@ -349,13 +442,23 @@
 #        If migration has ended, it returns the total migration
 #        time. (since 1.2)
 #
+# @downtime: #optional only present when migration finishes correctly
+#        total downtime in milliseconds for the guest.
+#        (since 1.3)
+#
+# @expected-downtime: #optional only present while migration is active
+#        expected downtime in milliseconds for the guest in last walk
+#        of the dirty bitmap. (since 1.3)
+#
 # Since: 0.14.0
 ##
 { 'type': 'MigrationInfo',
   'data': {'*status': 'str', '*ram': 'MigrationStats',
            '*disk': 'MigrationStats',
            '*xbzrle-cache': 'XBZRLECacheStats',
-           '*total-time': 'int'} }
+           '*total-time': 'int',
+           '*expected-downtime': 'int',
+           '*downtime': 'int'} }
 
 ##
 # @query-migrate
@@ -785,7 +888,7 @@
 ##
 # @SpiceQueryMouseMode
 #
-# An enumation of Spice mouse states.
+# An enumeration of Spice mouse states.
 #
 # @client: Mouse cursor position is determined by the client.
 #
@@ -807,6 +910,9 @@
 # Information about the SPICE session.
 #
 # @enabled: true if the SPICE server is enabled, false otherwise
+#
+# @migrated: true if the last guest migration completed and spice
+#            migration had completed as well. false otherwise.
 #
 # @host: #optional The hostname the SPICE server is bound to.  This depends on
 #        the name resolution on the host and may be an IP address.
@@ -833,7 +939,7 @@
 # Since: 0.14.0
 ##
 { 'type': 'SpiceInfo',
-  'data': {'enabled': 'bool', '*host': 'str', '*port': 'int',
+  'data': {'enabled': 'bool', 'migrated': 'bool', '*host': 'str', '*port': 'int',
            '*tls-port': 'int', '*auth': 'str', '*compiled-version': 'str',
            'mouse-mode': 'SpiceQueryMouseMode', '*channels': ['SpiceChannel']} }
 
@@ -1021,6 +1127,29 @@
 { 'command': 'query-pci', 'returns': ['PciInfo'] }
 
 ##
+# @BlockdevOnError:
+#
+# An enumeration of possible behaviors for errors on I/O operations.
+# The exact meaning depends on whether the I/O was initiated by a guest
+# or by a block job
+#
+# @report: for guest operations, report the error to the guest;
+#          for jobs, cancel the job
+#
+# @ignore: ignore the error, only report a QMP event (BLOCK_IO_ERROR
+#          or BLOCK_JOB_ERROR)
+#
+# @enospc: same as @stop on ENOSPC, same as @report otherwise.
+#
+# @stop: for guest operations, stop the virtual machine;
+#        for jobs, pause the job
+#
+# Since: 1.3
+##
+{ 'enum': 'BlockdevOnError',
+  'data': ['report', 'ignore', 'enospc', 'stop'] }
+
+##
 # @BlockJobInfo:
 #
 # Information about a long-running block device operation.
@@ -1031,15 +1160,24 @@
 #
 # @len: the maximum progress value
 #
+# @busy: false if the job is known to be in a quiescent state, with
+#        no pending I/O.  Since 1.3.
+#
+# @paused: whether the job is paused or, if @busy is true, will
+#          pause itself as soon as possible.  Since 1.3.
+#
 # @offset: the current progress value
 #
 # @speed: the rate limit, bytes per second
+#
+# @io-status: the status of the job (since 1.3)
 #
 # Since: 1.1
 ##
 { 'type': 'BlockJobInfo',
   'data': {'type': 'str', 'device': 'str', 'len': 'int',
-           'offset': 'int', 'speed': 'int'} }
+           'offset': 'int', 'busy': 'bool', 'paused': 'bool', 'speed': 'int',
+           'io-status': 'BlockDeviceIoStatus'} }
 
 ##
 # @query-block-jobs:
@@ -1307,7 +1445,7 @@
 # @format: #optional the format of the snapshot image, default is 'qcow2'.
 #
 # @mode: #optional whether and how QEMU should create a new image, default is
-# 'absolute-paths'.
+#        'absolute-paths'.
 ##
 { 'type': 'BlockdevSnapshot',
   'data': { 'device': 'str', 'snapshot-file': 'str', '*format': 'str',
@@ -1361,7 +1499,7 @@
 # @format: #optional the format of the snapshot image, default is 'qcow2'.
 #
 # @mode: #optional whether and how QEMU should create a new image, default is
-# 'absolute-paths'.
+#        'absolute-paths'.
 #
 # Returns: nothing on success
 #          If @device is not a valid block device, DeviceNotFound
@@ -1401,6 +1539,40 @@
   'returns': 'str' }
 
 ##
+# @block-commit
+#
+# Live commit of data from overlay image nodes into backing nodes - i.e.,
+# writes data between 'top' and 'base' into 'base'.
+#
+# @device:  the name of the device
+#
+# @base:   #optional The file name of the backing image to write data into.
+#                    If not specified, this is the deepest backing image
+#
+# @top:              The file name of the backing image within the image chain,
+#                    which contains the topmost data to be committed down.
+#                    Note, the active layer as 'top' is currently unsupported.
+#
+#                    If top == base, that is an error.
+#
+#
+# @speed:  #optional the maximum speed, in bytes per second
+#
+# Returns: Nothing on success
+#          If commit or stream is already active on this device, DeviceInUse
+#          If @device does not exist, DeviceNotFound
+#          If image commit is not supported by this device, NotSupported
+#          If @base or @top is invalid, a generic error is returned
+#          If @top is the active layer, or omitted, a generic error is returned
+#          If @speed is invalid, InvalidParameter
+#
+# Since: 1.3
+#
+##
+{ 'command': 'block-commit',
+  'data': { 'device': 'str', '*base': 'str', 'top': 'str',
+            '*speed': 'int' } }
+
 # @migrate_cancel
 #
 # Cancel the current executing migration process.
@@ -1736,13 +1908,18 @@
 #
 # @speed:  #optional the maximum speed, in bytes per second
 #
+# @on-error: #optional the action to take on an error (default report).
+#            'stop' and 'enospc' can only be used if the block device
+#            supports io-status (see BlockInfo).  Since 1.3.
+#
 # Returns: Nothing on success
 #          If @device does not exist, DeviceNotFound
 #
 # Since: 1.1
 ##
-{ 'command': 'block-stream', 'data': { 'device': 'str', '*base': 'str',
-                                       '*speed': 'int' } }
+{ 'command': 'block-stream',
+  'data': { 'device': 'str', '*base': 'str', '*speed': 'int',
+            '*on-error': 'BlockdevOnError' } }
 
 ##
 # @block-job-set-speed:
@@ -1786,12 +1963,58 @@
 #
 # @device: the device name
 #
+# @force: #optional whether to allow cancellation of a paused job (default
+#         false).  Since 1.3.
+#
 # Returns: Nothing on success
 #          If no background operation is active on this device, DeviceNotActive
 #
 # Since: 1.1
 ##
-{ 'command': 'block-job-cancel', 'data': { 'device': 'str' } }
+{ 'command': 'block-job-cancel', 'data': { 'device': 'str', '*force': 'bool' } }
+
+##
+# @block-job-pause:
+#
+# Pause an active background block operation.
+#
+# This command returns immediately after marking the active background block
+# operation for pausing.  It is an error to call this command if no
+# operation is in progress.  Pausing an already paused job has no cumulative
+# effect; a single block-job-resume command will resume the job.
+#
+# The operation will pause as soon as possible.  No event is emitted when
+# the operation is actually paused.  Cancelling a paused job automatically
+# resumes it.
+#
+# @device: the device name
+#
+# Returns: Nothing on success
+#          If no background operation is active on this device, DeviceNotActive
+#
+# Since: 1.3
+##
+{ 'command': 'block-job-pause', 'data': { 'device': 'str' } }
+
+##
+# @block-job-resume:
+#
+# Resume an active background block operation.
+#
+# This command returns immediately after resuming a paused background block
+# operation.  It is an error to call this command if no operation is in
+# progress.  Resuming an already running job is not an error.
+#
+# This command also clears the error status of the job.
+#
+# @device: the device name
+#
+# Returns: Nothing on success
+#          If no background operation is active on this device, DeviceNotActive
+#
+# Since: 1.3
+##
+{ 'command': 'block-job-resume', 'data': { 'device': 'str' } }
 
 ##
 # @ObjectTypeInfo:
@@ -1889,6 +2112,19 @@
 { 'command': 'xen-save-devices-state', 'data': {'filename': 'str'} }
 
 ##
+# @xen-set-global-dirty-log
+#
+# Enable or disable the global dirty log mode.
+#
+# @enable: true to enable, false to disable.
+#
+# Returns: nothing
+#
+# Since: 1.3
+##
+{ 'command': 'xen-set-global-dirty-log', 'data': { 'enable': 'bool' } }
+
+##
 # @device_del:
 #
 # Remove a device from a guest
@@ -1915,26 +2151,33 @@
 # supported on i386 and x86_64.
 #
 # @paging: if true, do paging to get guest's memory mapping. This allows
-# using gdb to process the core file. However, setting @paging to false
-# may be desirable because of two reasons:
+#          using gdb to process the core file.
 #
-#   1. The guest may be in a catastrophic state or can have corrupted
-#      memory, which cannot be trusted
-#   2. The guest can be in real-mode even if paging is enabled. For example,
-#      the guest uses ACPI to sleep, and ACPI sleep state goes in real-mode
+#          IMPORTANT: this option can make QEMU allocate several gigabytes
+#                     of RAM. This can happen for a large guest, or a
+#                     malicious guest pretending to be large.
+#
+#          Also, paging=true has the following limitations:
+#
+#             1. The guest may be in a catastrophic state or can have corrupted
+#                memory, which cannot be trusted
+#             2. The guest can be in real-mode even if paging is enabled. For
+#                example, the guest uses ACPI to sleep, and ACPI sleep state
+#                goes in real-mode
 #
 # @protocol: the filename or file descriptor of the vmcore. The supported
-# protocols are:
+#            protocols are:
 #
-#   1. file: the protocol starts with "file:", and the following string is
-#      the file's path.
-#   2. fd: the protocol starts with "fd:", and the following string is the
-#      fd's name.
+#            1. file: the protocol starts with "file:", and the following
+#               string is the file's path.
+#            2. fd: the protocol starts with "fd:", and the following string
+#               is the fd's name.
 #
 # @begin: #optional if specified, the starting physical address.
 #
 # @length: #optional if specified, the memory size, in bytes. If you don't
-# want to dump all guest's memory, please specify the start @begin and @length
+#          want to dump all guest's memory, please specify the start @begin
+#          and @length
 #
 # Returns: nothing on success
 #
@@ -1943,6 +2186,7 @@
 { 'command': 'dump-guest-memory',
   'data': { 'paging': 'bool', 'protocol': 'str', '*begin': 'int',
             '*length': 'int' } }
+
 ##
 # @netdev_add:
 #
@@ -2493,3 +2737,76 @@
 # Since: 1.2.0
 ##
 { 'command': 'query-target', 'returns': 'TargetInfo' }
+
+##
+# @QKeyCode:
+#
+# An enumeration of key name.
+#
+# This is used by the send-key command.
+#
+# Since: 1.3.0
+##
+{ 'enum': 'QKeyCode',
+  'data': [ 'shift', 'shift_r', 'alt', 'alt_r', 'altgr', 'altgr_r', 'ctrl',
+            'ctrl_r', 'menu', 'esc', '1', '2', '3', '4', '5', '6', '7', '8',
+            '9', '0', 'minus', 'equal', 'backspace', 'tab', 'q', 'w', 'e',
+            'r', 't', 'y', 'u', 'i', 'o', 'p', 'bracket_left', 'bracket_right',
+            'ret', 'a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', 'semicolon',
+            'apostrophe', 'grave_accent', 'backslash', 'z', 'x', 'c', 'v', 'b',
+            'n', 'm', 'comma', 'dot', 'slash', 'asterisk', 'spc', 'caps_lock',
+            'f1', 'f2', 'f3', 'f4', 'f5', 'f6', 'f7', 'f8', 'f9', 'f10',
+            'num_lock', 'scroll_lock', 'kp_divide', 'kp_multiply',
+            'kp_subtract', 'kp_add', 'kp_enter', 'kp_decimal', 'sysrq', 'kp_0',
+            'kp_1', 'kp_2', 'kp_3', 'kp_4', 'kp_5', 'kp_6', 'kp_7', 'kp_8',
+            'kp_9', 'less', 'f11', 'f12', 'print', 'home', 'pgup', 'pgdn', 'end',
+            'left', 'up', 'down', 'right', 'insert', 'delete', 'stop', 'again',
+            'props', 'undo', 'front', 'copy', 'open', 'paste', 'find', 'cut',
+             'lf', 'help', 'meta_l', 'meta_r', 'compose' ] }
+
+##
+# @KeyValue
+#
+# Represents a keyboard key.
+#
+# Since: 1.3.0
+##
+{ 'union': 'KeyValue',
+  'data': {
+    'number': 'int',
+    'qcode': 'QKeyCode' } }
+
+##
+# @send-key:
+#
+# Send keys to guest.
+#
+# @keys: An array of @KeyValue elements. All @KeyValues in this array are
+#        simultaneously sent to the guest. A @KeyValue.number value is sent
+#        directly to the guest, while @KeyValue.qcode must be a valid
+#        @QKeyCode value
+#
+# @hold-time: #optional time to delay key up events, milliseconds. Defaults
+#             to 100
+#
+# Returns: Nothing on success
+#          If key is unknown or redundant, InvalidParameter
+#
+# Since: 1.3.0
+#
+##
+{ 'command': 'send-key',
+  'data': { 'keys': ['KeyValue'], '*hold-time': 'int' } }
+
+##
+# @screendump:
+#
+# Write a PPM of the VGA screen to a file.
+#
+# @filename: the path of a new PPM file to store the image
+#
+# Returns: Nothing on success
+#
+# Since: 0.14.0
+##
+{ 'command': 'screendump', 'data': {'filename': 'str'} }

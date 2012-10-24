@@ -19,8 +19,8 @@
 #include "qemu-timer.h"
 #include "sysemu.h"
 #include "kvm.h"
+#include "kvm_arm.h"
 #include "cpu.h"
-#include "device_tree.h"
 #include "hw/arm-misc.h"
 
 const KVMCapabilityInfo kvm_arch_required_capabilities[] = {
@@ -39,16 +39,116 @@ int kvm_arch_init(KVMState *s)
 int kvm_arch_init_vcpu(CPUARMState *env)
 {
     struct kvm_vcpu_init init;
+    int ret;
+    uint64_t v;
+    struct kvm_one_reg r;
 
     init.target = KVM_ARM_TARGET_CORTEX_A15;
     memset(init.features, 0, sizeof(init.features));
-    return kvm_vcpu_ioctl(env, KVM_ARM_VCPU_INIT, &init);
+    ret = kvm_vcpu_ioctl(env, KVM_ARM_VCPU_INIT, &init);
+    if (ret) {
+        return ret;
+    }
+    /* Query the kernel to make sure it supports 32 VFP
+     * registers: QEMU's "cortex-a15" CPU is always a
+     * VFP-D32 core. The simplest way to do this is just
+     * to attempt to read register d31.
+     */
+    r.id = KVM_REG_ARM | KVM_REG_SIZE_U64 | KVM_REG_ARM_VFP | 31;
+    r.addr = (uintptr_t)(&v);
+    ret = kvm_vcpu_ioctl(env, KVM_GET_ONE_REG, &r);
+    if (ret == ENOENT) {
+        return EINVAL;
+    }
+    return ret;
 }
 
-struct reg {
+/* We track all the KVM devices which need their memory addresses
+ * passing to the kernel in a list of these structures.
+ * When board init is complete we run through the list and
+ * tell the kernel the base addresses of the memory regions.
+ * We use a MemoryListener to track mapping and unmapping of
+ * the regions during board creation, so the board models don't
+ * need to do anything special for the KVM case.
+ */
+typedef struct KVMDevice {
+    struct kvm_device_address kda;
+    MemoryRegion *mr;
+    QSLIST_ENTRY(KVMDevice) entries;
+} KVMDevice;
+
+static QSLIST_HEAD(kvm_devices_head, KVMDevice) kvm_devices_head;
+
+static void kvm_arm_devlistener_add(MemoryListener *listener,
+                                    MemoryRegionSection *section)
+{
+    KVMDevice *kd;
+    QSLIST_FOREACH(kd, &kvm_devices_head, entries) {
+        if (section->mr == kd->mr) {
+            kd->kda.addr = section->offset_within_address_space;
+        }
+    }
+}
+
+static void kvm_arm_devlistener_del(MemoryListener *listener,
+                                    MemoryRegionSection *section)
+{
+    KVMDevice *kd;
+    QSLIST_FOREACH(kd, &kvm_devices_head, entries) {
+        if (section->mr == kd->mr) {
+            kd->kda.addr = -1;
+        }
+    }
+}
+
+static MemoryListener devlistener = {
+    .region_add = kvm_arm_devlistener_add,
+    .region_del = kvm_arm_devlistener_del,
+};
+
+static void kvm_arm_machine_init_done(Notifier *notifier, void *data)
+{
+    KVMDevice *kd, *tkd;
+    memory_listener_unregister(&devlistener);
+    QSLIST_FOREACH_SAFE(kd, &kvm_devices_head, entries, tkd) {
+        if (kd->kda.addr != -1) {
+            if (kvm_vm_ioctl(kvm_state, KVM_SET_DEVICE_ADDRESS, &kd->kda) < 0) {
+                fprintf(stderr, "KVM_SET_DEVICE_ADDRESS failed: %s\n",
+                        strerror(errno));
+                abort();
+            }
+        }
+        g_free(kd);
+    }
+}
+
+static Notifier notify = {
+    .notify = kvm_arm_machine_init_done,
+};
+
+void kvm_arm_register_device(MemoryRegion *mr, uint32_t devid)
+{
+    KVMDevice *kd;
+
+    if (!kvm_irqchip_in_kernel()) {
+        return;
+    }
+
+    if (QSLIST_EMPTY(&kvm_devices_head)) {
+        memory_listener_register(&devlistener, NULL);
+        qemu_add_machine_init_done_notifier(&notify);
+    }
+    kd = g_new0(KVMDevice, 1);
+    kd->mr = mr;
+    kd->kda.id = devid;
+    kd->kda.addr = -1;
+    QSLIST_INSERT_HEAD(&kvm_devices_head, kd, entries);
+}
+
+typedef struct Reg {
     uint64_t id;
     int offset;
-};
+} Reg;
 
 #define COREREG(KERNELNAME, QEMUFIELD)                       \
     {                                                        \
@@ -68,7 +168,14 @@ struct reg {
         offsetof(CPUARMState, QEMUFIELD)         \
     }
 
-const struct reg regs[] = {
+#define VFPSYSREG(R)                                       \
+    {                                                      \
+        KVM_REG_ARM | KVM_REG_SIZE_U32 | KVM_REG_ARM_VFP | \
+        KVM_REG_ARM_VFP_##R,                               \
+        offsetof(CPUARMState, vfp.xregs[ARM_VFP_##R])      \
+    }
+
+static const Reg regs[] = {
     /* R0_usr .. R14_usr */
     COREREG(usr_regs[0], regs[0]),
     COREREG(usr_regs[1], regs[1]),
@@ -115,6 +222,13 @@ const struct reg regs[] = {
     CP15REG(1, 0, 0, 0, cp15.c1_sys), /* SCTLR */
     CP15REG(2, 0, 0, 2, cp15.c2_control), /* TTBCR */
     CP15REG(3, 0, 0, 0, cp15.c3), /* DACR */
+    /* VFP system registers */
+    VFPSYSREG(FPSID),
+    VFPSYSREG(MVFR1),
+    VFPSYSREG(MVFR0),
+    VFPSYSREG(FPEXC),
+    VFPSYSREG(FPINST),
+    VFPSYSREG(FPINST2),
 };
 
 int kvm_arch_put_registers(CPUARMState *env, int level)
@@ -122,7 +236,7 @@ int kvm_arch_put_registers(CPUARMState *env, int level)
     struct kvm_one_reg r;
     int mode, bn;
     int ret, i;
-    uint32_t cpsr;
+    uint32_t cpsr, fpscr;
     uint64_t ttbr;
 
     /* Make sure the banked regs are properly set */
@@ -173,6 +287,26 @@ int kvm_arch_put_registers(CPUARMState *env, int level)
         (2 << KVM_REG_ARM_CRM_SHIFT) | (1 << KVM_REG_ARM_OPC1_SHIFT);
     r.addr = (uintptr_t)(&ttbr);
     ret = kvm_vcpu_ioctl(env, KVM_SET_ONE_REG, &r);
+    if (ret) {
+        return ret;
+    }
+
+    /* VFP registers */
+    r.id = KVM_REG_ARM | KVM_REG_SIZE_U64 | KVM_REG_ARM_VFP;
+    for (i = 0; i < 32; i++) {
+        r.addr = (uintptr_t)(&env->vfp.regs[i]);
+        ret = kvm_vcpu_ioctl(env, KVM_SET_ONE_REG, &r);
+        if (ret) {
+            return ret;
+        }
+        r.id++;
+    }
+
+    r.id = KVM_REG_ARM | KVM_REG_SIZE_U32 | KVM_REG_ARM_VFP |
+        KVM_REG_ARM_VFP_FPSCR;
+    fpscr = vfp_get_fpscr(env);
+    r.addr = (uintptr_t)&fpscr;
+    ret = kvm_vcpu_ioctl(env, KVM_SET_ONE_REG, &r);
 
     return ret;
 }
@@ -182,7 +316,7 @@ int kvm_arch_get_registers(CPUARMState *env)
     struct kvm_one_reg r;
     int mode, bn;
     int ret, i;
-    uint32_t cpsr;
+    uint32_t cpsr, fpscr;
     uint64_t ttbr;
 
     for (i = 0; i < ARRAY_SIZE(regs); i++) {
@@ -244,8 +378,28 @@ int kvm_arch_get_registers(CPUARMState *env)
      * can disappear because we'll use the access function which sets
      * these values automatically.
      */
-    env->cp15.c2_mask = ~(((uint32_t)0xffffffffu) >> env->cp15.c2_control);
-    env->cp15.c2_base_mask = ~((uint32_t)0x3fffu >> env->cp15.c2_control);
+    env->cp15.c2_mask = ~(0xffffffffu >> env->cp15.c2_control);
+    env->cp15.c2_base_mask = ~(0x3fffu >> env->cp15.c2_control);
+
+    /* VFP registers */
+    r.id = KVM_REG_ARM | KVM_REG_SIZE_U64 | KVM_REG_ARM_VFP;
+    for (i = 0; i < 32; i++) {
+        r.addr = (uintptr_t)(&env->vfp.regs[i]);
+        ret = kvm_vcpu_ioctl(env, KVM_GET_ONE_REG, &r);
+        if (ret) {
+            return ret;
+        }
+        r.id++;
+    }
+
+    r.id = KVM_REG_ARM | KVM_REG_SIZE_U32 | KVM_REG_ARM_VFP |
+        KVM_REG_ARM_VFP_FPSCR;
+    r.addr = (uintptr_t)&fpscr;
+    ret = kvm_vcpu_ioctl(env, KVM_GET_ONE_REG, &r);
+    if (ret) {
+        return ret;
+    }
+    vfp_set_fpscr(env, fpscr);
 
     return 0;
 }
@@ -291,38 +445,38 @@ int kvm_arch_on_sigbus(int code, void *addr)
 
 void kvm_arch_update_guest_debug(CPUARMState *env, struct kvm_guest_debug *dbg)
 {
-    fprintf(stderr, "%s: not implemented\n", __func__);
+    qemu_log_mask(LOG_UNIMP, "%s: not implemented\n", __func__);
 }
 
 int kvm_arch_insert_sw_breakpoint(CPUARMState *env,
                                   struct kvm_sw_breakpoint *bp)
 {
-    fprintf(stderr, "%s: not implemented\n", __func__);
+    qemu_log_mask(LOG_UNIMP, "%s: not implemented\n", __func__);
     return -EINVAL;
 }
 
 int kvm_arch_insert_hw_breakpoint(target_ulong addr,
                                   target_ulong len, int type)
 {
-    fprintf(stderr, "%s: not implemented\n", __func__);
+    qemu_log_mask(LOG_UNIMP, "%s: not implemented\n", __func__);
     return -EINVAL;
 }
 
 int kvm_arch_remove_hw_breakpoint(target_ulong addr,
                                   target_ulong len, int type)
 {
-    fprintf(stderr, "%s: not implemented\n", __func__);
+    qemu_log_mask(LOG_UNIMP, "%s: not implemented\n", __func__);
     return -EINVAL;
 }
 
 int kvm_arch_remove_sw_breakpoint(CPUARMState *env,
                                   struct kvm_sw_breakpoint *bp)
 {
-    fprintf(stderr, "%s: not implemented\n", __func__);
+    qemu_log_mask(LOG_UNIMP, "%s: not implemented\n", __func__);
     return -EINVAL;
 }
 
 void kvm_arch_remove_all_hw_breakpoints(void)
 {
-    fprintf(stderr, "%s: not implemented\n", __func__);
+    qemu_log_mask(LOG_UNIMP, "%s: not implemented\n", __func__);
 }

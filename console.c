@@ -24,6 +24,7 @@
 #include "qemu-common.h"
 #include "console.h"
 #include "qemu-timer.h"
+#include "qmp-commands.h"
 
 //#define DEBUG_CONSOLE
 #define DEFAULT_BACKSCROLL 512
@@ -176,7 +177,7 @@ void vga_hw_invalidate(void)
         active_console->hw_invalidate(active_console->hw);
 }
 
-void vga_hw_screen_dump(const char *filename)
+void qmp_screendump(const char *filename, Error **errp)
 {
     TextConsole *previous_active_console;
     bool cswitch;
@@ -190,9 +191,9 @@ void vga_hw_screen_dump(const char *filename)
         console_select(0);
     }
     if (consoles[0] && consoles[0]->hw_screen_dump) {
-        consoles[0]->hw_screen_dump(consoles[0]->hw, filename, cswitch);
+        consoles[0]->hw_screen_dump(consoles[0]->hw, filename, cswitch, errp);
     } else {
-        error_report("screen dump not implemented");
+        error_setg(errp, "device doesn't support screendump\n");
     }
 
     if (cswitch) {
@@ -937,8 +938,11 @@ static void console_putchar(TextConsole *s, int ch)
     case TTY_STATE_CSI: /* handle escape sequence parameters */
         if (ch >= '0' && ch <= '9') {
             if (s->nb_esc_params < MAX_ESC_PARAMS) {
-                s->esc_params[s->nb_esc_params] =
-                    s->esc_params[s->nb_esc_params] * 10 + ch - '0';
+                int *param = &s->esc_params[s->nb_esc_params];
+                int digit = (ch - '0');
+
+                *param = (*param <= (INT_MAX - digit) / 10) ?
+                         *param * 10 + digit : INT_MAX;
             }
         } else {
             if (s->nb_esc_params < MAX_ESC_PARAMS)
@@ -1611,7 +1615,7 @@ PixelFormat qemu_different_endianness_pixelformat(int bpp)
     memset(&pf, 0x00, sizeof(PixelFormat));
 
     pf.bits_per_pixel = bpp;
-    pf.bytes_per_pixel = bpp / 8;
+    pf.bytes_per_pixel = DIV_ROUND_UP(bpp, 8);
     pf.depth = bpp == 32 ? 24 : bpp;
 
     switch (bpp) {
@@ -1660,13 +1664,12 @@ PixelFormat qemu_default_pixelformat(int bpp)
     memset(&pf, 0x00, sizeof(PixelFormat));
 
     pf.bits_per_pixel = bpp;
-    pf.bytes_per_pixel = bpp / 8;
+    pf.bytes_per_pixel = DIV_ROUND_UP(bpp, 8);
     pf.depth = bpp == 32 ? 24 : bpp;
 
     switch (bpp) {
         case 15:
             pf.bits_per_pixel = 16;
-            pf.bytes_per_pixel = 2;
             pf.rmask = 0x00007c00;
             pf.gmask = 0x000003E0;
             pf.bmask = 0x0000001F;

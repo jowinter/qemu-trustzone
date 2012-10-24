@@ -111,14 +111,12 @@ source_path=`dirname "$0"`
 cpu=""
 interp_prefix="/usr/gnemul/qemu-%M"
 static="no"
-sparc_cpu=""
 cross_prefix=""
 audio_drv_list=""
 audio_card_list="ac97 es1370 sb16 hda"
 audio_possible_cards="ac97 es1370 sb16 cs4231a adlib gus hda"
 block_drv_whitelist=""
 host_cc="gcc"
-helper_cflags=""
 libs_softmmu=""
 libs_tools=""
 audio_pt_int=""
@@ -127,7 +125,8 @@ cc_i386=i386-pc-linux-gnu-gcc
 libs_qga=""
 debug_info="yes"
 
-target_list=""
+# Don't accept a target_list environment variable.
+unset target_list
 
 # Default value for a variable defining feature "foo".
 #  * foo="no"  feature will only be used if --enable-foo arg is given
@@ -183,8 +182,10 @@ datadir="\${prefix}/share"
 qemu_docdir="\${prefix}/share/doc/qemu"
 bindir="\${prefix}/bin"
 libdir="\${prefix}/lib"
+libexecdir="\${prefix}/libexec"
 includedir="\${prefix}/include"
 sysconfdir="\${prefix}/etc"
+local_statedir="\${prefix}/var"
 confsuffix="/qemu"
 slirp="yes"
 fmod_lib=""
@@ -198,7 +199,7 @@ cocoa="no"
 softmmu="yes"
 linux_user="no"
 bsd_user="no"
-guest_base=""
+guest_base="yes"
 uname_release=""
 mixemu="no"
 aix="no"
@@ -216,9 +217,11 @@ usb_redir=""
 opengl=""
 zlib="yes"
 guest_agent="yes"
+want_tools="yes"
 libiscsi=""
 coroutine=""
 seccomp=""
+glusterfs=""
 
 # If this is a Linaro QEMU tarball then default the pkgversion
 # string to say so, so that we clearly distinguish ourselves
@@ -246,21 +249,6 @@ for opt do
   --enable-debug-info) debug_info="yes"
   ;;
   --disable-debug-info) debug_info="no"
-  ;;
-  --sparc_cpu=*)
-    sparc_cpu="$optarg"
-    case $sparc_cpu in
-    v7|v8|v8plus|v8plusa)
-      cpu="sparc"
-    ;;
-    v9)
-      cpu="sparc64"
-    ;;
-    *)
-      echo "undefined SPARC architecture. Exiting";
-      exit 1
-    ;;
-    esac
   ;;
   esac
 done
@@ -349,8 +337,6 @@ elif check_define __i386__ ; then
 elif check_define __x86_64__ ; then
   cpu="x86_64"
 elif check_define __sparc__ ; then
-  # We can't check for 64 bit (when gcc is biarch) or V8PLUSA
-  # They must be specified using --sparc_cpu
   if check_define __arch64__ ; then
     cpu="sparc64"
   else
@@ -531,13 +517,7 @@ Haiku)
   linux="yes"
   linux_user="yes"
   usb="linux"
-  if [ "$cpu" = "arm" ]; then
-    # default to disabled unless requested by user via --enable-kvm
-    # while this is still experimental
-    kvm="no"
-  else
-    kvm="yes"
-  fi
+  kvm="yes"
   vhost_net="yes"
   if [ "$cpu" = "i386" -o "$cpu" = "x86_64" ] ; then
     audio_possible_drivers="$audio_possible_drivers fmod"
@@ -582,6 +562,7 @@ EOF
   qemu_docdir="\${prefix}"
   bindir="\${prefix}"
   sysconfdir="\${prefix}"
+  local_statedir="\${prefix}"
   confsuffix=""
   libs_qga="-lws2_32 -lwinmm -lpowrprof $libs_qga"
 fi
@@ -646,6 +627,8 @@ for opt do
   ;;
   --libdir=*) libdir="$optarg"
   ;;
+  --libexecdir=*) libexecdir="$optarg"
+  ;;
   --includedir=*) includedir="$optarg"
   ;;
   --datadir=*) datadir="$optarg"
@@ -656,7 +639,9 @@ for opt do
   ;;
   --sysconfdir=*) sysconfdir="$optarg"
   ;;
-  --sbindir=*|--libexecdir=*|--sharedstatedir=*|--localstatedir=*|\
+  --localstatedir=*) local_statedir="$optarg"
+  ;;
+  --sbindir=*|--sharedstatedir=*|\
   --oldincludedir=*|--datarootdir=*|--infodir=*|--localedir=*|\
   --htmldir=*|--dvidir=*|--pdfdir=*|--psdir=*)
     # These switches are silently ignored, for compatibility with
@@ -802,8 +787,6 @@ for opt do
   ;;
   --enable-uname-release=*) uname_release="$optarg"
   ;;
-  --sparc_cpu=*)
-  ;;
   --enable-werror) werror="yes"
   ;;
   --disable-werror) werror="no"
@@ -878,91 +861,52 @@ for opt do
   ;;
   --disable-guest-agent) guest_agent="no"
   ;;
+  --enable-tools) want_tools="yes"
+  ;;
+  --disable-tools) want_tools="no"
+  ;;
   --enable-seccomp) seccomp="yes"
   ;;
   --disable-seccomp) seccomp="no"
+  ;;
+  --disable-glusterfs) glusterfs="no"
+  ;;
+  --enable-glusterfs) glusterfs="yes"
   ;;
   *) echo "ERROR: unknown option $opt"; show_help="yes"
   ;;
   esac
 done
 
-#
-# If cpu ~= sparc and  sparc_cpu hasn't been defined, plug in the right
-# QEMU_CFLAGS/LDFLAGS (assume sparc_v8plus for 32-bit and sparc_v9 for 64-bit)
-#
-host_guest_base="no"
 case "$cpu" in
-    sparc) case $sparc_cpu in
-           v7|v8)
-             QEMU_CFLAGS="-mcpu=${sparc_cpu} -D__sparc_${sparc_cpu}__ $QEMU_CFLAGS"
-           ;;
-           v8plus|v8plusa)
-             QEMU_CFLAGS="-mcpu=ultrasparc -D__sparc_${sparc_cpu}__ $QEMU_CFLAGS"
-           ;;
-           *) # sparc_cpu not defined in the command line
-             QEMU_CFLAGS="-mcpu=ultrasparc -D__sparc_v8plus__ $QEMU_CFLAGS"
-           esac
+    sparc)
            LDFLAGS="-m32 $LDFLAGS"
-           QEMU_CFLAGS="-m32 -ffixed-g2 -ffixed-g3 $QEMU_CFLAGS"
-           if test "$solaris" = "no" ; then
-             QEMU_CFLAGS="-ffixed-g1 -ffixed-g6 $QEMU_CFLAGS"
-             helper_cflags="-ffixed-i0"
-           fi
+           QEMU_CFLAGS="-m32 -mcpu=ultrasparc $QEMU_CFLAGS"
            ;;
     sparc64)
-           QEMU_CFLAGS="-m64 -mcpu=ultrasparc -D__sparc_v9__ $QEMU_CFLAGS"
            LDFLAGS="-m64 $LDFLAGS"
-           QEMU_CFLAGS="-ffixed-g5 -ffixed-g6 -ffixed-g7 $QEMU_CFLAGS"
-           if test "$solaris" != "no" ; then
-             QEMU_CFLAGS="-ffixed-g1 $QEMU_CFLAGS"
-           fi
+           QEMU_CFLAGS="-m64 -mcpu=ultrasparc $QEMU_CFLAGS"
            ;;
     s390)
            QEMU_CFLAGS="-m31 -march=z990 $QEMU_CFLAGS"
            LDFLAGS="-m31 $LDFLAGS"
-           host_guest_base="yes"
            ;;
     s390x)
            QEMU_CFLAGS="-m64 -march=z990 $QEMU_CFLAGS"
            LDFLAGS="-m64 $LDFLAGS"
-           host_guest_base="yes"
            ;;
     i386)
            QEMU_CFLAGS="-m32 $QEMU_CFLAGS"
            LDFLAGS="-m32 $LDFLAGS"
            cc_i386='$(CC) -m32'
-           helper_cflags="-fomit-frame-pointer"
-           host_guest_base="yes"
            ;;
     x86_64)
            QEMU_CFLAGS="-m64 $QEMU_CFLAGS"
            LDFLAGS="-m64 $LDFLAGS"
            cc_i386='$(CC) -m32'
-           host_guest_base="yes"
            ;;
-    arm*)
-           host_guest_base="yes"
-           ;;
-    ppc*)
-           host_guest_base="yes"
-           ;;
-    mips*)
-           host_guest_base="yes"
-           ;;
-    ia64*)
-           host_guest_base="yes"
-           ;;
-    hppa*)
-           host_guest_base="yes"
-           ;;
-    unicore32*)
-           host_guest_base="yes"
-           ;;
+    # No special flags required for other host CPUs
 esac
-
-[ -z "$guest_base" ] && guest_base="$host_guest_base"
-
 
 default_target_list=""
 
@@ -1068,6 +1012,7 @@ echo "  --datadir=PATH           install firmware in PATH$confsuffix"
 echo "  --docdir=PATH            install documentation in PATH$confsuffix"
 echo "  --bindir=PATH            install binaries in PATH"
 echo "  --sysconfdir=PATH        install config in PATH$confsuffix"
+echo "  --localstatedir=PATH     install local state in PATH"
 echo "  --with-confsuffix=SUFFIX suffix for QEMU data inside datadir and sysconfdir [$confsuffix]"
 echo "  --enable-debug-tcg       enable TCG debugging"
 echo "  --disable-debug-tcg      disable TCG debugging (default)"
@@ -1174,6 +1119,8 @@ echo "  --disable-seccomp        disable seccomp support"
 echo "  --enable-seccomp         enables seccomp support"
 echo "  --with-coroutine=BACKEND coroutine backend. Supported options:"
 echo "                           gthread, ucontext, sigaltstack, windows"
+echo "  --enable-glusterfs       enable GlusterFS backend"
+echo "  --disable-glusterfs      disable GlusterFS backend"
 echo ""
 echo "NOTE: The object files are built at the place where configure is launched"
 exit 1
@@ -1327,14 +1274,10 @@ if ! "$python" -c 'import sys; sys.exit(sys.version_info < (2,4) or sys.version_
   exit 1
 fi
 
-if test -z "$target_list" ; then
+if test -z "${target_list+xxx}" ; then
     target_list="$default_target_list"
 else
     target_list=`echo "$target_list" | sed -e 's/,/ /g'`
-fi
-if test -z "$target_list" ; then
-    echo "No targets enabled"
-    exit 1
 fi
 # see if system emulation was really requested
 case " $target_list " in
@@ -1360,7 +1303,7 @@ if test -z "$cross_prefix" ; then
 # big/little endian test
 cat > $TMPC << EOF
 #include <inttypes.h>
-int main(int argc, char ** argv){
+int main(void) {
         volatile uint32_t i=0x01234567;
         return (*((uint8_t*)(&i))) == 0x67;
 }
@@ -1441,10 +1384,10 @@ if test "$seccomp" != "no" ; then
         LIBS=`$pkg_config --libs libseccomp`
 	seccomp="yes"
     else
-	seccomp="no"
 	if test "$seccomp" = "yes"; then
             feature_not_found "libseccomp"
 	fi
+	seccomp="no"
     fi
 fi
 ##########################################
@@ -2353,6 +2296,29 @@ EOF
   fi
 fi
 
+##########################################
+# glusterfs probe
+if test "$glusterfs" != "no" ; then
+  cat > $TMPC <<EOF
+#include <glusterfs/api/glfs.h>
+int main(void) {
+    (void) glfs_new("volume");
+    return 0;
+}
+EOF
+  glusterfs_libs="-lgfapi -lgfrpc -lgfxdr"
+  if compile_prog "" "$glusterfs_libs" ; then
+    glusterfs=yes
+    libs_tools="$glusterfs_libs $libs_tools"
+    libs_softmmu="$glusterfs_libs $libs_softmmu"
+  else
+    if test "$glusterfs" = "yes" ; then
+      feature_not_found "GlusterFS backend support"
+    fi
+    glusterfs=no
+  fi
+fi
+
 #
 # Check for xxxat() functions when we are building linux-user
 # emulator.  This is done because older glibc versions don't
@@ -2681,17 +2647,44 @@ fi
 
 
 ##########################################
+# Do we need libm
+cat > $TMPC << EOF
+#include <math.h>
+int main(void) { return isnan(sin(0.0)); }
+EOF
+if compile_prog "" "" ; then
+  :
+elif compile_prog "" "-lm" ; then
+  LIBS="-lm $LIBS"
+  libs_qga="-lm $libs_qga"
+else
+  echo
+  echo "Error: libm check failed"
+  echo
+  exit 1
+fi
+
+##########################################
 # Do we need librt
+# uClibc provides 2 versions of clock_gettime(), one with realtime
+# support and one without. This means that the clock_gettime() don't
+# need -lrt. We still need it for timer_create() so we check for this
+# function in addition.
 cat > $TMPC <<EOF
 #include <signal.h>
 #include <time.h>
-int main(void) { return clock_gettime(CLOCK_REALTIME, NULL); }
+int main(void) {
+  timer_create(CLOCK_REALTIME, NULL, NULL);
+  return clock_gettime(CLOCK_REALTIME, NULL);
+}
 EOF
 
 if compile_prog "" "" ; then
   :
-elif compile_prog "" "-lrt" ; then
+# we need pthread for static linking. use previous pthread test result
+elif compile_prog "" "-lrt $pthread_lib" ; then
   LIBS="-lrt $LIBS"
+  libs_qga="-lrt $libs_qga"
 fi
 
 if test "$darwin" != "yes" -a "$mingw32" != "yes" -a "$solaris" != yes -a \
@@ -2708,12 +2701,14 @@ int main(void) { spice_server_new(); return 0; }
 EOF
   spice_cflags=$($pkg_config --cflags spice-protocol spice-server 2>/dev/null)
   spice_libs=$($pkg_config --libs spice-protocol spice-server 2>/dev/null)
-  if $pkg_config --atleast-version=0.8.2 spice-server >/dev/null 2>&1 && \
-     $pkg_config --atleast-version=0.8.1 spice-protocol > /dev/null 2>&1 && \
+  if $pkg_config --atleast-version=0.12.0 spice-server >/dev/null 2>&1 && \
+     $pkg_config --atleast-version=0.12.2 spice-protocol > /dev/null 2>&1 && \
      compile_prog "$spice_cflags" "$spice_libs" ; then
     spice="yes"
     libs_softmmu="$libs_softmmu $spice_libs"
     QEMU_CFLAGS="$QEMU_CFLAGS $spice_cflags"
+    spice_protocol_version=$($pkg_config --modversion spice-protocol)
+    spice_server_version=$($pkg_config --modversion spice-server)
   else
     if test "$spice" = "yes" ; then
       feature_not_found "spice"
@@ -2763,12 +2758,12 @@ fi
 
 # check for usbredirparser for usb network redirection support
 if test "$usb_redir" != "no" ; then
-    if $pkg_config --atleast-version=0.3.4 libusbredirparser >/dev/null 2>&1 ; then
+    if $pkg_config --atleast-version=0.5 libusbredirparser-0.5 >/dev/null 2>&1 ; then
         usb_redir="yes"
-        usb_redir_cflags=$($pkg_config --cflags libusbredirparser 2>/dev/null)
-        usb_redir_libs=$($pkg_config --libs libusbredirparser 2>/dev/null)
+        usb_redir_cflags=$($pkg_config --cflags libusbredirparser-0.5 2>/dev/null)
+        usb_redir_libs=$($pkg_config --libs libusbredirparser-0.5 2>/dev/null)
         QEMU_CFLAGS="$QEMU_CFLAGS $usb_redir_cflags"
-        LIBS="$LIBS $usb_redir_libs"
+        libs_softmmu="$libs_softmmu $usb_redir_libs"
     else
         if test "$usb_redir" = "yes"; then
             feature_not_found "usb-redir"
@@ -2881,7 +2876,7 @@ static int sfaa(int *ptr)
   return __sync_fetch_and_and(ptr, 0);
 }
 
-int main(int argc, char **argv)
+int main(void)
 {
   int val = 42;
   sfaa(&val);
@@ -2976,11 +2971,12 @@ if compile_prog "-Werror" "" ; then
 fi
 
 ########################################
-# check if we have valgrind/valgrind.h
+# check if we have valgrind/valgrind.h and valgrind/memcheck.h
 
 valgrind_h=no
 cat > $TMPC << EOF
 #include <valgrind/valgrind.h>
+#include <valgrind/memcheck.h>
 int main(void) {
   return 0;
 }
@@ -3052,9 +3048,14 @@ fi
 qemu_confdir=$sysconfdir$confsuffix
 qemu_datadir=$datadir$confsuffix
 
-tools=
-if test "$softmmu" = yes ; then
+tools=""
+if test "$want_tools" = "yes" ; then
   tools="qemu-img\$(EXESUF) qemu-io\$(EXESUF) $tools"
+  if [ "$linux" = "yes" -o "$bsd" = "yes" -o "$solaris" = "yes" ] ; then
+    tools="qemu-nbd\$(EXESUF) $tools"
+  fi
+fi
+if test "$softmmu" = yes ; then
   if test "$virtfs" != no ; then
     if test "$cap" = yes && test "$linux" = yes && test "$attr" = yes ; then
       virtfs=yes
@@ -3068,14 +3069,13 @@ if test "$softmmu" = yes ; then
     fi
   fi
   if [ "$linux" = "yes" -o "$bsd" = "yes" -o "$solaris" = "yes" ] ; then
-      tools="qemu-nbd\$(EXESUF) $tools"
     if [ "$guest_agent" = "yes" ]; then
       tools="qemu-ga\$(EXESUF) $tools"
     fi
   fi
-fi
-if test "$smartcard_nss" = "yes" ; then
-  tools="vscclient\$(EXESUF) $tools"
+  if test "$smartcard_nss" = "yes" ; then
+    tools="vscclient\$(EXESUF) $tools"
+  fi
 fi
 
 # Mac OS X ships with a broken assembler
@@ -3093,8 +3093,10 @@ echo "Install prefix    $prefix"
 echo "BIOS directory    `eval echo $qemu_datadir`"
 echo "binary directory  `eval echo $bindir`"
 echo "library directory `eval echo $libdir`"
+echo "libexec directory `eval echo $libexecdir`"
 echo "include directory `eval echo $includedir`"
 echo "config directory  `eval echo $sysconfdir`"
+echo "local state directory   `eval echo $local_statedir`"
 if test "$mingw32" = "no" ; then
 echo "Manual directory  `eval echo $mandir`"
 echo "ELF interp prefix $interp_prefix"
@@ -3169,7 +3171,7 @@ echo "libcap-ng support $cap_ng"
 echo "vhost-net support $vhost_net"
 echo "Trace backend     $trace_backend"
 echo "Trace output file $trace_file-<pid>"
-echo "spice support     $spice"
+echo "spice support     $spice ($spice_protocol_version/$spice_server_version)"
 echo "rbd support       $rbd"
 echo "xfsctl support    $xfs"
 echo "nss used          $smartcard_nss"
@@ -3179,6 +3181,7 @@ echo "libiscsi support  $libiscsi"
 echo "build guest agent $guest_agent"
 echo "seccomp support   $seccomp"
 echo "coroutine backend $coroutine_backend"
+echo "GlusterFS support $glusterfs"
 
 if test "$sdl_too_old" = "yes"; then
 echo "-> Your SDL version is too old - please upgrade to have SDL support"
@@ -3196,14 +3199,15 @@ echo all: >> $config_host_mak
 echo "prefix=$prefix" >> $config_host_mak
 echo "bindir=$bindir" >> $config_host_mak
 echo "libdir=$libdir" >> $config_host_mak
+echo "libexecdir=$libexecdir" >> $config_host_mak
 echo "includedir=$includedir" >> $config_host_mak
 echo "mandir=$mandir" >> $config_host_mak
 echo "sysconfdir=$sysconfdir" >> $config_host_mak
 echo "qemu_confdir=$qemu_confdir" >> $config_host_mak
 echo "qemu_datadir=$qemu_datadir" >> $config_host_mak
 echo "qemu_docdir=$qemu_docdir" >> $config_host_mak
-echo "libexecdir=\${prefix}/libexec" >> $config_host_mak
-echo "CONFIG_QEMU_HELPERDIR=\"$prefix/libexec\"" >> $config_host_mak
+echo "qemu_localstatedir=$local_statedir" >> $config_host_mak
+echo "qemu_helperdir=$libexecdir" >> $config_host_mak
 
 echo "ARCH=$ARCH" >> $config_host_mak
 if test "$debug_tcg" = "yes" ; then
@@ -3517,6 +3521,10 @@ if test "$has_environ" = "yes" ; then
   echo "CONFIG_HAS_ENVIRON=y" >> $config_host_mak
 fi
 
+if test "$glusterfs" = "yes" ; then
+  echo "CONFIG_GLUSTERFS=y" >> $config_host_mak
+fi
+
 # USB host support
 case "$usb" in
 linux)
@@ -3585,7 +3593,6 @@ if test "$sparse" = "yes" ; then
   echo "HOST_CC      := REAL_CC=\"\$(HOST_CC)\" cgcc"  >> $config_host_mak
   echo "QEMU_CFLAGS  += -Wbitwise -Wno-transparent-union -Wno-old-initializer -Wno-non-pointer-null" >> $config_host_mak
 fi
-echo "HELPER_CFLAGS=$helper_cflags" >> $config_host_mak
 echo "LDFLAGS=$LDFLAGS" >> $config_host_mak
 echo "ARLIBS_BEGIN=$arlibs_begin" >> $config_host_mak
 echo "ARLIBS_END=$arlibs_end" >> $config_host_mak
@@ -3696,15 +3703,12 @@ TARGET_ABI_DIR=""
 
 case "$target_arch2" in
   i386)
-    target_phys_bits=64
   ;;
   x86_64)
     TARGET_BASE_ARCH=i386
-    target_phys_bits=64
     target_long_alignment=8
   ;;
   alpha)
-    target_phys_bits=64
     target_long_alignment=8
     target_nptl="yes"
   ;;
@@ -3713,22 +3717,18 @@ case "$target_arch2" in
     bflt="yes"
     target_nptl="yes"
     gdb_xml_files="arm-core.xml arm-vfp.xml arm-vfp3.xml arm-neon.xml"
-    target_phys_bits=64
     target_llong_alignment=4
     target_libs_softmmu="$fdt_libs"
   ;;
   cris)
     target_nptl="yes"
-    target_phys_bits=32
   ;;
   lm32)
-    target_phys_bits=32
     target_libs_softmmu="$opengl_libs"
   ;;
   m68k)
     bflt="yes"
     gdb_xml_files="cf-core.xml cf-fp.xml"
-    target_phys_bits=32
     target_int_alignment=2
     target_long_alignment=2
     target_llong_alignment=2
@@ -3737,36 +3737,30 @@ case "$target_arch2" in
     TARGET_ARCH=microblaze
     bflt="yes"
     target_nptl="yes"
-    target_phys_bits=32
     target_libs_softmmu="$fdt_libs"
   ;;
   mips|mipsel)
     TARGET_ARCH=mips
     echo "TARGET_ABI_MIPSO32=y" >> $config_target_mak
     target_nptl="yes"
-    target_phys_bits=64
   ;;
   mipsn32|mipsn32el)
     TARGET_ARCH=mipsn32
     TARGET_BASE_ARCH=mips
     echo "TARGET_ABI_MIPSN32=y" >> $config_target_mak
-    target_phys_bits=64
   ;;
   mips64|mips64el)
     TARGET_ARCH=mips64
     TARGET_BASE_ARCH=mips
     echo "TARGET_ABI_MIPSN64=y" >> $config_target_mak
-    target_phys_bits=64
     target_long_alignment=8
   ;;
   or32)
     TARGET_ARCH=openrisc
     TARGET_BASE_ARCH=openrisc
-    target_phys_bits=32
   ;;
   ppc)
     gdb_xml_files="power-core.xml power-fpu.xml power-altivec.xml power-spe.xml"
-    target_phys_bits=64
     target_nptl="yes"
     target_libs_softmmu="$fdt_libs"
   ;;
@@ -3774,7 +3768,6 @@ case "$target_arch2" in
     TARGET_BASE_ARCH=ppc
     TARGET_ABI_DIR=ppc
     gdb_xml_files="power-core.xml power-fpu.xml power-altivec.xml power-spe.xml"
-    target_phys_bits=64
     target_nptl="yes"
     target_libs_softmmu="$fdt_libs"
   ;;
@@ -3782,7 +3775,6 @@ case "$target_arch2" in
     TARGET_BASE_ARCH=ppc
     TARGET_ABI_DIR=ppc
     gdb_xml_files="power64-core.xml power-fpu.xml power-altivec.xml power-spe.xml"
-    target_phys_bits=64
     target_long_alignment=8
     target_libs_softmmu="$fdt_libs"
   ;;
@@ -3792,21 +3784,17 @@ case "$target_arch2" in
     TARGET_ABI_DIR=ppc
     echo "TARGET_ABI32=y" >> $config_target_mak
     gdb_xml_files="power64-core.xml power-fpu.xml power-altivec.xml power-spe.xml"
-    target_phys_bits=64
     target_libs_softmmu="$fdt_libs"
   ;;
   sh4|sh4eb)
     TARGET_ARCH=sh4
     bflt="yes"
     target_nptl="yes"
-    target_phys_bits=32
   ;;
   sparc)
-    target_phys_bits=64
   ;;
   sparc64)
     TARGET_BASE_ARCH=sparc
-    target_phys_bits=64
     target_long_alignment=8
   ;;
   sparc32plus)
@@ -3814,19 +3802,15 @@ case "$target_arch2" in
     TARGET_BASE_ARCH=sparc
     TARGET_ABI_DIR=sparc
     echo "TARGET_ABI32=y" >> $config_target_mak
-    target_phys_bits=64
   ;;
   s390x)
     target_nptl="yes"
-    target_phys_bits=64
     target_long_alignment=8
   ;;
   unicore32)
-    target_phys_bits=32
   ;;
   xtensa|xtensaeb)
     TARGET_ARCH=xtensa
-    target_phys_bits=32
   ;;
   *)
     echo "Unsupported target CPU"
@@ -3839,13 +3823,6 @@ if [ "$TARGET_BASE_ARCH" = "" ]; then
 fi
 
 symlink "$source_path/Makefile.target" "$target_dir/Makefile"
-
-
-case "$target_arch2" in
-  alpha | i386 | or32 | sparc* | x86_64 | xtensa* | ppc*)
-    echo "CONFIG_TCG_PASS_AREG0=y" >> $config_target_mak
-  ;;
-esac
 
 upper() {
     echo "$@"| LC_ALL=C tr '[a-z]' '[A-Z]'
@@ -3868,7 +3845,6 @@ echo "TARGET_ABI_DIR=$TARGET_ABI_DIR" >> $config_target_mak
 case "$target_arch2" in
   i386|x86_64)
     if test "$xen" = "yes" -a "$target_softmmu" = "yes" ; then
-      target_phys_bits=64
       echo "CONFIG_XEN=y" >> $config_target_mak
       if test "$xen_pci_passthrough" = yes; then
         echo "CONFIG_XEN_PCI_PASSTHROUGH=y" >> "$config_target_mak"
@@ -3908,11 +3884,8 @@ if test "$target_bigendian" = "yes" ; then
   echo "TARGET_WORDS_BIGENDIAN=y" >> $config_target_mak
 fi
 if test "$target_softmmu" = "yes" ; then
-  echo "TARGET_PHYS_ADDR_BITS=$target_phys_bits" >> $config_target_mak
   echo "CONFIG_SOFTMMU=y" >> $config_target_mak
   echo "LIBS+=$libs_softmmu $target_libs_softmmu" >> $config_target_mak
-  echo "HWDIR=../libhw$target_phys_bits" >> $config_target_mak
-  echo "subdir-$target: subdir-libhw$target_phys_bits" >> $config_host_mak
   if test "$smartcard_nss" = "yes" ; then
     echo "subdir-$target: subdir-libcacard" >> $config_host_mak
   fi
@@ -4098,10 +4071,6 @@ fi
 
 if test "$target_linux_user" = "yes" -o "$target_bsd_user" = "yes" ; then
   case "$ARCH" in
-  sparc)
-    # -static is used to avoid g1/g3 usage by the dynamic linker
-    ldflags="$linker_script -static $ldflags"
-    ;;
   alpha | s390x)
     # The default placement of the application is fine.
     ;;
@@ -4157,12 +4126,6 @@ for rom in seabios vgabios ; do
     echo "OBJCOPY=objcopy" >> $config_mak
     echo "IASL=iasl" >> $config_mak
     echo "LD=$ld" >> $config_mak
-done
-
-for hwlib in 32 64; do
-  d=libhw$hwlib
-  symlink "$source_path/Makefile.hw" "$d/Makefile"
-  echo "QEMU_CFLAGS+=-DTARGET_PHYS_ADDR_BITS=$hwlib" > $d/config.mak
 done
 
 d=libuser

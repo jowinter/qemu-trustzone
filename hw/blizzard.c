@@ -921,8 +921,6 @@ void s1d13745_write_block(void *opaque, int dc,
         len -= 2;
         buf += 2;
     }
-
-    return;
 }
 
 static void blizzard_update_display(void *opaque)
@@ -976,13 +974,13 @@ static void blizzard_update_display(void *opaque)
 }
 
 static void blizzard_screen_dump(void *opaque, const char *filename,
-                                 bool cswitch)
+                                 bool cswitch, Error **errp)
 {
     BlizzardState *s = (BlizzardState *) opaque;
 
     blizzard_update_display(opaque);
     if (s && ds_get_data(s->state))
-        ppm_save(filename, s->state->surface);
+        ppm_save(filename, s->state->surface, errp);
 }
 
 void *s1d13745_init(qemu_irq gpio_int)

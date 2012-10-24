@@ -431,8 +431,6 @@ void armv7m_nvic_complete_irq(void *opaque, int irq);
     (((cp) << 16) | ((is64) << 15) | ((crn) << 11) |    \
      ((crm) << 7) | ((opc1) << 3) | (opc2))
 
-#define DECODE_CPREG_CRN(enc) (((enc) >> 7) & 0xf)
-
 /* ARMCPRegInfo type field bits. If the SPECIAL bit is set this is a
  * special-behaviour cp reg and bits [15..8] indicate what behaviour
  * it has. Otherwise it is a simple cp reg, where CONST indicates that
@@ -742,9 +740,10 @@ static inline void cpu_pc_from_tb(CPUARMState *env, TranslationBlock *tb)
 }
 
 /* Load an instruction and return it in the standard little-endian order */
-static inline uint32_t arm_ldl_code(uint32_t addr, bool do_swap)
+static inline uint32_t arm_ldl_code(CPUARMState *env, uint32_t addr,
+                                    bool do_swap)
 {
-    uint32_t insn = ldl_code(addr);
+    uint32_t insn = cpu_ldl_code(env, addr);
     if (do_swap) {
         return bswap32(insn);
     }
@@ -752,9 +751,10 @@ static inline uint32_t arm_ldl_code(uint32_t addr, bool do_swap)
 }
 
 /* Ditto, for a halfword (Thumb) instruction */
-static inline uint16_t arm_lduw_code(uint32_t addr, bool do_swap)
+static inline uint16_t arm_lduw_code(CPUARMState *env, uint32_t addr,
+                                     bool do_swap)
 {
-    uint16_t insn = lduw_code(addr);
+    uint16_t insn = cpu_lduw_code(env, addr);
     if (do_swap) {
         return bswap16(insn);
     }

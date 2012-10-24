@@ -40,8 +40,8 @@
 #else
 #define QGA_VIRTIO_PATH_DEFAULT "\\\\.\\Global\\org.qemu.guest_agent.0"
 #endif
-#define QGA_PIDFILE_DEFAULT "/var/run/qemu-ga.pid"
-#define QGA_STATEDIR_DEFAULT "/tmp"
+#define QGA_STATEDIR_DEFAULT CONFIG_QEMU_LOCALSTATEDIR "/run"
+#define QGA_PIDFILE_DEFAULT QGA_STATEDIR_DEFAULT "/qemu-ga.pid"
 #define QGA_SENTINEL_BYTE 0xFF
 
 struct GAState {
@@ -114,12 +114,10 @@ static gboolean register_signal_handlers(void)
     ret = sigaction(SIGINT, &sigact, NULL);
     if (ret == -1) {
         g_error("error configuring signal handler: %s", strerror(errno));
-        return false;
     }
     ret = sigaction(SIGTERM, &sigact, NULL);
     if (ret == -1) {
         g_error("error configuring signal handler: %s", strerror(errno));
-        return false;
     }
 
     return true;
@@ -257,7 +255,7 @@ static bool ga_open_pidfile(const char *pidfile)
         g_critical("Failed to truncate pid file");
         goto fail;
     }
-    sprintf(pidstr, "%d", getpid());
+    snprintf(pidstr, sizeof(pidstr), "%d\n", getpid());
     if (write(pidfd, pidstr, strlen(pidstr)) != strlen(pidstr)) {
         g_critical("Failed to write pid file");
         goto fail;

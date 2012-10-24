@@ -1023,7 +1023,6 @@ static void numa_add(const char *optarg)
         }
         nb_numa_nodes++;
     }
-    return;
 }
 
 static void smp_parse(const char *optarg)
@@ -1355,6 +1354,8 @@ static int powerdown_requested;
 static int debug_requested;
 static int suspend_requested;
 static int wakeup_requested;
+static NotifierList powerdown_notifiers =
+    NOTIFIER_LIST_INITIALIZER(powerdown_notifiers);
 static NotifierList suspend_notifiers =
     NOTIFIER_LIST_INITIALIZER(suspend_notifiers);
 static NotifierList wakeup_notifiers =
@@ -1563,10 +1564,21 @@ void qemu_system_shutdown_request(void)
     qemu_notify_event();
 }
 
+static void qemu_system_powerdown(void)
+{
+    monitor_protocol_event(QEVENT_POWERDOWN, NULL);
+    notifier_list_notify(&powerdown_notifiers, NULL);
+}
+
 void qemu_system_powerdown_request(void)
 {
     powerdown_requested = 1;
     qemu_notify_event();
+}
+
+void qemu_register_powerdown_notifier(Notifier *notifier)
+{
+    notifier_list_add(&powerdown_notifiers, notifier);
 }
 
 void qemu_system_debug_request(void)
@@ -1580,8 +1592,6 @@ void qemu_system_vmstop_request(RunState state)
     vmstop_requested = state;
     qemu_notify_event();
 }
-
-qemu_irq qemu_system_powerdown;
 
 static bool main_loop_should_exit(void)
 {
@@ -1619,8 +1629,7 @@ static bool main_loop_should_exit(void)
         monitor_protocol_event(QEVENT_WAKEUP, NULL);
     }
     if (qemu_powerdown_requested()) {
-        monitor_protocol_event(QEVENT_POWERDOWN, NULL);
-        qemu_irq_raise(qemu_system_powerdown);
+        qemu_system_powerdown();
     }
     if (qemu_vmstop_requested(&r)) {
         vm_stop(r);
@@ -1690,17 +1699,23 @@ static const QEMUOption qemu_options[] = {
 
 static bool vga_available(void)
 {
-    return qdev_exists("VGA") || qdev_exists("isa-vga");
+    return object_class_by_name("VGA") || object_class_by_name("isa-vga");
 }
 
 static bool cirrus_vga_available(void)
 {
-    return qdev_exists("cirrus-vga") || qdev_exists("isa-cirrus-vga");
+    return object_class_by_name("cirrus-vga")
+           || object_class_by_name("isa-cirrus-vga");
 }
 
 static bool vmware_vga_available(void)
 {
-    return qdev_exists("vmware-svga");
+    return object_class_by_name("vmware-svga");
+}
+
+static bool qxl_vga_available(void)
+{
+    return object_class_by_name("qxl-vga");
 }
 
 static void select_vgahw (const char *p)
@@ -1732,7 +1747,12 @@ static void select_vgahw (const char *p)
     } else if (strstart(p, "xenfb", &opts)) {
         vga_interface_type = VGA_XENFB;
     } else if (strstart(p, "qxl", &opts)) {
-        vga_interface_type = VGA_QXL;
+        if (qxl_vga_available()) {
+            vga_interface_type = VGA_QXL;
+        } else {
+            fprintf(stderr, "Error: QXL VGA not available\n");
+            exit(0);
+        }
     } else if (!strstart(p, "none", &opts)) {
     invalid_vga:
         fprintf(stderr, "Unknown vga type: %s\n", p);
@@ -2622,7 +2642,8 @@ int main(int argc, char **argv, char **envp)
                 {
                     static const char * const params[] = {
                         "order", "once", "menu",
-                        "splash", "splash-time", NULL
+                        "splash", "splash-time",
+                        "reboot-timeout", NULL
                     };
                     char buf[sizeof(boot_devices)];
                     char *standard_boot_devices;
@@ -3595,8 +3616,12 @@ int main(int argc, char **argv, char **envp)
         exit(1);
 
     /* If no default VGA is requested, the default is "none".  */
-    if (default_vga && cirrus_vga_available()) {
-        vga_model = "cirrus";
+    if (default_vga) {
+        if (cirrus_vga_available()) {
+            vga_model = "cirrus";
+        } else if (vga_available()) {
+            vga_model = "std";
+        }
     }
     select_vgahw(vga_model);
 
@@ -3613,8 +3638,13 @@ int main(int argc, char **argv, char **envp)
 
     qdev_machine_init();
 
-    machine->init(ram_size, boot_devices,
-                  kernel_filename, kernel_cmdline, initrd_filename, cpu_model);
+    QEMUMachineInitArgs args = { .ram_size = ram_size,
+                                 .boot_device = boot_devices,
+                                 .kernel_filename = kernel_filename,
+                                 .kernel_cmdline = kernel_cmdline,
+                                 .initrd_filename = initrd_filename,
+                                 .cpu_model = cpu_model };
+    machine->init(&args);
 
     cpu_synchronize_all_post_init();
 
@@ -3657,7 +3687,9 @@ int main(int argc, char **argv, char **envp)
         break;
 #if defined(CONFIG_CURSES)
     case DT_CURSES:
-        curses_display_init(ds, full_screen);
+        if (!is_daemonized()) {
+            curses_display_init(ds, full_screen);
+        }
         break;
 #endif
 #if defined(CONFIG_SDL)

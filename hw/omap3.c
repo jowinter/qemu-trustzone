@@ -125,14 +125,14 @@ static const struct omap3_l3_region_s omap3_l3_region[] = {
 };
 
 struct omap3_l3_initiator_agent_s {
-    target_phys_addr_t base;
+    hwaddr base;
     
     uint32_t component;
     uint32_t control;
     uint32_t status;
 };
 
-static uint32_t omap3_l3ia_read(void *opaque, target_phys_addr_t addr)
+static uint32_t omap3_l3ia_read(void *opaque, hwaddr addr)
 {
     struct omap3_l3_initiator_agent_s *s = (struct omap3_l3_initiator_agent_s *)opaque;
     
@@ -169,7 +169,7 @@ static uint32_t omap3_l3ia_read(void *opaque, target_phys_addr_t addr)
     return 0;
 }
 
-static void omap3_l3ia_write(void *opaque, target_phys_addr_t addr,
+static void omap3_l3ia_write(void *opaque, hwaddr addr,
                              uint32_t value)
 {
     struct omap3_l3_initiator_agent_s *s = (struct omap3_l3_initiator_agent_s *)opaque;
@@ -204,7 +204,7 @@ static void omap3_l3ia_write(void *opaque, target_phys_addr_t addr,
     }
 }
 
-static void *omap3_l3ia_init(target_phys_addr_t base)
+static void *omap3_l3ia_init(hwaddr base)
 {
     struct omap3_l3_initiator_agent_s *s = g_malloc0(sizeof(*s));
     s->base = base;
@@ -227,7 +227,7 @@ static CPUWriteMemoryFunc *omap3_l3ia_writefn[] = {
     omap3_l3ia_write,
 };
 
-static uint32_t omap3_l3ta_read(void *opaque, target_phys_addr_t addr)
+static uint32_t omap3_l3ta_read(void *opaque, hwaddr addr)
 {
     struct omap_target_agent_s *s = (struct omap_target_agent_s *)opaque;
     
@@ -264,7 +264,7 @@ static uint32_t omap3_l3ta_read(void *opaque, target_phys_addr_t addr)
     return 0;
 }
 
-static void omap3_l3ta_write(void *opaque, target_phys_addr_t addr,
+static void omap3_l3ta_write(void *opaque, hwaddr addr,
                              uint32_t value)
 {
     struct omap_target_agent_s *s = (struct omap_target_agent_s *)opaque;
@@ -311,7 +311,7 @@ static void omap3_l3ta_write(void *opaque, target_phys_addr_t addr,
     }
 }
 
-static void *omap3_l3ta_init(target_phys_addr_t base)
+static void *omap3_l3ta_init(hwaddr base)
 {
     struct omap_target_agent_s *s = g_malloc0(sizeof(*s));
     s->base = base;
@@ -335,7 +335,7 @@ static CPUWriteMemoryFunc *omap3_l3ta_writefn[] = {
 };
 
 struct omap3_l3pm_s {
-    target_phys_addr_t base;
+    hwaddr base;
     
     uint32_t error_log;
     uint8_t  control;
@@ -345,7 +345,7 @@ struct omap3_l3pm_s {
     uint32_t addr_match[7];
 };
 
-static uint32_t omap3_l3pm_read8(void *opaque, target_phys_addr_t addr)
+static uint32_t omap3_l3pm_read8(void *opaque, hwaddr addr)
 {
     struct omap3_l3pm_s *s = (struct omap3_l3pm_s *)opaque;
     int i;
@@ -404,19 +404,19 @@ static uint32_t omap3_l3pm_read8(void *opaque, target_phys_addr_t addr)
     return 0;
 }
 
-static uint32_t omap3_l3pm_read16(void *opaque, target_phys_addr_t addr)
+static uint32_t omap3_l3pm_read16(void *opaque, hwaddr addr)
 {
     return omap3_l3pm_read8(opaque, addr)
         | (omap3_l3pm_read8(opaque, addr + 1) << 8);
 }
 
-static uint32_t omap3_l3pm_read32(void *opaque, target_phys_addr_t addr)
+static uint32_t omap3_l3pm_read32(void *opaque, hwaddr addr)
 {
     return omap3_l3pm_read16(opaque, addr)
         | (omap3_l3pm_read16(opaque, addr + 2) << 16);
 }
 
-static void omap3_l3pm_write8(void *opaque, target_phys_addr_t addr,
+static void omap3_l3pm_write8(void *opaque, hwaddr addr,
                               uint32_t value)
 {
     struct omap3_l3pm_s *s = (struct omap3_l3pm_s *)opaque;
@@ -505,21 +505,21 @@ static void omap3_l3pm_write8(void *opaque, target_phys_addr_t addr,
     OMAP_BAD_REGV(s->base + addr, value);
 }
 
-static void omap3_l3pm_write16(void *opaque, target_phys_addr_t addr,
+static void omap3_l3pm_write16(void *opaque, hwaddr addr,
                                uint32_t value)
 {
     omap3_l3pm_write8(opaque, addr + 0, value & 0xff);
     omap3_l3pm_write8(opaque, addr + 1, (value >> 8) & 0xff);
 }
 
-static void omap3_l3pm_write32(void *opaque, target_phys_addr_t addr,
+static void omap3_l3pm_write32(void *opaque, hwaddr addr,
                                uint32_t value)
 {
     omap3_l3pm_write16(opaque, addr + 0, value & 0xffff);
     omap3_l3pm_write16(opaque, addr + 2, (value >> 16) & 0xffff);
 }
 
-static void *omap3_l3pm_init(target_phys_addr_t base)
+static void *omap3_l3pm_init(hwaddr base)
 {
     struct omap3_l3pm_s *s = g_malloc0(sizeof(*s));
     int i;
@@ -596,14 +596,14 @@ static CPUWriteMemoryFunc *omap3_l3pm_writefn[] = {
 
 struct omap3_l3_s {
     MemoryRegion iomem;
-    target_phys_addr_t base;
+    hwaddr base;
     int region_count;
     void *region[0];
 };
 
-static int omap3_l3_findregion(struct omap3_l3_s *l3, target_phys_addr_t addr)
+static int omap3_l3_findregion(struct omap3_l3_s *l3, hwaddr addr)
 {
-    target_phys_addr_t limit = 0;
+    hwaddr limit = 0;
     int i;
     for (i = 0; i < l3->region_count; i++) {
         limit += omap3_l3_region[i].size;
@@ -614,7 +614,7 @@ static int omap3_l3_findregion(struct omap3_l3_s *l3, target_phys_addr_t addr)
     return -1;
 }
 
-static uint64_t omap3_l3_read(void *opaque, target_phys_addr_t addr,
+static uint64_t omap3_l3_read(void *opaque, hwaddr addr,
                               unsigned size)
 {
     struct omap3_l3_s *s = (struct omap3_l3_s *)opaque;
@@ -642,7 +642,7 @@ static uint64_t omap3_l3_read(void *opaque, target_phys_addr_t addr,
              __FUNCTION__, omap3_l3_region[i].type, addr);
 }
 
-static void omap3_l3_write(void *opaque, target_phys_addr_t addr,
+static void omap3_l3_write(void *opaque, hwaddr addr,
                            uint64_t value, unsigned size)
 {
     struct omap3_l3_s *s = (struct omap3_l3_s *)opaque;
@@ -680,7 +680,7 @@ static const MemoryRegionOps omap3_l3_ops = {
 };
 
 static struct omap3_l3_s *omap3_l3_init(MemoryRegion *sysmem,
-                                        target_phys_addr_t base)
+                                        hwaddr base)
 {
     const int n = sizeof(omap3_l3_region) / sizeof(struct omap3_l3_region_s);
     struct omap3_l3_s *bus = g_malloc0(sizeof(*bus) + n * sizeof(void *));
@@ -1424,7 +1424,7 @@ static void omap3_prm_reset(struct omap3_prm_s *s)
     omap3_prm_int_update(s);
 }
 
-static uint32_t omap3_prm_read(void *opaque, target_phys_addr_t addr)
+static uint32_t omap3_prm_read(void *opaque, hwaddr addr)
 {
     struct omap3_prm_s *s = (struct omap3_prm_s *)opaque;
     struct omap3_prm_domain_s *d = 0;
@@ -1587,7 +1587,7 @@ static void omap3_prm_ldo_update(struct omap3_prm_s *s)
     }
 }
 
-static void omap3_prm_write(void *opaque, target_phys_addr_t addr,
+static void omap3_prm_write(void *opaque, hwaddr addr,
                             uint32_t value)
 {
     struct omap3_prm_s *s = (struct omap3_prm_s *)opaque;
@@ -2602,7 +2602,7 @@ static void omap3_cm_reset(struct omap3_cm_s *s)
     s->cm_clkstst_usbhost = 0x0;
 }
 
-static uint32_t omap3_cm_read(void *opaque, target_phys_addr_t addr)
+static uint32_t omap3_cm_read(void *opaque, hwaddr addr)
 {
     struct omap3_cm_s *s = (struct omap3_cm_s *) opaque;
 
@@ -2728,7 +2728,7 @@ static uint32_t omap3_cm_read(void *opaque, target_phys_addr_t addr)
 }
 
 static void omap3_cm_write(void *opaque,
-                           target_phys_addr_t addr,
+                           hwaddr addr,
                            uint32_t value)
 {
     struct omap3_cm_s *s = (struct omap3_cm_s *)opaque;
@@ -3179,7 +3179,7 @@ static void omap3_wdt_reset(struct omap3_wdt_s *s, int wdt_index)
     omap3_wdt_timer_update(s);
 }
 
-static uint32_t omap3_wdt_read32(void *opaque, target_phys_addr_t addr,
+static uint32_t omap3_wdt_read32(void *opaque, hwaddr addr,
                                  int wdt_index)
 {
     struct omap3_wdt_s *s = (struct omap3_wdt_s *) opaque;
@@ -3206,7 +3206,7 @@ static uint32_t omap3_wdt_read32(void *opaque, target_phys_addr_t addr,
     return 0;
 }
 
-static uint32_t omap3_mpu_wdt_read16(void *opaque, target_phys_addr_t addr)
+static uint32_t omap3_mpu_wdt_read16(void *opaque, hwaddr addr)
 {
     struct omap3_wdt_s *s = (struct omap3_wdt_s *) opaque;
     uint32_t ret;
@@ -3219,12 +3219,12 @@ static uint32_t omap3_mpu_wdt_read16(void *opaque, target_phys_addr_t addr)
     return ret & 0xffff;
 }
 
-static uint32_t omap3_mpu_wdt_read32(void *opaque, target_phys_addr_t addr)
+static uint32_t omap3_mpu_wdt_read32(void *opaque, hwaddr addr)
 {
     return omap3_wdt_read32(opaque, addr, OMAP3_MPU_WDT);
 }
 
-static void omap3_wdt_write32(void *opaque, target_phys_addr_t addr,
+static void omap3_wdt_write32(void *opaque, hwaddr addr,
                               uint32_t value, int wdt_index)
 {
     struct omap3_wdt_s *s = (struct omap3_wdt_s *) opaque;
@@ -3289,7 +3289,7 @@ static void omap3_wdt_write32(void *opaque, target_phys_addr_t addr,
     }
 }
 
-static void omap3_mpu_wdt_write16(void *opaque, target_phys_addr_t addr,
+static void omap3_mpu_wdt_write16(void *opaque, hwaddr addr,
                                   uint32_t value)
 {
     struct omap3_wdt_s *s = (struct omap3_wdt_s *) opaque;
@@ -3301,7 +3301,7 @@ static void omap3_mpu_wdt_write16(void *opaque, target_phys_addr_t addr,
         s->writeh = (uint16_t) value;
 }
 
-static void omap3_mpu_wdt_write32(void *opaque, target_phys_addr_t addr,
+static void omap3_mpu_wdt_write32(void *opaque, hwaddr addr,
                                   uint32_t value)
 {
     omap3_wdt_write32(opaque, addr, value, OMAP3_MPU_WDT);
@@ -3587,7 +3587,7 @@ static void omap3_scm_reset(struct omap3_scm_s *s)
 	s->general_wkup[0] = 0x66ff; /* 0x48002A60?? */
 }
 
-static uint32_t omap3_scm_read8(void *opaque, target_phys_addr_t addr)
+static uint32_t omap3_scm_read8(void *opaque, hwaddr addr)
 {
     struct omap3_scm_s *s = (struct omap3_scm_s *) opaque;
     uint8_t* temp;
@@ -3605,7 +3605,7 @@ static uint32_t omap3_scm_read8(void *opaque, target_phys_addr_t addr)
     return 0;
 }
 
-static uint32_t omap3_scm_read16(void *opaque, target_phys_addr_t addr)
+static uint32_t omap3_scm_read16(void *opaque, hwaddr addr)
 {
     uint32_t v;
     v = omap3_scm_read8(opaque, addr);
@@ -3613,7 +3613,7 @@ static uint32_t omap3_scm_read16(void *opaque, target_phys_addr_t addr)
     return v;
 }
 
-static uint32_t omap3_scm_read32(void *opaque, target_phys_addr_t addr)
+static uint32_t omap3_scm_read32(void *opaque, hwaddr addr)
 {
     uint32_t v;
     v = omap3_scm_read8(opaque, addr);
@@ -3624,7 +3624,7 @@ static uint32_t omap3_scm_read32(void *opaque, target_phys_addr_t addr)
     return v;
 }
 
-static void omap3_scm_write8(void *opaque, target_phys_addr_t addr,
+static void omap3_scm_write8(void *opaque, hwaddr addr,
                              uint32_t value)
 {
     struct omap3_scm_s *s = (struct omap3_scm_s *) opaque;
@@ -3641,14 +3641,14 @@ static void omap3_scm_write8(void *opaque, target_phys_addr_t addr,
     }
 }
 
-static void omap3_scm_write16(void *opaque, target_phys_addr_t addr,
+static void omap3_scm_write16(void *opaque, hwaddr addr,
                               uint32_t value)
 {
     omap3_scm_write8(opaque, addr + 0, (value) & 0xff);
     omap3_scm_write8(opaque, addr + 1, (value >> 8) & 0xff);
 }
 
-static void omap3_scm_write32(void *opaque, target_phys_addr_t addr,
+static void omap3_scm_write32(void *opaque, hwaddr addr,
                               uint32_t value)
 {
     TRACE_SCM(OMAP_FMT_plx " = 0x%08x", addr, value);
@@ -3717,7 +3717,7 @@ struct omap3_sms_s
     uint32 sms_rot_physical_ba[12];
 };
 
-static uint64_t omap3_sms_read(void *opaque, target_phys_addr_t addr,
+static uint64_t omap3_sms_read(void *opaque, hwaddr addr,
                                  unsigned size)
 {
     struct omap3_sms_s *s = (struct omap3_sms_s *) opaque;
@@ -3839,7 +3839,7 @@ static uint64_t omap3_sms_read(void *opaque, target_phys_addr_t addr,
     return 0;
 }
 
-static void omap3_sms_write(void *opaque, target_phys_addr_t addr,
+static void omap3_sms_write(void *opaque, hwaddr addr,
                             uint64_t value, unsigned size)
 {
     struct omap3_sms_s *s = (struct omap3_sms_s *) opaque;
@@ -4043,7 +4043,7 @@ static const struct dma_irq_map omap3_dma_irq_map[] = {
 };
 
 static int omap3_validate_addr(struct omap_mpu_state_s *s,
-                               target_phys_addr_t addr)
+                               hwaddr addr)
 {
     return 1;
 }

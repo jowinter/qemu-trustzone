@@ -2141,17 +2141,14 @@ typedef struct {
 
 static void tcp_chr_accept(void *opaque);
 
-static void tcp_chr_connect(void *opaque);
-
 static int tcp_chr_write(CharDriverState *chr, const uint8_t *buf, int len)
 {
     TCPCharDriver *s = chr->opaque;
     if (s->connected) {
         return send_all(s->fd, buf, len);
     } else {
-        /* (Re-)connect for unconnected writing */
-        tcp_chr_connect(chr);
-        return 0;
+        /* XXX: indicate an error ? */
+        return len;
     }
 }
 
@@ -2332,8 +2329,10 @@ static void tcp_chr_connect(void *opaque)
     TCPCharDriver *s = chr->opaque;
 
     s->connected = 1;
-    qemu_set_fd_handler2(s->fd, tcp_chr_read_poll,
-                         tcp_chr_read, NULL, chr);
+    if (s->fd >= 0) {
+        qemu_set_fd_handler2(s->fd, tcp_chr_read_poll,
+                             tcp_chr_read, NULL, chr);
+    }
     qemu_chr_generic_open(chr);
 }
 
@@ -2457,7 +2456,7 @@ static CharDriverState *qemu_chr_open_socket(QemuOpts *opts)
         if (is_listen) {
             fd = inet_listen_opts(opts, 0, NULL);
         } else {
-            fd = inet_connect_opts(opts, NULL, NULL);
+            fd = inet_connect_opts(opts, NULL, NULL, NULL);
         }
     }
     if (fd < 0) {

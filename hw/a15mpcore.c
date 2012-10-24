@@ -41,27 +41,13 @@ static int a15mp_priv_init(SysBusDevice *dev)
 {
     A15MPPrivState *s = FROM_SYSBUS(A15MPPrivState, dev);
     SysBusDevice *busdev;
+    const char *gictype = "arm-gic";
 
-    if (kvm_enabled()) {
-        if (!kvm_irqchip_in_kernel()) {
-            /* KVM A15 which doesn't use the in-kernel VGIC is not
-             * a supported combination, because using the cp15 timers
-             * requires use of the VGIC, and there is no way to hide
-             * the cp15 timers from a guest.
-             */
-            fprintf(stderr, "KVM Cortex-A15 without in-kernel VGIC is not a "
-                    "valid configuration. Check that:\n"
-                    " * you have passed -machine kernel_irqchip=on to QEMU\n"
-                    " * your host kernel was built with CONFIG_KVM_ARM_VGIC\n"
-                    " * the device tree passed to your host kernel has a "
-                    "valid node for the GIC\n");
-            abort();
-        }
-        s->gic = qdev_create(NULL, "kvm-arm_gic");
-    } else {
-        s->gic = qdev_create(NULL, "arm_gic");
+    if (kvm_irqchip_in_kernel()) {
+        gictype = "kvm-arm-gic";
     }
 
+    s->gic = qdev_create(NULL, gictype);
     qdev_prop_set_uint32(s->gic, "num-cpu", s->num_cpu);
     qdev_prop_set_uint32(s->gic, "num-irq", s->num_irq);
     qdev_prop_set_uint32(s->gic, "revision", 2);

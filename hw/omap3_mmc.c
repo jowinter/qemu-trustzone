@@ -467,7 +467,7 @@ static void omap3_mmc_command(struct omap3_mmc_s *s)
     s->stat |= timeout ? STAT_CTO : STAT_CC;
 }
 
-static uint32_t omap3_mmc_read(void *opaque, target_phys_addr_t addr)
+static uint32_t omap3_mmc_read(void *opaque, hwaddr addr)
 {
     struct omap3_mmc_s *s = (struct omap3_mmc_s *) opaque;
     uint32_t i ;
@@ -573,7 +573,7 @@ static uint32_t omap3_mmc_read(void *opaque, target_phys_addr_t addr)
     }
 }
 
-static void omap3_mmc_write(void *opaque, target_phys_addr_t addr,
+static void omap3_mmc_write(void *opaque, hwaddr addr,
                             uint32_t value)
 {
     struct omap3_mmc_s *s = (struct omap3_mmc_s *) opaque;

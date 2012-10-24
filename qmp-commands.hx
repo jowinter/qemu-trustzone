@@ -146,10 +146,7 @@ EQMP
     {
         .name       = "screendump",
         .args_type  = "filename:F",
-        .params     = "filename",
-        .help       = "save screen into PPM image 'filename'",
-        .user_print = monitor_user_noop,
-        .mhandler.cmd_new = do_screen_dump,
+        .mhandler.cmd_new = qmp_marshal_input_screendump,
     },
 
 SQMP
@@ -335,6 +332,34 @@ Example:
 EQMP
 
     {
+        .name       = "send-key",
+        .args_type  = "keys:O,hold-time:i?",
+        .mhandler.cmd_new = qmp_marshal_input_send_key,
+    },
+
+SQMP
+send-key
+----------
+
+Send keys to VM.
+
+Arguments:
+
+keys array:
+    - "key": key sequence (a json-array of key enum values)
+
+- hold-time: time to delay key up events, milliseconds. Defaults to 100
+             (json-int, optional)
+
+Example:
+
+-> { "execute": "send-key",
+     "arguments": { 'keys': [ 'ctrl', 'alt', 'delete' ] } }
+<- { "return": {} }
+
+EQMP
+
+    {
         .name       = "cpu",
         .args_type  = "index:i",
         .mhandler.cmd_new = qmp_marshal_input_cpu,
@@ -463,6 +488,30 @@ Example:
 
 -> { "execute": "xen-save-devices-state",
      "arguments": { "filename": "/tmp/save" } }
+<- { "return": {} }
+
+EQMP
+
+    {
+        .name       = "xen-set-global-dirty-log",
+        .args_type  = "enable:b",
+        .mhandler.cmd_new = qmp_marshal_input_xen_set_global_dirty_log,
+    },
+
+SQMP
+xen-set-global-dirty-log
+-------
+
+Enable or disable the global dirty log mode.
+
+Arguments:
+
+- "enable": Enable it or disable it.
+
+Example:
+
+-> { "execute": "xen-set-global-dirty-log",
+     "arguments": { "enable": true } }
 <- { "return": {} }
 
 EQMP
@@ -762,8 +811,14 @@ EQMP
 
     {
         .name       = "block-stream",
-        .args_type  = "device:B,base:s?,speed:o?",
+        .args_type  = "device:B,base:s?,speed:o?,on-error:s?",
         .mhandler.cmd_new = qmp_marshal_input_block_stream,
+    },
+
+    {
+        .name       = "block-commit",
+        .args_type  = "device:B,base:s?,top:s,speed:o?",
+        .mhandler.cmd_new = qmp_marshal_input_block_commit,
     },
 
     {
@@ -774,8 +829,18 @@ EQMP
 
     {
         .name       = "block-job-cancel",
-        .args_type  = "device:B",
+        .args_type  = "device:B,force:b?",
         .mhandler.cmd_new = qmp_marshal_input_block_job_cancel,
+    },
+    {
+        .name       = "block-job-pause",
+        .args_type  = "device:B",
+        .mhandler.cmd_new = qmp_marshal_input_block_job_pause,
+    },
+    {
+        .name       = "block-job-resume",
+        .args_type  = "device:B",
+        .mhandler.cmd_new = qmp_marshal_input_block_job_resume,
     },
     {
         .name       = "transaction",
@@ -1206,10 +1271,7 @@ EQMP
     {
         .name       = "add_client",
         .args_type  = "protocol:s,fdname:s,skipauth:b?,tls:b?",
-        .params     = "protocol fdname skipauth tls",
-        .help       = "add a graphics client",
-        .user_print = monitor_user_noop,
-        .mhandler.cmd_new = add_graphics_client,
+        .mhandler.cmd_new = qmp_marshal_input_add_client,
     },
 
 SQMP
@@ -2242,6 +2304,11 @@ The main json-object contains the following:
 - "total-time": total amount of ms since migration started.  If
                 migration has ended, it returns the total migration
 		 time (json-int)
+- "downtime": only present when migration has finished correctly
+              total amount in ms for downtime that happened (json-int)
+- "expected-downtime": only present while migration is active
+                total amount in ms for downtime that was calculated on
+		the last bitmap round (json-int)
 - "ram": only present if "status" is "active", it is a json-object with the
   following RAM information (in bytes):
          - "transferred": amount transferred (json-int)
@@ -2279,6 +2346,7 @@ Examples:
           "remaining":123,
           "total":246,
           "total-time":12345,
+          "downtime":12345,
           "duplicate":123,
           "normal":123,
           "normal-bytes":123456
@@ -2302,6 +2370,7 @@ Examples:
             "remaining":123,
             "total":246,
             "total-time":12345,
+            "expected-downtime":12345,
             "duplicate":123,
             "normal":123,
             "normal-bytes":123456
@@ -2320,6 +2389,7 @@ Examples:
             "remaining":1053304,
             "transferred":3720,
             "total-time":12345,
+            "expected-downtime":12345,
             "duplicate":123,
             "normal":123,
             "normal-bytes":123456
@@ -2344,6 +2414,7 @@ Examples:
             "remaining":1053304,
             "transferred":3720,
             "total-time":12345,
+            "expected-downtime":12345,
             "duplicate":10,
             "normal":3333,
             "normal-bytes":3412992

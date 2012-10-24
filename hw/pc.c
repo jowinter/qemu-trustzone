@@ -23,11 +23,11 @@
  */
 #include "hw.h"
 #include "pc.h"
+#include "serial.h"
 #include "apic.h"
 #include "fdc.h"
 #include "ide.h"
 #include "pci.h"
-#include "vmware_vga.h"
 #include "monitor.h"
 #include "fw_cfg.h"
 #include "hpet_emul.h"
@@ -51,10 +51,6 @@
 #include "exec-memory.h"
 #include "arch_init.h"
 #include "bitmap.h"
-#include "vga-pci.h"
-
-/* output Bochs bios info messages */
-//#define DEBUG_BIOS
 
 /* debug PC/ISA interrupts */
 //#define DEBUG_IRQ
@@ -534,17 +530,6 @@ static void bochs_bios_write(void *opaque, uint32_t addr, uint32_t val)
     static int shutdown_index = 0;
 
     switch(addr) {
-        /* Bochs BIOS messages */
-    case 0x400:
-    case 0x401:
-        /* used to be panic, now unused */
-        break;
-    case 0x402:
-    case 0x403:
-#ifdef DEBUG_BIOS
-        fprintf(stderr, "%c", val);
-#endif
-        break;
     case 0x8900:
         /* same as Bochs power off */
         if (val == shutdown_str[shutdown_index]) {
@@ -558,16 +543,9 @@ static void bochs_bios_write(void *opaque, uint32_t addr, uint32_t val)
         }
         break;
 
-        /* LGPL'ed VGA BIOS messages */
     case 0x501:
     case 0x502:
         exit((val << 1) | 1);
-    case 0x500:
-    case 0x503:
-#ifdef DEBUG_BIOS
-        fprintf(stderr, "%c", val);
-#endif
-        break;
     }
 }
 
@@ -596,17 +574,11 @@ static void *bochs_bios_init(void)
     uint64_t *numa_fw_cfg;
     int i, j;
 
-    register_ioport_write(0x400, 1, 2, bochs_bios_write, NULL);
-    register_ioport_write(0x401, 1, 2, bochs_bios_write, NULL);
-    register_ioport_write(0x402, 1, 1, bochs_bios_write, NULL);
-    register_ioport_write(0x403, 1, 1, bochs_bios_write, NULL);
     register_ioport_write(0x8900, 1, 1, bochs_bios_write, NULL);
 
     register_ioport_write(0x501, 1, 1, bochs_bios_write, NULL);
     register_ioport_write(0x501, 1, 2, bochs_bios_write, NULL);
     register_ioport_write(0x502, 1, 2, bochs_bios_write, NULL);
-    register_ioport_write(0x500, 1, 1, bochs_bios_write, NULL);
-    register_ioport_write(0x503, 1, 1, bochs_bios_write, NULL);
 
     fw_cfg = fw_cfg_init(BIOS_CFG_IOPORT, BIOS_CFG_IOPORT + 1, 0, 0);
 
@@ -666,13 +638,13 @@ static void load_linux(void *fw_cfg,
                        const char *kernel_filename,
 		       const char *initrd_filename,
 		       const char *kernel_cmdline,
-                       target_phys_addr_t max_ram_size)
+                       hwaddr max_ram_size)
 {
     uint16_t protocol;
     int setup_size, kernel_size, initrd_size = 0, cmdline_size;
     uint32_t initrd_max;
     uint8_t header[8192], *setup, *kernel, *initrd_data;
-    target_phys_addr_t real_addr, prot_addr, cmdline_addr, initrd_addr = 0;
+    hwaddr real_addr, prot_addr, cmdline_addr, initrd_addr = 0;
     FILE *f;
     char *vmode;
 
@@ -1019,34 +991,13 @@ DeviceState *pc_vga_init(ISABus *isa_bus, PCIBus *pci_bus)
 {
     DeviceState *dev = NULL;
 
-    if (cirrus_vga_enabled) {
-        if (pci_bus) {
-            dev = pci_cirrus_vga_init(pci_bus);
-        } else {
-            dev = &isa_create_simple(isa_bus, "isa-cirrus-vga")->qdev;
-        }
-    } else if (vmsvga_enabled) {
-        if (pci_bus) {
-            dev = pci_vmsvga_init(pci_bus);
-        } else {
-            fprintf(stderr, "%s: vmware_vga: no PCI bus\n", __FUNCTION__);
-        }
-#ifdef CONFIG_SPICE
-    } else if (qxl_enabled) {
-        if (pci_bus) {
-            dev = &pci_create_simple(pci_bus, -1, "qxl-vga")->qdev;
-        } else {
-            fprintf(stderr, "%s: qxl: no PCI bus\n", __FUNCTION__);
-        }
-#endif
-    } else if (std_vga_enabled) {
-        if (pci_bus) {
-            dev = pci_vga_init(pci_bus);
-        } else {
-            dev = isa_vga_init(isa_bus);
-        }
+    if (pci_bus) {
+        PCIDevice *pcidev = pci_vga_init(pci_bus);
+        dev = pcidev ? &pcidev->qdev : NULL;
+    } else if (isa_bus) {
+        ISADevice *isadev = isa_vga_init(isa_bus);
+        dev = isadev ? &isadev->qdev : NULL;
     }
-
     return dev;
 }
 

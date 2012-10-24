@@ -64,6 +64,8 @@ void hmp_block_set_io_throttle(Monitor *mon, const QDict *qdict);
 void hmp_block_stream(Monitor *mon, const QDict *qdict);
 void hmp_block_job_set_speed(Monitor *mon, const QDict *qdict);
 void hmp_block_job_cancel(Monitor *mon, const QDict *qdict);
+void hmp_block_job_pause(Monitor *mon, const QDict *qdict);
+void hmp_block_job_resume(Monitor *mon, const QDict *qdict);
 void hmp_migrate(Monitor *mon, const QDict *qdict);
 void hmp_device_del(Monitor *mon, const QDict *qdict);
 void hmp_dump_guest_memory(Monitor *mon, const QDict *qdict);
@@ -71,5 +73,7 @@ void hmp_netdev_add(Monitor *mon, const QDict *qdict);
 void hmp_netdev_del(Monitor *mon, const QDict *qdict);
 void hmp_getfd(Monitor *mon, const QDict *qdict);
 void hmp_closefd(Monitor *mon, const QDict *qdict);
+void hmp_send_key(Monitor *mon, const QDict *qdict);
+void hmp_screen_dump(Monitor *mon, const QDict *qdict);
 
 #endif

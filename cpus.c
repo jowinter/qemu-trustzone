@@ -395,11 +395,7 @@ void hw_error(const char *fmt, ...)
     fprintf(stderr, "\n");
     for(env = first_cpu; env != NULL; env = env->next_cpu) {
         fprintf(stderr, "CPU #%d:\n", env->cpu_index);
-#ifdef TARGET_I386
-        cpu_dump_state(env, stderr, fprintf, X86_DUMP_FPU);
-#else
-        cpu_dump_state(env, stderr, fprintf, 0);
-#endif
+        cpu_dump_state(env, stderr, fprintf, CPU_DUMP_FPU);
     }
     va_end(ap);
     abort();
@@ -613,7 +609,7 @@ static void qemu_tcg_init_cpu_signals(void)
 }
 #endif /* _WIN32 */
 
-QemuMutex qemu_global_mutex;
+static QemuMutex qemu_global_mutex;
 static QemuCond qemu_io_proceeded_cond;
 static bool iothread_requesting_mutex;
 
@@ -902,6 +898,11 @@ int qemu_cpu_is_self(void *_env)
     return qemu_thread_is_self(cpu->thread);
 }
 
+static bool qemu_in_vcpu_thread(void)
+{
+    return cpu_single_env && qemu_cpu_is_self(cpu_single_env);
+}
+
 void qemu_mutex_lock_iothread(void)
 {
     if (!tcg_enabled()) {
@@ -947,7 +948,7 @@ void pause_all_vcpus(void)
         penv = penv->next_cpu;
     }
 
-    if (!qemu_thread_is_self(&io_thread)) {
+    if (qemu_in_vcpu_thread()) {
         cpu_stop_current();
         if (!kvm_enabled()) {
             while (penv) {
@@ -1064,7 +1065,7 @@ void cpu_stop_current(void)
 
 void vm_stop(RunState state)
 {
-    if (!qemu_thread_is_self(&io_thread)) {
+    if (qemu_in_vcpu_thread()) {
         qemu_system_vmstop_request(state);
         /*
          * FIXME: should not return to device code in case
@@ -1192,10 +1193,8 @@ void set_cpu_log_filename(const char *optarg)
 void list_cpus(FILE *f, fprintf_function cpu_fprintf, const char *optarg)
 {
     /* XXX: implement xxx_cpu_list for targets that still miss it */
-#if defined(cpu_list_id)
-    cpu_list_id(f, cpu_fprintf, optarg);
-#elif defined(cpu_list)
-    cpu_list(f, cpu_fprintf); /* deprecated */
+#if defined(cpu_list)
+    cpu_list(f, cpu_fprintf);
 #endif
 }
 

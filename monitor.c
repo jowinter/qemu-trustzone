@@ -450,11 +450,13 @@ static const char *monitor_event_names[] = {
     [QEVENT_SPICE_DISCONNECTED] = "SPICE_DISCONNECTED",
     [QEVENT_BLOCK_JOB_COMPLETED] = "BLOCK_JOB_COMPLETED",
     [QEVENT_BLOCK_JOB_CANCELLED] = "BLOCK_JOB_CANCELLED",
+    [QEVENT_BLOCK_JOB_ERROR] = "BLOCK_JOB_ERROR",
     [QEVENT_DEVICE_TRAY_MOVED] = "DEVICE_TRAY_MOVED",
     [QEVENT_SUSPEND] = "SUSPEND",
     [QEVENT_SUSPEND_DISK] = "SUSPEND_DISK",
     [QEVENT_WAKEUP] = "WAKEUP",
     [QEVENT_BALLOON_CHANGE] = "BALLOON_CHANGE",
+    [QEVENT_SPICE_MIGRATE_COMPLETED] = "SPICE_MIGRATE_COMPLETED",
 };
 QEMU_BUILD_BUG_ON(ARRAY_SIZE(monitor_event_names) != QEVENT_MAX)
 
@@ -896,13 +898,7 @@ static void do_info_registers(Monitor *mon)
 {
     CPUArchState *env;
     env = mon_get_cpu();
-#ifdef TARGET_I386
-    cpu_dump_state(env, (FILE *)mon, monitor_fprintf,
-                   X86_DUMP_FPU);
-#else
-    cpu_dump_state(env, (FILE *)mon, monitor_fprintf,
-                   0);
-#endif
+    cpu_dump_state(env, (FILE *)mon, monitor_fprintf, CPU_DUMP_FPU);
 }
 
 static void do_info_jit(Monitor *mon)
@@ -943,45 +939,6 @@ static void do_trace_print_events(Monitor *mon)
     trace_print_events((FILE *)mon, &monitor_fprintf);
 }
 
-static int add_graphics_client(Monitor *mon, const QDict *qdict, QObject **ret_data)
-{
-    const char *protocol  = qdict_get_str(qdict, "protocol");
-    const char *fdname = qdict_get_str(qdict, "fdname");
-    CharDriverState *s;
-
-    if (strcmp(protocol, "spice") == 0) {
-        int fd = monitor_get_fd(mon, fdname);
-        int skipauth = qdict_get_try_bool(qdict, "skipauth", 0);
-        int tls = qdict_get_try_bool(qdict, "tls", 0);
-        if (!using_spice) {
-            /* correct one? spice isn't a device ,,, */
-            qerror_report(QERR_DEVICE_NOT_ACTIVE, "spice");
-            return -1;
-        }
-        if (qemu_spice_display_add_client(fd, skipauth, tls) < 0) {
-            close(fd);
-        }
-        return 0;
-#ifdef CONFIG_VNC
-    } else if (strcmp(protocol, "vnc") == 0) {
-	int fd = monitor_get_fd(mon, fdname);
-        int skipauth = qdict_get_try_bool(qdict, "skipauth", 0);
-	vnc_display_add_client(NULL, fd, skipauth);
-	return 0;
-#endif
-    } else if ((s = qemu_chr_find(protocol)) != NULL) {
-	int fd = monitor_get_fd(mon, fdname);
-	if (qemu_chr_add_client(s, fd) < 0) {
-	    qerror_report(QERR_ADD_CLIENT_FAILED);
-	    return -1;
-	}
-	return 0;
-    }
-
-    qerror_report(QERR_INVALID_PARAMETER, "protocol");
-    return -1;
-}
-
 static int client_migrate_info(Monitor *mon, const QDict *qdict,
                                MonitorCompletion cb, void *opaque)
 {
@@ -1014,12 +971,6 @@ static int client_migrate_info(Monitor *mon, const QDict *qdict,
 
     qerror_report(QERR_INVALID_PARAMETER, "protocol");
     return -1;
-}
-
-static int do_screen_dump(Monitor *mon, const QDict *qdict, QObject **ret_data)
-{
-    vga_hw_screen_dump(qdict_get_str(qdict, "filename"));
-    return 0;
 }
 
 static void do_logfile(Monitor *mon, const QDict *qdict)
@@ -1108,7 +1059,7 @@ static void monitor_printc(Monitor *mon, int c)
 }
 
 static void memory_dump(Monitor *mon, int count, int format, int wsize,
-                        target_phys_addr_t addr, int is_physical)
+                        hwaddr addr, int is_physical)
 {
     CPUArchState *env;
     int l, line_size, i, max_digits, len;
@@ -1242,7 +1193,7 @@ static void do_physical_memory_dump(Monitor *mon, const QDict *qdict)
     int count = qdict_get_int(qdict, "count");
     int format = qdict_get_int(qdict, "format");
     int size = qdict_get_int(qdict, "size");
-    target_phys_addr_t addr = qdict_get_int(qdict, "addr");
+    hwaddr addr = qdict_get_int(qdict, "addr");
 
     memory_dump(mon, count, format, size, addr, 1);
 }
@@ -1250,21 +1201,21 @@ static void do_physical_memory_dump(Monitor *mon, const QDict *qdict)
 static void do_print(Monitor *mon, const QDict *qdict)
 {
     int format = qdict_get_int(qdict, "format");
-    target_phys_addr_t val = qdict_get_int(qdict, "val");
+    hwaddr val = qdict_get_int(qdict, "val");
 
     switch(format) {
     case 'o':
-        monitor_printf(mon, "%#" TARGET_PRIoPHYS, val);
+        monitor_printf(mon, "%#" HWADDR_PRIo, val);
         break;
     case 'x':
-        monitor_printf(mon, "%#" TARGET_PRIxPHYS, val);
+        monitor_printf(mon, "%#" HWADDR_PRIx, val);
         break;
     case 'u':
-        monitor_printf(mon, "%" TARGET_PRIuPHYS, val);
+        monitor_printf(mon, "%" HWADDR_PRIu, val);
         break;
     default:
     case 'd':
-        monitor_printf(mon, "%" TARGET_PRIdPHYS, val);
+        monitor_printf(mon, "%" HWADDR_PRId, val);
         break;
     case 'c':
         monitor_printc(mon, val);
@@ -1288,245 +1239,6 @@ static void do_sum(Monitor *mon, const QDict *qdict)
         sum += val;
     }
     monitor_printf(mon, "%05d\n", sum);
-}
-
-typedef struct {
-    int keycode;
-    const char *name;
-} KeyDef;
-
-static const KeyDef key_defs[] = {
-    { 0x2a, "shift" },
-    { 0x36, "shift_r" },
-
-    { 0x38, "alt" },
-    { 0xb8, "alt_r" },
-    { 0x64, "altgr" },
-    { 0xe4, "altgr_r" },
-    { 0x1d, "ctrl" },
-    { 0x9d, "ctrl_r" },
-
-    { 0xdd, "menu" },
-
-    { 0x01, "esc" },
-
-    { 0x02, "1" },
-    { 0x03, "2" },
-    { 0x04, "3" },
-    { 0x05, "4" },
-    { 0x06, "5" },
-    { 0x07, "6" },
-    { 0x08, "7" },
-    { 0x09, "8" },
-    { 0x0a, "9" },
-    { 0x0b, "0" },
-    { 0x0c, "minus" },
-    { 0x0d, "equal" },
-    { 0x0e, "backspace" },
-
-    { 0x0f, "tab" },
-    { 0x10, "q" },
-    { 0x11, "w" },
-    { 0x12, "e" },
-    { 0x13, "r" },
-    { 0x14, "t" },
-    { 0x15, "y" },
-    { 0x16, "u" },
-    { 0x17, "i" },
-    { 0x18, "o" },
-    { 0x19, "p" },
-    { 0x1a, "bracket_left" },
-    { 0x1b, "bracket_right" },
-    { 0x1c, "ret" },
-
-    { 0x1e, "a" },
-    { 0x1f, "s" },
-    { 0x20, "d" },
-    { 0x21, "f" },
-    { 0x22, "g" },
-    { 0x23, "h" },
-    { 0x24, "j" },
-    { 0x25, "k" },
-    { 0x26, "l" },
-    { 0x27, "semicolon" },
-    { 0x28, "apostrophe" },
-    { 0x29, "grave_accent" },
-
-    { 0x2b, "backslash" },
-    { 0x2c, "z" },
-    { 0x2d, "x" },
-    { 0x2e, "c" },
-    { 0x2f, "v" },
-    { 0x30, "b" },
-    { 0x31, "n" },
-    { 0x32, "m" },
-    { 0x33, "comma" },
-    { 0x34, "dot" },
-    { 0x35, "slash" },
-
-    { 0x37, "asterisk" },
-
-    { 0x39, "spc" },
-    { 0x3a, "caps_lock" },
-    { 0x3b, "f1" },
-    { 0x3c, "f2" },
-    { 0x3d, "f3" },
-    { 0x3e, "f4" },
-    { 0x3f, "f5" },
-    { 0x40, "f6" },
-    { 0x41, "f7" },
-    { 0x42, "f8" },
-    { 0x43, "f9" },
-    { 0x44, "f10" },
-    { 0x45, "num_lock" },
-    { 0x46, "scroll_lock" },
-
-    { 0xb5, "kp_divide" },
-    { 0x37, "kp_multiply" },
-    { 0x4a, "kp_subtract" },
-    { 0x4e, "kp_add" },
-    { 0x9c, "kp_enter" },
-    { 0x53, "kp_decimal" },
-    { 0x54, "sysrq" },
-
-    { 0x52, "kp_0" },
-    { 0x4f, "kp_1" },
-    { 0x50, "kp_2" },
-    { 0x51, "kp_3" },
-    { 0x4b, "kp_4" },
-    { 0x4c, "kp_5" },
-    { 0x4d, "kp_6" },
-    { 0x47, "kp_7" },
-    { 0x48, "kp_8" },
-    { 0x49, "kp_9" },
-
-    { 0x56, "<" },
-
-    { 0x57, "f11" },
-    { 0x58, "f12" },
-
-    { 0xb7, "print" },
-
-    { 0xc7, "home" },
-    { 0xc9, "pgup" },
-    { 0xd1, "pgdn" },
-    { 0xcf, "end" },
-
-    { 0xcb, "left" },
-    { 0xc8, "up" },
-    { 0xd0, "down" },
-    { 0xcd, "right" },
-
-    { 0xd2, "insert" },
-    { 0xd3, "delete" },
-#if defined(TARGET_SPARC) && !defined(TARGET_SPARC64)
-    { 0xf0, "stop" },
-    { 0xf1, "again" },
-    { 0xf2, "props" },
-    { 0xf3, "undo" },
-    { 0xf4, "front" },
-    { 0xf5, "copy" },
-    { 0xf6, "open" },
-    { 0xf7, "paste" },
-    { 0xf8, "find" },
-    { 0xf9, "cut" },
-    { 0xfa, "lf" },
-    { 0xfb, "help" },
-    { 0xfc, "meta_l" },
-    { 0xfd, "meta_r" },
-    { 0xfe, "compose" },
-#endif
-    { 0, NULL },
-};
-
-static int get_keycode(const char *key)
-{
-    const KeyDef *p;
-    char *endp;
-    int ret;
-
-    for(p = key_defs; p->name != NULL; p++) {
-        if (!strcmp(key, p->name))
-            return p->keycode;
-    }
-    if (strstart(key, "0x", NULL)) {
-        ret = strtoul(key, &endp, 0);
-        if (*endp == '\0' && ret >= 0x01 && ret <= 0xff)
-            return ret;
-    }
-    return -1;
-}
-
-#define MAX_KEYCODES 16
-static uint8_t keycodes[MAX_KEYCODES];
-static int nb_pending_keycodes;
-static QEMUTimer *key_timer;
-
-static void release_keys(void *opaque)
-{
-    int keycode;
-
-    while (nb_pending_keycodes > 0) {
-        nb_pending_keycodes--;
-        keycode = keycodes[nb_pending_keycodes];
-        if (keycode & 0x80)
-            kbd_put_keycode(0xe0);
-        kbd_put_keycode(keycode | 0x80);
-    }
-}
-
-static void do_sendkey(Monitor *mon, const QDict *qdict)
-{
-    char keyname_buf[16];
-    char *separator;
-    int keyname_len, keycode, i;
-    const char *string = qdict_get_str(qdict, "string");
-    int has_hold_time = qdict_haskey(qdict, "hold_time");
-    int hold_time = qdict_get_try_int(qdict, "hold_time", -1);
-
-    if (nb_pending_keycodes > 0) {
-        qemu_del_timer(key_timer);
-        release_keys(NULL);
-    }
-    if (!has_hold_time)
-        hold_time = 100;
-    i = 0;
-    while (1) {
-        separator = strchr(string, '-');
-        keyname_len = separator ? separator - string : strlen(string);
-        if (keyname_len > 0) {
-            pstrcpy(keyname_buf, sizeof(keyname_buf), string);
-            if (keyname_len > sizeof(keyname_buf) - 1) {
-                monitor_printf(mon, "invalid key: '%s...'\n", keyname_buf);
-                return;
-            }
-            if (i == MAX_KEYCODES) {
-                monitor_printf(mon, "too many keys\n");
-                return;
-            }
-            keyname_buf[keyname_len] = 0;
-            keycode = get_keycode(keyname_buf);
-            if (keycode < 0) {
-                monitor_printf(mon, "unknown key: '%s'\n", keyname_buf);
-                return;
-            }
-            keycodes[i++] = keycode;
-        }
-        if (!separator)
-            break;
-        string = separator + 1;
-    }
-    nb_pending_keycodes = i;
-    /* key down events */
-    for (i = 0; i < nb_pending_keycodes; i++) {
-        keycode = keycodes[i];
-        if (keycode & 0x80)
-            kbd_put_keycode(0xe0);
-        kbd_put_keycode(keycode & 0x7f);
-    }
-    /* delayed key up events */
-    qemu_mod_timer(key_timer, qemu_get_clock_ns(vm_clock) +
-                   muldiv64(get_ticks_per_sec(), hold_time, 1000));
 }
 
 static int mouse_button_state;
@@ -1625,9 +1337,9 @@ static void do_boot_set(Monitor *mon, const QDict *qdict)
 }
 
 #if defined(TARGET_I386)
-static void print_pte(Monitor *mon, target_phys_addr_t addr,
-                      target_phys_addr_t pte,
-                      target_phys_addr_t mask)
+static void print_pte(Monitor *mon, hwaddr addr,
+                      hwaddr pte,
+                      hwaddr mask)
 {
 #ifdef TARGET_X86_64
     if (addr & (1ULL << 47)) {
@@ -1696,7 +1408,7 @@ static void tlb_info_pae32(Monitor *mon, CPUArchState *env)
                     if (pde & PG_PSE_MASK) {
                         /* 2M pages with PAE, CR4.PSE is ignored */
                         print_pte(mon, (l1 << 30 ) + (l2 << 21), pde,
-                                  ~((target_phys_addr_t)(1 << 20) - 1));
+                                  ~((hwaddr)(1 << 20) - 1));
                     } else {
                         pt_addr = pde & 0x3fffffffff000ULL;
                         for (l3 = 0; l3 < 512; l3++) {
@@ -1706,7 +1418,7 @@ static void tlb_info_pae32(Monitor *mon, CPUArchState *env)
                                 print_pte(mon, (l1 << 30 ) + (l2 << 21)
                                           + (l3 << 12),
                                           pte & ~PG_PSE_MASK,
-                                          ~(target_phys_addr_t)0xfff);
+                                          ~(hwaddr)0xfff);
                             }
                         }
                     }
@@ -1798,9 +1510,9 @@ static void tlb_info(Monitor *mon)
     }
 }
 
-static void mem_print(Monitor *mon, target_phys_addr_t *pstart,
+static void mem_print(Monitor *mon, hwaddr *pstart,
                       int *plast_prot,
-                      target_phys_addr_t end, int prot)
+                      hwaddr end, int prot)
 {
     int prot1;
     prot1 = *plast_prot;
@@ -1826,7 +1538,7 @@ static void mem_info_32(Monitor *mon, CPUArchState *env)
     unsigned int l1, l2;
     int prot, last_prot;
     uint32_t pgd, pde, pte;
-    target_phys_addr_t start, end;
+    hwaddr start, end;
 
     pgd = env->cr[3] & ~0xfff;
     last_prot = 0;
@@ -1859,7 +1571,7 @@ static void mem_info_32(Monitor *mon, CPUArchState *env)
         }
     }
     /* Flush last range */
-    mem_print(mon, &start, &last_prot, (target_phys_addr_t)1 << 32, 0);
+    mem_print(mon, &start, &last_prot, (hwaddr)1 << 32, 0);
 }
 
 static void mem_info_pae32(Monitor *mon, CPUArchState *env)
@@ -1868,7 +1580,7 @@ static void mem_info_pae32(Monitor *mon, CPUArchState *env)
     int prot, last_prot;
     uint64_t pdpe, pde, pte;
     uint64_t pdp_addr, pd_addr, pt_addr;
-    target_phys_addr_t start, end;
+    hwaddr start, end;
 
     pdp_addr = env->cr[3] & ~0x1f;
     last_prot = 0;
@@ -1914,7 +1626,7 @@ static void mem_info_pae32(Monitor *mon, CPUArchState *env)
         }
     }
     /* Flush last range */
-    mem_print(mon, &start, &last_prot, (target_phys_addr_t)1 << 32, 0);
+    mem_print(mon, &start, &last_prot, (hwaddr)1 << 32, 0);
 }
 
 
@@ -1993,7 +1705,7 @@ static void mem_info_64(Monitor *mon, CPUArchState *env)
         }
     }
     /* Flush last range */
-    mem_print(mon, &start, &last_prot, (target_phys_addr_t)1 << 48, 0);
+    mem_print(mon, &start, &last_prot, (hwaddr)1 << 48, 0);
 }
 #endif
 
@@ -2362,7 +2074,7 @@ static void do_loadvm(Monitor *mon, const QDict *qdict)
     }
 }
 
-int monitor_get_fd(Monitor *mon, const char *fdname)
+int monitor_get_fd(Monitor *mon, const char *fdname, Error **errp)
 {
     mon_fd_t *monfd;
 
@@ -2383,6 +2095,7 @@ int monitor_get_fd(Monitor *mon, const char *fdname)
         return fd;
     }
 
+    error_setg(errp, "File descriptor named '%s' has not been found", fdname);
     return -1;
 }
 
@@ -2649,6 +2362,26 @@ int monitor_fdset_dup_fd_find(int dup_fd)
 int monitor_fdset_dup_fd_remove(int dup_fd)
 {
     return monitor_fdset_dup_fd_find_remove(dup_fd, true);
+}
+
+int monitor_handle_fd_param(Monitor *mon, const char *fdname)
+{
+    int fd;
+    Error *local_err = NULL;
+
+    if (!qemu_isdigit(fdname[0]) && mon) {
+
+        fd = monitor_get_fd(mon, fdname, &local_err);
+        if (fd == -1) {
+            qerror_report_err(local_err);
+            error_free(local_err);
+            return -1;
+        }
+    } else {
+        fd = qemu_parse_fd(fdname);
+    }
+
+    return fd;
 }
 
 /* mon_cmds and info_cmds would be sorted at runtime */
@@ -3485,11 +3218,7 @@ static int64_t expr_unary(Monitor *mon)
         break;
     default:
         errno = 0;
-#if TARGET_PHYS_ADDR_BITS > 32
         n = strtoull(pch, &p, 0);
-#else
-        n = strtoul(pch, &p, 0);
-#endif
         if (errno == ERANGE) {
             expr_error(mon, "number too large");
         }
@@ -4315,7 +4044,6 @@ static void monitor_find_completion(const char *cmdline)
     int nb_args, i, len;
     const char *ptype, *str;
     const mon_cmd_t *cmd;
-    const KeyDef *key;
 
     parse_cmdline(cmdline, &nb_args, args);
 #ifdef DEBUG_COMPLETION
@@ -4389,8 +4117,8 @@ static void monitor_find_completion(const char *cmdline)
                 if (sep)
                     str = sep + 1;
                 readline_set_completion_index(cur_mon->rs, strlen(str));
-                for(key = key_defs; key->name != NULL; key++) {
-                    cmd_completion(str, key->name);
+                for (i = 0; i < Q_KEY_CODE_MAX; i++) {
+                    cmd_completion(str, QKeyCode_lookup[i]);
                 }
             } else if (!strcmp(cmd->name, "help|?")) {
                 readline_set_completion_index(cur_mon->rs, strlen(str));
@@ -4926,7 +4654,6 @@ void monitor_init(CharDriverState *chr, int flags)
     Monitor *mon;
 
     if (is_first_init) {
-        key_timer = qemu_new_timer_ns(vm_clock, release_keys, NULL);
         monitor_protocol_event_init();
         is_first_init = 0;
     }

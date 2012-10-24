@@ -19,6 +19,7 @@
 #include "qemu-timer.h"
 #include "qmp-commands.h"
 #include "monitor.h"
+#include "console.h"
 
 static void hmp_handle_error(Monitor *mon, Error **errp)
 {
@@ -151,6 +152,14 @@ void hmp_info_migrate(Monitor *mon)
         monitor_printf(mon, "Migration status: %s\n", info->status);
         monitor_printf(mon, "total time: %" PRIu64 " milliseconds\n",
                        info->total_time);
+        if (info->has_expected_downtime) {
+            monitor_printf(mon, "expected downtime: %" PRIu64 " milliseconds\n",
+                           info->expected_downtime);
+        }
+        if (info->has_downtime) {
+            monitor_printf(mon, "downtime: %" PRIu64 " milliseconds\n",
+                           info->downtime);
+        }
     }
 
     if (info->has_ram) {
@@ -166,6 +175,10 @@ void hmp_info_migrate(Monitor *mon)
                        info->ram->normal);
         monitor_printf(mon, "normal bytes: %" PRIu64 " kbytes\n",
                        info->ram->normal_bytes >> 10);
+        if (info->ram->dirty_pages_rate) {
+            monitor_printf(mon, "dirty pages rate: %" PRIu64 " pages\n",
+                           info->ram->dirty_pages_rate);
+        }
     }
 
     if (info->has_disk) {
@@ -413,6 +426,8 @@ void hmp_info_spice(Monitor *mon)
         monitor_printf(mon, "     address: %s:%" PRId64 " [tls]\n",
                        info->host, info->tls_port);
     }
+    monitor_printf(mon, "    migrated: %s\n",
+                   info->migrated ? "true" : "false");
     monitor_printf(mon, "        auth: %s\n", info->auth);
     monitor_printf(mon, "    compiled: %s\n", info->compiled_version);
     monitor_printf(mon, "  mouse-mode: %s\n",
@@ -927,7 +942,8 @@ void hmp_block_stream(Monitor *mon, const QDict *qdict)
     int64_t speed = qdict_get_try_int(qdict, "speed", 0);
 
     qmp_block_stream(device, base != NULL, base,
-                     qdict_haskey(qdict, "speed"), speed, &error);
+                     qdict_haskey(qdict, "speed"), speed,
+                     BLOCKDEV_ON_ERROR_REPORT, true, &error);
 
     hmp_handle_error(mon, &error);
 }
@@ -947,8 +963,29 @@ void hmp_block_job_cancel(Monitor *mon, const QDict *qdict)
 {
     Error *error = NULL;
     const char *device = qdict_get_str(qdict, "device");
+    bool force = qdict_get_try_bool(qdict, "force", 0);
 
-    qmp_block_job_cancel(device, &error);
+    qmp_block_job_cancel(device, true, force, &error);
+
+    hmp_handle_error(mon, &error);
+}
+
+void hmp_block_job_pause(Monitor *mon, const QDict *qdict)
+{
+    Error *error = NULL;
+    const char *device = qdict_get_str(qdict, "device");
+
+    qmp_block_job_pause(device, &error);
+
+    hmp_handle_error(mon, &error);
+}
+
+void hmp_block_job_resume(Monitor *mon, const QDict *qdict)
+{
+    Error *error = NULL;
+    const char *device = qdict_get_str(qdict, "device");
+
+    qmp_block_job_resume(device, &error);
 
     hmp_handle_error(mon, &error);
 }
@@ -1039,11 +1076,12 @@ void hmp_dump_guest_memory(Monitor *mon, const QDict *qdict)
 {
     Error *errp = NULL;
     int paging = qdict_get_try_bool(qdict, "paging", 0);
-    const char *file = qdict_get_str(qdict, "protocol");
+    const char *file = qdict_get_str(qdict, "filename");
     bool has_begin = qdict_haskey(qdict, "begin");
     bool has_length = qdict_haskey(qdict, "length");
     int64_t begin = 0;
     int64_t length = 0;
+    char *prot;
 
     if (has_begin) {
         begin = qdict_get_int(qdict, "begin");
@@ -1052,9 +1090,12 @@ void hmp_dump_guest_memory(Monitor *mon, const QDict *qdict)
         length = qdict_get_int(qdict, "length");
     }
 
-    qmp_dump_guest_memory(paging, file, has_begin, begin, has_length, length,
+    prot = g_strconcat("file:", file, NULL);
+
+    qmp_dump_guest_memory(paging, prot, has_begin, begin, has_length, length,
                           &errp);
     hmp_handle_error(mon, &errp);
+    g_free(prot);
 }
 
 void hmp_netdev_add(Monitor *mon, const QDict *qdict)
@@ -1101,4 +1142,82 @@ void hmp_closefd(Monitor *mon, const QDict *qdict)
 
     qmp_closefd(fdname, &errp);
     hmp_handle_error(mon, &errp);
+}
+
+void hmp_send_key(Monitor *mon, const QDict *qdict)
+{
+    const char *keys = qdict_get_str(qdict, "keys");
+    KeyValueList *keylist, *head = NULL, *tmp = NULL;
+    int has_hold_time = qdict_haskey(qdict, "hold-time");
+    int hold_time = qdict_get_try_int(qdict, "hold-time", -1);
+    Error *err = NULL;
+    char keyname_buf[16];
+    char *separator;
+    int keyname_len;
+
+    while (1) {
+        separator = strchr(keys, '-');
+        keyname_len = separator ? separator - keys : strlen(keys);
+        pstrcpy(keyname_buf, sizeof(keyname_buf), keys);
+
+        /* Be compatible with old interface, convert user inputted "<" */
+        if (!strncmp(keyname_buf, "<", 1) && keyname_len == 1) {
+            pstrcpy(keyname_buf, sizeof(keyname_buf), "less");
+            keyname_len = 4;
+        }
+        keyname_buf[keyname_len] = 0;
+
+        keylist = g_malloc0(sizeof(*keylist));
+        keylist->value = g_malloc0(sizeof(*keylist->value));
+
+        if (!head) {
+            head = keylist;
+        }
+        if (tmp) {
+            tmp->next = keylist;
+        }
+        tmp = keylist;
+
+        if (strstart(keyname_buf, "0x", NULL)) {
+            char *endp;
+            int value = strtoul(keyname_buf, &endp, 0);
+            if (*endp != '\0') {
+                goto err_out;
+            }
+            keylist->value->kind = KEY_VALUE_KIND_NUMBER;
+            keylist->value->number = value;
+        } else {
+            int idx = index_from_key(keyname_buf);
+            if (idx == Q_KEY_CODE_MAX) {
+                goto err_out;
+            }
+            keylist->value->kind = KEY_VALUE_KIND_QCODE;
+            keylist->value->qcode = idx;
+        }
+
+        if (!separator) {
+            break;
+        }
+        keys = separator + 1;
+    }
+
+    qmp_send_key(head, has_hold_time, hold_time, &err);
+    hmp_handle_error(mon, &err);
+
+out:
+    qapi_free_KeyValueList(head);
+    return;
+
+err_out:
+    monitor_printf(mon, "invalid parameter: %s\n", keyname_buf);
+    goto out;
+}
+
+void hmp_screen_dump(Monitor *mon, const QDict *qdict)
+{
+    const char *filename = qdict_get_str(qdict, "filename");
+    Error *err = NULL;
+
+    qmp_screendump(filename, &err);
+    hmp_handle_error(mon, &err);
 }

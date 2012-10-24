@@ -43,19 +43,14 @@ struct overo_s {
     DeviceState *ddc;
 };
 
-static void overo_init(ram_addr_t ram_size,
-                       const char *boot_device,
-                       const char *kernel_filename,
-                       const char *kernel_cmdline,
-                       const char *initrd_filename,
-                       const char *cpu_model)
+static void overo_init(QEMUMachineInitArgs *args)
 {
     MemoryRegion *sysmem = get_system_memory();
     struct overo_s *s = (struct overo_s *) g_malloc0(sizeof(*s));
     DriveInfo *dmtd = drive_get(IF_MTD, 0, 0);
     DriveInfo *dsd  = drive_get(IF_SD, 0, 0);
 
-    if (ram_size > 1024 * 1024 * 1024) {
+    if (args->ram_size > 1024 * 1024 * 1024) {
         fprintf(stderr, "overo: maximum permitted RAM size 1024MB\n");
         exit(1);
     }
@@ -63,7 +58,7 @@ static void overo_init(ram_addr_t ram_size,
     if (!dmtd && !dsd) {
         hw_error("%s: SD or NAND image required", __FUNCTION__);
     }
-    s->cpu = omap3_mpu_init(sysmem, omap3430, ram_size,
+    s->cpu = omap3_mpu_init(sysmem, omap3430, args->ram_size,
                             NULL, NULL, serial_hds[0], NULL);
 
     s->nand = nand_init(dmtd ? dmtd->bdrv : NULL, NAND_MFR_MICRON, 0xba);

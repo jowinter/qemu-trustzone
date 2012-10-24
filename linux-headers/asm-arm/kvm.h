@@ -39,7 +39,21 @@ struct kvm_regs {
 };
 
 /* Supported Processor Types */
-#define KVM_ARM_TARGET_CORTEX_A15	(0xC0F)
+#define KVM_ARM_TARGET_CORTEX_A15	0
+#define KVM_ARM_NUM_TARGETS		1
+
+/* KVM_SET_DEVICE_ADDRESS ioctl id encoding */
+#define KVM_DEVICE_TYPE_SHIFT		0
+#define KVM_DEVICE_TYPE_MASK		(0xffff << KVM_DEVICE_TYPE_SHIFT)
+#define KVM_DEVICE_ID_SHIFT		16
+#define KVM_DEVICE_ID_MASK		(0xffff << KVM_DEVICE_ID_SHIFT)
+
+/* Supported device IDs */
+#define KVM_ARM_DEVICE_VGIC_V2		0
+
+/* Supported VGIC address types  */
+#define KVM_VGIC_V2_ADDR_TYPE_DIST	0
+#define KVM_VGIC_V2_ADDR_TYPE_CPU	1
 
 struct kvm_vcpu_init {
 	__u32 target;
@@ -64,12 +78,6 @@ struct kvm_sync_regs {
 struct kvm_arch_memory_slot {
 };
 
-/* For KVM_VCPU_GET_REG_LIST. */
-struct kvm_reg_list {
-	__u64 n; /* number of regs */
-	__u64 reg[0];
-};
-
 /* If you need to interpret the index values, here is the key: */
 #define KVM_REG_ARM_COPROC_MASK		0x000000000FFF0000
 #define KVM_REG_ARM_COPROC_SHIFT	16
@@ -81,6 +89,31 @@ struct kvm_reg_list {
 #define KVM_REG_ARM_CRM_SHIFT		7
 #define KVM_REG_ARM_32_CRN_MASK		0x0000000000007800
 #define KVM_REG_ARM_32_CRN_SHIFT	11
+
+/* Normal registers are mapped as coprocessor 16. */
+#define KVM_REG_ARM_CORE		(0x0010 << KVM_REG_ARM_COPROC_SHIFT)
+#define KVM_REG_ARM_CORE_REG(name)	(offsetof(struct kvm_regs, name) / 4)
+
+/* Some registers need more space to represent values. */
+#define KVM_REG_ARM_DEMUX		(0x0011 << KVM_REG_ARM_COPROC_SHIFT)
+#define KVM_REG_ARM_DEMUX_ID_MASK	0x000000000000FF00
+#define KVM_REG_ARM_DEMUX_ID_SHIFT	8
+#define KVM_REG_ARM_DEMUX_ID_CCSIDR	(0x00 << KVM_REG_ARM_DEMUX_ID_SHIFT)
+#define KVM_REG_ARM_DEMUX_VAL_MASK	0x00000000000000FF
+#define KVM_REG_ARM_DEMUX_VAL_SHIFT	0
+
+/* VFP registers: we could overload CP10 like ARM does, but that's ugly. */
+#define KVM_REG_ARM_VFP			(0x0012 << KVM_REG_ARM_COPROC_SHIFT)
+#define KVM_REG_ARM_VFP_MASK		0x000000000000FFFF
+#define KVM_REG_ARM_VFP_BASE_REG	0x0
+#define KVM_REG_ARM_VFP_FPSID		0x1000
+#define KVM_REG_ARM_VFP_FPSCR		0x1001
+#define KVM_REG_ARM_VFP_MVFR1		0x1006
+#define KVM_REG_ARM_VFP_MVFR0		0x1007
+#define KVM_REG_ARM_VFP_FPEXC		0x1008
+#define KVM_REG_ARM_VFP_FPINST		0x1009
+#define KVM_REG_ARM_VFP_FPINST2		0x100A
+
 
 /* KVM_IRQ_LINE irq field index values */
 #define KVM_ARM_IRQ_TYPE_SHIFT		24
@@ -101,9 +134,5 @@ struct kvm_reg_list {
 
 /* Highest supported SPI, from VGIC_NR_IRQS */
 #define KVM_ARM_IRQ_GIC_MAX		127
-
-/* Normal registers are mapped as coprocessor 16. */
-#define KVM_REG_ARM_CORE		(0x0010 << KVM_REG_ARM_COPROC_SHIFT)
-#define KVM_REG_ARM_CORE_REG(name)	(offsetof(struct kvm_regs, name) / 4)
 
 #endif /* __ARM_KVM_H__ */

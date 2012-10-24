@@ -100,19 +100,19 @@ struct omap_target_agent_s {
     struct omap_l4_s *bus;
     int regions;
     const struct omap_l4_region_s *start;
-    target_phys_addr_t base;
+    hwaddr base;
     uint32_t component;
     uint32_t control;
     uint32_t control_h; /* OMAP3 only */
     uint32_t status;
 };
 struct omap_l4_region_s {
-    target_phys_addr_t offset;
+    hwaddr offset;
     size_t size;
     int access; /* omap3_l4_region_type_t for OMAP3 */
 };
 struct omap_l4_s *omap_l4_init(MemoryRegion *address_space,
-                               target_phys_addr_t base, int ta_num,
+                               hwaddr base, int ta_num,
                                int region_count);
 struct omap_target_agent_s *omap2_l4ta_init(
     struct omap_l4_s *bus,
@@ -124,23 +124,23 @@ struct omap_target_agent_s *omap3_l4ta_init(
     const struct omap_l4_region_s *regions,
     const struct omap3_l4_agent_info_s *agents,
     int cs);
-target_phys_addr_t omap_l4_attach(struct omap_target_agent_s *ta,
+hwaddr omap_l4_attach(struct omap_target_agent_s *ta,
                                          int region, MemoryRegion *mr);
-target_phys_addr_t omap_l4_region_base(struct omap_target_agent_s *ta,
+hwaddr omap_l4_region_base(struct omap_target_agent_s *ta,
                                        int region);
-target_phys_addr_t omap_l4_region_size(struct omap_target_agent_s *ta,
+hwaddr omap_l4_region_size(struct omap_target_agent_s *ta,
                                        int region);
 
 /* OMAP2 SDRAM controller */
 struct omap_sdrc_s;
 struct omap_sdrc_s *omap_sdrc_init(MemoryRegion *sysmem,
-                                   target_phys_addr_t base);
+                                   hwaddr base);
 void omap_sdrc_reset(struct omap_sdrc_s *s);
 
 /* OMAP2 general purpose memory controller */
 struct omap_gpmc_s;
 struct omap_gpmc_s *omap_gpmc_init(struct omap_mpu_state_s *mpu,
-                                   target_phys_addr_t base,
+                                   hwaddr base,
                                    qemu_irq irq, qemu_irq drq);
 void omap_gpmc_reset(struct omap_gpmc_s *s);
 void omap_gpmc_attach(struct omap_gpmc_s *s, int cs, MemoryRegion *iomem);
@@ -563,11 +563,11 @@ enum omap_dma_model {
 };
 
 struct soc_dma_s;
-struct soc_dma_s *omap_dma_init(target_phys_addr_t base, qemu_irq *irqs,
+struct soc_dma_s *omap_dma_init(hwaddr base, qemu_irq *irqs,
                 MemoryRegion *sysmem,
                 qemu_irq lcd_irq, struct omap_mpu_state_s *mpu, omap_clk clk,
                 enum omap_dma_model model);
-struct soc_dma_s *omap_dma4_init(target_phys_addr_t base, qemu_irq *irqs,
+struct soc_dma_s *omap_dma4_init(hwaddr base, qemu_irq *irqs,
                 MemoryRegion *sysmem,
                 struct omap_mpu_state_s *mpu, int fifo,
                 int chans, omap_clk iclk, omap_clk fclk);
@@ -603,10 +603,10 @@ typedef enum {
 /* Only used in OMAP DMA 3.x gigacells */
 struct omap_dma_lcd_channel_s {
     enum omap_dma_port src;
-    target_phys_addr_t src_f1_top;
-    target_phys_addr_t src_f1_bottom;
-    target_phys_addr_t src_f2_top;
-    target_phys_addr_t src_f2_bottom;
+    hwaddr src_f1_top;
+    hwaddr src_f1_bottom;
+    hwaddr src_f2_top;
+    hwaddr src_f2_bottom;
 
     /* Used in OMAP DMA 3.2 gigacell */
     unsigned char brust_f1;
@@ -642,7 +642,7 @@ struct omap_dma_lcd_channel_s {
     int dual;
 
     int current_frame;
-    target_phys_addr_t phys_framebuffer[2];
+    hwaddr phys_framebuffer[2];
     qemu_irq irq;
     struct omap_mpu_state_s *mpu;
 } *omap_dma_get_lcdch(struct soc_dma_s *s);
@@ -927,7 +927,7 @@ void omap_tap_init(struct omap_target_agent_s *ta,
 struct omap_lcd_panel_s;
 void omap_lcdc_reset(struct omap_lcd_panel_s *s);
 struct omap_lcd_panel_s *omap_lcdc_init(MemoryRegion *sysmem,
-                                        target_phys_addr_t base,
+                                        hwaddr base,
                                         qemu_irq irq,
                                         struct omap_dma_lcd_channel_s *dma,
                                         omap_clk clk);
@@ -946,7 +946,7 @@ void omap_digital_panel_attach(DeviceState *dev);
 
 /* omap_mmc.c */
 struct omap_mmc_s;
-struct omap_mmc_s *omap_mmc_init(target_phys_addr_t base,
+struct omap_mmc_s *omap_mmc_init(hwaddr base,
                 MemoryRegion *sysmem,
                 BlockDriverState *bd,
                 qemu_irq irq, qemu_irq dma[], omap_clk clk);
@@ -1027,11 +1027,11 @@ struct omap_mpu_state_s {
 
     struct omap_dma_port_if_s {
         uint32_t (*read[3])(struct omap_mpu_state_s *s,
-                        target_phys_addr_t offset);
+                        hwaddr offset);
         void (*write[3])(struct omap_mpu_state_s *s,
-                        target_phys_addr_t offset, uint32_t value);
+                        hwaddr offset, uint32_t value);
         int (*addr_valid)(struct omap_mpu_state_s *s,
-                        target_phys_addr_t addr);
+                        hwaddr addr);
     } port[__omap_dma_port_last];
 
     unsigned long sdram_size;
@@ -1168,16 +1168,16 @@ struct omap_mpu_state_s *omap3_mpu_init(MemoryRegion *sysmem,
 void omap3_boot_rom_init(struct omap_mpu_state_s *s);
 void omap3_boot_rom_emu(struct omap_mpu_state_s *s);
 
-#define OMAP_FMT_plx "%#08" TARGET_PRIxPHYS
+#define OMAP_FMT_plx "%#08" HWADDR_PRIx
 
-uint32_t omap_badwidth_read8(void *opaque, target_phys_addr_t addr);
-void omap_badwidth_write8(void *opaque, target_phys_addr_t addr,
+uint32_t omap_badwidth_read8(void *opaque, hwaddr addr);
+void omap_badwidth_write8(void *opaque, hwaddr addr,
                 uint32_t value);
-uint32_t omap_badwidth_read16(void *opaque, target_phys_addr_t addr);
-void omap_badwidth_write16(void *opaque, target_phys_addr_t addr,
+uint32_t omap_badwidth_read16(void *opaque, hwaddr addr);
+void omap_badwidth_write16(void *opaque, hwaddr addr,
                 uint32_t value);
-uint32_t omap_badwidth_read32(void *opaque, target_phys_addr_t addr);
-void omap_badwidth_write32(void *opaque, target_phys_addr_t addr,
+uint32_t omap_badwidth_read32(void *opaque, hwaddr addr);
+void omap_badwidth_write32(void *opaque, hwaddr addr,
                 uint32_t value);
 
 void omap_mpu_wakeup(void *opaque, int irq, int req);

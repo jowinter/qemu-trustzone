@@ -107,6 +107,7 @@ typedef struct DisasContext {
     int cpuid_ext_features;
     int cpuid_ext2_features;
     int cpuid_ext3_features;
+    int cpuid_7_0_ebx_features;
 } DisasContext;
 
 static void gen_eob(DisasContext *s);
@@ -4202,8 +4203,9 @@ static target_ulong disas_insn(DisasContext *s, target_ulong pc_start)
     target_ulong next_eip, tval;
     int rex_w, rex_r;
 
-    if (unlikely(qemu_loglevel_mask(CPU_LOG_TB_OP)))
+    if (unlikely(qemu_loglevel_mask(CPU_LOG_TB_OP | CPU_LOG_TB_OP_OPT))) {
         tcg_gen_debug_insn_start(pc_start);
+    }
     s->pc = pc_start;
     prefixes = 0;
     aflag = s->code32;
@@ -6555,7 +6557,7 @@ static target_ulong disas_insn(DisasContext *s, target_ulong pc_start)
             }
             gen_pop_update(s);
             s->cc_op = CC_OP_EFLAGS;
-            /* abort translation because TF flag may change */
+            /* abort translation because TF/AC flag may change */
             gen_jmp_im(s->pc - s->cs_base);
             gen_eob(s);
         }
@@ -7205,6 +7207,24 @@ static target_ulong disas_insn(DisasContext *s, target_ulong pc_start)
                     gen_helper_mwait(cpu_env, tcg_const_i32(s->pc - pc_start));
                     gen_eob(s);
                     break;
+                case 2: /* clac */
+                    if (!(s->cpuid_7_0_ebx_features & CPUID_7_0_EBX_SMAP) ||
+                        s->cpl != 0) {
+                        goto illegal_op;
+                    }
+                    gen_helper_clac(cpu_env);
+                    gen_jmp_im(s->pc - s->cs_base);
+                    gen_eob(s);
+                    break;
+                case 3: /* stac */
+                    if (!(s->cpuid_7_0_ebx_features & CPUID_7_0_EBX_SMAP) ||
+                        s->cpl != 0) {
+                        goto illegal_op;
+                    }
+                    gen_helper_stac(cpu_env);
+                    gen_jmp_im(s->pc - s->cs_base);
+                    gen_eob(s);
+                    break;
                 default:
                     goto illegal_op;
                 }
@@ -7748,7 +7768,7 @@ static target_ulong disas_insn(DisasContext *s, target_ulong pc_start)
             goto illegal_op;
 
         modrm = cpu_ldub_code(cpu_single_env, s->pc++);
-        reg = ((modrm >> 3) & 7);
+        reg = ((modrm >> 3) & 7) | rex_r;
 
         if (s->prefix & PREFIX_DATA)
             ot = OT_WORD;
@@ -7900,15 +7920,13 @@ static inline void gen_intermediate_code_internal(CPUX86State *env,
     /* select memory access functions */
     dc->mem_index = 0;
     if (flags & HF_SOFTMMU_MASK) {
-        if (dc->cpl == 3)
-            dc->mem_index = 2 * 4;
-        else
-            dc->mem_index = 1 * 4;
+        dc->mem_index = (cpu_mmu_index(env) + 1) << 2;
     }
     dc->cpuid_features = env->cpuid_features;
     dc->cpuid_ext_features = env->cpuid_ext_features;
     dc->cpuid_ext2_features = env->cpuid_ext2_features;
     dc->cpuid_ext3_features = env->cpuid_ext3_features;
+    dc->cpuid_7_0_ebx_features = env->cpuid_7_0_ebx_features;
 #ifdef TARGET_X86_64
     dc->lma = (flags >> HF_LMA_SHIFT) & 1;
     dc->code64 = (flags >> HF_CS64_SHIFT) & 1;

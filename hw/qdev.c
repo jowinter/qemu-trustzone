@@ -34,7 +34,6 @@ int qdev_hotplug = 0;
 static bool qdev_hot_added = false;
 static bool qdev_hot_removed = false;
 
-/* Register a new device type.  */
 const VMStateDescription *qdev_get_vmsd(DeviceState *dev)
 {
     DeviceClass *dc = DEVICE_GET_CLASS(dev);
@@ -50,11 +49,6 @@ const char *qdev_fw_name(DeviceState *dev)
     }
 
     return object_get_typename(OBJECT(dev));
-}
-
-bool qdev_exists(const char *name)
-{
-    return !!object_class_by_name(name);
 }
 
 static void qdev_property_add_legacy(DeviceState *dev, Property *prop,
@@ -291,9 +285,9 @@ BusState *qdev_get_parent_bus(DeviceState *dev)
 
 void qdev_init_gpio_in(DeviceState *dev, qemu_irq_handler handler, int n)
 {
-    assert(dev->num_gpio_in == 0);
-    dev->num_gpio_in = n;
-    dev->gpio_in = qemu_allocate_irqs(handler, dev, n);
+    dev->gpio_in = qemu_extend_irqs(dev->gpio_in, dev->num_gpio_in, handler,
+                                        dev, n);
+    dev->num_gpio_in += n;
 }
 
 void qdev_init_gpio_out(DeviceState *dev, qemu_irq *pins, int n)
@@ -520,7 +514,7 @@ char* qdev_get_fw_dev_path(DeviceState *dev)
 
     path[l-1] = '\0';
 
-    return strdup(path);
+    return g_strdup(path);
 }
 
 char *qdev_get_dev_path(DeviceState *dev)

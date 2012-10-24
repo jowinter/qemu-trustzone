@@ -6,10 +6,6 @@ HXCOMM construct option structures, enums and help message for specified
 HXCOMM architectures.
 HXCOMM HXCOMM can be used for comments, discarded from both texi and C
 
-HXCOMM TODO : when we are able to change -help output without breaking
-HXCOMM libvirt we should update the help options which refer to -cpu ?,
-HXCOMM -driver ?, etc to use the preferred -cpu help etc instead.
-
 DEFHEADING(Standard options:)
 STEXI
 @table @option
@@ -33,17 +29,18 @@ ETEXI
 
 DEF("machine", HAS_ARG, QEMU_OPTION_machine, \
     "-machine [type=]name[,prop[=value][,...]]\n"
-    "                selects emulated machine (-machine ? for list)\n"
+    "                selects emulated machine ('-machine help' for list)\n"
     "                property accel=accel1[:accel2[:...]] selects accelerator\n"
     "                supported accelerators are kvm, xen, tcg (default: tcg)\n"
     "                kernel_irqchip=on|off controls accelerated irqchip support\n"
     "                kvm_shadow_mem=size of KVM shadow MMU\n"
-    "                dump-guest-core=on|off include guest memory in a core dump (default=on)\n",
+    "                dump-guest-core=on|off include guest memory in a core dump (default=on)\n"
+    "                mem-merge=on|off controls memory merge support (default: on)\n",
     QEMU_ARCH_ALL)
 STEXI
 @item -machine [type=]@var{name}[,prop=@var{value}[,...]]
 @findex -machine
-Select the emulated machine by @var{name}. Use @code{-machine ?} to list
+Select the emulated machine by @var{name}. Use @code{-machine help} to list
 available machines. Supported machine properties are:
 @table @option
 @item accel=@var{accels1}[:@var{accels2}[:...]]
@@ -57,6 +54,10 @@ Enables in-kernel irqchip support for the chosen accelerator when available.
 Defines the size of the KVM shadow MMU.
 @item dump-guest-core=on|off
 Include guest memory in a core dump. The default is on.
+@item mem-merge=on|off
+Enables or disables memory merge support. This feature, when supported by
+the host, de-duplicates identical memory pages among VMs instances
+(enabled by default).
 @end table
 ETEXI
 
@@ -64,11 +65,11 @@ HXCOMM Deprecated by -machine
 DEF("M", HAS_ARG, QEMU_OPTION_M, "", QEMU_ARCH_ALL)
 
 DEF("cpu", HAS_ARG, QEMU_OPTION_cpu,
-    "-cpu cpu        select CPU (-cpu ? for list)\n", QEMU_ARCH_ALL)
+    "-cpu cpu        select CPU ('-cpu help' for list)\n", QEMU_ARCH_ALL)
 STEXI
 @item -cpu @var{model}
 @findex -cpu
-Select CPU model (-cpu ? for list and additional feature selection)
+Select CPU model (@code{-cpu help} for list and additional feature selection)
 ETEXI
 
 DEF("smp", HAS_ARG, QEMU_OPTION_smp,
@@ -339,13 +340,14 @@ ETEXI
 
 DEF("boot", HAS_ARG, QEMU_OPTION_boot,
     "-boot [order=drives][,once=drives][,menu=on|off]\n"
-    "      [,splash=sp_name][,splash-time=sp_time]\n"
+    "      [,splash=sp_name][,splash-time=sp_time][,reboot-timeout=rb_time]\n"
     "                'drives': floppy (a), hard disk (c), CD-ROM (d), network (n)\n"
     "                'sp_name': the file's name that would be passed to bios as logo picture, if menu=on\n"
-    "                'sp_time': the period that splash picture last if menu=on, unit is ms\n",
+    "                'sp_time': the period that splash picture last if menu=on, unit is ms\n"
+    "                'rb_timeout': the timeout before guest reboot when boot failed, unit is ms\n",
     QEMU_ARCH_ALL)
 STEXI
-@item -boot [order=@var{drives}][,once=@var{drives}][,menu=on|off][,splash=@var{sp_name}][,splash-time=@var{sp_time}]
+@item -boot [order=@var{drives}][,once=@var{drives}][,menu=on|off][,splash=@var{sp_name}][,splash-time=@var{sp_time}][,reboot-timeout=@var{rb_timeout}]
 @findex -boot
 Specify boot order @var{drives} as a string of drive letters. Valid
 drive letters depend on the target achitecture. The x86 PC uses: a, b
@@ -363,6 +365,11 @@ supports them. Currently Seabios for X86 system support it.
 limitation: The splash file could be a jpeg file or a BMP file in 24 BPP
 format(true color). The resolution should be supported by the SVGA mode, so
 the recommended is 320x240, 640x480, 800x640.
+
+A timeout could be passed to bios, guest will pause for @var{rb_timeout} ms
+when boot failed, then reboot. If @var{rb_timeout} is '-1', guest will not
+reboot, qemu passes '-1' to bios by default. Currently Seabios for X86
+system support it.
 
 @example
 # try to boot from network first, then from hard disk
@@ -452,12 +459,12 @@ ETEXI
 DEF("soundhw", HAS_ARG, QEMU_OPTION_soundhw,
     "-soundhw c1,... enable audio support\n"
     "                and only specified sound cards (comma separated list)\n"
-    "                use -soundhw ? to get the list of supported cards\n"
-    "                use -soundhw all to enable all of them\n", QEMU_ARCH_ALL)
+    "                use '-soundhw help' to get the list of supported cards\n"
+    "                use '-soundhw all' to enable all of them\n", QEMU_ARCH_ALL)
 STEXI
 @item -soundhw @var{card1}[,@var{card2},...] or -soundhw all
 @findex -soundhw
-Enable audio and selected sound hardware. Use ? to print all
+Enable audio and selected sound hardware. Use 'help' to print all
 available sound hardware.
 
 @example
@@ -466,7 +473,7 @@ qemu-system-i386 -soundhw es1370 disk.img
 qemu-system-i386 -soundhw ac97 disk.img
 qemu-system-i386 -soundhw hda disk.img
 qemu-system-i386 -soundhw all disk.img
-qemu-system-i386 -soundhw ?
+qemu-system-i386 -soundhw help
 @end example
 
 Note that Linux's i810_audio OSS kernel (for AC97) module might
@@ -555,16 +562,16 @@ DEF("device", HAS_ARG, QEMU_OPTION_device,
     "-device driver[,prop[=value][,...]]\n"
     "                add device (based on driver)\n"
     "                prop=value,... sets driver properties\n"
-    "                use -device ? to print all possible drivers\n"
-    "                use -device driver,? to print all possible properties\n",
+    "                use '-device help' to print all possible drivers\n"
+    "                use '-device driver,help' to print all possible properties\n",
     QEMU_ARCH_ALL)
 STEXI
 @item -device @var{driver}[,@var{prop}[=@var{value}][,...]]
 @findex -device
 Add device @var{driver}.  @var{prop}=@var{value} sets driver
 properties.  Valid properties depend on the driver.  To get help on
-possible drivers and properties, use @code{-device ?} and
-@code{-device @var{driver},?}.
+possible drivers and properties, use @code{-device help} and
+@code{-device @var{driver},help}.
 ETEXI
 
 DEFHEADING()
@@ -838,7 +845,23 @@ Enable SDL.
 ETEXI
 
 DEF("spice", HAS_ARG, QEMU_OPTION_spice,
-    "-spice <args>   enable spice\n", QEMU_ARCH_ALL)
+    "-spice [port=port][,tls-port=secured-port][,x509-dir=<dir>]\n"
+    "       [,x509-key-file=<file>][,x509-key-password=<file>]\n"
+    "       [,x509-cert-file=<file>][,x509-cacert-file=<file>]\n"
+    "       [,x509-dh-key-file=<file>][,addr=addr][,ipv4|ipv6]\n"
+    "       [,tls-ciphers=<list>]\n"
+    "       [,tls-channel=[main|display|cursor|inputs|record|playback]]\n"
+    "       [,plaintext-channel=[main|display|cursor|inputs|record|playback]]\n"
+    "       [,sasl][,password=<secret>][,disable-ticketing]\n"
+    "       [,image-compression=[auto_glz|auto_lz|quic|glz|lz|off]]\n"
+    "       [,jpeg-wan-compression=[auto|never|always]]\n"
+    "       [,zlib-glz-wan-compression=[auto|never|always]]\n"
+    "       [,streaming-video=[off|all|filter]][,disable-copy-paste]\n"
+    "       [,agent-mouse=[on|off]][,playback-compression=[on|off]]\n"
+    "       [,seamless-migration=[on|off]]\n"
+    "   enable spice\n"
+    "   at least one of {port, tls-port} is mandatory\n",
+    QEMU_ARCH_ALL)
 STEXI
 @item -spice @var{option}[,@var{option}[,...]]
 @findex -spice
@@ -919,6 +942,9 @@ Enable/disable passing mouse events via vdagent.  Default is on.
 
 @item playback-compression=[on|off]
 Enable/disable audio stream compression (using celt 0.5.1).  Default is on.
+
+@item seamless-migration=[on|off]
+Enable/disable spice seamless migration. Default is off.
 
 @end table
 ETEXI
@@ -1335,9 +1361,10 @@ Valid values for @var{type} are
 @code{virtio}, @code{i82551}, @code{i82557b}, @code{i82559er},
 @code{ne2k_pci}, @code{ne2k_isa}, @code{pcnet}, @code{rtl8139},
 @code{e1000}, @code{smc91c111}, @code{lance} and @code{mcf_fec}.
-Not all devices are supported on all targets.  Use -net nic,model=?
+Not all devices are supported on all targets.  Use @code{-net nic,model=help}
 for a list of available devices for your target.
 
+@item -netdev user,id=@var{id}[,@var{option}][,@var{option}][,...]
 @item -net user[,@var{option}][,@var{option}][,...]
 Use the user mode network stack which requires no administrator
 privilege to run. Valid options are:
@@ -1346,6 +1373,7 @@ privilege to run. Valid options are:
 @item vlan=@var{n}
 Connect user mode stack to VLAN @var{n} (@var{n} = 0 is the default).
 
+@item id=@var{id}
 @item name=@var{name}
 Assign symbolic name for use in monitor commands.
 
@@ -1471,6 +1499,7 @@ processed and applied to -net user. Mixing them with the new configuration
 syntax gives undefined results. Their use for new applications is discouraged
 as they will be removed from future versions.
 
+@item -netdev tap,id=@var{id}[,fd=@var{h}][,ifname=@var{name}][,script=@var{file}][,downscript=@var{dfile}][,helper=@var{helper}]
 @item -net tap[,vlan=@var{n}][,name=@var{name}][,fd=@var{h}][,ifname=@var{name}][,script=@var{file}][,downscript=@var{dfile}][,helper=@var{helper}]
 Connect the host TAP network interface @var{name} to VLAN @var{n}.
 
@@ -1510,6 +1539,7 @@ qemu-system-i386 linux.img \
                  -net nic -net tap,"helper=/usr/local/libexec/qemu-bridge-helper"
 @end example
 
+@item -netdev bridge,id=@var{id}[,br=@var{bridge}][,helper=@var{helper}]
 @item -net bridge[,vlan=@var{n}][,name=@var{name}][,br=@var{bridge}][,helper=@var{helper}]
 Connect a host TAP network interface to a host bridge device.
 
@@ -1532,6 +1562,7 @@ qemu-system-i386 linux.img -net bridge -net nic,model=virtio
 qemu-system-i386 linux.img -net bridge,br=qemubr0 -net nic,model=virtio
 @end example
 
+@item -netdev socket,id=@var{id}[,fd=@var{h}][,listen=[@var{host}]:@var{port}][,connect=@var{host}:@var{port}]
 @item -net socket[,vlan=@var{n}][,name=@var{name}][,fd=@var{h}] [,listen=[@var{host}]:@var{port}][,connect=@var{host}:@var{port}]
 
 Connect the VLAN @var{n} to a remote VLAN in another QEMU virtual
@@ -1554,6 +1585,7 @@ qemu-system-i386 linux.img \
                  -net socket,connect=127.0.0.1:1234
 @end example
 
+@item -netdev socket,id=@var{id}[,fd=@var{h}][,mcast=@var{maddr}:@var{port}[,localaddr=@var{addr}]]
 @item -net socket[,vlan=@var{n}][,name=@var{name}][,fd=@var{h}][,mcast=@var{maddr}:@var{port}[,localaddr=@var{addr}]]
 
 Create a VLAN @var{n} shared with another QEMU virtual
@@ -1605,6 +1637,7 @@ qemu-system-i386 linux.img \
                  -net socket,mcast=239.192.168.1:1102,localaddr=1.2.3.4
 @end example
 
+@item -netdev vde,id=@var{id}[,sock=@var{socketpath}][,port=@var{n}][,group=@var{groupname}][,mode=@var{octalmode}]
 @item -net vde[,vlan=@var{n}][,name=@var{name}][,sock=@var{socketpath}] [,port=@var{n}][,group=@var{groupname}][,mode=@var{octalmode}]
 Connect VLAN @var{n} to PORT @var{n} of a vde switch running on host and
 listening for incoming connections on @var{socketpath}. Use GROUP @var{groupname}
@@ -2361,7 +2394,7 @@ Shorthand for -gdb tcp::1234, i.e. open a gdbserver on TCP port 1234
 ETEXI
 
 DEF("d", HAS_ARG, QEMU_OPTION_d, \
-    "-d item1,...    output log to /tmp/qemu.log (use -d ? for a list of log items)\n",
+    "-d item1,...    output log to /tmp/qemu.log (use '-d help' for a list of log items)\n",
     QEMU_ARCH_ALL)
 STEXI
 @item -d
@@ -2496,13 +2529,13 @@ ETEXI
 
 DEF("clock", HAS_ARG, QEMU_OPTION_clock, \
     "-clock          force the use of the given methods for timer alarm.\n" \
-    "                To see what timers are available use -clock ?\n",
+    "                To see what timers are available use '-clock help'\n",
     QEMU_ARCH_ALL)
 STEXI
 @item -clock @var{method}
 @findex -clock
 Force the use of the given methods for timer alarm. To see what timers
-are available use -clock ?.
+are available use @code{-clock help}.
 ETEXI
 
 HXCOMM Options deprecated by -rtc
@@ -2571,7 +2604,7 @@ watchdog with a single timer, or @code{i6300esb} (Intel 6300ESB I/O
 controller hub) which is a much more featureful PCI-based dual-timer
 watchdog.  Choose a model for which your guest has drivers.
 
-Use @code{-watchdog ?} to list available hardware models.  Only one
+Use @code{-watchdog help} to list available hardware models.  Only one
 watchdog can be enabled for a guest.
 ETEXI
 

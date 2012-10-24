@@ -151,13 +151,14 @@ unsigned s390_del_running_cpu(CPUS390XState *env)
 }
 
 /* PC hardware initialisation */
-static void s390_init(ram_addr_t my_ram_size,
-                      const char *boot_device,
-                      const char *kernel_filename,
-                      const char *kernel_cmdline,
-                      const char *initrd_filename,
-                      const char *cpu_model)
+static void s390_init(QEMUMachineInitArgs *args)
 {
+    ram_addr_t my_ram_size = args->ram_size;
+    ram_addr_t ram_size = args->ram_size;
+    const char *cpu_model = args->cpu_model;
+    const char *kernel_filename = args->kernel_filename;
+    const char *kernel_cmdline = args->kernel_cmdline;
+    const char *initrd_filename = args->initrd_filename;
     CPUS390XState *env = NULL;
     MemoryRegion *sysmem = get_system_memory();
     MemoryRegion *ram = g_new(MemoryRegion, 1);
@@ -167,8 +168,8 @@ static void s390_init(ram_addr_t my_ram_size,
     int shift = 0;
     uint8_t *storage_keys;
     void *virtio_region;
-    target_phys_addr_t virtio_region_len;
-    target_phys_addr_t virtio_region_start;
+    hwaddr virtio_region_len;
+    hwaddr virtio_region_start;
     int i;
 
     /* s390x ram size detection needs a 16bit multiplier + an increment. So
