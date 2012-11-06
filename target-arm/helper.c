@@ -1070,7 +1070,7 @@ static const ARMCPRegInfo trustzone_cp_reginfo[] = {
       .access = PL3_RW, .fieldoffset = offsetof(CPUARMState, cp15.c1_sedbg),
       .resetvalue = 0 },
     { .name = "NSACR", .cp = 15, .crn = 1, .crm = 1, .opc1 = 0, .opc2 = 2,
-      .access = PL3_RW, .fieldoffset = offsetof(CPUARMState, cp15.c1_nseac),
+      .access = PL3_RW | PL1_R, .fieldoffset = offsetof(CPUARMState, cp15.c1_nseac),
       .resetvalue = 0 },
     { .name = "VBAR", .cp = 15, .crn = 12, .crm = 0, .opc1 = 0, .opc2 = 0,
       .access = PL1_RW, .fieldoffset = offsetof(CPUARMState, cp15.c12_vbar),
