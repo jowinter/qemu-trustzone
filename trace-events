@@ -77,10 +77,18 @@ stream_start(void *bs, void *base, void *s, void *co, void *opaque) "bs %p base 
 commit_one_iteration(void *s, int64_t sector_num, int nb_sectors, int is_allocated) "s %p sector_num %"PRId64" nb_sectors %d is_allocated %d"
 commit_start(void *bs, void *base, void *top, void *s, void *co, void *opaque) "bs %p base %p top %p s %p co %p opaque %p"
 
+# block/mirror.c
+mirror_start(void *bs, void *s, void *co, void *opaque) "bs %p s %p co %p opaque %p"
+mirror_before_flush(void *s) "s %p"
+mirror_before_drain(void *s, int64_t cnt) "s %p dirty count %"PRId64
+mirror_before_sleep(void *s, int64_t cnt, int synced) "s %p dirty count %"PRId64" synced %d"
+mirror_one_iteration(void *s, int64_t sector_num, int nb_sectors) "s %p sector_num %"PRId64" nb_sectors %d"
+
 # blockdev.c
 qmp_block_job_cancel(void *job) "job %p"
 qmp_block_job_pause(void *job) "job %p"
 qmp_block_job_resume(void *job) "job %p"
+qmp_block_job_complete(void *job) "job %p"
 block_job_cb(void *bs, void *job, int ret) "bs %p job %p ret %d"
 qmp_block_stream(void *bs, void *job) "bs %p job %p"
 
@@ -89,6 +97,11 @@ virtio_blk_req_complete(void *req, int status) "req %p status %d"
 virtio_blk_rw_complete(void *req, int ret) "req %p ret %d"
 virtio_blk_handle_write(void *req, uint64_t sector, size_t nsectors) "req %p sector %"PRIu64" nsectors %zu"
 virtio_blk_handle_read(void *req, uint64_t sector, size_t nsectors) "req %p sector %"PRIu64" nsectors %zu"
+
+# thread-pool.c
+thread_pool_submit(void *req, void *opaque) "req %p opaque %p"
+thread_pool_complete(void *req, void *opaque, int ret) "req %p opaque %p ret %d"
+thread_pool_cancel(void *req, void *opaque) "req %p opaque %p"
 
 # posix-aio-compat.c
 paio_submit(void *acb, void *opaque, int64_t sector_num, int nb_sectors, int type) "acb %p opaque %p sector_num %"PRId64" nb_sectors %d type %d"
@@ -273,6 +286,7 @@ usb_ehci_irq(uint32_t level, uint32_t frindex, uint32_t sts, uint32_t mask) "lev
 usb_ehci_guest_bug(const char *reason) "%s"
 usb_ehci_doorbell_ring(void) ""
 usb_ehci_doorbell_ack(void) ""
+usb_ehci_dma_error(void) ""
 
 # hw/usb/hcd-uhci.c
 usb_uhci_reset(void) "=== RESET ==="
@@ -287,7 +301,7 @@ usb_uhci_mmio_writew(uint32_t addr, uint32_t val) "addr 0x%04x, val 0x%04x"
 usb_uhci_mmio_readl(uint32_t addr, uint32_t val) "addr 0x%04x, ret 0x%08x"
 usb_uhci_mmio_writel(uint32_t addr, uint32_t val) "addr 0x%04x, val 0x%08x"
 usb_uhci_queue_add(uint32_t token) "token 0x%x"
-usb_uhci_queue_del(uint32_t token) "token 0x%x"
+usb_uhci_queue_del(uint32_t token, const char *reason) "token 0x%x: %s"
 usb_uhci_packet_add(uint32_t token, uint32_t addr) "token 0x%x, td 0x%x"
 usb_uhci_packet_link_async(uint32_t token, uint32_t addr) "token 0x%x, td 0x%x"
 usb_uhci_packet_unlink_async(uint32_t token, uint32_t addr) "token 0x%x, td 0x%x"
@@ -325,6 +339,8 @@ usb_xhci_irq_msix_use(uint32_t nr) "nr %d"
 usb_xhci_irq_msix_unuse(uint32_t nr) "nr %d"
 usb_xhci_queue_event(uint32_t vector, uint32_t idx, const char *trb, const char *evt, uint64_t param, uint32_t status, uint32_t control) "v %d, idx %d, %s, %s, p %016" PRIx64 ", s %08x, c 0x%08x"
 usb_xhci_fetch_trb(uint64_t addr, const char *name, uint64_t param, uint32_t status, uint32_t control) "addr %016" PRIx64 ", %s, p %016" PRIx64 ", s %08x, c 0x%08x"
+usb_xhci_port_reset(uint32_t port) "port %d"
+usb_xhci_port_link(uint32_t port, uint32_t pls) "port %d, pls %d"
 usb_xhci_slot_enable(uint32_t slotid) "slotid %d"
 usb_xhci_slot_disable(uint32_t slotid) "slotid %d"
 usb_xhci_slot_address(uint32_t slotid) "slotid %d"
@@ -393,7 +409,7 @@ usb_host_claim_interfaces(int bus, int addr, int config, int nif) "dev %d:%d, co
 usb_host_release_interfaces(int bus, int addr) "dev %d:%d"
 usb_host_req_control(int bus, int addr, void *p, int req, int value, int index) "dev %d:%d, packet %p, req 0x%x, value %d, index %d"
 usb_host_req_data(int bus, int addr, void *p, int in, int ep, int size) "dev %d:%d, packet %p, in %d, ep %d, size %d"
-usb_host_req_complete(int bus, int addr, void *p, int status) "dev %d:%d, packet %p, status %d"
+usb_host_req_complete(int bus, int addr, void *p, int status, int length) "dev %d:%d, packet %p, status %d, length %d"
 usb_host_req_emulated(int bus, int addr, void *p, int status) "dev %d:%d, packet %p, status %d"
 usb_host_req_canceled(int bus, int addr, void *p) "dev %d:%d, packet %p"
 usb_host_urb_submit(int bus, int addr, void *aurb, int length, int more) "dev %d:%d, aurb %p, length %d, more %d"
@@ -986,6 +1002,7 @@ qxl_spice_update_area(int qid, uint32_t surface_id, uint32_t left, uint32_t righ
 qxl_spice_update_area_rest(int qid, uint32_t num_dirty_rects, uint32_t clear_dirty_region) "%d #d=%d clear=%d"
 qxl_surfaces_dirty(int qid, int surface, int offset, int size) "%d surface=%d offset=%d size=%d"
 qxl_send_events(int qid, uint32_t events) "%d %d"
+qxl_send_events_vm_stopped(int qid, uint32_t events) "%d %d"
 qxl_set_guest_bug(int qid) "%d"
 qxl_interrupt_client_monitors_config(int qid, int num_heads, void *heads) "%d %d %p"
 qxl_client_monitors_config_unsupported_by_guest(int qid, uint32_t int_mask, void *client_monitors_config) "%d %X %p"

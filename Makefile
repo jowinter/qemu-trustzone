@@ -8,6 +8,17 @@ ifneq ($(wildcard config-host.mak),)
 # Put the all: rule here so that config-host.mak can contain dependencies.
 all:
 include config-host.mak
+
+# Check that we're not trying to do an out-of-tree build from
+# a tree that's been used for an in-tree build.
+ifneq ($(realpath $(SRC_PATH)),$(realpath .))
+ifneq ($(wildcard $(SRC_PATH)/config-host.mak),)
+$(error This is an out of tree build but your source tree ($(SRC_PATH)) \
+seems to have been used for an in-tree build. You can fix this by running \
+"make distclean && rm -rf *-linux-user *-softmmu" in your source tree)
+endif
+endif
+
 include $(SRC_PATH)/rules.mak
 config-host.mak: $(SRC_PATH)/configure
 	@echo $@ is out-of-date, running configure
@@ -107,6 +118,17 @@ endif
 
 subdir-libcacard: $(oslib-obj-y) $(trace-obj-y) qemu-timer-common.o
 
+subdir-pixman: pixman/Makefile
+	$(call quiet-command,$(MAKE) $(SUBDIR_MAKEFLAGS) -C pixman V="$(V)" all,)
+
+pixman/Makefile: $(SRC_PATH)/pixman/configure
+	(cd pixman; CFLAGS="$(CFLAGS) -fPIC" $(SRC_PATH)/pixman/configure $(AUTOCONF_HOST) --disable-gtk --disable-shared --enable-static)
+
+$(SRC_PATH)/pixman/configure:
+	(cd $(SRC_PATH)/pixman; autoreconf -v --install)
+
+$(SUBDIR_RULES): libqemustub.a
+
 $(filter %-softmmu,$(SUBDIR_RULES)): $(universal-obj-y) $(trace-obj-y) $(common-obj-y) $(extra-obj-y) subdir-libdis
 
 $(filter %-user,$(SUBDIR_RULES)): $(universal-obj-y) $(trace-obj-y) subdir-libdis-user subdir-libuser
@@ -137,6 +159,12 @@ version.o: $(SRC_PATH)/version.rc config-host.h
 	$(call quiet-command,$(WINDRES) -I. -o $@ $<,"  RC    $(TARGET_DIR)$@")
 
 version-obj-$(CONFIG_WIN32) += version.o
+
+######################################################################
+# Build library with stubs
+
+libqemustub.a: $(stub-obj-y)
+
 ######################################################################
 # Support building shared library libcacard
 
@@ -160,18 +188,16 @@ endif
 qemu-img.o: qemu-img-cmds.h
 
 tools-obj-y = $(oslib-obj-y) $(trace-obj-y) qemu-tool.o qemu-timer.o \
-	qemu-timer-common.o main-loop.o notify.o \
-	iohandler.o cutils.o iov.o async.o
+	main-loop.o iohandler.o error.o
 tools-obj-$(CONFIG_POSIX) += compatfd.o
 
-qemu-img$(EXESUF): qemu-img.o $(tools-obj-y) $(block-obj-y) $(qapi-obj-y) \
-                              qapi-visit.o qapi-types.o
-qemu-nbd$(EXESUF): qemu-nbd.o $(tools-obj-y) $(block-obj-y)
-qemu-io$(EXESUF): qemu-io.o cmd.o $(tools-obj-y) $(block-obj-y)
+qemu-img$(EXESUF): qemu-img.o $(tools-obj-y) $(block-obj-y) libqemustub.a
+qemu-nbd$(EXESUF): qemu-nbd.o $(tools-obj-y) $(block-obj-y) libqemustub.a
+qemu-io$(EXESUF): qemu-io.o cmd.o $(tools-obj-y) $(block-obj-y) libqemustub.a
 
 qemu-bridge-helper$(EXESUF): qemu-bridge-helper.o
 
-vscclient$(EXESUF): $(libcacard-y) $(oslib-obj-y) $(trace-obj-y) $(tools-obj-y) qemu-timer-common.o libcacard/vscclient.o
+vscclient$(EXESUF): $(libcacard-y) $(oslib-obj-y) $(trace-obj-y) libcacard/vscclient.o libqemustub.a
 	$(call quiet-command,$(CC) $(LDFLAGS) -o $@ $^ $(libcacard_libs) $(LIBS),"  LINK  $@")
 
 fsdev/virtfs-proxy-helper$(EXESUF): fsdev/virtfs-proxy-helper.o fsdev/virtio-9p-marshal.o oslib-posix.o $(trace-obj-y)
@@ -214,7 +240,7 @@ $(SRC_PATH)/qapi-schema.json $(SRC_PATH)/scripts/qapi-commands.py $(qapi-py)
 QGALIB_GEN=$(addprefix qga/qapi-generated/, qga-qapi-types.h qga-qapi-visit.h qga-qmp-commands.h)
 $(qga-obj-y) qemu-ga.o: $(QGALIB_GEN)
 
-qemu-ga$(EXESUF): qemu-ga.o $(qga-obj-y) $(tools-obj-y) $(qapi-obj-y) $(qobject-obj-y) $(version-obj-y)
+qemu-ga$(EXESUF): qemu-ga.o $(qga-obj-y) $(oslib-obj-y) $(trace-obj-y) $(qapi-obj-y) $(qobject-obj-y) $(version-obj-y) libqemustub.a
 
 QEMULIBS=libuser libdis libdis-user
 
@@ -260,6 +286,7 @@ distclean: clean
 	for d in $(TARGET_DIRS) $(QEMULIBS); do \
 	rm -rf $$d || exit 1 ; \
         done
+	test -f pixman/config.log && make -C pixman distclean
 
 KEYMAPS=da     en-gb  et  fr     fr-ch  is  lt  modifiers  no  pt-br  sv \
 ar      de     en-us  fi  fr-be  hr     it  lv  nl         pl  ru     th \

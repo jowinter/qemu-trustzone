@@ -188,6 +188,24 @@ typedef tcg_target_ulong TCGArg;
    are aliases for target_ulong and host pointer sized values respectively.
  */
 
+#if defined(CONFIG_QEMU_LDST_OPTIMIZATION) && defined(CONFIG_SOFTMMU)
+/* Macros/structures for qemu_ld/st IR code optimization:
+   TCG_MAX_HELPER_LABELS is defined as same as OPC_BUF_SIZE in exec-all.h. */
+#define TCG_MAX_QEMU_LDST       640
+
+typedef struct TCGLabelQemuLdst {
+    int is_ld:1;            /* qemu_ld: 1, qemu_st: 0 */
+    int opc:4;
+    int addrlo_reg;         /* reg index for low word of guest virtual addr */
+    int addrhi_reg;         /* reg index for high word of guest virtual addr */
+    int datalo_reg;         /* reg index for low word to be loaded or stored */
+    int datahi_reg;         /* reg index for high word to be loaded or stored */
+    int mem_index;          /* soft MMU memory index */
+    uint8_t *raddr;         /* gen code addr of the next IR of qemu_ld/st IR */
+    uint8_t *label_ptr[2];  /* label pointers to be updated */
+} TCGLabelQemuLdst;
+#endif
+
 #ifdef CONFIG_DEBUG_TCG
 #define DEBUG_TCGV 1
 #endif
@@ -253,14 +271,20 @@ typedef int TCGv_i64;
 #define TCGV_UNUSED_I64(x) x = MAKE_TCGV_I64(-1)
 
 /* call flags */
-/* A pure function only reads its arguments and TCG global variables
-   and cannot raise exceptions. Hence a call to a pure function can be
-   safely suppressed if the return value is not used. */
-#define TCG_CALL_PURE           0x0010 
-/* A const function only reads its arguments and does not use TCG
-   global variables. Hence a call to such a function does not
-   save TCG global variables back to their canonical location. */
-#define TCG_CALL_CONST          0x0020
+/* Helper does not read globals (either directly or through an exception). It
+   implies TCG_CALL_NO_WRITE_GLOBALS. */
+#define TCG_CALL_NO_READ_GLOBALS    0x0010
+/* Helper does not write globals */
+#define TCG_CALL_NO_WRITE_GLOBALS   0x0020
+/* Helper can be safely suppressed if the return value is not used. */
+#define TCG_CALL_NO_SIDE_EFFECTS    0x0040
+
+/* convenience version of most used call flags */
+#define TCG_CALL_NO_RWG         TCG_CALL_NO_READ_GLOBALS
+#define TCG_CALL_NO_WG          TCG_CALL_NO_WRITE_GLOBALS
+#define TCG_CALL_NO_SE          TCG_CALL_NO_SIDE_EFFECTS
+#define TCG_CALL_NO_RWG_SE      (TCG_CALL_NO_RWG | TCG_CALL_NO_SE)
+#define TCG_CALL_NO_WG_SE       (TCG_CALL_NO_WG | TCG_CALL_NO_SE)
 
 /* used to align parameters */
 #define TCG_CALL_DUMMY_TCGV     MAKE_TCGV_I32(-1)
@@ -381,6 +405,9 @@ struct TCGContext {
     /* liveness analysis */
     uint16_t *op_dead_args; /* for each operation, each bit tells if the
                                corresponding argument is dead */
+    uint8_t *op_sync_args;  /* for each operation, each bit tells if the
+                               corresponding output argument needs to be
+                               sync to memory. */
     
     /* tells in which temporary a given register is. It does not take
        into account fixed registers */
@@ -422,13 +449,22 @@ struct TCGContext {
     int temps_in_use;
     int goto_tb_issue_mask;
 #endif
+
+    uint16_t gen_opc_buf[OPC_BUF_SIZE];
+    TCGArg gen_opparam_buf[OPPARAM_BUF_SIZE];
+
+    uint16_t *gen_opc_ptr;
+    TCGArg *gen_opparam_ptr;
+
+#if defined(CONFIG_QEMU_LDST_OPTIMIZATION) && defined(CONFIG_SOFTMMU)
+    /* labels info for qemu_ld/st IRs
+       The labels help to generate TLB miss case codes at the end of TB */
+    TCGLabelQemuLdst *qemu_ldst_labels;
+    int nb_qemu_ldst_labels;
+#endif
 };
 
 extern TCGContext tcg_ctx;
-extern uint16_t *gen_opc_ptr;
-extern TCGArg *gen_opparam_ptr;
-extern uint16_t gen_opc_buf[];
-extern TCGArg gen_opparam_buf[];
 
 /* pool based memory allocation */
 
@@ -527,8 +563,8 @@ enum {
     TCG_OPF_BB_END       = 0x01,
     /* Instruction clobbers call registers and potentially update globals.  */
     TCG_OPF_CALL_CLOBBER = 0x02,
-    /* Instruction has side effects: it cannot be removed
-       if its outputs are not used.  */
+    /* Instruction has side effects: it cannot be removed if its outputs
+       are not used, and might trigger exceptions.  */
     TCG_OPF_SIDE_EFFECTS = 0x04,
     /* Instruction operands are 64-bits (otherwise 32-bits).  */
     TCG_OPF_64BIT        = 0x08,
@@ -625,3 +661,8 @@ extern uint8_t *code_gen_prologue;
 #endif
 
 void tcg_register_jit(void *buf, size_t buf_size);
+
+#if defined(CONFIG_QEMU_LDST_OPTIMIZATION) && defined(CONFIG_SOFTMMU)
+/* Generate TB finalization at the end of block */
+void tcg_out_tb_finalize(TCGContext *s);
+#endif

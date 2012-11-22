@@ -253,6 +253,14 @@ qemu-system-i386 -drive file=file,index=2,media=disk
 qemu-system-i386 -drive file=file,index=3,media=disk
 @end example
 
+You can open an image using pre-opened file descriptors from an fd set:
+@example
+qemu-system-i386
+-add-fd fd=3,set=2,opaque="rdwr:/path/to/file"
+-add-fd fd=4,set=2,opaque="rdonly:/path/to/file"
+-drive file=/dev/fdset/2,index=0,media=disk
+@end example
+
 You can connect a CDROM to the slave of ide0:
 @example
 qemu-system-i386 -drive file=file,if=ide,index=1,media=cdrom
@@ -282,6 +290,34 @@ qemu-system-i386 -drive file=a -drive file=b"
 is interpreted like:
 @example
 qemu-system-i386 -hda a -hdb b
+@end example
+ETEXI
+
+DEF("add-fd", HAS_ARG, QEMU_OPTION_add_fd,
+    "-add-fd fd=fd,set=set[,opaque=opaque]\n"
+    "                Add 'fd' to fd 'set'\n", QEMU_ARCH_ALL)
+STEXI
+@item -add-fd fd=@var{fd},set=@var{set}[,opaque=@var{opaque}]
+@findex -add-fd
+
+Add a file descriptor to an fd set.  Valid options are:
+
+@table @option
+@item fd=@var{fd}
+This option defines the file descriptor of which a duplicate is added to fd set.
+The file descriptor cannot be stdin, stdout, or stderr.
+@item set=@var{set}
+This option defines the ID of the fd set to add the file descriptor to.
+@item opaque=@var{opaque}
+This option defines a free-form string that can be used to describe @var{fd}.
+@end table
+
+You can open an image using pre-opened file descriptors from an fd set:
+@example
+qemu-system-i386
+-add-fd fd=3,set=2,opaque="rdwr:/path/to/file"
+-add-fd fd=4,set=2,opaque="rdonly:/path/to/file"
+-drive file=/dev/fdset/2,index=0,media=disk
 @end example
 ETEXI
 
@@ -1282,8 +1318,8 @@ DEF("net", HAS_ARG, QEMU_OPTION_net,
     "                create a new Network Interface Card and connect it to VLAN 'n'\n"
 #ifdef CONFIG_SLIRP
     "-net user[,vlan=n][,name=str][,net=addr[/mask]][,host=addr][,restrict=on|off]\n"
-    "         [,hostname=host][,dhcpstart=addr][,dns=addr][,tftp=dir][,bootfile=f]\n"
-    "         [,hostfwd=rule][,guestfwd=rule]"
+    "         [,hostname=host][,dhcpstart=addr][,dns=addr][,dnssearch=domain][,tftp=dir]\n"
+    "         [,bootfile=f][,hostfwd=rule][,guestfwd=rule]"
 #ifndef _WIN32
                                              "[,smb=dir[,smbserver=addr]]\n"
 #endif
@@ -1392,7 +1428,7 @@ able to contact the host and no guest IP packets will be routed over the host
 to the outside. This option does not affect any explicitly set forwarding rules.
 
 @item hostname=@var{name}
-Specifies the client hostname reported by the builtin DHCP server.
+Specifies the client hostname reported by the built-in DHCP server.
 
 @item dhcpstart=@var{addr}
 Specify the first of the 16 IPs the built-in DHCP server can assign. Default
@@ -1402,6 +1438,18 @@ is the 15th to 31st IP in the guest network, i.e. x.x.x.15 to x.x.x.31.
 Specify the guest-visible address of the virtual nameserver. The address must
 be different from the host address. Default is the 3rd IP in the guest network,
 i.e. x.x.x.3.
+
+@item dnssearch=@var{domain}
+Provides an entry for the domain-search list sent by the built-in
+DHCP server. More than one domain suffix can be transmitted by specifying
+this option multiple times. If supported, this will cause the guest to
+automatically try to append the given domain suffix(es) in case a domain name
+can not be resolved.
+
+Example:
+@example
+qemu -net user,dnssearch=mgmt.example.org,dnssearch=example.org [...]
+@end example
 
 @item tftp=@var{dir}
 When using the user mode network stack, activate a built-in TFTP
@@ -2018,6 +2066,23 @@ qemu-system-i386 --drive file=sheepdog:192.0.2.1:30000:MyVirtualMachine
 
 See also @url{http://http://www.osrg.net/sheepdog/}.
 
+@item GlusterFS
+GlusterFS is an user space distributed file system.
+QEMU supports the use of GlusterFS volumes for hosting VM disk images using
+TCP, Unix Domain Sockets and RDMA transport protocols.
+
+Syntax for specifying a VM disk image on GlusterFS volume is
+@example
+gluster[+transport]://[server[:port]]/volname/image[?socket=...]
+@end example
+
+
+Example
+@example
+qemu-system-x86_84 --drive file=gluster://192.0.2.1/testvol/a.img
+@end example
+
+See also @url{http://www.gluster.org}.
 @end table
 ETEXI
 
@@ -2851,6 +2916,30 @@ STEXI
 @findex -enable-fips
 Enable FIPS 140-2 compliance mode.
 ETEXI
+
+HXCOMM Deprecated by -machine accel=tcg property
+DEF("no-kvm", HAS_ARG, QEMU_OPTION_no_kvm, "", QEMU_ARCH_I386)
+
+HXCOMM Deprecated by kvm-pit driver properties
+DEF("no-kvm-pit-reinjection", HAS_ARG, QEMU_OPTION_no_kvm_pit_reinjection,
+    "", QEMU_ARCH_I386)
+
+HXCOMM Deprecated (ignored)
+DEF("no-kvm-pit", HAS_ARG, QEMU_OPTION_no_kvm_pit, "", QEMU_ARCH_I386)
+
+HXCOMM Deprecated by -machine kernel_irqchip=on|off property
+DEF("no-kvm-irqchip", HAS_ARG, QEMU_OPTION_no_kvm_irqchip, "", QEMU_ARCH_I386)
+
+HXCOMM Deprecated (ignored)
+DEF("tdf", 0, QEMU_OPTION_tdf,"", QEMU_ARCH_ALL)
+
+DEF("object", HAS_ARG, QEMU_OPTION_object,
+    "-object TYPENAME[,PROP1=VALUE1,...]\n"
+    "                create an new object of type TYPENAME setting properties\n"
+    "                in the order they are specified.  Note that the 'id'\n"
+    "                property must be set.  These objects are placed in the\n"
+    "                '/objects' path.\n",
+    QEMU_ARCH_ALL)
 
 HXCOMM This is the last statement. Insert new options before this line!
 STEXI

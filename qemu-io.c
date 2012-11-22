@@ -1362,7 +1362,7 @@ static int aio_write_f(int argc, char **argv)
 
 static int aio_flush_f(int argc, char **argv)
 {
-    qemu_aio_flush();
+    bdrv_drain_all();
     return 0;
 }
 
@@ -1892,9 +1892,8 @@ int main(int argc, char **argv)
         exit(1);
     }
 
-    bdrv_init();
-
     qemu_init_main_loop();
+    bdrv_init();
 
     /* initialize commands */
     quit_init();

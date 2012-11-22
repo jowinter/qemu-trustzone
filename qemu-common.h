@@ -1,5 +1,14 @@
 
-/* Common header file that is included by all of qemu.  */
+/* Common header file that is included by all of QEMU.
+ *
+ * This file is supposed to be included only by .c files. No header file should
+ * depend on qemu-common.h, as this would easily lead to circular header
+ * dependencies.
+ *
+ * If a header file uses a definition from qemu-common.h, that definition
+ * must be moved to a separate header file, and the header that uses it
+ * must include that header.
+ */
 #ifndef QEMU_COMMON_H
 #define QEMU_COMMON_H
 
@@ -14,6 +23,7 @@
 
 typedef struct QEMUTimer QEMUTimer;
 typedef struct QEMUFile QEMUFile;
+typedef struct QEMUBH QEMUBH;
 typedef struct DeviceState DeviceState;
 
 struct Monitor;
@@ -167,7 +177,6 @@ int qemu_fls(int i);
 int qemu_fdatasync(int fd);
 int fcntl_setfl(int fd, int flag);
 int qemu_parse_fd(const char *param);
-int qemu_parse_fdset(const char *param);
 
 /*
  * strtosz() suffixes used to specify the default treatment of an
@@ -208,8 +217,6 @@ const char *path(const char *pathname);
 
 void *qemu_oom_check(void *ptr);
 
-int qemu_open(const char *name, int flags, ...);
-int qemu_close(int fd);
 ssize_t qemu_write_full(int fd, const void *buf, size_t count)
     QEMU_WARN_UNUSED_RESULT;
 ssize_t qemu_send_full(int fd, const void *buf, size_t count, int flags)
@@ -218,7 +225,6 @@ ssize_t qemu_recv_full(int fd, void *buf, size_t count, int flags)
     QEMU_WARN_UNUSED_RESULT;
 
 #ifndef _WIN32
-int qemu_eventfd(int pipefd[2]);
 int qemu_pipe(int pipefd[2]);
 #endif
 
@@ -262,10 +268,8 @@ typedef struct DriveInfo DriveInfo;
 typedef struct DisplayState DisplayState;
 typedef struct DisplayChangeListener DisplayChangeListener;
 typedef struct DisplaySurface DisplaySurface;
-typedef struct DisplayAllocator DisplayAllocator;
 typedef struct PixelFormat PixelFormat;
-typedef struct TextConsole TextConsole;
-typedef TextConsole QEMUConsole;
+typedef struct QemuConsole QemuConsole;
 typedef struct CharDriverState CharDriverState;
 typedef struct MACAddr MACAddr;
 typedef struct NetClientState NetClientState;
@@ -286,7 +290,6 @@ typedef struct PCIEPort PCIEPort;
 typedef struct PCIESlot PCIESlot;
 typedef struct MSIMessage MSIMessage;
 typedef struct SerialState SerialState;
-typedef struct IRQState *qemu_irq;
 typedef struct PCMCIACardState PCMCIACardState;
 typedef struct MouseTransformInfo MouseTransformInfo;
 typedef struct uWireSlave uWireSlave;
@@ -324,9 +327,7 @@ void cpu_save(QEMUFile *f, void *opaque);
 int cpu_load(QEMUFile *f, void *opaque, int version_id);
 
 /* Unblock cpu */
-void qemu_cpu_kick(void *env);
 void qemu_cpu_kick_self(void);
-int qemu_cpu_is_self(void *env);
 
 /* work queue */
 struct qemu_work_item {

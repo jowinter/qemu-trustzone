@@ -19,6 +19,7 @@
 #ifndef hw_omap_h
 #include "memory.h"
 # define hw_omap_h		"omap.h"
+#include "hw/irq.h"
 
 #include "sysemu.h"
 #include "dsi.h"

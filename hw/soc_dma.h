@@ -19,6 +19,7 @@
  */
 
 #include "memory.h"
+#include "hw/irq.h"
 
 #define DMA_MAX_DRQ 96
 

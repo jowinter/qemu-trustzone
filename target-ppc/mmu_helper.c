@@ -1276,7 +1276,8 @@ static int mmubooke_get_physical_address(CPUPPCState *env, mmu_ctx_t *ctx,
     return ret;
 }
 
-void booke206_flush_tlb(CPUPPCState *env, int flags, const int check_iprot)
+static void booke206_flush_tlb(CPUPPCState *env, int flags,
+                               const int check_iprot)
 {
     int tlb_size;
     int i, j;
@@ -1297,8 +1298,8 @@ void booke206_flush_tlb(CPUPPCState *env, int flags, const int check_iprot)
     tlb_flush(env, 1);
 }
 
-hwaddr booke206_tlb_to_page_size(CPUPPCState *env,
-                                             ppcmas_tlb_t *tlb)
+static hwaddr booke206_tlb_to_page_size(CPUPPCState *env,
+                                        ppcmas_tlb_t *tlb)
 {
     int tlbm_size;
 
@@ -1509,10 +1510,8 @@ static void mmubooke_dump_mmu(FILE *f, fprintf_function cpu_fprintf,
         mask = ~(entry->size - 1);
         ea = entry->EPN & mask;
         pa = entry->RPN & mask;
-#if (TARGET_PHYS_ADDR_SPACE_BITS >= 36)
         /* Extend the physical address to 36 bits */
         pa |= (hwaddr)(entry->RPN & 0xF) << 32;
-#endif
         size /= 1024;
         if (size >= 1024) {
             snprintf(size_buf, sizeof(size_buf), "%3" PRId64 "M", size / 1024);
@@ -1708,8 +1707,8 @@ static inline int check_physical(CPUPPCState *env, mmu_ctx_t *ctx,
     return ret;
 }
 
-int get_physical_address(CPUPPCState *env, mmu_ctx_t *ctx, target_ulong eaddr,
-                         int rw, int access_type)
+static int get_physical_address(CPUPPCState *env, mmu_ctx_t *ctx,
+                                target_ulong eaddr, int rw, int access_type)
 {
     int ret;
 

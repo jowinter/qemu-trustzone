@@ -42,6 +42,10 @@ def qemu_img(*args):
     devnull = open('/dev/null', 'r+')
     return subprocess.call(qemu_img_args + list(args), stdin=devnull, stdout=devnull)
 
+def qemu_img_verbose(*args):
+    '''Run qemu-img without supressing its output and return the exit code'''
+    return subprocess.call(qemu_img_args + list(args))
+
 def qemu_io(*args):
     '''Run qemu-io and return the stdout data'''
     args = qemu_io_args + list(args)
@@ -105,6 +109,10 @@ class VM(object):
             qmp_args[k.translate(self.underscore_to_dash)] = args[k]
 
         return self._qmp.cmd(cmd, args=qmp_args)
+
+    def get_qmp_event(self, wait=False):
+        '''Poll for one queued QMP events and return it'''
+        return self._qmp.pull_event(wait=wait)
 
     def get_qmp_events(self, wait=False):
         '''Poll for queued QMP events and return a list of dicts'''
@@ -178,4 +186,4 @@ def main(supported_fmts=[]):
     try:
         unittest.main(testRunner=MyTestRunner)
     finally:
-        sys.stderr.write(re.sub(r'Ran (\d+) test[s] in [\d.]+s', r'Ran \1 tests', output.getvalue()))
+        sys.stderr.write(re.sub(r'Ran (\d+) tests? in [\d.]+s', r'Ran \1 tests', output.getvalue()))

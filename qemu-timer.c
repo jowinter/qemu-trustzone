@@ -30,6 +30,9 @@
 #include "hw/hw.h"
 
 #include "qemu-timer.h"
+#ifdef CONFIG_POSIX
+#include <pthread.h>
+#endif
 
 #ifdef _WIN32
 #include <mmsystem.h>
@@ -430,9 +433,11 @@ void qemu_unregister_clock_reset_notifier(QEMUClock *clock, Notifier *notifier)
 
 void init_clocks(void)
 {
-    rt_clock = qemu_new_clock(QEMU_CLOCK_REALTIME);
-    vm_clock = qemu_new_clock(QEMU_CLOCK_VIRTUAL);
-    host_clock = qemu_new_clock(QEMU_CLOCK_HOST);
+    if (!rt_clock) {
+        rt_clock = qemu_new_clock(QEMU_CLOCK_REALTIME);
+        vm_clock = qemu_new_clock(QEMU_CLOCK_VIRTUAL);
+        host_clock = qemu_new_clock(QEMU_CLOCK_HOST);
+    }
 }
 
 uint64_t qemu_timer_expire_time_ns(QEMUTimer *ts)
@@ -494,12 +499,12 @@ static int dynticks_start_timer(struct qemu_alarm_timer *t)
     memset(&ev, 0, sizeof(ev));
     ev.sigev_value.sival_int = 0;
     ev.sigev_notify = SIGEV_SIGNAL;
-#ifdef SIGEV_THREAD_ID
+#ifdef CONFIG_SIGEV_THREAD_ID
     if (qemu_signalfd_available()) {
         ev.sigev_notify = SIGEV_THREAD_ID;
         ev._sigev_un._tid = qemu_get_thread_id();
     }
-#endif /* SIGEV_THREAD_ID */
+#endif /* CONFIG_SIGEV_THREAD_ID */
     ev.sigev_signo = SIGALRM;
 
     if (timer_create(CLOCK_REALTIME, &ev, &host_timer)) {
@@ -740,10 +745,27 @@ static void quit_timers(void)
     t->stop(t);
 }
 
+#ifdef CONFIG_POSIX
+static void reinit_timers(void)
+{
+    struct qemu_alarm_timer *t = alarm_timer;
+    t->stop(t);
+    if (t->start(t)) {
+        fprintf(stderr, "Internal timer error: aborting\n");
+        exit(1);
+    }
+    qemu_rearm_alarm_timer(t);
+}
+#endif /* CONFIG_POSIX */
+
 int init_timer_alarm(void)
 {
     struct qemu_alarm_timer *t = NULL;
     int i, err = -1;
+
+    if (alarm_timer) {
+        return 0;
+    }
 
     for (i = 0; alarm_timers[i].name; i++) {
         t = &alarm_timers[i];
@@ -759,6 +781,9 @@ int init_timer_alarm(void)
     }
 
     atexit(quit_timers);
+#ifdef CONFIG_POSIX
+    pthread_atfork(NULL, NULL, reinit_timers);
+#endif
     alarm_timer = t;
     return 0;
 

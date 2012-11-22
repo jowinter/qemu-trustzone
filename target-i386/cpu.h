@@ -403,9 +403,11 @@
 #define CPUID_EXT_TM2      (1 << 8)
 #define CPUID_EXT_SSSE3    (1 << 9)
 #define CPUID_EXT_CID      (1 << 10)
+#define CPUID_EXT_FMA      (1 << 12)
 #define CPUID_EXT_CX16     (1 << 13)
 #define CPUID_EXT_XTPR     (1 << 14)
 #define CPUID_EXT_PDCM     (1 << 15)
+#define CPUID_EXT_PCID     (1 << 17)
 #define CPUID_EXT_DCA      (1 << 18)
 #define CPUID_EXT_SSE41    (1 << 19)
 #define CPUID_EXT_SSE42    (1 << 20)
@@ -417,6 +419,8 @@
 #define CPUID_EXT_XSAVE    (1 << 26)
 #define CPUID_EXT_OSXSAVE  (1 << 27)
 #define CPUID_EXT_AVX      (1 << 28)
+#define CPUID_EXT_F16C     (1 << 29)
+#define CPUID_EXT_RDRAND   (1 << 30)
 #define CPUID_EXT_HYPERVISOR  (1 << 31)
 
 #define CPUID_EXT2_FPU     (1 << 0)
@@ -472,7 +476,15 @@
 #define CPUID_EXT3_IBS     (1 << 10)
 #define CPUID_EXT3_XOP     (1 << 11)
 #define CPUID_EXT3_SKINIT  (1 << 12)
+#define CPUID_EXT3_WDT     (1 << 13)
+#define CPUID_EXT3_LWP     (1 << 15)
 #define CPUID_EXT3_FMA4    (1 << 16)
+#define CPUID_EXT3_TCE     (1 << 17)
+#define CPUID_EXT3_NODEID  (1 << 19)
+#define CPUID_EXT3_TBM     (1 << 21)
+#define CPUID_EXT3_TOPOEXT (1 << 22)
+#define CPUID_EXT3_PERFCORE (1 << 23)
+#define CPUID_EXT3_PERFNB  (1 << 24)
 
 #define CPUID_SVM_NPT          (1 << 0)
 #define CPUID_SVM_LBRV         (1 << 1)
@@ -485,7 +497,17 @@
 #define CPUID_SVM_PAUSEFILTER  (1 << 10)
 #define CPUID_SVM_PFTHRESHOLD  (1 << 12)
 
+#define CPUID_7_0_EBX_FSGSBASE (1 << 0)
+#define CPUID_7_0_EBX_BMI1     (1 << 3)
+#define CPUID_7_0_EBX_HLE      (1 << 4)
+#define CPUID_7_0_EBX_AVX2     (1 << 5)
 #define CPUID_7_0_EBX_SMEP     (1 << 7)
+#define CPUID_7_0_EBX_BMI2     (1 << 8)
+#define CPUID_7_0_EBX_ERMS     (1 << 9)
+#define CPUID_7_0_EBX_INVPCID  (1 << 10)
+#define CPUID_7_0_EBX_RTM      (1 << 11)
+#define CPUID_7_0_EBX_RDSEED   (1 << 18)
+#define CPUID_7_0_EBX_ADX      (1 << 19)
 #define CPUID_7_0_EBX_SMAP     (1 << 20)
 
 #define CPUID_VENDOR_INTEL_1 0x756e6547 /* "Genu" */
@@ -907,9 +929,11 @@ static inline void cpu_x86_load_seg_cache(CPUX86State *env,
     }
 }
 
-static inline void cpu_x86_load_seg_cache_sipi(CPUX86State *env,
+static inline void cpu_x86_load_seg_cache_sipi(X86CPU *cpu,
                                                int sipi_vector)
 {
+    CPUX86State *env = &cpu->env;
+
     env->eip = 0;
     cpu_x86_load_seg_cache(env, R_CS, sipi_vector << 8,
                            sipi_vector << 12,
@@ -1098,8 +1122,10 @@ static inline void cpu_clone_regs(CPUX86State *env, target_ulong newsp)
 #include "hw/apic.h"
 #endif
 
-static inline bool cpu_has_work(CPUX86State *env)
+static inline bool cpu_has_work(CPUState *cpu)
 {
+    CPUX86State *env = &X86_CPU(cpu)->env;
+
     return ((env->interrupt_request & (CPU_INTERRUPT_HARD |
                                        CPU_INTERRUPT_POLL)) &&
             (env->eflags & IF_MASK)) ||
@@ -1131,7 +1157,7 @@ void do_cpu_sipi(X86CPU *cpu);
 #define MCE_INJECT_BROADCAST    1
 #define MCE_INJECT_UNCOND_AO    2
 
-void cpu_x86_inject_mce(Monitor *mon, CPUX86State *cenv, int bank,
+void cpu_x86_inject_mce(Monitor *mon, X86CPU *cpu, int bank,
                         uint64_t status, uint64_t mcg_status, uint64_t addr,
                         uint64_t misc, int flags);
 
@@ -1187,5 +1213,7 @@ void do_interrupt_x86_hardirq(CPUX86State *env, int intno, int is_hw);
 void do_smm_enter(CPUX86State *env1);
 
 void cpu_report_tpr_access(CPUX86State *env, TPRAccess access);
+
+void enable_kvm_pv_eoi(void);
 
 #endif /* CPU_I386_H */

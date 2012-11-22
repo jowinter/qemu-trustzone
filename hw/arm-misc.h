@@ -12,6 +12,7 @@
 #define ARM_MISC_H 1
 
 #include "memory.h"
+#include "hw/irq.h"
 
 /* The CPU is also modeled as an interrupt controller.  */
 #define ARM_PIC_CPU_IRQ 0
@@ -56,6 +57,7 @@ struct arm_boot_info {
                                      const struct arm_boot_info *info);
     /* Used internally by arm_boot.c */
     int is_linux;
+    hwaddr initrd_start;
     hwaddr initrd_size;
     hwaddr entry;
 };

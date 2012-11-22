@@ -542,8 +542,8 @@ static void omap_dss_panel_update_display(struct omap_dss_panel_s *s,
     s->invalidate = 0;
 
     if (first_row >= 0) {
-        dpy_update(s->ds, 0, first_row, s->shadow.width,
-                   last_row - first_row + 1);
+        dpy_gfx_update(s->ds, 0, first_row, s->shadow.width,
+                       last_row - first_row + 1);
     }
 }
 

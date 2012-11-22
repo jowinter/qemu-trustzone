@@ -463,8 +463,15 @@ static void gen_sar(TCGv dest, TCGv t0, TCGv t1)
     tcg_temp_free_i32(tmp1);
 }
 
-/* FIXME:  Implement this natively.  */
-#define tcg_gen_abs_i32(t0, t1) gen_helper_abs(t0, t1)
+static void tcg_gen_abs_i32(TCGv dest, TCGv src)
+{
+    TCGv c0 = tcg_const_i32(0);
+    TCGv tmp = tcg_temp_new_i32();
+    tcg_gen_neg_i32(tmp, src);
+    tcg_gen_movcond_i32(TCG_COND_GT, dest, src, c0, src, tmp);
+    tcg_temp_free_i32(c0);
+    tcg_temp_free_i32(tmp);
+}
 
 static void shifter_out_im(TCGv var, int shift)
 {
@@ -4191,7 +4198,9 @@ static inline void gen_neon_negl(TCGv_i64 var, int size)
     switch (size) {
     case 0: gen_helper_neon_negl_u16(var, var); break;
     case 1: gen_helper_neon_negl_u32(var, var); break;
-    case 2: gen_helper_neon_negl_u64(var, var); break;
+    case 2:
+        tcg_gen_neg_i64(var, var);
+        break;
     default: abort();
     }
 }
@@ -9738,7 +9747,7 @@ static inline void gen_intermediate_code_internal(CPUARMState *env,
 
     dc->tb = tb;
 
-    gen_opc_end = gen_opc_buf + OPC_MAX_SIZE;
+    gen_opc_end = tcg_ctx.gen_opc_buf + OPC_MAX_SIZE;
 
     dc->is_jmp = DISAS_NEXT;
     dc->pc = pc_start;
@@ -9845,7 +9854,7 @@ static inline void gen_intermediate_code_internal(CPUARMState *env,
             }
         }
         if (search_pc) {
-            j = gen_opc_ptr - gen_opc_buf;
+            j = tcg_ctx.gen_opc_ptr - tcg_ctx.gen_opc_buf;
             if (lj < j) {
                 lj++;
                 while (lj < j)
@@ -9892,7 +9901,7 @@ static inline void gen_intermediate_code_internal(CPUARMState *env,
          * Also stop translation when a page boundary is reached.  This
          * ensures prefetch aborts occur at the right place.  */
         num_insns ++;
-    } while (!dc->is_jmp && gen_opc_ptr < gen_opc_end &&
+    } while (!dc->is_jmp && tcg_ctx.gen_opc_ptr < gen_opc_end &&
              !env->singlestep_enabled &&
              !singlestep &&
              dc->pc < next_page_start &&
@@ -9980,19 +9989,19 @@ static inline void gen_intermediate_code_internal(CPUARMState *env,
 
 done_generating:
     gen_icount_end(tb, num_insns);
-    *gen_opc_ptr = INDEX_op_end;
+    *tcg_ctx.gen_opc_ptr = INDEX_op_end;
 
 #ifdef DEBUG_DISAS
     if (qemu_loglevel_mask(CPU_LOG_TB_IN_ASM)) {
         qemu_log("----------------\n");
         qemu_log("IN: %s\n", lookup_symbol(pc_start));
-        log_target_disas(pc_start, dc->pc - pc_start,
+        log_target_disas(env, pc_start, dc->pc - pc_start,
                          dc->thumb | (dc->bswap_code << 1));
         qemu_log("\n");
     }
 #endif
     if (search_pc) {
-        j = gen_opc_ptr - gen_opc_buf;
+        j = tcg_ctx.gen_opc_ptr - tcg_ctx.gen_opc_buf;
         lj++;
         while (lj <= j)
             gen_opc_instr_start[lj++] = 0;

@@ -810,7 +810,7 @@ static TCGv_i32 gen_mac16_m(TCGv_i32 v, bool hi, bool is_unsigned)
     return m;
 }
 
-static void disas_xtensa_insn(DisasContext *dc)
+static void disas_xtensa_insn(CPUXtensaState *env, DisasContext *dc)
 {
 #define HAS_OPTION_BITS(opt) do { \
         if (!option_bits_enabled(dc, opt)) { \
@@ -900,8 +900,8 @@ static void disas_xtensa_insn(DisasContext *dc)
 
 #define RSR_SR (b1)
 
-    uint8_t b0 = cpu_ldub_code(cpu_single_env, dc->pc);
-    uint8_t b1 = cpu_ldub_code(cpu_single_env, dc->pc + 1);
+    uint8_t b0 = cpu_ldub_code(env, dc->pc);
+    uint8_t b1 = cpu_ldub_code(env, dc->pc + 1);
     uint8_t b2 = 0;
 
     static const uint32_t B4CONST[] = {
@@ -917,7 +917,7 @@ static void disas_xtensa_insn(DisasContext *dc)
         HAS_OPTION(XTENSA_OPTION_CODE_DENSITY);
     } else {
         dc->next_pc = dc->pc + 3;
-        b2 = cpu_ldub_code(cpu_single_env, dc->pc + 2);
+        b2 = cpu_ldub_code(env, dc->pc + 2);
     }
 
     switch (OP0) {
@@ -2849,7 +2849,7 @@ static void gen_intermediate_code_internal(
     DisasContext dc;
     int insn_count = 0;
     int j, lj = -1;
-    uint16_t *gen_opc_end = gen_opc_buf + OPC_MAX_SIZE;
+    uint16_t *gen_opc_end = tcg_ctx.gen_opc_buf + OPC_MAX_SIZE;
     int max_insns = tb->cflags & CF_COUNT_MASK;
     uint32_t pc_start = tb->pc;
     uint32_t next_page_start =
@@ -2893,7 +2893,7 @@ static void gen_intermediate_code_internal(
         check_breakpoint(env, &dc);
 
         if (search_pc) {
-            j = gen_opc_ptr - gen_opc_buf;
+            j = tcg_ctx.gen_opc_ptr - tcg_ctx.gen_opc_buf;
             if (lj < j) {
                 lj++;
                 while (lj < j) {
@@ -2931,7 +2931,7 @@ static void gen_intermediate_code_internal(
             gen_ibreak_check(env, &dc);
         }
 
-        disas_xtensa_insn(&dc);
+        disas_xtensa_insn(env, &dc);
         ++insn_count;
         if (dc.icount) {
             tcg_gen_mov_i32(cpu_SR[ICOUNT], dc.next_icount);
@@ -2944,7 +2944,7 @@ static void gen_intermediate_code_internal(
     } while (dc.is_jmp == DISAS_NEXT &&
             insn_count < max_insns &&
             dc.pc < next_page_start &&
-            gen_opc_ptr < gen_opc_end);
+            tcg_ctx.gen_opc_ptr < gen_opc_end);
 
     reset_litbase(&dc);
     reset_sar_tracker(&dc);
@@ -2960,7 +2960,7 @@ static void gen_intermediate_code_internal(
         gen_jumpi(&dc, dc.pc, 0);
     }
     gen_icount_end(tb, insn_count);
-    *gen_opc_ptr = INDEX_op_end;
+    *tcg_ctx.gen_opc_ptr = INDEX_op_end;
 
     if (!search_pc) {
         tb->size = dc.pc - pc_start;

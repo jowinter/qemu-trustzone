@@ -19,7 +19,6 @@ extern uint8_t qemu_uuid[];
 int qemu_uuid_parse(const char *str, uint8_t *uuid);
 #define UUID_FMT "%02hhx%02hhx%02hhx%02hhx-%02hhx%02hhx-%02hhx%02hhx-%02hhx%02hhx-%02hhx%02hhx%02hhx%02hhx%02hhx%02hhx"
 
-void runstate_init(void);
 bool runstate_check(RunState state);
 void runstate_set(RunState new_state);
 int runstate_is_running(void);
@@ -57,11 +56,7 @@ void qemu_system_debug_request(void);
 void qemu_system_vmstop_request(RunState reason);
 int qemu_shutdown_requested_get(void);
 int qemu_reset_requested_get(void);
-int qemu_shutdown_requested(void);
-int qemu_reset_requested(void);
-int qemu_powerdown_requested(void);
 void qemu_system_killed(int signal, pid_t pid);
-void qemu_kill_report(void);
 void qemu_devices_reset(void);
 void qemu_system_reset(bool report);
 
@@ -116,7 +111,6 @@ extern const char *keyboard_layout;
 extern int win2k_install_hack;
 extern int alt_grab;
 extern int ctrl_grab;
-extern int usb_enabled;
 extern int smp_cpus;
 extern int max_cpus;
 extern int cursor_hide;
@@ -186,4 +180,7 @@ void register_devices(void);
 void add_boot_device_path(int32_t bootindex, DeviceState *dev,
                           const char *suffix);
 char *get_boot_devices_list(uint32_t *size);
+
+bool usb_enabled(bool default_usb);
+
 #endif

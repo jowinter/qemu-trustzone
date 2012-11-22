@@ -608,7 +608,6 @@ static void musb_packet(MUSBState *s, MUSBEndPoint *ep,
 {
     USBDevice *dev;
     USBEndpoint *uep;
-    int ret;
     int idx = epnum && dir;
     int ttype;
 
@@ -628,19 +627,24 @@ static void musb_packet(MUSBState *s, MUSBEndPoint *ep,
     dev = usb_find_device(&s->port, ep->faddr[idx]);
     uep = usb_ep_get(dev, pid, ep->type[idx] & 0xf);
     usb_packet_setup(&ep->packey[dir].p, pid, uep,
-                     (dev->addr << 16) | (uep->nr << 8) | pid);
+                     (dev->addr << 16) | (uep->nr << 8) | pid, false, true);
     usb_packet_addbuf(&ep->packey[dir].p, ep->buf[idx], len);
     ep->packey[dir].ep = ep;
     ep->packey[dir].dir = dir;
 
-    ret = usb_handle_packet(dev, &ep->packey[dir].p);
+    usb_handle_packet(dev, &ep->packey[dir].p);
 
-    if (ret == USB_RET_ASYNC) {
+    if (ep->packey[dir].p.status == USB_RET_ASYNC) {
+        usb_device_flush_ep_queue(dev, uep);
         ep->status[dir] = len;
         return;
     }
 
-    ep->status[dir] = ret;
+    if (ep->packey[dir].p.status == USB_RET_SUCCESS) {
+        ep->status[dir] = ep->packey[dir].p.actual_length;
+    } else {
+        ep->status[dir] = ep->packey[dir].p.status;
+    }
     musb_schedule_cb(&s->port, &ep->packey[dir].p);
 }
 
@@ -754,7 +758,6 @@ static void musb_rx_packet_complete(USBPacket *packey, void *opaque)
 
     if (ep->status[1] == USB_RET_STALL) {
         ep->status[1] = 0;
-        packey->result = 0;
 
         ep->csr[1] |= MGC_M_RXCSR_H_RXSTALL;
         if (!epnum)
@@ -793,14 +796,12 @@ static void musb_rx_packet_complete(USBPacket *packey, void *opaque)
     /* TODO: check len for over/underruns of an OUT packet?  */
     /* TODO: perhaps make use of e->ext_size[1] here.  */
 
-    packey->result = ep->status[1];
-
     if (!(ep->csr[1] & (MGC_M_RXCSR_H_RXSTALL | MGC_M_RXCSR_DATAERROR))) {
         ep->csr[1] |= MGC_M_RXCSR_FIFOFULL | MGC_M_RXCSR_RXPKTRDY;
         if (!epnum)
             ep->csr[0] |= MGC_M_CSR0_RXPKTRDY;
 
-        ep->rxcount = packey->result; /* XXX: MIN(packey->len, ep->maxp[1]); */
+        ep->rxcount = ep->status[1]; /* XXX: MIN(packey->len, ep->maxp[1]); */
         /* In DMA mode: assert DMA request for this EP */
     }
 

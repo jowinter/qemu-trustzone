@@ -71,8 +71,6 @@
 #define FW_CFG_E820_TABLE (FW_CFG_ARCH_LOCAL + 3)
 #define FW_CFG_HPET (FW_CFG_ARCH_LOCAL + 4)
 
-#define MSI_ADDR_BASE 0xfee00000
-
 #define E820_NR_ENTRIES		16
 
 struct e820_entry {
@@ -421,7 +419,8 @@ typedef struct Port92State {
     qemu_irq *a20_out;
 } Port92State;
 
-static void port92_write(void *opaque, uint32_t addr, uint32_t val)
+static void port92_write(void *opaque, hwaddr addr, uint64_t val,
+                         unsigned size)
 {
     Port92State *s = opaque;
 
@@ -433,7 +432,8 @@ static void port92_write(void *opaque, uint32_t addr, uint32_t val)
     }
 }
 
-static uint32_t port92_read(void *opaque, uint32_t addr)
+static uint64_t port92_read(void *opaque, hwaddr addr,
+                            unsigned size)
 {
     Port92State *s = opaque;
     uint32_t ret;
@@ -468,13 +468,14 @@ static void port92_reset(DeviceState *d)
     s->outport &= ~1;
 }
 
-static const MemoryRegionPortio port92_portio[] = {
-    { 0, 1, 1, .read = port92_read, .write = port92_write },
-    PORTIO_END_OF_LIST(),
-};
-
 static const MemoryRegionOps port92_ops = {
-    .old_portio = port92_portio
+    .read = port92_read,
+    .write = port92_write,
+    .impl = {
+        .min_access_size = 1,
+        .max_access_size = 1,
+    },
+    .endianness = DEVICE_LITTLE_ENDIAN,
 };
 
 static int port92_initfn(ISADevice *dev)
@@ -846,35 +847,6 @@ DeviceState *cpu_get_current_apic(void)
     }
 }
 
-static DeviceState *apic_init(void *env, uint8_t apic_id)
-{
-    DeviceState *dev;
-    static int apic_mapped;
-
-    if (kvm_irqchip_in_kernel()) {
-        dev = qdev_create(NULL, "kvm-apic");
-    } else if (xen_enabled()) {
-        dev = qdev_create(NULL, "xen-apic");
-    } else {
-        dev = qdev_create(NULL, "apic");
-    }
-
-    qdev_prop_set_uint8(dev, "id", apic_id);
-    qdev_prop_set_ptr(dev, "cpu_env", env);
-    qdev_init_nofail(dev);
-
-    /* XXX: mapping more APICs at the same memory location */
-    if (apic_mapped == 0) {
-        /* NOTE: the APIC is directly connected to the CPU - it is not
-           on the global memory bus. */
-        /* XXX: what if the base changes? */
-        sysbus_mmio_map(sysbus_from_qdev(dev), 0, MSI_ADDR_BASE);
-        apic_mapped = 1;
-    }
-
-    return dev;
-}
-
 void pc_acpi_smi_interrupt(void *opaque, int irq, int level)
 {
     CPUX86State *s = opaque;
@@ -882,24 +854,6 @@ void pc_acpi_smi_interrupt(void *opaque, int irq, int level)
     if (level) {
         cpu_interrupt(s, CPU_INTERRUPT_SMI);
     }
-}
-
-static X86CPU *pc_new_cpu(const char *cpu_model)
-{
-    X86CPU *cpu;
-    CPUX86State *env;
-
-    cpu = cpu_x86_init(cpu_model);
-    if (cpu == NULL) {
-        fprintf(stderr, "Unable to find x86 CPU definition\n");
-        exit(1);
-    }
-    env = &cpu->env;
-    if ((env->cpuid_features & CPUID_APIC) || smp_cpus > 1) {
-        env->apic_state = apic_init(env, env->cpuid_apic_id);
-    }
-    cpu_reset(CPU(cpu));
-    return cpu;
 }
 
 void pc_cpus_init(const char *cpu_model)
@@ -915,8 +869,11 @@ void pc_cpus_init(const char *cpu_model)
 #endif
     }
 
-    for(i = 0; i < smp_cpus; i++) {
-        pc_new_cpu(cpu_model);
+    for (i = 0; i < smp_cpus; i++) {
+        if (!cpu_x86_init(cpu_model)) {
+            fprintf(stderr, "Unable to find x86 CPU definition\n");
+            exit(1);
+        }
     }
 }
 

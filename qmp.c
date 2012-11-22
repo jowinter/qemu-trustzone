@@ -85,7 +85,11 @@ void qmp_quit(Error **err)
 
 void qmp_stop(Error **errp)
 {
-    vm_stop(RUN_STATE_PAUSED);
+    if (runstate_check(RUN_STATE_INMIGRATE)) {
+        autostart = 0;
+    } else {
+        vm_stop(RUN_STATE_PAUSED);
+    }
 }
 
 void qmp_system_reset(Error **errp)
@@ -144,10 +148,7 @@ void qmp_cont(Error **errp)
 {
     Error *local_err = NULL;
 
-    if (runstate_check(RUN_STATE_INMIGRATE)) {
-        error_set(errp, QERR_MIGRATION_EXPECTED);
-        return;
-    } else if (runstate_check(RUN_STATE_INTERNAL_ERROR) ||
+    if (runstate_check(RUN_STATE_INTERNAL_ERROR) ||
                runstate_check(RUN_STATE_SHUTDOWN)) {
         error_set(errp, QERR_RESET_REQUIRED);
         return;
@@ -162,7 +163,11 @@ void qmp_cont(Error **errp)
         return;
     }
 
-    vm_start();
+    if (runstate_check(RUN_STATE_INMIGRATE)) {
+        autostart = 1;
+    } else {
+        vm_start();
+    }
 }
 
 void qmp_system_wakeup(Error **errp)
@@ -349,11 +354,9 @@ void qmp_change_vnc_password(const char *password, Error **errp)
     }
 }
 
-static void qmp_change_vnc_listen(const char *target, Error **err)
+static void qmp_change_vnc_listen(const char *target, Error **errp)
 {
-    if (vnc_display_open(NULL, target) < 0) {
-        error_set(err, QERR_VNC_SERVER_FAILED, target);
-    }
+    vnc_display_open(NULL, target, errp);
 }
 
 static void qmp_change_vnc(const char *target, bool has_arg, const char *arg,
@@ -466,12 +469,6 @@ DevicePropertyInfoList *qmp_device_list_properties(const char *typename,
     } while (klass != object_class_by_name(TYPE_DEVICE));
 
     return prop_list;
-}
-
-CpuDefinitionInfoList GCC_WEAK *arch_query_cpu_definitions(Error **errp)
-{
-    error_set(errp, QERR_NOT_SUPPORTED);
-    return NULL;
 }
 
 CpuDefinitionInfoList *qmp_query_cpu_definitions(Error **errp)

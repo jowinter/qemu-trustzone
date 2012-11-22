@@ -114,6 +114,10 @@ static QemuOptsList qemu_drive_opts = {
             .name = "copy-on-read",
             .type = QEMU_OPT_BOOL,
             .help = "copy read data from backing file into image file",
+        },{
+            .name = "boot",
+            .type = QEMU_OPT_BOOL,
+            .help = "(deprecated, ignored)",
         },
         { /* end of list */ }
     },
@@ -619,6 +623,10 @@ static QemuOptsList qemu_machine_opts = {
             .name = "mem-merge",
             .type = QEMU_OPT_BOOL,
             .help = "enable/disable memory merge support",
+        },{
+            .name = "usb",
+            .type = QEMU_OPT_BOOL,
+            .help = "Set on/off to enable/disable usb",
         },
         { /* End of list */ }
     },
@@ -653,6 +661,36 @@ QemuOptsList qemu_boot_opts = {
     },
 };
 
+static QemuOptsList qemu_add_fd_opts = {
+    .name = "add-fd",
+    .head = QTAILQ_HEAD_INITIALIZER(qemu_add_fd_opts.head),
+    .desc = {
+        {
+            .name = "fd",
+            .type = QEMU_OPT_NUMBER,
+            .help = "file descriptor of which a duplicate is added to fd set",
+        },{
+            .name = "set",
+            .type = QEMU_OPT_NUMBER,
+            .help = "ID of the fd set to add fd to",
+        },{
+            .name = "opaque",
+            .type = QEMU_OPT_STRING,
+            .help = "free-form string used to describe fd",
+        },
+        { /* end of list */ }
+    },
+};
+
+static QemuOptsList qemu_object_opts = {
+    .name = "object",
+    .implied_opt_name = "qom-type",
+    .head = QTAILQ_HEAD_INITIALIZER(qemu_object_opts.head),
+    .desc = {
+        { }
+    },
+};
+
 static QemuOptsList *vm_config_groups[32] = {
     &qemu_drive_opts,
     &qemu_chardev_opts,
@@ -669,6 +707,8 @@ static QemuOptsList *vm_config_groups[32] = {
     &qemu_boot_opts,
     &qemu_iscsi_opts,
     &qemu_sandbox_opts,
+    &qemu_add_fd_opts,
+    &qemu_object_opts,
     NULL,
 };
 

@@ -64,31 +64,34 @@ MigrationState *migrate_get_current(void)
     return &current_migration;
 }
 
-int qemu_start_incoming_migration(const char *uri, Error **errp)
+void qemu_start_incoming_migration(const char *uri, Error **errp)
 {
     const char *p;
-    int ret;
 
     if (strstart(uri, "tcp:", &p))
-        ret = tcp_start_incoming_migration(p, errp);
+        tcp_start_incoming_migration(p, errp);
 #if !defined(WIN32)
     else if (strstart(uri, "exec:", &p))
-        ret =  exec_start_incoming_migration(p);
+        exec_start_incoming_migration(p, errp);
     else if (strstart(uri, "unix:", &p))
-        ret = unix_start_incoming_migration(p);
+        unix_start_incoming_migration(p, errp);
     else if (strstart(uri, "fd:", &p))
-        ret = fd_start_incoming_migration(p);
+        fd_start_incoming_migration(p, errp);
 #endif
     else {
-        fprintf(stderr, "unknown migration protocol: %s\n", uri);
-        ret = -EPROTONOSUPPORT;
+        error_setg(errp, "unknown migration protocol: %s\n", uri);
     }
-    return ret;
 }
 
-void process_incoming_migration(QEMUFile *f)
+static void process_incoming_migration_co(void *opaque)
 {
-    if (qemu_loadvm_state(f) < 0) {
+    QEMUFile *f = opaque;
+    int ret;
+
+    ret = qemu_loadvm_state(f);
+    qemu_set_fd_handler(qemu_get_fd(f), NULL, NULL, NULL);
+    qemu_fclose(f);
+    if (ret < 0) {
         fprintf(stderr, "load of migration failed\n");
         exit(0);
     }
@@ -102,8 +105,25 @@ void process_incoming_migration(QEMUFile *f)
     if (autostart) {
         vm_start();
     } else {
-        runstate_set(RUN_STATE_PRELAUNCH);
+        runstate_set(RUN_STATE_PAUSED);
     }
+}
+
+static void enter_migration_coroutine(void *opaque)
+{
+    Coroutine *co = opaque;
+    qemu_coroutine_enter(co, NULL);
+}
+
+void process_incoming_migration(QEMUFile *f)
+{
+    Coroutine *co = qemu_coroutine_create(process_incoming_migration_co);
+    int fd = qemu_get_fd(f);
+
+    assert(fd != -1);
+    socket_set_nonblock(fd);
+    qemu_set_fd_handler(fd, enter_migration_coroutine, NULL, co);
+    qemu_coroutine_enter(co, f);
 }
 
 /* amount of nanoseconds we are willing to wait for migration to be down.
@@ -246,21 +266,13 @@ static int migrate_fd_cleanup(MigrationState *s)
 {
     int ret = 0;
 
-    if (s->fd != -1) {
-        qemu_set_fd_handler2(s->fd, NULL, NULL, NULL, NULL);
-    }
-
     if (s->file) {
         DPRINTF("closing file\n");
         ret = qemu_fclose(s->file);
         s->file = NULL;
     }
 
-    if (s->fd != -1) {
-        close(s->fd);
-        s->fd = -1;
-    }
-
+    migrate_fd_close(s);
     return ret;
 }
 
@@ -396,8 +408,13 @@ int migrate_fd_wait_for_unfreeze(MigrationState *s)
 
 int migrate_fd_close(MigrationState *s)
 {
-    qemu_set_fd_handler2(s->fd, NULL, NULL, NULL, NULL);
-    return s->close(s);
+    int rc = 0;
+    if (s->fd != -1) {
+        qemu_set_fd_handler2(s->fd, NULL, NULL, NULL, NULL);
+        rc = s->close(s);
+        s->fd = -1;
+    }
+    return rc;
 }
 
 void add_migration_state_change_notifier(Notifier *notify)
@@ -483,10 +500,10 @@ void qmp_migrate(const char *uri, bool has_blk, bool blk,
                  bool has_inc, bool inc, bool has_detach, bool detach,
                  Error **errp)
 {
+    Error *local_err = NULL;
     MigrationState *s = migrate_get_current();
     MigrationParams params;
     const char *p;
-    int ret;
 
     params.blk = blk;
     params.shared = inc;
@@ -508,26 +525,23 @@ void qmp_migrate(const char *uri, bool has_blk, bool blk,
     s = migrate_init(&params);
 
     if (strstart(uri, "tcp:", &p)) {
-        ret = tcp_start_outgoing_migration(s, p, errp);
+        tcp_start_outgoing_migration(s, p, &local_err);
 #if !defined(WIN32)
     } else if (strstart(uri, "exec:", &p)) {
-        ret = exec_start_outgoing_migration(s, p);
+        exec_start_outgoing_migration(s, p, &local_err);
     } else if (strstart(uri, "unix:", &p)) {
-        ret = unix_start_outgoing_migration(s, p);
+        unix_start_outgoing_migration(s, p, &local_err);
     } else if (strstart(uri, "fd:", &p)) {
-        ret = fd_start_outgoing_migration(s, p);
+        fd_start_outgoing_migration(s, p, &local_err);
 #endif
     } else {
         error_set(errp, QERR_INVALID_PARAMETER_VALUE, "uri", "a valid migration protocol");
         return;
     }
 
-    if (ret < 0) {
-        if (!error_is_set(errp)) {
-            DPRINTF("migration failed: %s\n", strerror(-ret));
-            /* FIXME: we should return meaningful errors */
-            error_set(errp, QERR_UNDEFINED_ERROR);
-        }
+    if (local_err) {
+        migrate_fd_error(s);
+        error_propagate(errp, local_err);
         return;
     }
 

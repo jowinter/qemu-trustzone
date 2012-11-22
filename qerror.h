@@ -54,6 +54,9 @@ void assert_no_error(Error *err);
 #define QERR_BLOCK_JOB_PAUSED \
     ERROR_CLASS_GENERIC_ERROR, "The block job for device '%s' is currently paused"
 
+#define QERR_BLOCK_JOB_NOT_READY \
+    ERROR_CLASS_GENERIC_ERROR, "The active block job for device '%s' cannot be completed"
+
 #define QERR_BLOCK_FORMAT_FEATURE_NOT_SUPPORTED \
     ERROR_CLASS_GENERIC_ERROR, "Block format '%s' used by device '%s' does not support feature '%s'"
 
@@ -165,9 +168,6 @@ void assert_no_error(Error *err);
 #define QERR_MIGRATION_NOT_SUPPORTED \
     ERROR_CLASS_GENERIC_ERROR, "State blocked by non-migratable device '%s'"
 
-#define QERR_MIGRATION_EXPECTED \
-    ERROR_CLASS_MIGRATION_EXPECTED, "An incoming migration is expected before this command can be executed"
-
 #define QERR_MISSING_PARAMETER \
     ERROR_CLASS_GENERIC_ERROR, "Parameter '%s' is missing"
 
@@ -236,9 +236,6 @@ void assert_no_error(Error *err);
 
 #define QERR_VIRTFS_FEATURE_BLOCKS_MIGRATION \
     ERROR_CLASS_GENERIC_ERROR, "Migration is disabled when VirtFS export path '%s' is mounted in the guest using mount_tag '%s'"
-
-#define QERR_VNC_SERVER_FAILED \
-    ERROR_CLASS_GENERIC_ERROR, "Could not start VNC server on %s"
 
 #define QERR_SOCKET_CONNECT_FAILED \
     ERROR_CLASS_GENERIC_ERROR, "Failed to connect to socket"

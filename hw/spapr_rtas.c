@@ -163,6 +163,7 @@ static void rtas_start_cpu(sPAPREnvironment *spapr,
                            uint32_t nret, target_ulong rets)
 {
     target_ulong id, start, r3;
+    CPUState *cpu;
     CPUPPCState *env;
 
     if (nargs != 3 || nret != 1) {
@@ -175,6 +176,8 @@ static void rtas_start_cpu(sPAPREnvironment *spapr,
     r3 = rtas_ld(args, 2);
 
     for (env = first_cpu; env; env = env->next_cpu) {
+        cpu = ENV_GET_CPU(env);
+
         if (env->cpu_index != id) {
             continue;
         }
@@ -194,7 +197,7 @@ static void rtas_start_cpu(sPAPREnvironment *spapr,
         env->gpr[3] = r3;
         env->halted = 0;
 
-        qemu_cpu_kick(env);
+        qemu_cpu_kick(cpu);
 
         rtas_st(rets, 0, 0);
         return;
@@ -241,6 +244,15 @@ target_ulong spapr_rtas_call(sPAPREnvironment *spapr,
 
 void spapr_rtas_register(const char *name, spapr_rtas_fn fn)
 {
+    int i;
+
+    for (i = 0; i < (rtas_next - rtas_table); i++) {
+        if (strcmp(name, rtas_table[i].name) == 0) {
+            fprintf(stderr, "RTAS call \"%s\" registered twice\n", name);
+            exit(1);
+        }
+    }
+
     assert(rtas_next < (rtas_table + TOKEN_MAX));
 
     rtas_next->name = name;
