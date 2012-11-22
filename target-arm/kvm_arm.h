@@ -27,6 +27,6 @@
  * the kernel will only be told the final address at the point
  * where machine init is complete.
  */
-void kvm_arm_register_device(MemoryRegion *mr, uint32_t devid);
+void kvm_arm_register_device(MemoryRegion *mr, uint64_t devid);
 
 #endif

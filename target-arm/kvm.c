@@ -126,7 +126,7 @@ static Notifier notify = {
     .notify = kvm_arm_machine_init_done,
 };
 
-void kvm_arm_register_device(MemoryRegion *mr, uint32_t devid)
+void kvm_arm_register_device(MemoryRegion *mr, uint64_t devid)
 {
     KVMDevice *kd;
 
@@ -177,21 +177,21 @@ typedef struct Reg {
 
 static const Reg regs[] = {
     /* R0_usr .. R14_usr */
-    COREREG(usr_regs[0], regs[0]),
-    COREREG(usr_regs[1], regs[1]),
-    COREREG(usr_regs[2], regs[2]),
-    COREREG(usr_regs[3], regs[3]),
-    COREREG(usr_regs[4], regs[4]),
-    COREREG(usr_regs[5], regs[5]),
-    COREREG(usr_regs[6], regs[6]),
-    COREREG(usr_regs[7], regs[7]),
-    COREREG(usr_regs[8], usr_regs[0]),
-    COREREG(usr_regs[9], usr_regs[1]),
-    COREREG(usr_regs[10], usr_regs[2]),
-    COREREG(usr_regs[11], usr_regs[3]),
-    COREREG(usr_regs[12], usr_regs[4]),
-    COREREG(usr_regs[13], banked_r13[0]),
-    COREREG(usr_regs[14], banked_r14[0]),
+    COREREG(usr_regs.uregs[0], regs[0]),
+    COREREG(usr_regs.uregs[1], regs[1]),
+    COREREG(usr_regs.uregs[2], regs[2]),
+    COREREG(usr_regs.uregs[3], regs[3]),
+    COREREG(usr_regs.uregs[4], regs[4]),
+    COREREG(usr_regs.uregs[5], regs[5]),
+    COREREG(usr_regs.uregs[6], regs[6]),
+    COREREG(usr_regs.uregs[7], regs[7]),
+    COREREG(usr_regs.uregs[8], usr_regs[0]),
+    COREREG(usr_regs.uregs[9], usr_regs[1]),
+    COREREG(usr_regs.uregs[10], usr_regs[2]),
+    COREREG(usr_regs.uregs[11], usr_regs[3]),
+    COREREG(usr_regs.uregs[12], usr_regs[4]),
+    COREREG(usr_regs.uregs[13], banked_r13[0]),
+    COREREG(usr_regs.uregs[14], banked_r14[0]),
     /* R13, R14, SPSR for SVC, ABT, UND, IRQ banks */
     COREREG(svc_regs[0], banked_r13[1]),
     COREREG(svc_regs[1], banked_r14[1]),
@@ -211,11 +211,11 @@ static const Reg regs[] = {
     COREREG(fiq_regs[2], fiq_regs[2]),
     COREREG(fiq_regs[3], fiq_regs[3]),
     COREREG(fiq_regs[4], fiq_regs[4]),
-    COREREG(fiq_regs[0], banked_r13[5]),
-    COREREG(fiq_regs[1], banked_r14[5]),
-    COREREG(fiq_regs[2], banked_spsr[5]),
+    COREREG(fiq_regs[5], banked_r13[5]),
+    COREREG(fiq_regs[6], banked_r14[5]),
+    COREREG(fiq_regs[7], banked_spsr[5]),
     /* R15 */
-    COREREG(pc, regs[15]),
+    COREREG(usr_regs.uregs[15], regs[15]),
     /* A non-comprehensive set of cp15 registers.
      * TODO: drive this from the cp_regs hashtable instead.
      */
@@ -264,7 +264,7 @@ int kvm_arch_put_registers(CPUARMState *env, int level)
     /* Special cases which aren't a single CPUARMState field */
     cpsr = cpsr_read(env);
     r.id = KVM_REG_ARM | KVM_REG_SIZE_U32 |
-        KVM_REG_ARM_CORE | KVM_REG_ARM_CORE_REG(cpsr);
+        KVM_REG_ARM_CORE | KVM_REG_ARM_CORE_REG(usr_regs.ARM_cpsr);
     r.addr = (uintptr_t)(&cpsr);
     ret = kvm_vcpu_ioctl(env, KVM_SET_ONE_REG, &r);
     if (ret) {
@@ -330,7 +330,7 @@ int kvm_arch_get_registers(CPUARMState *env)
 
     /* Special cases which aren't a single CPUARMState field */
     r.id = KVM_REG_ARM | KVM_REG_SIZE_U32 |
-        KVM_REG_ARM_CORE | KVM_REG_ARM_CORE_REG(cpsr);
+        KVM_REG_ARM_CORE | KVM_REG_ARM_CORE_REG(usr_regs.ARM_cpsr);
     r.addr = (uintptr_t)(&cpsr);
     ret = kvm_vcpu_ioctl(env, KVM_GET_ONE_REG, &r);
     if (ret) {

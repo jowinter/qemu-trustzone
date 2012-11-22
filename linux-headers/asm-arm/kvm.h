@@ -20,6 +20,7 @@
 #define __ARM_KVM_H__
 
 #include <asm/types.h>
+#include <asm/ptrace.h>
 
 #define __KVM_HAVE_GUEST_DEBUG
 #define __KVM_HAVE_IRQ_LINE
@@ -28,14 +29,12 @@
 	(1U << (((id) & KVM_REG_SIZE_MASK) >> KVM_REG_SIZE_SHIFT))
 
 struct kvm_regs {
-	__u32 usr_regs[15];	/* R0_usr - R14_usr */
+	struct pt_regs usr_regs;/* R0_usr - R14_usr, PC, CPSR */
 	__u32 svc_regs[3];	/* SP_svc, LR_svc, SPSR_svc */
 	__u32 abt_regs[3];	/* SP_abt, LR_abt, SPSR_abt */
 	__u32 und_regs[3];	/* SP_und, LR_und, SPSR_und */
 	__u32 irq_regs[3];	/* SP_irq, LR_irq, SPSR_irq */
 	__u32 fiq_regs[8];	/* R8_fiq - R14_fiq, SPSR_fiq */
-	__u32 pc;		/* The program counter (r15) */
-	__u32 cpsr;		/* The guest CPSR */
 };
 
 /* Supported Processor Types */
