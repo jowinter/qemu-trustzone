@@ -12,6 +12,11 @@ here. For full change detail consult the git history:
 Bug numbers refer to Launchpad qemu-linaro bugs, eg:
 https://bugs.launchpad.net/qemu-linaro/+bug/703094
 
+version 2012.12:
+ - Rebased onto upstream v1.3.0.
+ - Fixes #1009901: deleting a usb-storage device from the
+   QEMU monitor no longer crashes
+
 version 2012.09:
  - No significant changes, rebased onto upstream v1.2.0.
 
