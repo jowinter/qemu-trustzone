@@ -1331,7 +1331,7 @@ DEF("net", HAS_ARG, QEMU_OPTION_net,
     "                connect the host TAP network interface to VLAN 'n'\n"
 #else
     "-net tap[,vlan=n][,name=str][,fd=h][,ifname=name][,script=file][,downscript=dfile][,helper=helper][,sndbuf=nbytes][,vnet_hdr=on|off][,vhost=on|off][,vhostfd=h][,vhostforce=on|off]\n"
-    "                connect the host TAP network interface to VLAN 'n' \n"
+    "                connect the host TAP network interface to VLAN 'n'\n"
     "                use network scripts 'file' (default=" DEFAULT_NETWORK_SCRIPT ")\n"
     "                to configure it and 'dfile' (default=" DEFAULT_NETWORK_DOWN_SCRIPT ")\n"
     "                to deconfigure it\n"
@@ -1742,13 +1742,16 @@ DEF("chardev", HAS_ARG, QEMU_OPTION_chardev,
 #endif
 #if defined(__linux__) || defined(__sun__) || defined(__FreeBSD__) \
         || defined(__NetBSD__) || defined(__OpenBSD__) || defined(__DragonFly__)
+    "-chardev serial,id=id,path=path[,mux=on|off]\n"
     "-chardev tty,id=id,path=path[,mux=on|off]\n"
 #endif
 #if defined(__linux__) || defined(__FreeBSD__) || defined(__DragonFly__)
+    "-chardev parallel,id=id,path=path[,mux=on|off]\n"
     "-chardev parport,id=id,path=path[,mux=on|off]\n"
 #endif
 #if defined(CONFIG_SPICE)
     "-chardev spicevmc,id=id,name=name[,debug=debug]\n"
+    "-chardev spiceport,id=id,name=name[,debug=debug]\n"
 #endif
     , QEMU_ARCH_ALL
 )
@@ -1774,8 +1777,10 @@ Backend is one of:
 @option{stdio},
 @option{braille},
 @option{tty},
+@option{parallel},
 @option{parport},
 @option{spicevmc}.
+@option{spiceport}.
 The specific backend will determine the applicable options.
 
 All devices must have an id, which can be any string up to 127 characters long.
@@ -1908,8 +1913,8 @@ take any options.
 
 Send traffic from the guest to a serial device on the host.
 
-@option{serial} is
-only available on Windows hosts.
+On Unix hosts serial will actually accept any tty device,
+not only serial lines.
 
 @option{path} specifies the name of the serial device to open.
 
@@ -1935,16 +1940,15 @@ Connect to a local BrlAPI server. @option{braille} does not take any options.
 
 @item -chardev tty ,id=@var{id} ,path=@var{path}
 
-Connect to a local tty device.
-
 @option{tty} is only available on Linux, Sun, FreeBSD, NetBSD, OpenBSD and
-DragonFlyBSD hosts.
+DragonFlyBSD hosts.  It is an alias for -serial.
 
 @option{path} specifies the path to the tty. @option{path} is required.
 
+@item -chardev parallel ,id=@var{id} ,path=@var{path}
 @item -chardev parport ,id=@var{id} ,path=@var{path}
 
-@option{parport} is only available on Linux, FreeBSD and DragonFlyBSD hosts.
+@option{parallel} is only available on Linux, FreeBSD and DragonFlyBSD hosts.
 
 Connect to a local parallel port.
 
@@ -1960,6 +1964,17 @@ required.
 @option{name} name of spice channel to connect to
 
 Connect to a spice virtual machine channel, such as vdiport.
+
+@item -chardev spiceport ,id=@var{id} ,debug=@var{debug}, name=@var{name}
+
+@option{spiceport} is only available when spice support is built in.
+
+@option{debug} debug level for spicevmc
+
+@option{name} name of spice port to connect to
+
+Connect to a spice port, allowing a Spice client to handle the traffic
+identified by a name (preferably a fqdn).
 
 @end table
 ETEXI

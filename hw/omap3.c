@@ -24,14 +24,14 @@
 #include "hw.h"
 #include "arm-misc.h"
 #include "omap.h"
-#include "sysemu.h"
-#include "qemu-timer.h"
-#include "qemu-char.h"
+#include "sysemu/sysemu.h"
+#include "qemu/timer.h"
+#include "char/char.h"
 #include "flash.h"
 #include "soc_dma.h"
 #include "sysbus.h"
 #include "audio/audio.h"
-#include "block.h"
+#include "block/block.h"
 #include "qdev-addr.h"
 
 //#define OMAP3_DEBUG

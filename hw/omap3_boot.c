@@ -26,11 +26,11 @@
 #include "hw.h"
 #include "arm-misc.h"
 #include "omap.h"
-#include "sysemu.h"
-#include "qemu-char.h"
+#include "sysemu/sysemu.h"
+#include "char/char.h"
 #include "flash.h"
-#include "blockdev.h"
-#include "exec-memory.h"
+#include "sysemu/blockdev.h"
+#include "exec/address-spaces.h"
 
 //#define OMAP3_BOOT_DEBUG
 

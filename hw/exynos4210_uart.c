@@ -20,8 +20,8 @@
  */
 
 #include "sysbus.h"
-#include "sysemu.h"
-#include "qemu-char.h"
+#include "sysemu/sysemu.h"
+#include "char/char.h"
 
 #include "exynos4210.h"
 
@@ -661,7 +661,7 @@ static void exynos4210_uart_class_init(ObjectClass *klass, void *data)
     dc->vmsd = &vmstate_exynos4210_uart;
 }
 
-static TypeInfo exynos4210_uart_info = {
+static const TypeInfo exynos4210_uart_info = {
     .name          = "exynos4210.uart",
     .parent        = TYPE_SYS_BUS_DEVICE,
     .instance_size = sizeof(Exynos4210UartState),

@@ -27,15 +27,15 @@
 
 #include "sysbus.h"
 #include "hw.h"
-#include "net.h"
+#include "net/net.h"
 #include "flash.h"
-#include "sysemu.h"
+#include "sysemu/sysemu.h"
 #include "devices.h"
 #include "boards.h"
 #include "xilinx.h"
-#include "blockdev.h"
+#include "sysemu/blockdev.h"
 #include "serial.h"
-#include "exec-memory.h"
+#include "exec/address-spaces.h"
 #include "ssi.h"
 
 #include "microblaze_boot.h"
@@ -173,7 +173,8 @@ static QEMUMachine petalogix_ml605_machine = {
     .name = "petalogix-ml605",
     .desc = "PetaLogix linux refdesign for xilinx ml605 little endian",
     .init = petalogix_ml605_init,
-    .is_default = 0
+    .is_default = 0,
+    DEFAULT_MACHINE_OPTIONS,
 };
 
 static void petalogix_ml605_machine_init(void)

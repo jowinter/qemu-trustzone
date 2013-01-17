@@ -22,11 +22,12 @@
  * THE SOFTWARE.
  */
 #include "hw.h"
-#include "sysemu.h"
+#include "sysemu/sysemu.h"
 #include "isa.h"
 #include "fw_cfg.h"
 #include "sysbus.h"
-#include "qemu-error.h"
+#include "qemu/error-report.h"
+#include "qemu/config-file.h"
 
 /* debug firmware config */
 //#define DEBUG_FW_CFG
@@ -574,7 +575,7 @@ static void fw_cfg_class_init(ObjectClass *klass, void *data)
     dc->props = fw_cfg_properties;
 }
 
-static TypeInfo fw_cfg_info = {
+static const TypeInfo fw_cfg_info = {
     .name          = "fw_cfg",
     .parent        = TYPE_SYS_BUS_DEVICE,
     .instance_size = sizeof(FWCfgState),

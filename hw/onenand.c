@@ -22,11 +22,11 @@
 #include "hw.h"
 #include "flash.h"
 #include "irq.h"
-#include "blockdev.h"
-#include "memory.h"
-#include "exec-memory.h"
+#include "sysemu/blockdev.h"
+#include "exec/memory.h"
+#include "exec/address-spaces.h"
 #include "sysbus.h"
-#include "qemu-error.h"
+#include "qemu/error-report.h"
 
 /* 11 for 2kB-page OneNAND ("2nd generation") and 10 for 1kB-page chips */
 #define PAGE_SHIFT	11
@@ -828,7 +828,7 @@ static void onenand_class_init(ObjectClass *klass, void *data)
     dc->props = onenand_properties;
 }
 
-static TypeInfo onenand_info = {
+static const TypeInfo onenand_info = {
     .name          = "onenand",
     .parent        = TYPE_SYS_BUS_DEVICE,
     .instance_size = sizeof(OneNANDState),

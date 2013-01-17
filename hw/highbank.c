@@ -21,12 +21,12 @@
 #include "arm-misc.h"
 #include "devices.h"
 #include "loader.h"
-#include "net.h"
-#include "sysemu.h"
+#include "net/net.h"
+#include "sysemu/sysemu.h"
 #include "boards.h"
 #include "sysbus.h"
-#include "blockdev.h"
-#include "exec-memory.h"
+#include "sysemu/blockdev.h"
+#include "exec/address-spaces.h"
 
 #define SMP_BOOT_ADDR 0x100
 #define SMP_BOOT_REG  0x40
@@ -168,7 +168,7 @@ static void highbank_regs_class_init(ObjectClass *klass, void *data)
     dc->reset = highbank_regs_reset;
 }
 
-static TypeInfo highbank_regs_info = {
+static const TypeInfo highbank_regs_info = {
     .name          = "highbank-regs",
     .parent        = TYPE_SYS_BUS_DEVICE,
     .instance_size = sizeof(HighbankRegsState),
@@ -329,8 +329,9 @@ static QEMUMachine highbank_machine = {
     .name = "highbank",
     .desc = "Calxeda Highbank (ECX-1000)",
     .init = highbank_init,
-    .use_scsi = 1,
+    .block_default_type = IF_SCSI,
     .max_cpus = 4,
+    DEFAULT_MACHINE_OPTIONS,
 };
 
 static void highbank_machine_init(void)

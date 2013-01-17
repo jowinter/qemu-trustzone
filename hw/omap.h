@@ -17,11 +17,11 @@
  * with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 #ifndef hw_omap_h
-#include "memory.h"
+#include "exec/memory.h"
 # define hw_omap_h		"omap.h"
 #include "hw/irq.h"
 
-#include "sysemu.h"
+#include "sysemu/sysemu.h"
 #include "dsi.h"
 #include "spi.h"
 

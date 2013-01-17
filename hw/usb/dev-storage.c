@@ -8,15 +8,15 @@
  */
 
 #include "qemu-common.h"
-#include "qemu-option.h"
-#include "qemu-config.h"
+#include "qemu/option.h"
+#include "qemu/config-file.h"
 #include "hw/usb.h"
 #include "hw/usb/desc.h"
 #include "hw/scsi.h"
-#include "console.h"
-#include "monitor.h"
-#include "sysemu.h"
-#include "blockdev.h"
+#include "ui/console.h"
+#include "monitor/monitor.h"
+#include "sysemu/sysemu.h"
+#include "sysemu/blockdev.h"
 
 //#define DEBUG_MSD
 
@@ -427,7 +427,7 @@ static void usb_msd_handle_data(USBDevice *dev, USBPacket *p)
             scsi_req_print(s->req);
 #endif
             scsi_req_enqueue(s->req);
-            if (s->req && s->req->cmd.xfer != SCSI_XFER_NONE) {
+            if (s->req->cmd.xfer != SCSI_XFER_NONE) {
                 scsi_req_continue(s->req);
             }
             break;
@@ -716,7 +716,7 @@ static void usb_msd_class_initfn(ObjectClass *klass, void *data)
     dc->props = msd_properties;
 }
 
-static TypeInfo msd_info = {
+static const TypeInfo msd_info = {
     .name          = "usb-storage",
     .parent        = TYPE_USB_DEVICE,
     .instance_size = sizeof(MSDState),

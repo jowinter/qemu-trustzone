@@ -8,7 +8,7 @@
  */
 
 #include "sysbus.h"
-#include "net.h"
+#include "net/net.h"
 #include "devices.h"
 /* For crc32 */
 #include <zlib.h>
@@ -774,7 +774,7 @@ static void smc91c111_class_init(ObjectClass *klass, void *data)
     dc->props = smc91c111_properties;
 }
 
-static TypeInfo smc91c111_info = {
+static const TypeInfo smc91c111_info = {
     .name          = "smc91c111",
     .parent        = TYPE_SYS_BUS_DEVICE,
     .instance_size = sizeof(smc91c111_state),

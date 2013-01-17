@@ -26,8 +26,8 @@
 
 #include "hw.h"
 #include "pc.h"
-#include "console.h"
-#include "qemu-timer.h"
+#include "ui/console.h"
+#include "qemu/timer.h"
 #include "hpet_emul.h"
 #include "sysbus.h"
 #include "mc146818rtc.h"
@@ -745,7 +745,7 @@ static void hpet_device_class_init(ObjectClass *klass, void *data)
     dc->props = hpet_device_properties;
 }
 
-static TypeInfo hpet_device_info = {
+static const TypeInfo hpet_device_info = {
     .name          = "hpet",
     .parent        = TYPE_SYS_BUS_DEVICE,
     .instance_size = sizeof(HPETState),

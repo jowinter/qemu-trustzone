@@ -19,7 +19,6 @@ typedef struct a9mp_priv_state {
     uint32_t old_timer_status[8];
     uint32_t num_cpu;
     MemoryRegion scu_iomem;
-    MemoryRegion ptimer_iomem;
     MemoryRegion container;
     DeviceState *mptimer;
     DeviceState *gic;
@@ -227,7 +226,7 @@ static void a9mp_priv_class_init(ObjectClass *klass, void *data)
     dc->reset = a9mp_priv_reset;
 }
 
-static TypeInfo a9mp_priv_info = {
+static const TypeInfo a9mp_priv_info = {
     .name          = "a9mpcore_priv",
     .parent        = TYPE_SYS_BUS_DEVICE,
     .instance_size = sizeof(a9mp_priv_state),

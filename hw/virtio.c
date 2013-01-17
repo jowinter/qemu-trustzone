@@ -14,9 +14,9 @@
 #include <inttypes.h>
 
 #include "trace.h"
-#include "qemu-error.h"
+#include "qemu/error-report.h"
 #include "virtio.h"
-#include "qemu-barrier.h"
+#include "qemu/atomic.h"
 
 /* The alignment to use between consumer and producer parts of vring.
  * x86 pagesize again. */
@@ -935,7 +935,7 @@ VirtIODevice *virtio_common_init(const char *name, uint16_t device_id,
 }
 
 void virtio_bind_device(VirtIODevice *vdev, const VirtIOBindings *binding,
-                        void *opaque)
+                        DeviceState *opaque)
 {
     vdev->binding = binding;
     vdev->binding_opaque = opaque;

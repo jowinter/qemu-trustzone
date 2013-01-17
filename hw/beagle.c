@@ -20,17 +20,17 @@
  */
 
 #include "qemu-common.h"
-#include "sysemu.h"
+#include "sysemu/sysemu.h"
 #include "omap.h"
 #include "arm-misc.h"
 #include "boards.h"
 #include "i2c.h"
-#include "net.h"
+#include "net/net.h"
 #include "devices.h"
 #include "flash.h"
 #include "sysbus.h"
-#include "blockdev.h"
-#include "exec-memory.h"
+#include "sysemu/blockdev.h"
+#include "exec/address-spaces.h"
 
 #define BEAGLE_NAND_CS       0
 #define BEAGLE_SMC_CS        1

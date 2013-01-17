@@ -19,11 +19,11 @@
  */
 
 #include "qemu-common.h"
-#include "sysemu.h"
+#include "sysemu/sysemu.h"
 #include "omap.h"
 #include "arm-misc.h"
 #include "irq.h"
-#include "console.h"
+#include "ui/console.h"
 #include "boards.h"
 #include "i2c.h"
 #include "spi.h"
@@ -31,11 +31,11 @@
 #include "flash.h"
 #include "hw.h"
 #include "bt.h"
-#include "net.h"
+#include "net/net.h"
 #include "loader.h"
-#include "blockdev.h"
+#include "sysemu/blockdev.h"
 #include "sysbus.h"
-#include "exec-memory.h"
+#include "exec/address-spaces.h"
 
 //#define MIPID_DEBUG
 
@@ -1560,12 +1560,14 @@ static QEMUMachine n800_machine = {
     .name = "n800",
     .desc = "Nokia N800 tablet aka. RX-34 (OMAP2420)",
     .init = n800_init,
+    DEFAULT_MACHINE_OPTIONS,
 };
 
 static QEMUMachine n810_machine = {
     .name = "n810",
     .desc = "Nokia N810 tablet aka. RX-44 (OMAP2420)",
     .init = n810_init,
+    DEFAULT_MACHINE_OPTIONS,
 };
 
 #define N900_SDRAM_SIZE (256 * 1024 * 1024)

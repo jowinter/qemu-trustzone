@@ -19,10 +19,10 @@
 #include "hw.h"
 #include "arm-misc.h"
 #include "omap.h"
-#include "sysemu.h"
+#include "sysemu/sysemu.h"
 #include "soc_dma.h"
-#include "blockdev.h"
-#include "range.h"
+#include "sysemu/blockdev.h"
+#include "qemu/range.h"
 #include "sysbus.h"
 
 /* Should signal the TCMI/GPMC */
@@ -2830,7 +2830,7 @@ static void omap_rtc_tick(void *opaque)
         s->round = 0;
     }
 
-    memcpy(&s->current_tm, localtime(&s->ti), sizeof(s->current_tm));
+    localtime_r(&s->ti, &s->current_tm);
 
     if ((s->interrupts & 0x08) && s->ti == s->alarm_ti) {
         s->status |= 0x40;

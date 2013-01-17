@@ -23,15 +23,15 @@
  */
 
 #include "sysbus.h"
-#include "net.h"
+#include "net/net.h"
 #include "flash.h"
 #include "boards.h"
 #include "etraxfs.h"
 #include "loader.h"
 #include "elf.h"
 #include "cris-boot.h"
-#include "blockdev.h"
-#include "exec-memory.h"
+#include "sysemu/blockdev.h"
+#include "exec/address-spaces.h"
 
 #define D(x)
 #define DNAND(x)
@@ -355,6 +355,7 @@ static QEMUMachine axisdev88_machine = {
     .desc = "AXIS devboard 88",
     .init = axisdev88_init,
     .is_default = 1,
+    DEFAULT_MACHINE_OPTIONS,
 };
 
 static void axisdev88_machine_init(void)

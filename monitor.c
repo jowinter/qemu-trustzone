@@ -27,35 +27,35 @@
 #include "hw/usb.h"
 #include "hw/pcmcia.h"
 #include "hw/pc.h"
-#include "hw/pci.h"
+#include "hw/pci/pci.h"
 #include "hw/watchdog.h"
 #include "hw/loader.h"
-#include "gdbstub.h"
-#include "net.h"
+#include "exec/gdbstub.h"
+#include "net/net.h"
 #include "net/slirp.h"
-#include "qemu-char.h"
+#include "char/char.h"
 #include "ui/qemu-spice.h"
-#include "sysemu.h"
-#include "monitor.h"
-#include "readline.h"
-#include "console.h"
-#include "blockdev.h"
+#include "sysemu/sysemu.h"
+#include "monitor/monitor.h"
+#include "monitor/readline.h"
+#include "ui/console.h"
+#include "sysemu/blockdev.h"
 #include "audio/audio.h"
-#include "disas.h"
-#include "balloon.h"
-#include "qemu-timer.h"
-#include "migration.h"
-#include "kvm.h"
-#include "acl.h"
-#include "qint.h"
-#include "qfloat.h"
-#include "qlist.h"
-#include "qbool.h"
-#include "qstring.h"
-#include "qjson.h"
-#include "json-streamer.h"
-#include "json-parser.h"
-#include "osdep.h"
+#include "disas/disas.h"
+#include "sysemu/balloon.h"
+#include "qemu/timer.h"
+#include "migration/migration.h"
+#include "sysemu/kvm.h"
+#include "qemu/acl.h"
+#include "qapi/qmp/qint.h"
+#include "qapi/qmp/qfloat.h"
+#include "qapi/qmp/qlist.h"
+#include "qapi/qmp/qbool.h"
+#include "qapi/qmp/qstring.h"
+#include "qapi/qmp/qjson.h"
+#include "qapi/qmp/json-streamer.h"
+#include "qapi/qmp/json-parser.h"
+#include "qemu/osdep.h"
 #include "cpu.h"
 #include "trace.h"
 #include "trace/control.h"
@@ -63,10 +63,10 @@
 #include "trace/simple.h"
 #endif
 #include "ui/qemu-spice.h"
-#include "memory.h"
+#include "exec/memory.h"
 #include "qmp-commands.h"
 #include "hmp.h"
-#include "qemu-thread.h"
+#include "qemu/thread.h"
 
 /* for pic/irq_info */
 #if defined(TARGET_SPARC)
@@ -270,6 +270,7 @@ static void monitor_puts(Monitor *mon, const char *str)
     char c;
 
     for(;;) {
+        assert(mon->outbuf_index < sizeof(mon->outbuf) - 1);
         c = *str++;
         if (c == '\0')
             break;
@@ -871,9 +872,11 @@ EventInfoList *qmp_query_events(Error **errp)
 int monitor_set_cpu(int cpu_index)
 {
     CPUArchState *env;
+    CPUState *cpu;
 
-    for(env = first_cpu; env != NULL; env = env->next_cpu) {
-        if (env->cpu_index == cpu_index) {
+    for (env = first_cpu; env != NULL; env = env->next_cpu) {
+        cpu = ENV_GET_CPU(env);
+        if (cpu->cpu_index == cpu_index) {
             cur_mon->mon_cpu = env;
             return 0;
         }
@@ -892,7 +895,8 @@ static CPUArchState *mon_get_cpu(void)
 
 int monitor_get_cpu_index(void)
 {
-    return mon_get_cpu()->cpu_index;
+    CPUState *cpu = ENV_GET_CPU(mon_get_cpu());
+    return cpu->cpu_index;
 }
 
 static void do_info_registers(Monitor *mon)
@@ -1782,13 +1786,15 @@ static void do_info_numa(Monitor *mon)
 {
     int i;
     CPUArchState *env;
+    CPUState *cpu;
 
     monitor_printf(mon, "%d nodes\n", nb_numa_nodes);
     for (i = 0; i < nb_numa_nodes; i++) {
         monitor_printf(mon, "node %d cpus:", i);
         for (env = first_cpu; env != NULL; env = env->next_cpu) {
-            if (env->numa_node == i) {
-                monitor_printf(mon, " %d", env->cpu_index);
+            cpu = ENV_GET_CPU(env);
+            if (cpu->numa_node == i) {
+                monitor_printf(mon, " %d", cpu->cpu_index);
             }
         }
         monitor_printf(mon, "\n");
@@ -1990,6 +1996,7 @@ static void do_inject_mce(Monitor *mon, const QDict *qdict)
 {
     X86CPU *cpu;
     CPUX86State *cenv;
+    CPUState *cs;
     int cpu_index = qdict_get_int(qdict, "cpu_index");
     int bank = qdict_get_int(qdict, "bank");
     uint64_t status = qdict_get_int(qdict, "status");
@@ -2003,7 +2010,8 @@ static void do_inject_mce(Monitor *mon, const QDict *qdict)
     }
     for (cenv = first_cpu; cenv != NULL; cenv = cenv->next_cpu) {
         cpu = x86_env_get_cpu(cenv);
-        if (cenv->cpu_index == cpu_index) {
+        cs = CPU(cpu);
+        if (cs->cpu_index == cpu_index) {
             cpu_x86_inject_mce(mon, cpu, bank, status, mcg_status, addr, misc,
                                flags);
             break;
@@ -4790,3 +4798,25 @@ int monitor_read_block_device_key(Monitor *mon, const char *device,
 
     return monitor_read_bdrv_key_start(mon, bs, completion_cb, opaque);
 }
+
+QemuOptsList qemu_mon_opts = {
+    .name = "mon",
+    .implied_opt_name = "chardev",
+    .head = QTAILQ_HEAD_INITIALIZER(qemu_mon_opts.head),
+    .desc = {
+        {
+            .name = "mode",
+            .type = QEMU_OPT_STRING,
+        },{
+            .name = "chardev",
+            .type = QEMU_OPT_STRING,
+        },{
+            .name = "default",
+            .type = QEMU_OPT_BOOL,
+        },{
+            .name = "pretty",
+            .type = QEMU_OPT_BOOL,
+        },
+        { /* end of list */ }
+    },
+};

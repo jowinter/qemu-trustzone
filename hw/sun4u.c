@@ -22,15 +22,15 @@
  * THE SOFTWARE.
  */
 #include "hw.h"
-#include "pci.h"
+#include "pci/pci.h"
 #include "apb_pci.h"
 #include "pc.h"
 #include "serial.h"
 #include "nvram.h"
 #include "fdc.h"
-#include "net.h"
-#include "qemu-timer.h"
-#include "sysemu.h"
+#include "net/net.h"
+#include "qemu/timer.h"
+#include "sysemu/sysemu.h"
 #include "boards.h"
 #include "firmware_abi.h"
 #include "fw_cfg.h"
@@ -38,8 +38,8 @@
 #include "ide.h"
 #include "loader.h"
 #include "elf.h"
-#include "blockdev.h"
-#include "exec-memory.h"
+#include "sysemu/blockdev.h"
+#include "exec/address-spaces.h"
 
 //#define DEBUG_IRQ
 //#define DEBUG_EBUS
@@ -618,7 +618,7 @@ static void ebus_class_init(ObjectClass *klass, void *data)
     k->class_id = PCI_CLASS_BRIDGE_OTHER;
 }
 
-static TypeInfo ebus_info = {
+static const TypeInfo ebus_info = {
     .name          = "ebus",
     .parent        = TYPE_PCI_DEVICE,
     .instance_size = sizeof(EbusState),
@@ -695,7 +695,7 @@ static void prom_class_init(ObjectClass *klass, void *data)
     dc->props = prom_properties;
 }
 
-static TypeInfo prom_info = {
+static const TypeInfo prom_info = {
     .name          = "openprom",
     .parent        = TYPE_SYS_BUS_DEVICE,
     .instance_size = sizeof(PROMState),
@@ -752,7 +752,7 @@ static void ram_class_init(ObjectClass *klass, void *data)
     dc->props = ram_properties;
 }
 
-static TypeInfo ram_info = {
+static const TypeInfo ram_info = {
     .name          = "memory",
     .parent        = TYPE_SYS_BUS_DEVICE,
     .instance_size = sizeof(RamDevice),
@@ -978,6 +978,7 @@ static QEMUMachine sun4u_machine = {
     .init = sun4u_init,
     .max_cpus = 1, // XXX for now
     .is_default = 1,
+    DEFAULT_MACHINE_OPTIONS,
 };
 
 static QEMUMachine sun4v_machine = {
@@ -985,6 +986,7 @@ static QEMUMachine sun4v_machine = {
     .desc = "Sun4v platform",
     .init = sun4v_init,
     .max_cpus = 1, // XXX for now
+    DEFAULT_MACHINE_OPTIONS,
 };
 
 static QEMUMachine niagara_machine = {
@@ -992,6 +994,7 @@ static QEMUMachine niagara_machine = {
     .desc = "Sun4v platform, Niagara",
     .init = niagara_init,
     .max_cpus = 1, // XXX for now
+    DEFAULT_MACHINE_OPTIONS,
 };
 
 static void sun4u_register_types(void)

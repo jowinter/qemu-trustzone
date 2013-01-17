@@ -1,11 +1,11 @@
 #include "hw.h"
-#include "qemu-error.h"
+#include "qemu/error-report.h"
 #include "scsi.h"
 #include "scsi-defs.h"
 #include "qdev.h"
-#include "blockdev.h"
+#include "sysemu/blockdev.h"
 #include "trace.h"
-#include "dma.h"
+#include "sysemu/dma.h"
 
 static char *scsibus_get_dev_path(DeviceState *dev);
 static char *scsibus_get_fw_dev_path(DeviceState *dev);
@@ -1863,7 +1863,7 @@ static void scsi_device_class_init(ObjectClass *klass, void *data)
     k->props    = scsi_props;
 }
 
-static TypeInfo scsi_device_type_info = {
+static const TypeInfo scsi_device_type_info = {
     .name = TYPE_SCSI_DEVICE,
     .parent = TYPE_DEVICE,
     .instance_size = sizeof(SCSIDevice),

@@ -24,8 +24,8 @@
 #include "hw.h"
 #include "pc.h"
 #include "isa.h"
-#include "monitor.h"
-#include "qemu-timer.h"
+#include "monitor/monitor.h"
+#include "qemu/timer.h"
 #include "i8259_internal.h"
 
 /* debug PIC */
@@ -481,7 +481,7 @@ static void i8259_class_init(ObjectClass *klass, void *data)
     dc->reset = pic_reset;
 }
 
-static TypeInfo i8259_info = {
+static const TypeInfo i8259_info = {
     .name       = "isa-i8259",
     .instance_size = sizeof(PICCommonState),
     .parent     = TYPE_PIC_COMMON,

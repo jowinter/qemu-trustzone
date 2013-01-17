@@ -140,7 +140,7 @@ combiner_grp_to_gic_id[64-EXYNOS4210_MAX_EXT_COMBINER_OUT_IRQ][8] = {
             EXT_GIC_ID_I2C4, EXT_GIC_ID_I2C5, EXT_GIC_ID_I2C6,
             EXT_GIC_ID_I2C7 },
     /* int combiner group 28 */
-    { EXT_GIC_ID_SPI0, EXT_GIC_ID_SPI1, EXT_GIC_ID_SPI2 },
+    { EXT_GIC_ID_SPI0, EXT_GIC_ID_SPI1, EXT_GIC_ID_SPI2 , EXT_GIC_ID_USB_HOST},
     /* int combiner group 29 */
     { EXT_GIC_ID_HSMMC0, EXT_GIC_ID_HSMMC1, EXT_GIC_ID_HSMMC2,
      EXT_GIC_ID_HSMMC3, EXT_GIC_ID_SDMMC },
@@ -346,7 +346,7 @@ static void exynos4210_gic_class_init(ObjectClass *klass, void *data)
     dc->props = exynos4210_gic_properties;
 }
 
-static TypeInfo exynos4210_gic_info = {
+static const TypeInfo exynos4210_gic_info = {
     .name          = "exynos4210.gic",
     .parent        = TYPE_SYS_BUS_DEVICE,
     .instance_size = sizeof(Exynos4210GicState),
@@ -447,7 +447,7 @@ static void exynos4210_irq_gate_class_init(ObjectClass *klass, void *data)
     dc->props = exynos4210_irq_gate_properties;
 }
 
-static TypeInfo exynos4210_irq_gate_info = {
+static const TypeInfo exynos4210_irq_gate_info = {
     .name          = "exynos4210.irq_gate",
     .parent        = TYPE_SYS_BUS_DEVICE,
     .instance_size = sizeof(Exynos4210IRQGateState),

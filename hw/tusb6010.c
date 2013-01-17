@@ -19,7 +19,7 @@
  * with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 #include "qemu-common.h"
-#include "qemu-timer.h"
+#include "qemu/timer.h"
 #include "usb.h"
 #include "omap.h"
 #include "irq.h"
@@ -798,7 +798,7 @@ static void tusb6010_class_init(ObjectClass *klass, void *data)
     dc->reset = tusb6010_reset;
 }
 
-static TypeInfo tusb6010_info = {
+static const TypeInfo tusb6010_info = {
     .name          = "tusb6010",
     .parent        = TYPE_SYS_BUS_DEVICE,
     .instance_size = sizeof(TUSBState),

@@ -15,6 +15,7 @@
 #ifndef QEMU_VIRTIO_PCI_H
 #define QEMU_VIRTIO_PCI_H
 
+#include "hw/pci/msi.h"
 #include "virtio-blk.h"
 #include "virtio-net.h"
 #include "virtio-rng.h"
@@ -27,6 +28,7 @@
 #define VIRTIO_PCI_FLAG_USE_IOEVENTFD   (1 << VIRTIO_PCI_FLAG_USE_IOEVENTFD_BIT)
 
 typedef struct {
+    MSIMessage msg;
     int virq;
     unsigned int users;
 } VirtIOIRQFD;
@@ -51,6 +53,7 @@ typedef struct {
     bool ioeventfd_disabled;
     bool ioeventfd_started;
     VirtIOIRQFD *vector_irqfd;
+    int nvqs_with_notifiers;
 } VirtIOPCIProxy;
 
 void virtio_init_pci(VirtIOPCIProxy *proxy, VirtIODevice *vdev);

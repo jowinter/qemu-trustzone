@@ -20,9 +20,9 @@
 
 # include "hw.h"
 # include "flash.h"
-# include "blockdev.h"
+# include "sysemu/blockdev.h"
 # include "sysbus.h"
-#include "qemu-error.h"
+#include "qemu/error-report.h"
 
 # define NAND_CMD_READ0		0x00
 # define NAND_CMD_READ1		0x01
@@ -440,7 +440,7 @@ static void nand_class_init(ObjectClass *klass, void *data)
     dc->props = nand_properties;
 }
 
-static TypeInfo nand_info = {
+static const TypeInfo nand_info = {
     .name          = "nand",
     .parent        = TYPE_SYS_BUS_DEVICE,
     .instance_size = sizeof(NANDFlashState),

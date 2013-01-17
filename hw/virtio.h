@@ -15,10 +15,10 @@
 #define _QEMU_VIRTIO_H
 
 #include "hw.h"
-#include "net.h"
+#include "net/net.h"
 #include "qdev.h"
-#include "sysemu.h"
-#include "event_notifier.h"
+#include "sysemu/sysemu.h"
+#include "qemu/event_notifier.h"
 #ifdef CONFIG_LINUX
 #include "9p.h"
 #endif
@@ -91,17 +91,17 @@ typedef struct VirtQueueElement
 } VirtQueueElement;
 
 typedef struct {
-    void (*notify)(void * opaque, uint16_t vector);
-    void (*save_config)(void * opaque, QEMUFile *f);
-    void (*save_queue)(void * opaque, int n, QEMUFile *f);
-    int (*load_config)(void * opaque, QEMUFile *f);
-    int (*load_queue)(void * opaque, int n, QEMUFile *f);
-    int (*load_done)(void * opaque, QEMUFile *f);
-    unsigned (*get_features)(void * opaque);
-    bool (*query_guest_notifiers)(void * opaque);
-    int (*set_guest_notifiers)(void * opaque, bool assigned);
-    int (*set_host_notifier)(void * opaque, int n, bool assigned);
-    void (*vmstate_change)(void * opaque, bool running);
+    void (*notify)(DeviceState *d, uint16_t vector);
+    void (*save_config)(DeviceState *d, QEMUFile *f);
+    void (*save_queue)(DeviceState *d, int n, QEMUFile *f);
+    int (*load_config)(DeviceState *d, QEMUFile *f);
+    int (*load_queue)(DeviceState *d, int n, QEMUFile *f);
+    int (*load_done)(DeviceState *d, QEMUFile *f);
+    unsigned (*get_features)(DeviceState *d);
+    bool (*query_guest_notifiers)(DeviceState *d);
+    int (*set_guest_notifiers)(DeviceState *d, int nvqs, bool assigned);
+    int (*set_host_notifier)(DeviceState *d, int n, bool assigned);
+    void (*vmstate_change)(DeviceState *d, bool running);
 } VirtIOBindings;
 
 #define VIRTIO_PCI_QUEUE_MAX 64
@@ -126,9 +126,22 @@ struct VirtIODevice
     void (*set_config)(VirtIODevice *vdev, const uint8_t *config);
     void (*reset)(VirtIODevice *vdev);
     void (*set_status)(VirtIODevice *vdev, uint8_t val);
+    /* Test and clear event pending status.
+     * Should be called after unmask to avoid losing events.
+     * If backend does not support masking,
+     * must check in frontend instead.
+     */
+    bool (*guest_notifier_pending)(VirtIODevice *vdev, int n);
+    /* Mask/unmask events from this vq. Any events reported
+     * while masked will become pending.
+     * If backend does not support masking,
+     * must mask in frontend instead.
+     */
+    void (*guest_notifier_mask)(VirtIODevice *vdev, int n, bool mask);
+
     VirtQueue *vq;
     const VirtIOBindings *binding;
-    void *binding_opaque;
+    DeviceState *binding_opaque;
     uint16_t device_id;
     bool vm_running;
     VMChangeStateEntry *vmstate;
@@ -191,7 +204,7 @@ void virtio_update_irq(VirtIODevice *vdev);
 int virtio_set_features(VirtIODevice *vdev, uint32_t val);
 
 void virtio_bind_device(VirtIODevice *vdev, const VirtIOBindings *binding,
-                        void *opaque);
+                        DeviceState *opaque);
 
 /* Base devices.  */
 typedef struct VirtIOBlkConf VirtIOBlkConf;

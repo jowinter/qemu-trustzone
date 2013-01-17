@@ -25,7 +25,7 @@
 #include <zlib.h> /* For crc32 */
 
 #include "sysbus.h"
-#include "net.h"
+#include "net/net.h"
 #include "net/checksum.h"
 
 #ifdef CADENCE_GEM_ERR_DEBUG
@@ -1218,7 +1218,7 @@ static void gem_class_init(ObjectClass *klass, void *data)
     dc->reset = gem_reset;
 }
 
-static TypeInfo gem_info = {
+static const TypeInfo gem_info = {
     .class_init = gem_class_init,
     .name  = "cadence_gem",
     .parent = TYPE_SYS_BUS_DEVICE,

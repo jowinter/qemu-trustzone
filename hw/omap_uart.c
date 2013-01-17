@@ -17,11 +17,11 @@
  * You should have received a copy of the GNU General Public License along
  * with this program; if not, see <http://www.gnu.org/licenses/>.
  */
-#include "qemu-char.h"
+#include "char/char.h"
 #include "hw.h"
 #include "omap.h"
 #include "serial.h"
-#include "exec-memory.h"
+#include "exec/address-spaces.h"
 #include "sysbus.h"
 
 /* The OMAP UART functionality is similar to the TI16C752; it is

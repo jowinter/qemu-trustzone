@@ -22,13 +22,13 @@
  * THE SOFTWARE.
  */
 #include "qemu-common.h"
-#include "qemu-timer.h"
-#include "block_int.h"
-#include "module.h"
+#include "qemu/timer.h"
+#include "block/block_int.h"
+#include "qemu/module.h"
 #include "qemu-common.h"
-#include "qemu-aio.h"
+#include "block/aio.h"
 #include "raw-aio.h"
-#include "event_notifier.h"
+#include "qemu/event_notifier.h"
 #include <windows.h>
 #include <winioctl.h>
 
@@ -87,7 +87,7 @@ static void win32_aio_process_completion(QEMUWin32AIOState *s,
                 memcpy(p, qiov->iov[i].iov_base, qiov->iov[i].iov_len);
                 p += qiov->iov[i].iov_len;
             }
-            g_free(waiocb->buf);
+            qemu_vfree(waiocb->buf);
         }
     }
 

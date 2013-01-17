@@ -17,8 +17,8 @@
  * Authors: Hollis Blanchard <hollisb@us.ibm.com>
  */
 
-#ifndef _UAPI__POWERPC_KVM_PARA_H__
-#define _UAPI__POWERPC_KVM_PARA_H__
+#ifndef __POWERPC_KVM_PARA_H__
+#define __POWERPC_KVM_PARA_H__
 
 #include <linux/types.h>
 
@@ -78,7 +78,7 @@ struct kvm_vcpu_arch_shared {
 
 #define KVM_HCALL_TOKEN(num)     _EV_HCALL_TOKEN(EV_KVM_VENDOR_ID, num)
 
-#include <uapi/asm/epapr_hcalls.h>
+#include <asm/epapr_hcalls.h>
 
 #define KVM_FEATURE_MAGIC_PAGE	1
 
@@ -88,4 +88,4 @@ struct kvm_vcpu_arch_shared {
 #define KVM_MAGIC_FEAT_MAS0_TO_SPRG7	(1 << 1)
 
 
-#endif /* _UAPI__POWERPC_KVM_PARA_H__ */
+#endif /* __POWERPC_KVM_PARA_H__ */

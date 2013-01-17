@@ -21,7 +21,7 @@
 
 #include "hw.h"
 #include "pc.h"
-#include "monitor.h"
+#include "monitor/monitor.h"
 #include "sysbus.h"
 #include "trace.h"
 #include "lm32_pic.h"
@@ -184,7 +184,7 @@ static void lm32_pic_class_init(ObjectClass *klass, void *data)
     dc->vmsd = &vmstate_lm32_pic;
 }
 
-static TypeInfo lm32_pic_info = {
+static const TypeInfo lm32_pic_info = {
     .name          = "lm32-pic",
     .parent        = TYPE_SYS_BUS_DEVICE,
     .instance_size = sizeof(LM32PicState),

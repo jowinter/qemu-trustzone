@@ -25,8 +25,8 @@
 #include "hw.h"
 #include "sysbus.h"
 #include "escc.h"
-#include "qemu-char.h"
-#include "console.h"
+#include "char/char.h"
+#include "ui/console.h"
 #include "trace.h"
 
 /*
@@ -923,7 +923,7 @@ static void escc_class_init(ObjectClass *klass, void *data)
     dc->props = escc_properties;
 }
 
-static TypeInfo escc_info = {
+static const TypeInfo escc_info = {
     .name          = "escc",
     .parent        = TYPE_SYS_BUS_DEVICE,
     .instance_size = sizeof(SerialState),

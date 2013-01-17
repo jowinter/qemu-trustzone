@@ -8,10 +8,10 @@
  */
 
 #include "hw.h"
-#include "qemu-timer.h"
+#include "qemu/timer.h"
 #include "sysbus.h"
 #include "primecell.h"
-#include "sysemu.h"
+#include "sysemu/sysemu.h"
 
 #define LOCK_VALUE 0xa05f
 
@@ -410,7 +410,7 @@ static void arm_sysctl_class_init(ObjectClass *klass, void *data)
     dc->props = arm_sysctl_properties;
 }
 
-static TypeInfo arm_sysctl_info = {
+static const TypeInfo arm_sysctl_info = {
     .name          = "realview_sysctl",
     .parent        = TYPE_SYS_BUS_DEVICE,
     .instance_size = sizeof(arm_sysctl_state),

@@ -18,8 +18,8 @@
  */
 
 #include "sysbus.h"
-#include "monitor.h"
-#include "exec-memory.h"
+#include "monitor/monitor.h"
+#include "exec/address-spaces.h"
 
 static void sysbus_dev_print(Monitor *mon, DeviceState *dev, int indent);
 static char *sysbus_get_fw_dev_path(DeviceState *dev);
@@ -255,7 +255,7 @@ static void sysbus_device_class_init(ObjectClass *klass, void *data)
     k->bus_type = TYPE_SYSTEM_BUS;
 }
 
-static TypeInfo sysbus_device_type_info = {
+static const TypeInfo sysbus_device_type_info = {
     .name = TYPE_SYS_BUS_DEVICE,
     .parent = TYPE_DEVICE,
     .instance_size = sizeof(SysBusDevice),

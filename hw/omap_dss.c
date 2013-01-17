@@ -18,9 +18,9 @@
  * You should have received a copy of the GNU General Public License along
  * with this program; if not, see <http://www.gnu.org/licenses/>.
  */
-#include "console.h"
 #include "omap.h"
 #include "sysbus.h"
+#include "ui/console.h"
 #include "dsi.h"
 
 //#define OMAP_DSS_DEBUG
@@ -234,7 +234,7 @@ struct omap_dss_s {
     } dsi;
 };
 
-#include "pixel_ops.h"
+#include "ui/pixel_ops.h"
 #include "framebuffer.h"
 #define DEPTH 8
 #include "omap_dss_drawfn.h"

@@ -727,7 +727,7 @@ static void omap_i2c_class_init(ObjectClass *klass, void *data)
     dc->vmsd = &vmstate_omap_i2c;
 }
 
-static TypeInfo omap_i2c_info = {
+static const TypeInfo omap_i2c_info = {
     .name = "omap_i2c",
     .parent = TYPE_SYS_BUS_DEVICE,
     .instance_size = sizeof(OMAPI2CState),
