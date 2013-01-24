@@ -16,9 +16,9 @@
 #include <linux/kvm.h>
 
 #include "qemu-common.h"
-#include "qemu-timer.h"
-#include "sysemu.h"
-#include "kvm.h"
+#include "qemu/timer.h"
+#include "sysemu/sysemu.h"
+#include "sysemu/kvm.h"
 #include "kvm_arm.h"
 #include "cpu.h"
 #include "hw/arm-misc.h"
@@ -36,7 +36,7 @@ int kvm_arch_init(KVMState *s)
     return 0;
 }
 
-int kvm_arch_init_vcpu(CPUARMState *env)
+int kvm_arch_init_vcpu(CPUState *cs)
 {
     struct kvm_vcpu_init init;
     int ret;
@@ -45,7 +45,7 @@ int kvm_arch_init_vcpu(CPUARMState *env)
 
     init.target = KVM_ARM_TARGET_CORTEX_A15;
     memset(init.features, 0, sizeof(init.features));
-    ret = kvm_vcpu_ioctl(env, KVM_ARM_VCPU_INIT, &init);
+    ret = kvm_vcpu_ioctl(cs, KVM_ARM_VCPU_INIT, &init);
     if (ret) {
         return ret;
     }
@@ -56,7 +56,7 @@ int kvm_arch_init_vcpu(CPUARMState *env)
      */
     r.id = KVM_REG_ARM | KVM_REG_SIZE_U64 | KVM_REG_ARM_VFP | 31;
     r.addr = (uintptr_t)(&v);
-    ret = kvm_vcpu_ioctl(env, KVM_GET_ONE_REG, &r);
+    ret = kvm_vcpu_ioctl(cs, KVM_GET_ONE_REG, &r);
     if (ret == ENOENT) {
         return EINVAL;
     }
@@ -72,7 +72,7 @@ int kvm_arch_init_vcpu(CPUARMState *env)
  * need to do anything special for the KVM case.
  */
 typedef struct KVMDevice {
-    struct kvm_device_address kda;
+    struct kvm_arm_device_addr kda;
     MemoryRegion *mr;
     QSLIST_ENTRY(KVMDevice) entries;
 } KVMDevice;
@@ -112,8 +112,9 @@ static void kvm_arm_machine_init_done(Notifier *notifier, void *data)
     memory_listener_unregister(&devlistener);
     QSLIST_FOREACH_SAFE(kd, &kvm_devices_head, entries, tkd) {
         if (kd->kda.addr != -1) {
-            if (kvm_vm_ioctl(kvm_state, KVM_SET_DEVICE_ADDRESS, &kd->kda) < 0) {
-                fprintf(stderr, "KVM_SET_DEVICE_ADDRESS failed: %s\n",
+            if (kvm_vm_ioctl(kvm_state, KVM_ARM_SET_DEVICE_ADDR,
+                             &kd->kda) < 0) {
+                fprintf(stderr, "KVM_ARM_SET_DEVICE_ADDRESS failed: %s\n",
                         strerror(errno));
                 abort();
             }
@@ -231,8 +232,10 @@ static const Reg regs[] = {
     VFPSYSREG(FPINST2),
 };
 
-int kvm_arch_put_registers(CPUARMState *env, int level)
+int kvm_arch_put_registers(CPUState *cs, int level)
 {
+    ARMCPU *cpu = ARM_CPU(cs);
+    CPUARMState *env = &cpu->env;
     struct kvm_one_reg r;
     int mode, bn;
     int ret, i;
@@ -255,7 +258,7 @@ int kvm_arch_put_registers(CPUARMState *env, int level)
     for (i = 0; i < ARRAY_SIZE(regs); i++) {
         r.id = regs[i].id;
         r.addr = (uintptr_t)(env) + regs[i].offset;
-        ret = kvm_vcpu_ioctl(env, KVM_SET_ONE_REG, &r);
+        ret = kvm_vcpu_ioctl(cs, KVM_SET_ONE_REG, &r);
         if (ret) {
             return ret;
         }
@@ -266,7 +269,7 @@ int kvm_arch_put_registers(CPUARMState *env, int level)
     r.id = KVM_REG_ARM | KVM_REG_SIZE_U32 |
         KVM_REG_ARM_CORE | KVM_REG_ARM_CORE_REG(usr_regs.ARM_cpsr);
     r.addr = (uintptr_t)(&cpsr);
-    ret = kvm_vcpu_ioctl(env, KVM_SET_ONE_REG, &r);
+    ret = kvm_vcpu_ioctl(cs, KVM_SET_ONE_REG, &r);
     if (ret) {
         return ret;
     }
@@ -276,7 +279,7 @@ int kvm_arch_put_registers(CPUARMState *env, int level)
     r.id = KVM_REG_ARM | KVM_REG_SIZE_U64 | (15 << KVM_REG_ARM_COPROC_SHIFT) |
         (2 << KVM_REG_ARM_CRM_SHIFT) | (0 << KVM_REG_ARM_OPC1_SHIFT);
     r.addr = (uintptr_t)(&ttbr);
-    ret = kvm_vcpu_ioctl(env, KVM_SET_ONE_REG, &r);
+    ret = kvm_vcpu_ioctl(cs, KVM_SET_ONE_REG, &r);
     if (ret) {
         return ret;
     }
@@ -286,7 +289,7 @@ int kvm_arch_put_registers(CPUARMState *env, int level)
     r.id = KVM_REG_ARM | KVM_REG_SIZE_U64 | (15 << KVM_REG_ARM_COPROC_SHIFT) |
         (2 << KVM_REG_ARM_CRM_SHIFT) | (1 << KVM_REG_ARM_OPC1_SHIFT);
     r.addr = (uintptr_t)(&ttbr);
-    ret = kvm_vcpu_ioctl(env, KVM_SET_ONE_REG, &r);
+    ret = kvm_vcpu_ioctl(cs, KVM_SET_ONE_REG, &r);
     if (ret) {
         return ret;
     }
@@ -295,7 +298,7 @@ int kvm_arch_put_registers(CPUARMState *env, int level)
     r.id = KVM_REG_ARM | KVM_REG_SIZE_U64 | KVM_REG_ARM_VFP;
     for (i = 0; i < 32; i++) {
         r.addr = (uintptr_t)(&env->vfp.regs[i]);
-        ret = kvm_vcpu_ioctl(env, KVM_SET_ONE_REG, &r);
+        ret = kvm_vcpu_ioctl(cs, KVM_SET_ONE_REG, &r);
         if (ret) {
             return ret;
         }
@@ -306,13 +309,15 @@ int kvm_arch_put_registers(CPUARMState *env, int level)
         KVM_REG_ARM_VFP_FPSCR;
     fpscr = vfp_get_fpscr(env);
     r.addr = (uintptr_t)&fpscr;
-    ret = kvm_vcpu_ioctl(env, KVM_SET_ONE_REG, &r);
+    ret = kvm_vcpu_ioctl(cs, KVM_SET_ONE_REG, &r);
 
     return ret;
 }
 
-int kvm_arch_get_registers(CPUARMState *env)
+int kvm_arch_get_registers(CPUState *cs)
 {
+    ARMCPU *cpu = ARM_CPU(cs);
+    CPUARMState *env = &cpu->env;
     struct kvm_one_reg r;
     int mode, bn;
     int ret, i;
@@ -322,7 +327,7 @@ int kvm_arch_get_registers(CPUARMState *env)
     for (i = 0; i < ARRAY_SIZE(regs); i++) {
         r.id = regs[i].id;
         r.addr = (uintptr_t)(env) + regs[i].offset;
-        ret = kvm_vcpu_ioctl(env, KVM_GET_ONE_REG, &r);
+        ret = kvm_vcpu_ioctl(cs, KVM_GET_ONE_REG, &r);
         if (ret) {
             return ret;
         }
@@ -332,7 +337,7 @@ int kvm_arch_get_registers(CPUARMState *env)
     r.id = KVM_REG_ARM | KVM_REG_SIZE_U32 |
         KVM_REG_ARM_CORE | KVM_REG_ARM_CORE_REG(usr_regs.ARM_cpsr);
     r.addr = (uintptr_t)(&cpsr);
-    ret = kvm_vcpu_ioctl(env, KVM_GET_ONE_REG, &r);
+    ret = kvm_vcpu_ioctl(cs, KVM_GET_ONE_REG, &r);
     if (ret) {
         return ret;
     }
@@ -342,7 +347,7 @@ int kvm_arch_get_registers(CPUARMState *env)
     r.id = KVM_REG_ARM | KVM_REG_SIZE_U64 | (15 << KVM_REG_ARM_COPROC_SHIFT) |
         (2 << KVM_REG_ARM_CRM_SHIFT) | (0 << KVM_REG_ARM_OPC1_SHIFT);
     r.addr = (uintptr_t)(&ttbr);
-    ret = kvm_vcpu_ioctl(env, KVM_GET_ONE_REG, &r);
+    ret = kvm_vcpu_ioctl(cs, KVM_GET_ONE_REG, &r);
     if (ret) {
         return ret;
     }
@@ -353,7 +358,7 @@ int kvm_arch_get_registers(CPUARMState *env)
     r.id = KVM_REG_ARM | KVM_REG_SIZE_U64 | (15 << KVM_REG_ARM_COPROC_SHIFT) |
         (2 << KVM_REG_ARM_CRM_SHIFT) | (1 << KVM_REG_ARM_OPC1_SHIFT);
     r.addr = (uintptr_t)(&ttbr);
-    ret = kvm_vcpu_ioctl(env, KVM_GET_ONE_REG, &r);
+    ret = kvm_vcpu_ioctl(cs, KVM_GET_ONE_REG, &r);
     if (ret) {
         return ret;
     }
@@ -385,7 +390,7 @@ int kvm_arch_get_registers(CPUARMState *env)
     r.id = KVM_REG_ARM | KVM_REG_SIZE_U64 | KVM_REG_ARM_VFP;
     for (i = 0; i < 32; i++) {
         r.addr = (uintptr_t)(&env->vfp.regs[i]);
-        ret = kvm_vcpu_ioctl(env, KVM_GET_ONE_REG, &r);
+        ret = kvm_vcpu_ioctl(cs, KVM_GET_ONE_REG, &r);
         if (ret) {
             return ret;
         }
@@ -395,7 +400,7 @@ int kvm_arch_get_registers(CPUARMState *env)
     r.id = KVM_REG_ARM | KVM_REG_SIZE_U32 | KVM_REG_ARM_VFP |
         KVM_REG_ARM_VFP_FPSCR;
     r.addr = (uintptr_t)&fpscr;
-    ret = kvm_vcpu_ioctl(env, KVM_GET_ONE_REG, &r);
+    ret = kvm_vcpu_ioctl(cs, KVM_GET_ONE_REG, &r);
     if (ret) {
         return ret;
     }
@@ -404,36 +409,36 @@ int kvm_arch_get_registers(CPUARMState *env)
     return 0;
 }
 
-void kvm_arch_pre_run(CPUARMState *env, struct kvm_run *run)
+void kvm_arch_pre_run(CPUState *cs, struct kvm_run *run)
 {
 }
 
-void kvm_arch_post_run(CPUARMState *env, struct kvm_run *run)
+void kvm_arch_post_run(CPUState *cs, struct kvm_run *run)
 {
 }
 
-int kvm_arch_handle_exit(CPUARMState *env, struct kvm_run *run)
+int kvm_arch_handle_exit(CPUState *cs, struct kvm_run *run)
 {
     int ret = 0;
 
     return ret;
 }
 
-void kvm_arch_reset_vcpu(CPUARMState *env)
+void kvm_arch_reset_vcpu(CPUState *cs)
 {
 }
 
-bool kvm_arch_stop_on_emulation_error(CPUARMState *env)
+bool kvm_arch_stop_on_emulation_error(CPUState *cs)
 {
     return true;
 }
 
-int kvm_arch_process_async_events(CPUARMState *env)
+int kvm_arch_process_async_events(CPUState *cs)
 {
     return 0;
 }
 
-int kvm_arch_on_sigbus_vcpu(CPUARMState *env, int code, void *addr)
+int kvm_arch_on_sigbus_vcpu(CPUState *cs, int code, void *addr)
 {
     return 1;
 }
@@ -443,12 +448,12 @@ int kvm_arch_on_sigbus(int code, void *addr)
     return 1;
 }
 
-void kvm_arch_update_guest_debug(CPUARMState *env, struct kvm_guest_debug *dbg)
+void kvm_arch_update_guest_debug(CPUState *cs, struct kvm_guest_debug *dbg)
 {
     qemu_log_mask(LOG_UNIMP, "%s: not implemented\n", __func__);
 }
 
-int kvm_arch_insert_sw_breakpoint(CPUARMState *env,
+int kvm_arch_insert_sw_breakpoint(CPUState *cs,
                                   struct kvm_sw_breakpoint *bp)
 {
     qemu_log_mask(LOG_UNIMP, "%s: not implemented\n", __func__);
@@ -469,7 +474,7 @@ int kvm_arch_remove_hw_breakpoint(target_ulong addr,
     return -EINVAL;
 }
 
-int kvm_arch_remove_sw_breakpoint(CPUARMState *env,
+int kvm_arch_remove_sw_breakpoint(CPUState *cs,
                                   struct kvm_sw_breakpoint *bp)
 {
     qemu_log_mask(LOG_UNIMP, "%s: not implemented\n", __func__);

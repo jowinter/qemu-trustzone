@@ -19,7 +19,7 @@
  */
 
 #include "hw/sysbus.h"
-#include "kvm.h"
+#include "sysemu/kvm.h"
 #include "kvm_arm.h"
 #include "hw/arm_gic_internal.h"
 
@@ -119,8 +119,8 @@ static int kvm_arm_gic_init(SysBusDevice *dev)
     memory_region_init_reservation(&s->iomem, "kvm-gic_dist", 0x1000);
     sysbus_init_mmio(dev, &s->iomem);
     kvm_arm_register_device(&s->iomem,
-                            (KVM_ARM_DEVICE_VGIC_V2 << KVM_DEVICE_ID_SHIFT) |
-                            KVM_VGIC_V2_ADDR_TYPE_DIST);
+                            (KVM_ARM_DEVICE_VGIC_V2 << KVM_ARM_DEVICE_ID_SHIFT)
+                            | KVM_VGIC_V2_ADDR_TYPE_DIST);
     /* CPU interface for current core. Unlike arm_gic, we don't
      * provide the "interface for core #N" memory regions, because
      * cores with a VGIC don't have those.
@@ -128,8 +128,8 @@ static int kvm_arm_gic_init(SysBusDevice *dev)
     memory_region_init_reservation(&s->cpuiomem[0], "kvm-gic_cpu", 0x1000);
     sysbus_init_mmio(dev, &s->cpuiomem[0]);
     kvm_arm_register_device(&s->cpuiomem[0],
-                            (KVM_ARM_DEVICE_VGIC_V2 << KVM_DEVICE_ID_SHIFT) |
-                            KVM_VGIC_V2_ADDR_TYPE_CPU);
+                            (KVM_ARM_DEVICE_VGIC_V2 << KVM_ARM_DEVICE_ID_SHIFT)
+                            | KVM_VGIC_V2_ADDR_TYPE_CPU);
     /* TODO: we should tell the kernel at some point the address
      * of the private peripheral base. However we don't currently have
      * any convenient infrastructure to do that, and in any case the

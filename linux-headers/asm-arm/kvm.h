@@ -19,7 +19,7 @@
 #ifndef __ARM_KVM_H__
 #define __ARM_KVM_H__
 
-#include <asm/types.h>
+#include <linux/types.h>
 #include <asm/ptrace.h>
 
 #define __KVM_HAVE_GUEST_DEBUG
@@ -27,6 +27,30 @@
 
 #define KVM_REG_SIZE(id)						\
 	(1U << (((id) & KVM_REG_SIZE_MASK) >> KVM_REG_SIZE_SHIFT))
+
+/* Valid for svc_regs, abt_regs, und_regs, irq_regs in struct kvm_regs */
+#define KVM_ARM_SVC_sp		svc_regs[0]
+#define KVM_ARM_SVC_lr		svc_regs[1]
+#define KVM_ARM_SVC_spsr	svc_regs[2]
+#define KVM_ARM_ABT_sp		abt_regs[0]
+#define KVM_ARM_ABT_lr		abt_regs[1]
+#define KVM_ARM_ABT_spsr	abt_regs[2]
+#define KVM_ARM_UND_sp		und_regs[0]
+#define KVM_ARM_UND_lr		und_regs[1]
+#define KVM_ARM_UND_spsr	und_regs[2]
+#define KVM_ARM_IRQ_sp		irq_regs[0]
+#define KVM_ARM_IRQ_lr		irq_regs[1]
+#define KVM_ARM_IRQ_spsr	irq_regs[2]
+
+/* Valid only for fiq_regs in struct kvm_regs */
+#define KVM_ARM_FIQ_r8		fiq_regs[0]
+#define KVM_ARM_FIQ_r9		fiq_regs[1]
+#define KVM_ARM_FIQ_r10		fiq_regs[2]
+#define KVM_ARM_FIQ_fp		fiq_regs[3]
+#define KVM_ARM_FIQ_ip		fiq_regs[4]
+#define KVM_ARM_FIQ_sp		fiq_regs[5]
+#define KVM_ARM_FIQ_lr		fiq_regs[6]
+#define KVM_ARM_FIQ_spsr	fiq_regs[7]
 
 struct kvm_regs {
 	struct pt_regs usr_regs;/* R0_usr - R14_usr, PC, CPSR */
@@ -41,11 +65,11 @@ struct kvm_regs {
 #define KVM_ARM_TARGET_CORTEX_A15	0
 #define KVM_ARM_NUM_TARGETS		1
 
-/* KVM_SET_DEVICE_ADDRESS ioctl id encoding */
-#define KVM_DEVICE_TYPE_SHIFT		0
-#define KVM_DEVICE_TYPE_MASK		(0xffff << KVM_DEVICE_TYPE_SHIFT)
-#define KVM_DEVICE_ID_SHIFT		16
-#define KVM_DEVICE_ID_MASK		(0xffff << KVM_DEVICE_ID_SHIFT)
+/* KVM_ARM_SET_DEVICE_ADDR ioctl id encoding */
+#define KVM_ARM_DEVICE_TYPE_SHIFT	0
+#define KVM_ARM_DEVICE_TYPE_MASK	(0xffff << KVM_ARM_DEVICE_TYPE_SHIFT)
+#define KVM_ARM_DEVICE_ID_SHIFT		16
+#define KVM_ARM_DEVICE_ID_MASK		(0xffff << KVM_ARM_DEVICE_ID_SHIFT)
 
 /* Supported device IDs */
 #define KVM_ARM_DEVICE_VGIC_V2		0
@@ -53,6 +77,11 @@ struct kvm_regs {
 /* Supported VGIC address types  */
 #define KVM_VGIC_V2_ADDR_TYPE_DIST	0
 #define KVM_VGIC_V2_ADDR_TYPE_CPU	1
+
+#define KVM_VGIC_V2_DIST_SIZE		0x1000
+#define KVM_VGIC_V2_CPU_SIZE		0x2000
+
+#define KVM_ARM_VCPU_POWER_OFF		0 /* CPU is started in OFF state */
 
 struct kvm_vcpu_init {
 	__u32 target;
@@ -133,5 +162,19 @@ struct kvm_arch_memory_slot {
 
 /* Highest supported SPI, from VGIC_NR_IRQS */
 #define KVM_ARM_IRQ_GIC_MAX		127
+
+/* PSCI interface */
+#define KVM_PSCI_FN_BASE		0x95c1ba5e
+#define KVM_PSCI_FN(n)			(KVM_PSCI_FN_BASE + (n))
+
+#define KVM_PSCI_FN_CPU_SUSPEND		KVM_PSCI_FN(0)
+#define KVM_PSCI_FN_CPU_OFF		KVM_PSCI_FN(1)
+#define KVM_PSCI_FN_CPU_ON		KVM_PSCI_FN(2)
+#define KVM_PSCI_FN_MIGRATE		KVM_PSCI_FN(3)
+
+#define KVM_PSCI_RET_SUCCESS		0
+#define KVM_PSCI_RET_NI			((unsigned long)-1)
+#define KVM_PSCI_RET_INVAL		((unsigned long)-2)
+#define KVM_PSCI_RET_DENIED		((unsigned long)-3)
 
 #endif /* __ARM_KVM_H__ */

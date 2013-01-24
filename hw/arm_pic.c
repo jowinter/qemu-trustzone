@@ -38,8 +38,8 @@ static void arm_pic_cpu_handler(void *opaque, int irq, int level)
 static void kvm_arm_pic_cpu_handler(void *opaque, int irq, int level)
 {
 #ifdef CONFIG_KVM
-    ARMCPU *cpu = opaque;
-    CPUARMState *env = &cpu->env;
+    ARMCPU *armcpu = opaque;
+    CPUState *cpu = CPU(armcpu);
     int kvm_irq = KVM_ARM_IRQ_TYPE_CPU << KVM_ARM_IRQ_TYPE_SHIFT;
 
     switch (irq) {
@@ -52,7 +52,7 @@ static void kvm_arm_pic_cpu_handler(void *opaque, int irq, int level)
     default:
         hw_error("kvm_arm_pic_cpu_handler: Bad interrupt line %d\n", irq);
     }
-    kvm_irq |= env->cpu_index << KVM_ARM_IRQ_VCPU_SHIFT;
+    kvm_irq |= cpu->cpu_index << KVM_ARM_IRQ_VCPU_SHIFT;
     kvm_set_irq(kvm_state, kvm_irq, level ? 1 : 0);
 #endif
 }
