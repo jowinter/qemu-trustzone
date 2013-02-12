@@ -157,6 +157,7 @@ static uint32_t pflash_read (pflash_t *pfl, hwaddr offset,
         DPRINTF("%s: unknown command state: %x\n", __func__, pfl->cmd);
         pfl->wcycle = 0;
         pfl->cmd = 0;
+        /* fall through to the read code */
     case 0x80:
         /* We accept reads during second unlock sequence... */
     case 0x00:
@@ -760,7 +761,7 @@ pflash_t *pflash_cfi02_register(hwaddr base,
                                 int be)
 {
     DeviceState *dev = qdev_create(NULL, "cfi.pflash02");
-    SysBusDevice *busdev = sysbus_from_qdev(dev);
+    SysBusDevice *busdev = SYS_BUS_DEVICE(dev);
     pflash_t *pfl = (pflash_t *)object_dynamic_cast(OBJECT(dev),
                                                     "cfi.pflash02");
 

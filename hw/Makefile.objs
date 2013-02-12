@@ -1,13 +1,15 @@
 # core qdev-related obj files, also used by *-user:
-universal-obj-y += qdev.o qdev-properties.o
+common-obj-y += qdev.o qdev-properties.o
 # irq.o needed for qdev GPIO handling:
-universal-obj-y += irq.o
+common-obj-y += irq.o
 
-common-obj-y = usb/ ide/ pci/
+ifeq ($(CONFIG_SOFTMMU),y)
+common-obj-y += usb/ ide/ pci/
 common-obj-y += loader.o
 common-obj-$(CONFIG_VIRTIO) += virtio-console.o
 common-obj-$(CONFIG_VIRTIO) += virtio-rng.o
 common-obj-$(CONFIG_VIRTIO_PCI) += virtio-pci.o
+common-obj-$(CONFIG_VIRTIO) += virtio-bus.o
 common-obj-y += fw_cfg.o
 common-obj-$(CONFIG_PCI) += pci_bridge_dev.o
 common-obj-$(CONFIG_PCI) += ioh3420.o xio3130_upstream.o xio3130_downstream.o
@@ -41,8 +43,6 @@ common-obj-$(CONFIG_SMARTCARD_NSS) += ccid-card-emulated.o
 common-obj-$(CONFIG_I8259) += i8259_common.o i8259.o
 common-obj-y += fifo.o
 common-obj-y += pam.o
-
-extra-obj-y += pci/
 
 # PPC devices
 common-obj-$(CONFIG_PREP_PCI) += prep_pci.o
@@ -217,3 +217,4 @@ obj-$(CONFIG_LINUX) += vfio_pci.o
 endif
 
 $(obj)/baum.o: QEMU_CFLAGS += $(SDL_CFLAGS) 
+endif

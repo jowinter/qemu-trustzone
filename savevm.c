@@ -81,7 +81,7 @@ static void qemu_announce_self_iter(NICState *nic, void *opaque)
 
     len = announce_self_create(buf, nic->conf->macaddr.a);
 
-    qemu_send_packet_raw(&nic->nc, buf, len);
+    qemu_send_packet_raw(qemu_get_queue(nic), buf, len);
 }
 
 
@@ -140,6 +140,34 @@ typedef struct QEMUFileSocket
     QEMUFile *file;
 } QEMUFileSocket;
 
+typedef struct {
+    Coroutine *co;
+    int fd;
+} FDYieldUntilData;
+
+static void fd_coroutine_enter(void *opaque)
+{
+    FDYieldUntilData *data = opaque;
+    qemu_set_fd_handler(data->fd, NULL, NULL, NULL);
+    qemu_coroutine_enter(data->co, NULL);
+}
+
+/**
+ * Yield until a file descriptor becomes readable
+ *
+ * Note that this function clobbers the handlers for the file descriptor.
+ */
+static void coroutine_fn yield_until_fd_readable(int fd)
+{
+    FDYieldUntilData data;
+
+    assert(qemu_in_coroutine());
+    data.co = qemu_coroutine_self();
+    data.fd = fd;
+    qemu_set_fd_handler(fd, fd_coroutine_enter, NULL, &data);
+    qemu_coroutine_yield();
+}
+
 static int socket_get_fd(void *opaque)
 {
     QEMUFileSocket *s = opaque;
@@ -158,8 +186,7 @@ static int socket_get_buffer(void *opaque, uint8_t *buf, int64_t pos, int size)
             break;
         }
         if (socket_error() == EAGAIN) {
-            assert(qemu_in_coroutine());
-            qemu_coroutine_yield();
+            yield_until_fd_readable(s->fd);
         } else if (socket_error() != EINTR) {
             break;
         }
@@ -205,8 +232,7 @@ static int stdio_get_buffer(void *opaque, uint8_t *buf, int64_t pos, int size)
             break;
         }
         if (errno == EAGAIN) {
-            assert(qemu_in_coroutine());
-            qemu_coroutine_yield();
+            yield_until_fd_readable(fileno(fp));
         } else if (errno != EINTR) {
             break;
         }
@@ -419,7 +445,9 @@ int qemu_file_get_error(QEMUFile *f)
 
 static void qemu_file_set_error(QEMUFile *f, int ret)
 {
-    f->last_error = ret;
+    if (f->last_error == 0) {
+        f->last_error = ret;
+    }
 }
 
 /** Flushes QEMUFile buffer
@@ -1588,13 +1616,13 @@ int qemu_savevm_state_begin(QEMUFile *f,
 
         ret = se->ops->save_live_setup(f, se->opaque);
         if (ret < 0) {
-            qemu_savevm_state_cancel(f);
+            qemu_savevm_state_cancel();
             return ret;
         }
     }
     ret = qemu_file_get_error(f);
     if (ret != 0) {
-        qemu_savevm_state_cancel(f);
+        qemu_savevm_state_cancel();
     }
 
     return ret;
@@ -1645,7 +1673,7 @@ int qemu_savevm_state_iterate(QEMUFile *f)
     }
     ret = qemu_file_get_error(f);
     if (ret != 0) {
-        qemu_savevm_state_cancel(f);
+        qemu_savevm_state_cancel();
     }
     return ret;
 }
@@ -1725,7 +1753,7 @@ uint64_t qemu_savevm_state_pending(QEMUFile *f, uint64_t max_size)
     return ret;
 }
 
-void qemu_savevm_state_cancel(QEMUFile *f)
+void qemu_savevm_state_cancel(void)
 {
     SaveStateEntry *se;
 
@@ -2307,7 +2335,7 @@ void do_delvm(Monitor *mon, const QDict *qdict)
     }
 }
 
-void do_info_snapshots(Monitor *mon)
+void do_info_snapshots(Monitor *mon, const QDict *qdict)
 {
     BlockDriverState *bs, *bs1;
     QEMUSnapshotInfo *sn_tab, *sn, s, *sn_info = &s;
@@ -2385,163 +2413,4 @@ void vmstate_unregister_ram(MemoryRegion *mr, DeviceState *dev)
 void vmstate_register_ram_global(MemoryRegion *mr)
 {
     vmstate_register_ram(mr, NULL);
-}
-
-/*
-  page = zrun nzrun
-       | zrun nzrun page
-
-  zrun = length
-
-  nzrun = length byte...
-
-  length = uleb128 encoded integer
- */
-int xbzrle_encode_buffer(uint8_t *old_buf, uint8_t *new_buf, int slen,
-                         uint8_t *dst, int dlen)
-{
-    uint32_t zrun_len = 0, nzrun_len = 0;
-    int d = 0, i = 0;
-    long res, xor;
-    uint8_t *nzrun_start = NULL;
-
-    g_assert(!(((uintptr_t)old_buf | (uintptr_t)new_buf | slen) %
-               sizeof(long)));
-
-    while (i < slen) {
-        /* overflow */
-        if (d + 2 > dlen) {
-            return -1;
-        }
-
-        /* not aligned to sizeof(long) */
-        res = (slen - i) % sizeof(long);
-        while (res && old_buf[i] == new_buf[i]) {
-            zrun_len++;
-            i++;
-            res--;
-        }
-
-        /* word at a time for speed */
-        if (!res) {
-            while (i < slen &&
-                   (*(long *)(old_buf + i)) == (*(long *)(new_buf + i))) {
-                i += sizeof(long);
-                zrun_len += sizeof(long);
-            }
-
-            /* go over the rest */
-            while (i < slen && old_buf[i] == new_buf[i]) {
-                zrun_len++;
-                i++;
-            }
-        }
-
-        /* buffer unchanged */
-        if (zrun_len == slen) {
-            return 0;
-        }
-
-        /* skip last zero run */
-        if (i == slen) {
-            return d;
-        }
-
-        d += uleb128_encode_small(dst + d, zrun_len);
-
-        zrun_len = 0;
-        nzrun_start = new_buf + i;
-
-        /* overflow */
-        if (d + 2 > dlen) {
-            return -1;
-        }
-        /* not aligned to sizeof(long) */
-        res = (slen - i) % sizeof(long);
-        while (res && old_buf[i] != new_buf[i]) {
-            i++;
-            nzrun_len++;
-            res--;
-        }
-
-        /* word at a time for speed, use of 32-bit long okay */
-        if (!res) {
-            /* truncation to 32-bit long okay */
-            long mask = (long)0x0101010101010101ULL;
-            while (i < slen) {
-                xor = *(long *)(old_buf + i) ^ *(long *)(new_buf + i);
-                if ((xor - mask) & ~xor & (mask << 7)) {
-                    /* found the end of an nzrun within the current long */
-                    while (old_buf[i] != new_buf[i]) {
-                        nzrun_len++;
-                        i++;
-                    }
-                    break;
-                } else {
-                    i += sizeof(long);
-                    nzrun_len += sizeof(long);
-                }
-            }
-        }
-
-        d += uleb128_encode_small(dst + d, nzrun_len);
-        /* overflow */
-        if (d + nzrun_len > dlen) {
-            return -1;
-        }
-        memcpy(dst + d, nzrun_start, nzrun_len);
-        d += nzrun_len;
-        nzrun_len = 0;
-    }
-
-    return d;
-}
-
-int xbzrle_decode_buffer(uint8_t *src, int slen, uint8_t *dst, int dlen)
-{
-    int i = 0, d = 0;
-    int ret;
-    uint32_t count = 0;
-
-    while (i < slen) {
-
-        /* zrun */
-        if ((slen - i) < 2) {
-            return -1;
-        }
-
-        ret = uleb128_decode_small(src + i, &count);
-        if (ret < 0 || (i && !count)) {
-            return -1;
-        }
-        i += ret;
-        d += count;
-
-        /* overflow */
-        if (d > dlen) {
-            return -1;
-        }
-
-        /* nzrun */
-        if ((slen - i) < 2) {
-            return -1;
-        }
-
-        ret = uleb128_decode_small(src + i, &count);
-        if (ret < 0 || !count) {
-            return -1;
-        }
-        i += ret;
-
-        /* overflow */
-        if (d + count > dlen || i + count > slen) {
-            return -1;
-        }
-
-        memcpy(dst + d, src + i, count);
-        d += count;
-        i += count;
-    }
-
-    return d;
 }

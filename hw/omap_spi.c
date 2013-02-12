@@ -321,40 +321,55 @@ static uint64_t omap_mcspi_read(void *opaque, hwaddr addr,
         return s->control;
 
     case 0x68: ch ++;
+        /* fall through */
     case 0x54: ch ++;
+        /* fall through */
     case 0x40: ch ++;
+        /* fall through */
     case 0x2c:	/* MCSPI_CHCONF */
         TRACE("CHCONF%d = 0x%08x", ch,
               (ch < s->chnum) ? s->ch[ch].config : 0);
         return (ch < s->chnum) ? s->ch[ch].config : 0;
 
     case 0x6c: ch ++;
+        /* fall through */
     case 0x58: ch ++;
+        /* fall through */
     case 0x44: ch ++;
+        /* fall through */
     case 0x30:	/* MCSPI_CHSTAT */
         TRACE("CHSTAT%d = 0x%08x", ch,
               (ch < s->chnum) ? s->ch[ch].status : 0);
         return (ch < s->chnum) ? s->ch[ch].status : 0;
 
     case 0x70: ch ++;
+        /* fall through */
     case 0x5c: ch ++;
+        /* fall through */
     case 0x48: ch ++;
+        /* fall through */
     case 0x34:	/* MCSPI_CHCTRL */
         TRACE("CHCTRL%d = 0x%08x", ch,
               (ch < s->chnum) ? s->ch[ch].control : 0);
         return (ch < s->chnum) ? s->ch[ch].control : 0;
 
     case 0x74: ch ++;
+        /* fall through */
     case 0x60: ch ++;
+        /* fall through */
     case 0x4c: ch ++;
+        /* fall through */
     case 0x38:	/* MCSPI_TX */
         TRACE("TX%d = 0x%08x", ch,
               (ch < s->chnum) ? s->ch[ch].tx : 0);
         return (ch < s->chnum) ? s->ch[ch].tx : 0;
 
     case 0x78: ch ++;
+        /* fall through */
     case 0x64: ch ++;
+        /* fall through */
     case 0x50: ch ++;
+        /* fall through */
     case 0x3c:	/* MCSPI_RX */
         if (ch < s->chnum) {
             if (!IS_OMAP3_SPI(s) || ch != s->fifo_ch ||
@@ -479,8 +494,11 @@ static void omap_mcspi_write(void *opaque, hwaddr addr,
         break;
 
     case 0x68: ch ++;
+        /* fall through */
     case 0x54: ch ++;
+        /* fall through */
     case 0x40: ch ++;
+        /* fall through */
     case 0x2c:	/* MCSPI_CHCONF */
         TRACE("CHCONF%d = 0x%08x", ch, value);
         if (ch < s->chnum) {
@@ -509,8 +527,11 @@ static void omap_mcspi_write(void *opaque, hwaddr addr,
         break;
 
     case 0x70: ch ++;
+        /* fall through */
     case 0x5c: ch ++;
+        /* fall through */
     case 0x48: ch ++;
+        /* fall through */
     case 0x34:	/* MCSPI_CHCTRL */
         TRACE("CHCTRL%d = 0x%08x", ch, value);
         if (ch < s->chnum) {
@@ -525,8 +546,11 @@ static void omap_mcspi_write(void *opaque, hwaddr addr,
         break;
 
     case 0x74: ch ++;
+        /* fall through */
     case 0x60: ch ++;
+        /* fall through */
     case 0x4c: ch ++;
+        /* fall through */
     case 0x38:	/* MCSPI_TX */
         TRACE("TX%d = 0x%08x", ch, value);
         if (ch < s->chnum) {
@@ -586,7 +610,7 @@ static const MemoryRegionOps omap_mcspi_ops = {
 static void omap_mcspi_reset(DeviceState *qdev)
 {
     int i;
-    OMAPSPIState *s = FROM_SYSBUS(OMAPSPIState, sysbus_from_qdev(qdev));
+    OMAPSPIState *s = FROM_SYSBUS(OMAPSPIState, SYS_BUS_DEVICE(qdev));
     for (i = 0; i < s->buscount; i++) {
         omap_mcspi_bus_reset(&s->bus[i]);
     }
@@ -625,7 +649,7 @@ static int omap_mcspi_init(SysBusDevice *busdev)
 
 SPIBus *omap_mcspi_bus(DeviceState *qdev, int bus_number)
 {
-    OMAPSPIState *s = FROM_SYSBUS(OMAPSPIState, sysbus_from_qdev(qdev));
+    OMAPSPIState *s = FROM_SYSBUS(OMAPSPIState, SYS_BUS_DEVICE(qdev));
     if (bus_number < s->buscount) {
         return s->bus[bus_number].bus;
     }

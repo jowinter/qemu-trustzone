@@ -60,14 +60,20 @@ struct VMStateDescription;
  * The @init callback is considered private to a particular bus implementation
  * (immediate abstract child types of TYPE_DEVICE). Derived leaf types set an
  * "init" callback on their parent class instead.
+ *
  * Any type may override the @realize and/or @unrealize callbacks but needs
- * to call (and thus save) the parent type's implementation if so desired.
- * Usually this means storing the previous value of, e.g., @realized inside
- * the type's class structure and overwriting it with a function that first
- * invokes the stored callback, then performs any additional steps.
+ * to call the parent type's implementation if keeping their functionality
+ * is desired. Refer to QOM documentation for further discussion and examples.
+ *
+ * <note>
+ *   <para>
  * If a type derived directly from TYPE_DEVICE implements @realize, it does
  * not need to implement @init and therefore does not need to store and call
  * #DeviceClass' default @realize callback.
+ * For other types consult the documentation and implementation of the
+ * respective parent types.
+ *   </para>
+ * </note>
  */
 typedef struct DeviceClass {
     /*< private >*/
@@ -139,6 +145,8 @@ struct BusClass {
      */
     char *(*get_fw_dev_path)(DeviceState *dev);
     int (*reset)(BusState *bus);
+    /* maximum devices allowed on the bus, 0: no limit. */
+    int max_dev;
 };
 
 typedef struct BusChild {
@@ -223,7 +231,7 @@ DeviceState *qdev_find_recursive(BusState *bus, const char *id);
 typedef int (qbus_walkerfn)(BusState *bus, void *opaque);
 typedef int (qdev_walkerfn)(DeviceState *dev, void *opaque);
 
-void qbus_create_inplace(BusState *bus, const char *typename,
+void qbus_create_inplace(void *bus, const char *typename,
                          DeviceState *parent, const char *name);
 BusState *qbus_create(const char *typename, DeviceState *parent, const char *name);
 /* Returns > 0 if either devfn or busfn skip walk somewhere in cursion,

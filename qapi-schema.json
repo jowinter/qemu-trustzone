@@ -325,6 +325,73 @@
 { 'command': 'query-chardev', 'returns': ['ChardevInfo'] }
 
 ##
+# @DataFormat:
+#
+# An enumeration of data format.
+#
+# @utf8: Data is a UTF-8 string (RFC 3629)
+#
+# @base64: Data is Base64 encoded binary (RFC 3548)
+#
+# Since: 1.4
+##
+{ 'enum': 'DataFormat'
+  'data': [ 'utf8', 'base64' ] }
+
+##
+# @ringbuf-write:
+#
+# Write to a ring buffer character device.
+#
+# @device: the ring buffer character device name
+#
+# @data: data to write
+#
+# @format: #optional data encoding (default 'utf8').
+#          - base64: data must be base64 encoded text.  Its binary
+#            decoding gets written.
+#            Bug: invalid base64 is currently not rejected.
+#            Whitespace *is* invalid.
+#          - utf8: data's UTF-8 encoding is written
+#          - data itself is always Unicode regardless of format, like
+#            any other string.
+#
+# Returns: Nothing on success
+#
+# Since: 1.4
+##
+{ 'command': 'ringbuf-write',
+  'data': {'device': 'str', 'data': 'str',
+           '*format': 'DataFormat'} }
+
+##
+# @ringbuf-read:
+#
+# Read from a ring buffer character device.
+#
+# @device: the ring buffer character device name
+#
+# @size: how many bytes to read at most
+#
+# @format: #optional data encoding (default 'utf8').
+#          - base64: the data read is returned in base64 encoding.
+#          - utf8: the data read is interpreted as UTF-8.
+#            Bug: can screw up when the buffer contains invalid UTF-8
+#            sequences, NUL characters, after the ring buffer lost
+#            data, and when reading stops because the size limit is
+#            reached.
+#          - The return value is always Unicode regardless of format,
+#            like any other string.
+#
+# Returns: data read from the device
+#
+# Since: 1.4
+##
+{ 'command': 'ringbuf-read',
+  'data': {'device': 'str', 'size': 'int', '*format': 'DataFormat'},
+  'returns': 'str' }
+
+##
 # @CommandInfo:
 #
 # Information about a QMP command
@@ -667,10 +734,12 @@
 #
 # @count: number of dirty bytes according to the dirty bitmap
 #
+# @granularity: granularity of the dirty bitmap in bytes (since 1.4)
+#
 # Since: 1.3
 ##
 { 'type': 'BlockDirtyInfo',
-  'data': {'count': 'int'} }
+  'data': {'count': 'int', 'granularity': 'int'} }
 
 ##
 # @BlockInfo:
@@ -977,28 +1046,10 @@
 #
 # @actual: the number of bytes the balloon currently contains
 #
-# @mem_swapped_in: #optional number of pages swapped in within the guest
-#
-# @mem_swapped_out: #optional number of pages swapped out within the guest
-#
-# @major_page_faults: #optional number of major page faults within the guest
-#
-# @minor_page_faults: #optional number of minor page faults within the guest
-#
-# @free_mem: #optional amount of memory (in bytes) free in the guest
-#
-# @total_mem: #optional amount of memory (in bytes) visible to the guest
-#
 # Since: 0.14.0
 #
-# Notes: all current versions of QEMU do not fill out optional information in
-#        this structure.
 ##
-{ 'type': 'BalloonInfo',
-  'data': {'actual': 'int', '*mem_swapped_in': 'int',
-           '*mem_swapped_out': 'int', '*major_page_faults': 'int',
-           '*minor_page_faults': 'int', '*free_mem': 'int',
-           '*total_mem': 'int'} }
+{ 'type': 'BalloonInfo', 'data': {'actual': 'int' } }
 
 ##
 # @query-balloon:
@@ -1634,6 +1685,14 @@
 #        (all the disk, only the sectors allocated in the topmost image, or
 #        only new I/O).
 #
+# @granularity: #optional granularity of the dirty bitmap, default is 64K
+#               if the image format doesn't have clusters, 4K if the clusters
+#               are smaller than that, else the cluster size.  Must be a
+#               power of 2 between 512 and 64M (since 1.4).
+#
+# @buf-size: #optional maximum amount of data in flight from source to
+#            target (since 1.4).
+#
 # @on-source-error: #optional the action to take on an error on the source,
 #                   default 'report'.  'stop' and 'enospc' can only be used
 #                   if the block device supports io-status (see BlockInfo).
@@ -1650,7 +1709,8 @@
 { 'command': 'drive-mirror',
   'data': { 'device': 'str', 'target': 'str', '*format': 'str',
             'sync': 'MirrorSyncMode', '*mode': 'NewImageMode',
-            '*speed': 'int', '*on-source-error': 'BlockdevOnError',
+            '*speed': 'int', '*granularity': 'uint32',
+            '*buf-size': 'int', '*on-source-error': 'BlockdevOnError',
             '*on-target-error': 'BlockdevOnError' } }
 
 ##
@@ -2466,6 +2526,7 @@
   'data': {
     '*ifname':     'str',
     '*fd':         'str',
+    '*fds':        'str',
     '*script':     'str',
     '*downscript': 'str',
     '*helper':     'str',
@@ -2473,7 +2534,9 @@
     '*vnet_hdr':   'bool',
     '*vhost':      'bool',
     '*vhostfd':    'str',
-    '*vhostforce': 'bool' } }
+    '*vhostfds':   'str',
+    '*vhostforce': 'bool',
+    '*queues':     'uint32'} }
 
 ##
 # @NetdevSocketOptions
@@ -3089,6 +3152,9 @@
 #
 # Return info about the chardev backend just created.
 #
+# @pty: #optional name of the slave pseudoterminal device, present if
+#       and only if a chardev of type 'pty' was created
+#
 # Since: 1.4
 ##
 { 'type' : 'ChardevReturn', 'data': { '*pty' : 'str' } }
@@ -3096,12 +3162,12 @@
 ##
 # @chardev-add:
 #
-# Add a file chardev
+# Add a character device backend
 #
 # @id: the chardev's ID, must be unique
 # @backend: backend type and parameters
 #
-# Returns: chardev info.
+# Returns: ChardevReturn.
 #
 # Since: 1.4
 ##
@@ -3112,7 +3178,7 @@
 ##
 # @chardev-remove:
 #
-# Remove a chardev
+# Remove a character device backend
 #
 # @id: the chardev's ID, must exist and not be in use
 #

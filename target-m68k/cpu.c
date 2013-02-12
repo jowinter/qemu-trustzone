@@ -20,6 +20,7 @@
 
 #include "cpu.h"
 #include "qemu-common.h"
+#include "migration/vmstate.h"
 
 
 static void m68k_set_feature(CPUM68KState *env, int feature)
@@ -54,6 +55,25 @@ static void m68k_cpu_reset(CPUState *s)
 }
 
 /* CPU models */
+
+static ObjectClass *m68k_cpu_class_by_name(const char *cpu_model)
+{
+    ObjectClass *oc;
+    char *typename;
+
+    if (cpu_model == NULL) {
+        return NULL;
+    }
+
+    typename = g_strdup_printf("%s-" TYPE_M68K_CPU, cpu_model);
+    oc = object_class_by_name(typename);
+    g_free(typename);
+    if (oc != NULL && (object_class_dynamic_cast(oc, TYPE_M68K_CPU) == NULL ||
+                       object_class_is_abstract(oc))) {
+        return NULL;
+    }
+    return oc;
+}
 
 static void m5206_cpu_initfn(Object *obj)
 {
@@ -127,24 +147,34 @@ static void m68k_cpu_initfn(Object *obj)
     cpu_exec_init(env);
 }
 
+static const VMStateDescription vmstate_m68k_cpu = {
+    .name = "cpu",
+    .unmigratable = 1,
+};
+
 static void m68k_cpu_class_init(ObjectClass *c, void *data)
 {
     M68kCPUClass *mcc = M68K_CPU_CLASS(c);
     CPUClass *cc = CPU_CLASS(c);
+    DeviceClass *dc = DEVICE_CLASS(c);
 
     mcc->parent_reset = cc->reset;
     cc->reset = m68k_cpu_reset;
+
+    cc->class_by_name = m68k_cpu_class_by_name;
+    dc->vmsd = &vmstate_m68k_cpu;
 }
 
 static void register_cpu_type(const M68kCPUInfo *info)
 {
     TypeInfo type_info = {
-        .name = info->name,
         .parent = TYPE_M68K_CPU,
         .instance_init = info->instance_init,
     };
 
-    type_register_static(&type_info);
+    type_info.name = g_strdup_printf("%s-" TYPE_M68K_CPU, info->name);
+    type_register(&type_info);
+    g_free((void *)type_info.name);
 }
 
 static const TypeInfo m68k_cpu_type_info = {

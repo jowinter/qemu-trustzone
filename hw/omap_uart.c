@@ -84,7 +84,7 @@ static int tcr_tlr_mode(struct omap_uart_s *s)
 static void omap_uart_reset(DeviceState *qdev)
 {
     struct omap_uart_s *s = FROM_SYSBUS(struct omap_uart_s,
-                                        sysbus_from_qdev(qdev));
+                                        SYS_BUS_DEVICE(qdev));
     s->eblr = 0x00;
     s->syscontrol = 0;
     s->wkup = 0x3f;
@@ -368,7 +368,7 @@ void omap_uart_attach(DeviceState *qdev, CharDriverState *chr,
                       const char *label)
 {
     struct omap_uart_s *s = FROM_SYSBUS(struct omap_uart_s,
-                                        sysbus_from_qdev(qdev));
+                                        SYS_BUS_DEVICE(qdev));
     s->chr = chr ?: qemu_chr_new(label, "null", NULL);
     serial_change_char_driver(s->serial, s->chr);
 }

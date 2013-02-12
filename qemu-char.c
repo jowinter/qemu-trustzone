@@ -2643,6 +2643,191 @@ size_t qemu_chr_mem_osize(const CharDriverState *chr)
     return d->outbuf_size;
 }
 
+/*********************************************************/
+/* Ring buffer chardev */
+
+typedef struct {
+    size_t size;
+    size_t prod;
+    size_t cons;
+    uint8_t *cbuf;
+} RingBufCharDriver;
+
+static size_t ringbuf_count(const CharDriverState *chr)
+{
+    const RingBufCharDriver *d = chr->opaque;
+
+    return d->prod - d->cons;
+}
+
+static int ringbuf_chr_write(CharDriverState *chr, const uint8_t *buf, int len)
+{
+    RingBufCharDriver *d = chr->opaque;
+    int i;
+
+    if (!buf || (len < 0)) {
+        return -1;
+    }
+
+    for (i = 0; i < len; i++ ) {
+        d->cbuf[d->prod++ & (d->size - 1)] = buf[i];
+        if (d->prod - d->cons > d->size) {
+            d->cons = d->prod - d->size;
+        }
+    }
+
+    return 0;
+}
+
+static int ringbuf_chr_read(CharDriverState *chr, uint8_t *buf, int len)
+{
+    RingBufCharDriver *d = chr->opaque;
+    int i;
+
+    for (i = 0; i < len && d->cons != d->prod; i++) {
+        buf[i] = d->cbuf[d->cons++ & (d->size - 1)];
+    }
+
+    return i;
+}
+
+static void ringbuf_chr_close(struct CharDriverState *chr)
+{
+    RingBufCharDriver *d = chr->opaque;
+
+    g_free(d->cbuf);
+    g_free(d);
+    chr->opaque = NULL;
+}
+
+static CharDriverState *qemu_chr_open_ringbuf(QemuOpts *opts)
+{
+    CharDriverState *chr;
+    RingBufCharDriver *d;
+
+    chr = g_malloc0(sizeof(CharDriverState));
+    d = g_malloc(sizeof(*d));
+
+    d->size = qemu_opt_get_size(opts, "size", 0);
+    if (d->size == 0) {
+        d->size = 65536;
+    }
+
+    /* The size must be power of 2 */
+    if (d->size & (d->size - 1)) {
+        error_report("size of ringbuf device must be power of two");
+        goto fail;
+    }
+
+    d->prod = 0;
+    d->cons = 0;
+    d->cbuf = g_malloc0(d->size);
+
+    chr->opaque = d;
+    chr->chr_write = ringbuf_chr_write;
+    chr->chr_close = ringbuf_chr_close;
+
+    return chr;
+
+fail:
+    g_free(d);
+    g_free(chr);
+    return NULL;
+}
+
+static bool chr_is_ringbuf(const CharDriverState *chr)
+{
+    return chr->chr_write == ringbuf_chr_write;
+}
+
+void qmp_ringbuf_write(const char *device, const char *data,
+                       bool has_format, enum DataFormat format,
+                       Error **errp)
+{
+    CharDriverState *chr;
+    const uint8_t *write_data;
+    int ret;
+    size_t write_count;
+
+    chr = qemu_chr_find(device);
+    if (!chr) {
+        error_setg(errp, "Device '%s' not found", device);
+        return;
+    }
+
+    if (!chr_is_ringbuf(chr)) {
+        error_setg(errp,"%s is not a ringbuf device", device);
+        return;
+    }
+
+    if (has_format && (format == DATA_FORMAT_BASE64)) {
+        write_data = g_base64_decode(data, &write_count);
+    } else {
+        write_data = (uint8_t *)data;
+        write_count = strlen(data);
+    }
+
+    ret = ringbuf_chr_write(chr, write_data, write_count);
+
+    if (write_data != (uint8_t *)data) {
+        g_free((void *)write_data);
+    }
+
+    if (ret < 0) {
+        error_setg(errp, "Failed to write to device %s", device);
+        return;
+    }
+}
+
+char *qmp_ringbuf_read(const char *device, int64_t size,
+                       bool has_format, enum DataFormat format,
+                       Error **errp)
+{
+    CharDriverState *chr;
+    uint8_t *read_data;
+    size_t count;
+    char *data;
+
+    chr = qemu_chr_find(device);
+    if (!chr) {
+        error_setg(errp, "Device '%s' not found", device);
+        return NULL;
+    }
+
+    if (!chr_is_ringbuf(chr)) {
+        error_setg(errp,"%s is not a ringbuf device", device);
+        return NULL;
+    }
+
+    if (size <= 0) {
+        error_setg(errp, "size must be greater than zero");
+        return NULL;
+    }
+
+    count = ringbuf_count(chr);
+    size = size > count ? count : size;
+    read_data = g_malloc(size + 1);
+
+    ringbuf_chr_read(chr, read_data, size);
+
+    if (has_format && (format == DATA_FORMAT_BASE64)) {
+        data = g_base64_encode(read_data, size);
+        g_free(read_data);
+    } else {
+        /*
+         * FIXME should read only complete, valid UTF-8 characters up
+         * to @size bytes.  Invalid sequences should be replaced by a
+         * suitable replacement character.  Except when (and only
+         * when) ring buffer lost characters since last read, initial
+         * continuation characters should be dropped.
+         */
+        read_data[size] = 0;
+        data = (char *)read_data;
+    }
+
+    return data;
+}
+
 QemuOpts *qemu_chr_parse_compat(const char *label, const char *filename)
 {
     char host[65], port[33], width[8], height[8];
@@ -2796,6 +2981,7 @@ static const struct {
     { .name = "udp",       .open = qemu_chr_open_udp },
     { .name = "msmouse",   .open = qemu_chr_open_msmouse },
     { .name = "vc",        .open = text_console_init },
+    { .name = "memory",    .open = qemu_chr_open_ringbuf },
 #ifdef _WIN32
     { .name = "file",      .open = qemu_chr_open_win_file_out },
     { .name = "pipe",      .open = qemu_chr_open_win_pipe },
@@ -2835,12 +3021,12 @@ CharDriverState *qemu_chr_new_from_opts(QemuOpts *opts,
     int i;
 
     if (qemu_opts_id(opts) == NULL) {
-        error_setg(errp, "chardev: no id specified\n");
+        error_setg(errp, "chardev: no id specified");
         goto err;
     }
 
     if (qemu_opt_get(opts, "backend") == NULL) {
-        error_setg(errp, "chardev: \"%s\" missing backend\n",
+        error_setg(errp, "chardev: \"%s\" missing backend",
                    qemu_opts_id(opts));
         goto err;
     }
@@ -2849,14 +3035,14 @@ CharDriverState *qemu_chr_new_from_opts(QemuOpts *opts,
             break;
     }
     if (i == ARRAY_SIZE(backend_table)) {
-        error_setg(errp, "chardev: backend \"%s\" not found\n",
+        error_setg(errp, "chardev: backend \"%s\" not found",
                    qemu_opt_get(opts, "backend"));
         goto err;
     }
 
     chr = backend_table[i].open(opts);
     if (!chr) {
-        error_setg(errp, "chardev: opening backend \"%s\" failed\n",
+        error_setg(errp, "chardev: opening backend \"%s\" failed",
                    qemu_opt_get(opts, "backend"));
         goto err;
     }
@@ -3055,6 +3241,9 @@ QemuOptsList qemu_chardev_opts = {
         },{
             .name = "debug",
             .type = QEMU_OPT_NUMBER,
+        },{
+            .name = "size",
+            .type = QEMU_OPT_SIZE,
         },
         { /* end of list */ }
     },
@@ -3129,11 +3318,11 @@ static CharDriverState *qmp_chardev_open_file(ChardevFile *file, Error **errp)
 
 static CharDriverState *qmp_chardev_open_port(ChardevPort *port, Error **errp)
 {
-    int flags, fd;
-
     switch (port->type) {
 #ifdef HAVE_CHARDEV_TTY
     case CHARDEV_PORT_KIND_SERIAL:
+    {
+        int flags, fd;
         flags = O_RDWR;
         fd = qmp_chardev_open_file_source(port->device, flags, errp);
         if (error_is_set(errp)) {
@@ -3141,15 +3330,19 @@ static CharDriverState *qmp_chardev_open_port(ChardevPort *port, Error **errp)
         }
         socket_set_nonblock(fd);
         return qemu_chr_open_tty_fd(fd);
+    }
 #endif
 #ifdef HAVE_CHARDEV_PARPORT
     case CHARDEV_PORT_KIND_PARALLEL:
+    {
+        int flags, fd;
         flags = O_RDWR;
         fd = qmp_chardev_open_file_source(port->device, flags, errp);
         if (error_is_set(errp)) {
             return NULL;
         }
         return qemu_chr_open_pp_fd(fd);
+    }
 #endif
     default:
         error_setg(errp, "unknown chardev port (%d)", port->type);

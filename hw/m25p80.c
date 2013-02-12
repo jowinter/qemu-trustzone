@@ -184,6 +184,7 @@ static const FlashPartInfo known_devices[] = {
 
 typedef enum {
     NOP = 0,
+    WRSR = 0x1,
     WRDI = 0x4,
     RDSR = 0x5,
     WREN = 0x6,
@@ -358,6 +359,8 @@ static void complete_collecting_data(Flash *s)
     s->cur_addr |= s->data[1] << 8;
     s->cur_addr |= s->data[2];
 
+    s->state = STATE_IDLE;
+
     switch (s->cmd_in_progress) {
     case DPP:
     case QPP:
@@ -376,6 +379,11 @@ static void complete_collecting_data(Flash *s)
     case ERASE_32K:
     case ERASE_SECTOR:
         flash_erase(s, s->cur_addr, s->cmd_in_progress);
+        break;
+    case WRSR:
+        if (s->write_enable) {
+            s->write_enable = false;
+        }
         break;
     default:
         break;
@@ -439,6 +447,15 @@ static void decode_new_cmd(Flash *s, uint32_t value)
         s->pos = 0;
         s->len = 0;
         s->state = STATE_COLLECTING_DATA;
+        break;
+
+    case WRSR:
+        if (s->write_enable) {
+            s->needed_bytes = 1;
+            s->pos = 0;
+            s->len = 0;
+            s->state = STATE_COLLECTING_DATA;
+        }
         break;
 
     case WRDI:

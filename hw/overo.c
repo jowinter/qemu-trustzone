@@ -91,8 +91,8 @@ static void overo_init(QEMUMachineInitArgs *args)
         qdev_set_nic_properties(s->eth, nd);
         qdev_init_nofail(s->eth);
         omap_gpmc_attach(s->cpu->gpmc, OVERO_NET_CS,
-                         sysbus_mmio_get_region(sysbus_from_qdev(s->eth), 0));
-        sysbus_connect_irq(sysbus_from_qdev(s->eth), 0,
+                         sysbus_mmio_get_region(SYS_BUS_DEVICE(s->eth), 0));
+        sysbus_connect_irq(SYS_BUS_DEVICE(s->eth), 0,
                            qdev_get_gpio_in(s->cpu->gpio, 176));
     }
 }

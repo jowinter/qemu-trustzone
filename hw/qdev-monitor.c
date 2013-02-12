@@ -283,6 +283,7 @@ static DeviceState *qbus_find_dev(BusState *bus, char *elem)
 static BusState *qbus_find_recursive(BusState *bus, const char *name,
                                      const char *bus_typename)
 {
+    BusClass *bus_class = BUS_GET_CLASS(bus);
     BusChild *kid;
     BusState *child, *ret;
     int match = 1;
@@ -292,6 +293,17 @@ static BusState *qbus_find_recursive(BusState *bus, const char *name,
     }
     if (bus_typename && !object_dynamic_cast(OBJECT(bus), bus_typename)) {
         match = 0;
+    }
+    if ((bus_class->max_dev != 0) && (bus_class->max_dev <= bus->max_index)) {
+        if (name != NULL) {
+            /* bus was explicitly specified: return an error. */
+            qerror_report(ERROR_CLASS_GENERIC_ERROR, "Bus '%s' is full",
+                          bus->name);
+            return NULL;
+        } else {
+            /* bus was not specified: try to find another one. */
+            match = 0;
+        }
     }
     if (match) {
         return bus;
@@ -564,13 +576,13 @@ static void qbus_print(Monitor *mon, BusState *bus, int indent)
 }
 #undef qdev_printf
 
-void do_info_qtree(Monitor *mon)
+void do_info_qtree(Monitor *mon, const QDict *qdict)
 {
     if (sysbus_get_default())
         qbus_print(mon, sysbus_get_default(), 0);
 }
 
-void do_info_qdm(Monitor *mon)
+void do_info_qdm(Monitor *mon, const QDict *qdict)
 {
     object_class_foreach(qdev_print_devinfo, TYPE_DEVICE, false, NULL);
 }
@@ -579,6 +591,7 @@ int do_device_add(Monitor *mon, const QDict *qdict, QObject **ret_data)
 {
     Error *local_err = NULL;
     QemuOpts *opts;
+    DeviceState *dev;
 
     opts = qemu_opts_from_qdict(qemu_find_opts("device"), qdict, &local_err);
     if (error_is_set(&local_err)) {
@@ -590,10 +603,12 @@ int do_device_add(Monitor *mon, const QDict *qdict, QObject **ret_data)
         qemu_opts_del(opts);
         return 0;
     }
-    if (!qdev_device_add(opts)) {
+    dev = qdev_device_add(opts);
+    if (!dev) {
         qemu_opts_del(opts);
         return -1;
     }
+    object_unref(OBJECT(dev));
     return 0;
 }
 

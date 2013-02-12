@@ -345,9 +345,18 @@ static int raw_reopen_prepare(BDRVReopenState *state,
 
     raw_s->fd = -1;
 
-    int fcntl_flags = O_APPEND | O_ASYNC | O_NONBLOCK;
+    int fcntl_flags = O_APPEND | O_NONBLOCK;
 #ifdef O_NOATIME
     fcntl_flags |= O_NOATIME;
+#endif
+
+#ifdef O_ASYNC
+    /* Not all operating systems have O_ASYNC, and those that don't
+     * will not let us track the state into raw_s->open_flags (typically
+     * you achieve the same effect with an ioctl, for example I_SETSIG
+     * on Solaris). But we do not use O_ASYNC, so that's fine.
+     */
+    assert((s->open_flags & O_ASYNC) == 0);
 #endif
 
     if ((raw_s->open_flags & ~fcntl_flags) == (s->open_flags & ~fcntl_flags)) {
@@ -1371,19 +1380,6 @@ static BlockDriverAIOCB *hdev_aio_ioctl(BlockDriverState *bs,
     return thread_pool_submit_aio(aio_worker, acb, cb, opaque);
 }
 
-static coroutine_fn BlockDriverAIOCB *hdev_aio_discard(BlockDriverState *bs,
-    int64_t sector_num, int nb_sectors,
-    BlockDriverCompletionFunc *cb, void *opaque)
-{
-    BDRVRawState *s = bs->opaque;
-
-    if (fd_open(bs) < 0) {
-        return NULL;
-    }
-    return paio_submit(bs, s->fd, sector_num, NULL, nb_sectors,
-                       cb, opaque, QEMU_AIO_DISCARD|QEMU_AIO_BLKDEV);
-}
-
 #elif defined(__FreeBSD__) || defined(__FreeBSD_kernel__)
 static int fd_open(BlockDriverState *bs)
 {
@@ -1402,6 +1398,19 @@ static int fd_open(BlockDriverState *bs)
 }
 
 #endif /* !linux && !FreeBSD */
+
+static coroutine_fn BlockDriverAIOCB *hdev_aio_discard(BlockDriverState *bs,
+    int64_t sector_num, int nb_sectors,
+    BlockDriverCompletionFunc *cb, void *opaque)
+{
+    BDRVRawState *s = bs->opaque;
+
+    if (fd_open(bs) < 0) {
+        return NULL;
+    }
+    return paio_submit(bs, s->fd, sector_num, NULL, nb_sectors,
+                       cb, opaque, QEMU_AIO_DISCARD|QEMU_AIO_BLKDEV);
+}
 
 static int hdev_create(const char *filename, QEMUOptionParameter *options)
 {

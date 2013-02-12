@@ -1747,7 +1747,7 @@ void *twl4030_init(i2c_bus *bus, qemu_irq irq1, qemu_irq irq2,
     for (i = 0; i < ARRAY_SIZE(twl4030_info); i++) {
         DeviceState *ds = i2c_create_slave(bus, twl4030_info[i].name,
                                            0x48 + i);
-        s->i2c[i] = FROM_I2C_SLAVE(TWL4030NodeState, I2C_SLAVE_FROM_QDEV(ds));
+        s->i2c[i] = FROM_I2C_SLAVE(TWL4030NodeState, I2C_SLAVE(ds));
         s->i2c[i]->twl4030 = s;
     }
 

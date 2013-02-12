@@ -231,8 +231,10 @@ static void parse_option_size(const char *name, const char *value,
             break;
         default:
             error_set(errp, QERR_INVALID_PARAMETER_VALUE, name, "a size");
+#if 0 /* conversion from qerror_report() to error_set() broke this: */
             error_printf_unless_qmp("You may use k, M, G or T suffixes for "
                     "kilobytes, megabytes, gigabytes and terabytes.\n");
+#endif
             return;
         }
     } else {
@@ -643,9 +645,7 @@ static void opt_set(QemuOpts *opts, const char *name, const char *value,
         QTAILQ_INSERT_TAIL(&opts->head, opt, next);
     }
     opt->desc = desc;
-    if (value) {
-        opt->str = g_strdup(value);
-    }
+    opt->str = g_strdup(value);
     qemu_opt_parse(opt, &local_err);
     if (error_is_set(&local_err)) {
         error_propagate(errp, local_err);
@@ -773,7 +773,9 @@ QemuOpts *qemu_opts_create(QemuOptsList *list, const char *id,
     if (id) {
         if (!id_wellformed(id)) {
             error_set(errp,QERR_INVALID_PARAMETER_VALUE, "id", "an identifier");
+#if 0 /* conversion from qerror_report() to error_set() broke this: */
             error_printf_unless_qmp("Identifiers consist of letters, digits, '-', '.', '_', starting with a letter.\n");
+#endif
             return NULL;
         }
         opts = qemu_opts_find(list, id);
@@ -792,9 +794,7 @@ QemuOpts *qemu_opts_create(QemuOptsList *list, const char *id,
         }
     }
     opts = g_malloc0(sizeof(*opts));
-    if (id) {
-        opts->id = g_strdup(id);
-    }
+    opts->id = g_strdup(id);
     opts->list = list;
     loc_save(&opts->loc);
     QTAILQ_INIT(&opts->head);

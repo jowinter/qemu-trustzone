@@ -176,6 +176,7 @@ int main(int argc, char **argv)
 #define DEFAULT_RAM_SIZE 128
 
 #define MAX_VIRTIO_CONSOLES 1
+#define MAX_SCLP_CONSOLES 1
 
 static const char *data_dir;
 const char *bios_name = NULL;
@@ -203,6 +204,7 @@ int no_quit = 0;
 CharDriverState *serial_hds[MAX_SERIAL_PORTS];
 CharDriverState *parallel_hds[MAX_PARALLEL_PORTS];
 CharDriverState *virtcon_hds[MAX_VIRTIO_CONSOLES];
+CharDriverState *sclp_hds[MAX_SCLP_CONSOLES];
 int win2k_install_hack = 0;
 int singlestep = 0;
 int smp_cpus = 1;
@@ -231,7 +233,7 @@ unsigned int nb_prom_envs = 0;
 const char *prom_envs[MAX_PROM_ENVS];
 int boot_menu;
 uint8_t *boot_splash_filedata;
-int boot_splash_filedata_size;
+size_t boot_splash_filedata_size;
 uint8_t qemu_extra_params_fw[2];
 
 typedef struct FWBootEntry FWBootEntry;
@@ -261,9 +263,9 @@ static NotifierList exit_notifiers =
 static NotifierList machine_init_done_notifiers =
     NOTIFIER_LIST_INITIALIZER(machine_init_done_notifiers);
 
-static int tcg_allowed = 1;
-int kvm_allowed = 0;
-int xen_allowed = 0;
+static bool tcg_allowed = true;
+bool kvm_allowed;
+bool xen_allowed;
 uint32_t xen_domid;
 enum xen_mode xen_mode = XEN_EMULATE;
 static int tcg_tb_size;
@@ -271,6 +273,7 @@ static int tcg_tb_size;
 static int default_serial = 1;
 static int default_parallel = 1;
 static int default_virtcon = 1;
+static int default_sclp = 1;
 static int default_monitor = 1;
 static int default_floppy = 1;
 static int default_cdrom = 1;
@@ -1198,15 +1201,15 @@ void add_boot_device_path(int32_t bootindex, DeviceState *dev,
  * memory pointed by "size" is assigned total length of the array in bytes
  *
  */
-char *get_boot_devices_list(uint32_t *size)
+char *get_boot_devices_list(size_t *size)
 {
     FWBootEntry *i;
-    uint32_t total = 0;
+    size_t total = 0;
     char *list = NULL;
 
     QTAILQ_FOREACH(i, &fw_boot_order, link) {
         char *devpath = NULL, *bootpath;
-        int len;
+        size_t len;
 
         if (i->dev) {
             devpath = qdev_get_fw_dev_path(i->dev);
@@ -1241,21 +1244,79 @@ char *get_boot_devices_list(uint32_t *size)
     return list;
 }
 
+static void numa_node_parse_cpus(int nodenr, const char *cpus)
+{
+    char *endptr;
+    unsigned long long value, endvalue;
+
+    /* Empty CPU range strings will be considered valid, they will simply
+     * not set any bit in the CPU bitmap.
+     */
+    if (!*cpus) {
+        return;
+    }
+
+    if (parse_uint(cpus, &value, &endptr, 10) < 0) {
+        goto error;
+    }
+    if (*endptr == '-') {
+        if (parse_uint_full(endptr + 1, &endvalue, 10) < 0) {
+            goto error;
+        }
+    } else if (*endptr == '\0') {
+        endvalue = value;
+    } else {
+        goto error;
+    }
+
+    if (endvalue >= MAX_CPUMASK_BITS) {
+        endvalue = MAX_CPUMASK_BITS - 1;
+        fprintf(stderr,
+            "qemu: NUMA: A max of %d VCPUs are supported\n",
+             MAX_CPUMASK_BITS);
+    }
+
+    if (endvalue < value) {
+        goto error;
+    }
+
+    bitmap_set(node_cpumask[nodenr], value, endvalue-value+1);
+    return;
+
+error:
+    fprintf(stderr, "qemu: Invalid NUMA CPU range: %s\n", cpus);
+    exit(1);
+}
+
 static void numa_add(const char *optarg)
 {
     char option[128];
     char *endptr;
-    unsigned long long value, endvalue;
-    int nodenr;
+    unsigned long long nodenr;
 
-    value = endvalue = 0ULL;
-
-    optarg = get_opt_name(option, 128, optarg, ',') + 1;
+    optarg = get_opt_name(option, 128, optarg, ',');
+    if (*optarg == ',') {
+        optarg++;
+    }
     if (!strcmp(option, "node")) {
+
+        if (nb_numa_nodes >= MAX_NODES) {
+            fprintf(stderr, "qemu: too many NUMA nodes\n");
+            exit(1);
+        }
+
         if (get_param_value(option, 128, "nodeid", optarg) == 0) {
             nodenr = nb_numa_nodes;
         } else {
-            nodenr = strtoull(option, NULL, 10);
+            if (parse_uint_full(option, &nodenr, 10) < 0) {
+                fprintf(stderr, "qemu: Invalid NUMA nodeid: %s\n", option);
+                exit(1);
+            }
+        }
+
+        if (nodenr >= MAX_NODES) {
+            fprintf(stderr, "qemu: invalid NUMA nodeid: %llu\n", nodenr);
+            exit(1);
         }
 
         if (get_param_value(option, 128, "mem", optarg) == 0) {
@@ -1270,23 +1331,12 @@ static void numa_add(const char *optarg)
             node_mem[nodenr] = sval;
         }
         if (get_param_value(option, 128, "cpus", optarg) != 0) {
-            value = strtoull(option, &endptr, 10);
-            if (*endptr == '-') {
-                endvalue = strtoull(endptr+1, &endptr, 10);
-            } else {
-                endvalue = value;
-            }
-
-            if (!(endvalue < MAX_CPUMASK_BITS)) {
-                endvalue = MAX_CPUMASK_BITS - 1;
-                fprintf(stderr,
-                    "A max of %d CPUs are supported in a guest\n",
-                     MAX_CPUMASK_BITS);
-            }
-
-            bitmap_set(node_cpumask[nodenr], value, endvalue-value+1);
+            numa_node_parse_cpus(nodenr, option);
         }
         nb_numa_nodes++;
+    } else {
+        fprintf(stderr, "Invalid -numa option: %s\n", option);
+        exit(1);
     }
 }
 
@@ -1449,7 +1499,7 @@ void pcmcia_socket_unregister(PCMCIASocket *socket)
         }
 }
 
-void pcmcia_info(Monitor *mon)
+void pcmcia_info(Monitor *mon, const QDict *qdict)
 {
     struct pcmcia_socket_entry_s *iter;
 
@@ -2233,6 +2283,7 @@ static int device_init_func(QemuOpts *opts, void *opaque)
     dev = qdev_device_add(opts);
     if (!dev)
         return -1;
+    object_unref(OBJECT(dev));
     return 0;
 }
 
@@ -2340,6 +2391,7 @@ struct device_config {
         DEV_VIRTCON,   /* -virtioconsole */
         DEV_DEBUGCON,  /* -debugcon */
         DEV_GDB,       /* -gdb, -s */
+        DEV_SCLP,      /* s390 sclp */
     } type;
     const char *cmdline;
     Location loc;
@@ -2458,6 +2510,39 @@ static int virtcon_parse(const char *devname)
     return 0;
 }
 
+static int sclp_parse(const char *devname)
+{
+    QemuOptsList *device = qemu_find_opts("device");
+    static int index = 0;
+    char label[32];
+    QemuOpts *dev_opts;
+
+    if (strcmp(devname, "none") == 0) {
+        return 0;
+    }
+    if (index == MAX_SCLP_CONSOLES) {
+        fprintf(stderr, "qemu: too many sclp consoles\n");
+        exit(1);
+    }
+
+    assert(arch_type == QEMU_ARCH_S390X);
+
+    dev_opts = qemu_opts_create(device, NULL, 0, NULL);
+    qemu_opt_set(dev_opts, "driver", "sclpconsole");
+
+    snprintf(label, sizeof(label), "sclpcon%d", index);
+    sclp_hds[index] = qemu_chr_new(label, devname, NULL);
+    if (!sclp_hds[index]) {
+        fprintf(stderr, "qemu: could not connect sclp console"
+                " to character backend '%s'\n", devname);
+        return -1;
+    }
+    qemu_opt_set(dev_opts, "chardev", label);
+
+    index++;
+    return 0;
+}
+
 static int debugcon_parse(const char *devname)
 {   
     QemuOpts *opts;
@@ -2507,7 +2592,7 @@ static struct {
     const char *name;
     int (*available)(void);
     int (*init)(void);
-    int *allowed;
+    bool *allowed;
 } accel_list[] = {
     { "tcg", "tcg", tcg_available, tcg_init, &tcg_allowed },
     { "xen", "Xen", xen_available, xen_init, &xen_allowed },
@@ -2520,8 +2605,8 @@ static int configure_accelerator(void)
     const char *p = NULL;
     char buf[10];
     int i, ret;
-    bool accel_initialised = 0;
-    bool init_failed = 0;
+    bool accel_initialised = false;
+    bool init_failed = false;
 
     QemuOptsList *list = qemu_find_opts("machine");
     if (!QTAILQ_EMPTY(&list->head)) {
@@ -2540,21 +2625,21 @@ static int configure_accelerator(void)
         p = get_opt_name(buf, sizeof (buf), p, ':');
         for (i = 0; i < ARRAY_SIZE(accel_list); i++) {
             if (strcmp(accel_list[i].opt_name, buf) == 0) {
-                *(accel_list[i].allowed) = 1;
+                if (!accel_list[i].available()) {
+                    printf("%s not supported for this target\n",
+                           accel_list[i].name);
+                    continue;
+                }
+                *(accel_list[i].allowed) = true;
                 ret = accel_list[i].init();
                 if (ret < 0) {
-                    init_failed = 1;
-                    if (!accel_list[i].available()) {
-                        printf("%s not supported for this target\n",
-                               accel_list[i].name);
-                    } else {
-                        fprintf(stderr, "failed to initialize %s: %s\n",
-                                accel_list[i].name,
-                                strerror(-ret));
-                    }
-                    *(accel_list[i].allowed) = 0;
+                    init_failed = true;
+                    fprintf(stderr, "failed to initialize %s: %s\n",
+                            accel_list[i].name,
+                            strerror(-ret));
+                    *(accel_list[i].allowed) = false;
                 } else {
-                    accel_initialised = 1;
+                    accel_initialised = true;
                 }
                 break;
             }
@@ -2565,7 +2650,9 @@ static int configure_accelerator(void)
     }
 
     if (!accel_initialised) {
-        fprintf(stderr, "No accelerator found!\n");
+        if (!init_failed) {
+            fprintf(stderr, "No accelerator found!\n");
+        }
         exit(1);
     }
 
@@ -2957,10 +3044,6 @@ int main(int argc, char **argv, char **envp)
                 }
                 break;
             case QEMU_OPTION_numa:
-                if (nb_numa_nodes >= MAX_NODES) {
-                    fprintf(stderr, "qemu: too many NUMA nodes\n");
-                    exit(1);
-                }
                 numa_add(optarg);
                 break;
             case QEMU_OPTION_display:
@@ -3052,8 +3135,10 @@ int main(int argc, char **argv, char **envp)
                                 exit(1);
                             }
                         }
-                        qemu_opts_parse(qemu_find_opts("boot-opts"),
-                                        optarg, 0);
+                        if (!qemu_opts_parse(qemu_find_opts("boot-opts"),
+                                             optarg, 0)) {
+                            exit(1);
+                        }
                     }
                 }
                 break;
@@ -3251,7 +3336,6 @@ int main(int argc, char **argv, char **envp)
                 }
                 opts = qemu_opts_parse(olist, optarg, 1);
                 if (!opts) {
-                    fprintf(stderr, "parse error: %s\n", optarg);
                     exit(1);
                 }
                 break;
@@ -3267,7 +3351,6 @@ int main(int argc, char **argv, char **envp)
                 }
                 opts = qemu_opts_parse(olist, optarg, 1);
                 if (!opts) {
-                    fprintf(stderr, "parse error: %s\n", optarg);
                     exit(1);
                 }
 
@@ -3438,7 +3521,6 @@ int main(int argc, char **argv, char **envp)
                 olist = qemu_find_opts("machine");
                 opts = qemu_opts_parse(olist, optarg, 1);
                 if (!opts) {
-                    fprintf(stderr, "parse error: %s\n", optarg);
                     exit(1);
                 }
                 optarg = qemu_opt_get(opts, "type");
@@ -3543,6 +3625,9 @@ int main(int argc, char **argv, char **envp)
 		    exit(1);
 		}
                 opts = qemu_opts_parse(qemu_find_opts("option-rom"), optarg, 1);
+                if (!opts) {
+                    exit(1);
+                }
                 option_rom[nb_option_roms].name = qemu_opt_get(opts, "romfile");
                 option_rom[nb_option_roms].bootindex =
                     qemu_opt_get_number(opts, "bootindex", -1);
@@ -3615,6 +3700,7 @@ int main(int argc, char **argv, char **envp)
                 default_serial = 0;
                 default_parallel = 0;
                 default_virtcon = 0;
+                default_sclp = 0;
                 default_monitor = 0;
                 default_net = 0;
                 default_floppy = 0;
@@ -3671,7 +3757,6 @@ int main(int argc, char **argv, char **envp)
                 }
                 opts = qemu_opts_parse(olist, optarg, 0);
                 if (!opts) {
-                    fprintf(stderr, "parse error: %s\n", optarg);
                     exit(1);
                 }
                 break;
@@ -3700,14 +3785,14 @@ int main(int argc, char **argv, char **envp)
             case QEMU_OPTION_sandbox:
                 opts = qemu_opts_parse(qemu_find_opts("sandbox"), optarg, 1);
                 if (!opts) {
-                    exit(0);
+                    exit(1);
                 }
                 break;
             case QEMU_OPTION_add_fd:
 #ifndef _WIN32
                 opts = qemu_opts_parse(qemu_find_opts("add-fd"), optarg, 0);
                 if (!opts) {
-                    exit(0);
+                    exit(1);
                 }
 #else
                 error_report("File descriptor passing is disabled on this "
@@ -3717,6 +3802,9 @@ int main(int argc, char **argv, char **envp)
                 break;
             case QEMU_OPTION_object:
                 opts = qemu_opts_parse(qemu_find_opts("object"), optarg, 1);
+                if (!opts) {
+                    exit(1);
+                }
                 break;
             default:
                 os_parse_cmd_args(popt->index, optarg);
@@ -3832,6 +3920,9 @@ int main(int argc, char **argv, char **envp)
     if (!machine->use_virtcon) {
         default_virtcon = 0;
     }
+    if (!machine->use_sclp) {
+        default_sclp = 0;
+    }
     if (machine->no_floppy) {
         default_floppy = 0;
     }
@@ -3873,11 +3964,16 @@ int main(int argc, char **argv, char **envp)
             add_device_config(DEV_SERIAL, "mon:stdio");
         } else if (default_virtcon && default_monitor) {
             add_device_config(DEV_VIRTCON, "mon:stdio");
+        } else if (default_sclp && default_monitor) {
+            add_device_config(DEV_SCLP, "mon:stdio");
         } else {
             if (default_serial)
                 add_device_config(DEV_SERIAL, "stdio");
             if (default_virtcon)
                 add_device_config(DEV_VIRTCON, "stdio");
+            if (default_sclp) {
+                add_device_config(DEV_SCLP, "stdio");
+            }
             if (default_monitor)
                 monitor_parse("stdio", "readline");
         }
@@ -3890,6 +3986,9 @@ int main(int argc, char **argv, char **envp)
             monitor_parse("vc:80Cx24C", "readline");
         if (default_virtcon)
             add_device_config(DEV_VIRTCON, "vc:80Cx24C");
+        if (default_sclp) {
+            add_device_config(DEV_SCLP, "vc:80Cx24C");
+        }
     }
 
     socket_init();
@@ -4060,6 +4159,9 @@ int main(int argc, char **argv, char **envp)
         exit(1);
     if (foreach_device_config(DEV_VIRTCON, virtcon_parse) < 0)
         exit(1);
+    if (foreach_device_config(DEV_SCLP, sclp_parse) < 0) {
+        exit(1);
+    }
     if (foreach_device_config(DEV_DEBUGCON, debugcon_parse) < 0)
         exit(1);
 

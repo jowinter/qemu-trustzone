@@ -646,7 +646,7 @@ static void prom_init(hwaddr addr, const char *bios_name)
 
     dev = qdev_create(NULL, "openprom");
     qdev_init_nofail(dev);
-    s = sysbus_from_qdev(dev);
+    s = SYS_BUS_DEVICE(dev);
 
     sysbus_mmio_map(s, 0, addr);
 
@@ -729,7 +729,7 @@ static void ram_init(hwaddr addr, ram_addr_t RAM_size)
 
     /* allocate RAM */
     dev = qdev_create(NULL, "memory");
-    s = sysbus_from_qdev(dev);
+    s = SYS_BUS_DEVICE(dev);
 
     d = FROM_SYSBUS(RamDevice, s);
     d->size = RAM_size;
@@ -878,6 +878,7 @@ static void sun4uv_init(MemoryRegion *address_space_mem,
                            (uint8_t *)&nd_table[0].macaddr);
 
     fw_cfg = fw_cfg_init(BIOS_CFG_IOPORT, BIOS_CFG_IOPORT + 1, 0, 0);
+    fw_cfg_add_i16(fw_cfg, FW_CFG_MAX_CPUS, (uint16_t)max_cpus);
     fw_cfg_add_i32(fw_cfg, FW_CFG_ID, 1);
     fw_cfg_add_i64(fw_cfg, FW_CFG_RAM_SIZE, (uint64_t)ram_size);
     fw_cfg_add_i16(fw_cfg, FW_CFG_MACHINE_ID, hwdef->machine_id);
@@ -886,9 +887,7 @@ static void sun4uv_init(MemoryRegion *address_space_mem,
     if (kernel_cmdline) {
         fw_cfg_add_i32(fw_cfg, FW_CFG_CMDLINE_SIZE,
                        strlen(kernel_cmdline) + 1);
-        fw_cfg_add_bytes(fw_cfg, FW_CFG_CMDLINE_DATA,
-                         (uint8_t*)strdup(kernel_cmdline),
-                         strlen(kernel_cmdline) + 1);
+        fw_cfg_add_string(fw_cfg, FW_CFG_CMDLINE_DATA, kernel_cmdline);
     } else {
         fw_cfg_add_i32(fw_cfg, FW_CFG_CMDLINE_SIZE, 0);
     }

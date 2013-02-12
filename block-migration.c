@@ -23,7 +23,8 @@
 #include "sysemu/blockdev.h"
 #include <assert.h>
 
-#define BLOCK_SIZE (BDRV_SECTORS_PER_DIRTY_CHUNK << BDRV_SECTOR_BITS)
+#define BLOCK_SIZE                       (1 << 20)
+#define BDRV_SECTORS_PER_DIRTY_CHUNK     (BLOCK_SIZE >> BDRV_SECTOR_BITS)
 
 #define BLK_MIG_FLAG_DEVICE_BLOCK       0x01
 #define BLK_MIG_FLAG_EOS                0x02
@@ -254,7 +255,7 @@ static void set_dirty_tracking(int enable)
     BlkMigDevState *bmds;
 
     QSIMPLEQ_FOREACH(bmds, &block_mig_state.bmds_list, entry) {
-        bdrv_set_dirty_tracking(bmds->bs, enable);
+        bdrv_set_dirty_tracking(bmds->bs, enable ? BLOCK_SIZE : 0);
     }
 }
 
@@ -478,7 +479,7 @@ static int64_t get_remaining_dirty(void)
         dirty += bdrv_get_dirty_count(bmds->bs);
     }
 
-    return dirty * BLOCK_SIZE;
+    return dirty << BDRV_SECTOR_BITS;
 }
 
 static void blk_mig_cleanup(void)
@@ -568,7 +569,7 @@ static int block_save_iterate(QEMUFile *f, void *opaque)
             }
         }
     }
-    if (ret) {
+    if (ret < 0) {
         blk_mig_cleanup();
         return ret;
     }
@@ -581,7 +582,12 @@ static int block_save_iterate(QEMUFile *f, void *opaque)
 
     qemu_put_be64(f, BLK_MIG_FLAG_EOS);
 
-    return 0;
+    /* Complete when bulk transfer is done and all dirty blocks have been
+     * transferred.
+     */
+    return block_mig_state.bulk_completed &&
+           block_mig_state.submitted == 0 &&
+           block_mig_state.read_done == 0;
 }
 
 static int block_save_complete(QEMUFile *f, void *opaque)
@@ -608,7 +614,7 @@ static int block_save_complete(QEMUFile *f, void *opaque)
     } while (ret == 0);
 
     blk_mig_cleanup();
-    if (ret) {
+    if (ret < 0) {
         return ret;
     }
     /* report completion */
@@ -694,7 +700,7 @@ static int block_load(QEMUFile *f, void *opaque, int version_id)
                    (addr == 100) ? '\n' : '\r');
             fflush(stdout);
         } else if (!(flags & BLK_MIG_FLAG_EOS)) {
-            fprintf(stderr, "Unknown flags\n");
+            fprintf(stderr, "Unknown block migration flags: %#x\n", flags);
             return -EINVAL;
         }
         ret = qemu_file_get_error(f);

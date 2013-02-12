@@ -13,7 +13,10 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
  * Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU Lesser General Public
+ * Contributions after 2012-10-29 are licensed under the terms of the
+ * GNU GPL, version 2 or (at your option) any later version.
+ *
+ * You should have received a copy of the GNU (Lesser) General Public
  * License along with this library; if not, see <http://www.gnu.org/licenses/>.
  */
 #ifndef CPU_S390X_H
@@ -47,6 +50,11 @@
 #define MMU_USER_IDX 1
 
 #define MAX_EXT_QUEUE 16
+#define MAX_IO_QUEUE 16
+#define MAX_MCHK_QUEUE 16
+
+#define PSW_MCHK_MASK 0x0004000000000000
+#define PSW_IO_MASK 0x0200000000000000
 
 typedef struct PSW {
     uint64_t mask;
@@ -58,6 +66,17 @@ typedef struct ExtQueue {
     uint32_t param;
     uint32_t param64;
 } ExtQueue;
+
+typedef struct IOIntQueue {
+    uint16_t id;
+    uint16_t nr;
+    uint32_t parm;
+    uint32_t word;
+} IOIntQueue;
+
+typedef struct MchkQueue {
+    uint16_t type;
+} MchkQueue;
 
 typedef struct CPUS390XState {
     uint64_t regs[16];     /* GP registers */
@@ -90,9 +109,17 @@ typedef struct CPUS390XState {
     uint64_t cregs[16]; /* control registers */
 
     ExtQueue ext_queue[MAX_EXT_QUEUE];
-    int pending_int;
+    IOIntQueue io_queue[MAX_IO_QUEUE][8];
+    MchkQueue mchk_queue[MAX_MCHK_QUEUE];
 
+    int pending_int;
     int ext_index;
+    int io_index[8];
+    int mchk_index;
+
+    uint64_t ckc;
+    uint64_t cputm;
+    uint32_t todpr;
 
     CPU_COMMON
 
@@ -119,6 +146,9 @@ static inline void cpu_clone_regs(CPUS390XState *env, target_ulong newsp)
     env->regs[2] = 0;
 }
 #endif
+
+/* distinguish between 24 bit and 31 bit addressing */
+#define HIGH_ORDER_BIT 0x80000000
 
 /* Interrupt Codes */
 /* Program Interrupts */
@@ -297,12 +327,31 @@ int cpu_s390x_handle_mmu_fault (CPUS390XState *env, target_ulong address, int rw
                                 int mmu_idx);
 #define cpu_handle_mmu_fault cpu_s390x_handle_mmu_fault
 
+#include "ioinst.h"
 
 #ifndef CONFIG_USER_ONLY
+void *s390_cpu_physical_memory_map(CPUS390XState *env, hwaddr addr, hwaddr *len,
+                                   int is_write);
+void s390_cpu_physical_memory_unmap(CPUS390XState *env, void *addr, hwaddr len,
+                                    int is_write);
+static inline hwaddr decode_basedisp_s(CPUS390XState *env, uint32_t ipb)
+{
+    hwaddr addr = 0;
+    uint8_t reg;
+
+    reg = ipb >> 28;
+    if (reg > 0) {
+        addr = env->regs[reg];
+    }
+    addr += (ipb >> 16) & 0xfff;
+
+    return addr;
+}
+
 void s390x_tod_timer(void *opaque);
 void s390x_cpu_timer(void *opaque);
 
-int s390_virtio_hypercall(CPUS390XState *env, uint64_t mem, uint64_t hypercall);
+int s390_virtio_hypercall(CPUS390XState *env);
 
 #ifdef CONFIG_KVM
 void kvm_s390_interrupt(S390CPU *cpu, int type, uint32_t code);
@@ -326,8 +375,8 @@ static inline void kvm_s390_interrupt_internal(S390CPU *cpu, int type,
 }
 #endif
 S390CPU *s390_cpu_addr2state(uint16_t cpu_addr);
-void s390_add_running_cpu(CPUS390XState *env);
-unsigned s390_del_running_cpu(CPUS390XState *env);
+void s390_add_running_cpu(S390CPU *cpu);
+unsigned s390_del_running_cpu(S390CPU *cpu);
 
 /* service interrupts are floating therefore we must not pass an cpustate */
 void s390_sclp_extint(uint32_t parm);
@@ -336,17 +385,125 @@ void s390_sclp_extint(uint32_t parm);
 extern const hwaddr virtio_size;
 
 #else
-static inline void s390_add_running_cpu(CPUS390XState *env)
+static inline void s390_add_running_cpu(S390CPU *cpu)
 {
 }
 
-static inline unsigned s390_del_running_cpu(CPUS390XState *env)
+static inline unsigned s390_del_running_cpu(S390CPU *cpu)
 {
     return 0;
 }
 #endif
 void cpu_lock(void);
 void cpu_unlock(void);
+
+typedef struct SubchDev SubchDev;
+
+#ifndef CONFIG_USER_ONLY
+SubchDev *css_find_subch(uint8_t m, uint8_t cssid, uint8_t ssid,
+                         uint16_t schid);
+bool css_subch_visible(SubchDev *sch);
+void css_conditional_io_interrupt(SubchDev *sch);
+int css_do_stsch(SubchDev *sch, SCHIB *schib);
+bool css_schid_final(uint8_t cssid, uint8_t ssid, uint16_t schid);
+int css_do_msch(SubchDev *sch, SCHIB *schib);
+int css_do_xsch(SubchDev *sch);
+int css_do_csch(SubchDev *sch);
+int css_do_hsch(SubchDev *sch);
+int css_do_ssch(SubchDev *sch, ORB *orb);
+int css_do_tsch(SubchDev *sch, IRB *irb);
+int css_do_stcrw(CRW *crw);
+int css_do_tpi(IOIntCode *int_code, int lowcore);
+int css_collect_chp_desc(int m, uint8_t cssid, uint8_t f_chpid, uint8_t l_chpid,
+                         int rfmt, void *buf);
+void css_do_schm(uint8_t mbk, int update, int dct, uint64_t mbo);
+int css_enable_mcsse(void);
+int css_enable_mss(void);
+int css_do_rsch(SubchDev *sch);
+int css_do_rchp(uint8_t cssid, uint8_t chpid);
+bool css_present(uint8_t cssid);
+#else
+static inline SubchDev *css_find_subch(uint8_t m, uint8_t cssid, uint8_t ssid,
+                                       uint16_t schid)
+{
+    return NULL;
+}
+static inline bool css_subch_visible(SubchDev *sch)
+{
+    return false;
+}
+static inline void css_conditional_io_interrupt(SubchDev *sch)
+{
+}
+static inline int css_do_stsch(SubchDev *sch, SCHIB *schib)
+{
+    return -ENODEV;
+}
+static inline bool css_schid_final(uint8_t cssid, uint8_t ssid, uint16_t schid)
+{
+    return true;
+}
+static inline int css_do_msch(SubchDev *sch, SCHIB *schib)
+{
+    return -ENODEV;
+}
+static inline int css_do_xsch(SubchDev *sch)
+{
+    return -ENODEV;
+}
+static inline int css_do_csch(SubchDev *sch)
+{
+    return -ENODEV;
+}
+static inline int css_do_hsch(SubchDev *sch)
+{
+    return -ENODEV;
+}
+static inline int css_do_ssch(SubchDev *sch, ORB *orb)
+{
+    return -ENODEV;
+}
+static inline int css_do_tsch(SubchDev *sch, IRB *irb)
+{
+    return -ENODEV;
+}
+static inline int css_do_stcrw(CRW *crw)
+{
+    return 1;
+}
+static inline int css_do_tpi(IOIntCode *int_code, int lowcore)
+{
+    return 0;
+}
+static inline int css_collect_chp_desc(int m, uint8_t cssid, uint8_t f_chpid,
+                                       int rfmt, uint8_t l_chpid, void *buf)
+{
+    return 0;
+}
+static inline void css_do_schm(uint8_t mbk, int update, int dct, uint64_t mbo)
+{
+}
+static inline int css_enable_mss(void)
+{
+    return -EINVAL;
+}
+static inline int css_enable_mcsse(void)
+{
+    return -EINVAL;
+}
+static inline int css_do_rsch(SubchDev *sch)
+{
+    return -ENODEV;
+}
+static inline int css_do_rchp(uint8_t cssid, uint8_t chpid)
+{
+    return -ENODEV;
+}
+static inline bool css_present(uint8_t cssid)
+{
+    return false;
+}
+#endif
 
 static inline void cpu_set_tls(CPUS390XState *env, target_ulong newtls)
 {
@@ -359,15 +516,22 @@ static inline void cpu_set_tls(CPUS390XState *env, target_ulong newtls)
 #define cpu_gen_code cpu_s390x_gen_code
 #define cpu_signal_handler cpu_s390x_signal_handler
 
+void s390_cpu_list(FILE *f, fprintf_function cpu_fprintf);
+#define cpu_list s390_cpu_list
+
 #include "exec/exec-all.h"
 
 #define EXCP_EXT 1 /* external interrupt */
 #define EXCP_SVC 2 /* supervisor call (syscall) */
 #define EXCP_PGM 3 /* program interruption */
+#define EXCP_IO  7 /* I/O interrupt */
+#define EXCP_MCHK 8 /* machine check */
 
 #define INTERRUPT_EXT        (1 << 0)
 #define INTERRUPT_TOD        (1 << 1)
 #define INTERRUPT_CPUTIMER   (1 << 2)
+#define INTERRUPT_IO         (1 << 3)
+#define INTERRUPT_MCHK       (1 << 4)
 
 /* Program Status Word.  */
 #define S390_PSWM_REGNUM 0
@@ -769,87 +933,6 @@ struct sysib_322 {
 #define SK_F                    (0x1 << 3)
 #define SK_ACC_MASK             (0xf << 4)
 
-
-/* EBCDIC handling */
-static const uint8_t ebcdic2ascii[] = {
-    0x00, 0x01, 0x02, 0x03, 0x07, 0x09, 0x07, 0x7F,
-    0x07, 0x07, 0x07, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F,
-    0x10, 0x11, 0x12, 0x13, 0x07, 0x0A, 0x08, 0x07,
-    0x18, 0x19, 0x07, 0x07, 0x07, 0x07, 0x07, 0x07,
-    0x07, 0x07, 0x1C, 0x07, 0x07, 0x0A, 0x17, 0x1B,
-    0x07, 0x07, 0x07, 0x07, 0x07, 0x05, 0x06, 0x07,
-    0x07, 0x07, 0x16, 0x07, 0x07, 0x07, 0x07, 0x04,
-    0x07, 0x07, 0x07, 0x07, 0x14, 0x15, 0x07, 0x1A,
-    0x20, 0xFF, 0x83, 0x84, 0x85, 0xA0, 0x07, 0x86,
-    0x87, 0xA4, 0x5B, 0x2E, 0x3C, 0x28, 0x2B, 0x21,
-    0x26, 0x82, 0x88, 0x89, 0x8A, 0xA1, 0x8C, 0x07,
-    0x8D, 0xE1, 0x5D, 0x24, 0x2A, 0x29, 0x3B, 0x5E,
-    0x2D, 0x2F, 0x07, 0x8E, 0x07, 0x07, 0x07, 0x8F,
-    0x80, 0xA5, 0x07, 0x2C, 0x25, 0x5F, 0x3E, 0x3F,
-    0x07, 0x90, 0x07, 0x07, 0x07, 0x07, 0x07, 0x07,
-    0x70, 0x60, 0x3A, 0x23, 0x40, 0x27, 0x3D, 0x22,
-    0x07, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66, 0x67,
-    0x68, 0x69, 0xAE, 0xAF, 0x07, 0x07, 0x07, 0xF1,
-    0xF8, 0x6A, 0x6B, 0x6C, 0x6D, 0x6E, 0x6F, 0x70,
-    0x71, 0x72, 0xA6, 0xA7, 0x91, 0x07, 0x92, 0x07,
-    0xE6, 0x7E, 0x73, 0x74, 0x75, 0x76, 0x77, 0x78,
-    0x79, 0x7A, 0xAD, 0xAB, 0x07, 0x07, 0x07, 0x07,
-    0x9B, 0x9C, 0x9D, 0xFA, 0x07, 0x07, 0x07, 0xAC,
-    0xAB, 0x07, 0xAA, 0x7C, 0x07, 0x07, 0x07, 0x07,
-    0x7B, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47,
-    0x48, 0x49, 0x07, 0x93, 0x94, 0x95, 0xA2, 0x07,
-    0x7D, 0x4A, 0x4B, 0x4C, 0x4D, 0x4E, 0x4F, 0x50,
-    0x51, 0x52, 0x07, 0x96, 0x81, 0x97, 0xA3, 0x98,
-    0x5C, 0xF6, 0x53, 0x54, 0x55, 0x56, 0x57, 0x58,
-    0x59, 0x5A, 0xFD, 0x07, 0x99, 0x07, 0x07, 0x07,
-    0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37,
-    0x38, 0x39, 0x07, 0x07, 0x9A, 0x07, 0x07, 0x07,
-};
-
-static const uint8_t ascii2ebcdic [] = {
-    0x00, 0x01, 0x02, 0x03, 0x37, 0x2D, 0x2E, 0x2F,
-    0x16, 0x05, 0x15, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F,
-    0x10, 0x11, 0x12, 0x13, 0x3C, 0x3D, 0x32, 0x26,
-    0x18, 0x19, 0x3F, 0x27, 0x22, 0x1D, 0x1E, 0x1F,
-    0x40, 0x5A, 0x7F, 0x7B, 0x5B, 0x6C, 0x50, 0x7D,
-    0x4D, 0x5D, 0x5C, 0x4E, 0x6B, 0x60, 0x4B, 0x61,
-    0xF0, 0xF1, 0xF2, 0xF3, 0xF4, 0xF5, 0xF6, 0xF7,
-    0xF8, 0xF9, 0x7A, 0x5E, 0x4C, 0x7E, 0x6E, 0x6F,
-    0x7C, 0xC1, 0xC2, 0xC3, 0xC4, 0xC5, 0xC6, 0xC7,
-    0xC8, 0xC9, 0xD1, 0xD2, 0xD3, 0xD4, 0xD5, 0xD6,
-    0xD7, 0xD8, 0xD9, 0xE2, 0xE3, 0xE4, 0xE5, 0xE6,
-    0xE7, 0xE8, 0xE9, 0xBA, 0xE0, 0xBB, 0xB0, 0x6D,
-    0x79, 0x81, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87,
-    0x88, 0x89, 0x91, 0x92, 0x93, 0x94, 0x95, 0x96,
-    0x97, 0x98, 0x99, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6,
-    0xA7, 0xA8, 0xA9, 0xC0, 0x4F, 0xD0, 0xA1, 0x07,
-    0x3F, 0x3F, 0x3F, 0x3F, 0x3F, 0x3F, 0x3F, 0x3F,
-    0x3F, 0x3F, 0x3F, 0x3F, 0x3F, 0x3F, 0x3F, 0x3F,
-    0x3F, 0x3F, 0x3F, 0x3F, 0x3F, 0x3F, 0x3F, 0x3F,
-    0x3F, 0x3F, 0x3F, 0x3F, 0x3F, 0x3F, 0x3F, 0x3F,
-    0x3F, 0x3F, 0x3F, 0x3F, 0x3F, 0x3F, 0x3F, 0x3F,
-    0x3F, 0x3F, 0x3F, 0x3F, 0x3F, 0x3F, 0x3F, 0x3F,
-    0x3F, 0x3F, 0x3F, 0x3F, 0x3F, 0x3F, 0x3F, 0x3F,
-    0x3F, 0x3F, 0x3F, 0x3F, 0x3F, 0x3F, 0x3F, 0x3F,
-    0x3F, 0x3F, 0x3F, 0x3F, 0x3F, 0x3F, 0x3F, 0x3F,
-    0x3F, 0x3F, 0x3F, 0x3F, 0x3F, 0x3F, 0x3F, 0x3F,
-    0x3F, 0x3F, 0x3F, 0x3F, 0x3F, 0x3F, 0x3F, 0x3F,
-    0x3F, 0x3F, 0x3F, 0x3F, 0x3F, 0x3F, 0x3F, 0x3F,
-    0x3F, 0x59, 0x3F, 0x3F, 0x3F, 0x3F, 0x3F, 0x3F,
-    0x3F, 0x3F, 0x3F, 0x3F, 0x3F, 0x3F, 0x3F, 0x3F,
-    0x3F, 0x3F, 0x3F, 0x3F, 0x3F, 0x3F, 0x3F, 0x3F,
-    0x90, 0x3F, 0x3F, 0x3F, 0x3F, 0xEA, 0x3F, 0xFF
-};
-
-static inline void ebcdic_put(uint8_t *p, const char *ascii, int len)
-{
-    int i;
-
-    for (i = 0; i < len; i++) {
-        p[i] = ascii2ebcdic[(int)ascii[i]];
-    }
-}
-
 #define SIGP_SENSE             0x01
 #define SIGP_EXTERNAL_CALL     0x02
 #define SIGP_EMERGENCY         0x03
@@ -892,9 +975,11 @@ static inline uint64_t time2tod(uint64_t ns) {
     return (ns << 9) / 125;
 }
 
-static inline void cpu_inject_ext(CPUS390XState *env, uint32_t code, uint32_t param,
+static inline void cpu_inject_ext(S390CPU *cpu, uint32_t code, uint32_t param,
                                   uint64_t param64)
 {
+    CPUS390XState *env = &cpu->env;
+
     if (env->ext_index == MAX_EXT_QUEUE - 1) {
         /* ugh - can't queue anymore. Let's drop. */
         return;
@@ -908,6 +993,48 @@ static inline void cpu_inject_ext(CPUS390XState *env, uint32_t code, uint32_t pa
     env->ext_queue[env->ext_index].param64 = param64;
 
     env->pending_int |= INTERRUPT_EXT;
+    cpu_interrupt(env, CPU_INTERRUPT_HARD);
+}
+
+static inline void cpu_inject_io(S390CPU *cpu, uint16_t subchannel_id,
+                                 uint16_t subchannel_number,
+                                 uint32_t io_int_parm, uint32_t io_int_word)
+{
+    CPUS390XState *env = &cpu->env;
+    int isc = ffs(io_int_word << 2) - 1;
+
+    if (env->io_index[isc] == MAX_IO_QUEUE - 1) {
+        /* ugh - can't queue anymore. Let's drop. */
+        return;
+    }
+
+    env->io_index[isc]++;
+    assert(env->io_index[isc] < MAX_IO_QUEUE);
+
+    env->io_queue[env->io_index[isc]][isc].id = subchannel_id;
+    env->io_queue[env->io_index[isc]][isc].nr = subchannel_number;
+    env->io_queue[env->io_index[isc]][isc].parm = io_int_parm;
+    env->io_queue[env->io_index[isc]][isc].word = io_int_word;
+
+    env->pending_int |= INTERRUPT_IO;
+    cpu_interrupt(env, CPU_INTERRUPT_HARD);
+}
+
+static inline void cpu_inject_crw_mchk(S390CPU *cpu)
+{
+    CPUS390XState *env = &cpu->env;
+
+    if (env->mchk_index == MAX_MCHK_QUEUE - 1) {
+        /* ugh - can't queue anymore. Let's drop. */
+        return;
+    }
+
+    env->mchk_index++;
+    assert(env->mchk_index < MAX_MCHK_QUEUE);
+
+    env->mchk_queue[env->mchk_index].type = 1;
+
+    env->pending_int |= INTERRUPT_MCHK;
     cpu_interrupt(env, CPU_INTERRUPT_HARD);
 }
 
@@ -933,5 +1060,53 @@ uint32_t set_cc_nz_f128(float128 v);
 void program_interrupt(CPUS390XState *env, uint32_t code, int ilen);
 void QEMU_NORETURN runtime_exception(CPUS390XState *env, int excp,
                                      uintptr_t retaddr);
+
+#include <sysemu/kvm.h>
+
+#ifdef CONFIG_KVM
+void kvm_s390_io_interrupt(S390CPU *cpu, uint16_t subchannel_id,
+                           uint16_t subchannel_nr, uint32_t io_int_parm,
+                           uint32_t io_int_word);
+void kvm_s390_crw_mchk(S390CPU *cpu);
+void kvm_s390_enable_css_support(S390CPU *cpu);
+#else
+static inline void kvm_s390_io_interrupt(S390CPU *cpu,
+                                        uint16_t subchannel_id,
+                                        uint16_t subchannel_nr,
+                                        uint32_t io_int_parm,
+                                        uint32_t io_int_word)
+{
+}
+static inline void kvm_s390_crw_mchk(S390CPU *cpu)
+{
+}
+static inline void kvm_s390_enable_css_support(S390CPU *cpu)
+{
+}
+#endif
+
+static inline void s390_io_interrupt(S390CPU *cpu,
+                                     uint16_t subchannel_id,
+                                     uint16_t subchannel_nr,
+                                     uint32_t io_int_parm,
+                                     uint32_t io_int_word)
+{
+    if (kvm_enabled()) {
+        kvm_s390_io_interrupt(cpu, subchannel_id, subchannel_nr, io_int_parm,
+                              io_int_word);
+    } else {
+        cpu_inject_io(cpu, subchannel_id, subchannel_nr, io_int_parm,
+                      io_int_word);
+    }
+}
+
+static inline void s390_crw_mchk(S390CPU *cpu)
+{
+    if (kvm_enabled()) {
+        kvm_s390_crw_mchk(cpu);
+    } else {
+        cpu_inject_crw_mchk(cpu);
+    }
+}
 
 #endif

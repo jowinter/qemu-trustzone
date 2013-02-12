@@ -380,7 +380,7 @@ New World
 M: Alexander Graf <agraf@suse.de>
 L: qemu-ppc@nongnu.org
 S: Maintained
-F: hw/ppc_newworld.c
+F: hw/ppc/mac_newworld.c
 F: hw/unin_pci.c
 F: hw/dec_pci.[hc]
 
@@ -388,14 +388,14 @@ Old World
 M: Alexander Graf <agraf@suse.de>
 L: qemu-ppc@nongnu.org
 S: Maintained
-F: hw/ppc_oldworld.c
+F: hw/ppc/mac_oldworld.c
 F: hw/grackle_pci.c
 
 PReP
 M: Andreas Färber <andreas.faerber@web.de>
 L: qemu-ppc@nongnu.org
 S: Odd Fixes
-F: hw/ppc_prep.c
+F: hw/ppc/prep.c
 F: hw/prep_pci.[hc]
 F: hw/pc87312.[hc]
 

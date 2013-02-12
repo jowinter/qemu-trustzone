@@ -129,7 +129,7 @@ struct omap3_mmc_s
 static void omap3_mmc_reset(DeviceState *dev)
 {
     struct omap3_mmc_s *s = FROM_SYSBUS(struct omap3_mmc_s,
-                                        sysbus_from_qdev(dev));
+                                        SYS_BUS_DEVICE(dev));
     s->sysconfig = 0x00000015;
     s->sysstatus = 0;
     s->csre      = 0;
@@ -787,7 +787,7 @@ void omap3_mmc_attach(DeviceState *dev, BlockDriverState *bs,
                       int is_spi, int is_mmc)
 {
     struct omap3_mmc_s *s = FROM_SYSBUS(struct omap3_mmc_s,
-                                        sysbus_from_qdev(dev));
+                                        SYS_BUS_DEVICE(dev));
     if (s->card) {
         hw_error("%s: card already attached!", __FUNCTION__);
     }

@@ -68,7 +68,7 @@ void qemu_add_machine_init_done_notifier(Notifier *notify);
 void do_savevm(Monitor *mon, const QDict *qdict);
 int load_vmstate(const char *name);
 void do_delvm(Monitor *mon, const QDict *qdict);
-void do_info_snapshots(Monitor *mon);
+void do_info_snapshots(Monitor *mon, const QDict *qdict);
 
 void qemu_announce_self(void);
 
@@ -77,7 +77,7 @@ int qemu_savevm_state_begin(QEMUFile *f,
                             const MigrationParams *params);
 int qemu_savevm_state_iterate(QEMUFile *f);
 int qemu_savevm_state_complete(QEMUFile *f);
-void qemu_savevm_state_cancel(QEMUFile *f);
+void qemu_savevm_state_cancel(void);
 uint64_t qemu_savevm_state_pending(QEMUFile *f, uint64_t max_size);
 int qemu_loadvm_state(QEMUFile *f);
 
@@ -122,7 +122,7 @@ extern int semihosting_enabled;
 extern int old_param;
 extern int boot_menu;
 extern uint8_t *boot_splash_filedata;
-extern int boot_splash_filedata_size;
+extern size_t boot_splash_filedata_size;
 extern uint8_t qemu_extra_params_fw[2];
 extern QEMUClock *rtc_clock;
 
@@ -171,7 +171,7 @@ extern CharDriverState *parallel_hds[MAX_PARALLEL_PORTS];
 
 void do_usb_add(Monitor *mon, const QDict *qdict);
 void do_usb_del(Monitor *mon, const QDict *qdict);
-void usb_info(Monitor *mon);
+void usb_info(Monitor *mon, const QDict *qdict);
 
 void rtc_change_mon_event(struct tm *tm);
 
@@ -179,7 +179,7 @@ void register_devices(void);
 
 void add_boot_device_path(int32_t bootindex, DeviceState *dev,
                           const char *suffix);
-char *get_boot_devices_list(uint32_t *size);
+char *get_boot_devices_list(size_t *size);
 
 bool usb_enabled(bool default_usb);
 

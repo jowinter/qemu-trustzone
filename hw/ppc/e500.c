@@ -41,6 +41,7 @@
 #define UIMAGE_LOAD_BASE           0
 #define DTC_LOAD_PAD               0x1800000
 #define DTC_PAD_MASK               0xFFFFF
+#define DTB_MAX_SIZE               (8 * 1024 * 1024)
 #define INITRD_LOAD_PAD            0x2000000
 #define INITRD_PAD_MASK            0xFFFFFF
 
@@ -296,7 +297,7 @@ static int ppce500_load_device_tree(CPUPPCState *env,
     snprintf(mpic, sizeof(mpic), "%s/pic@%llx", soc, MPC8544_MPIC_REGS_OFFSET);
     qemu_devtree_add_subnode(fdt, mpic);
     qemu_devtree_setprop_string(fdt, mpic, "device_type", "open-pic");
-    qemu_devtree_setprop_string(fdt, mpic, "compatible", "chrp,open-pic");
+    qemu_devtree_setprop_string(fdt, mpic, "compatible", "fsl,mpic");
     qemu_devtree_setprop_cells(fdt, mpic, "reg", MPC8544_MPIC_REGS_OFFSET,
                                0x40000);
     qemu_devtree_setprop_cell(fdt, mpic, "#address-cells", 0);
@@ -463,7 +464,8 @@ void ppce500_init(PPCE500Params *params)
     target_long kernel_size=0;
     target_ulong dt_base = 0;
     target_ulong initrd_base = 0;
-    target_long initrd_size=0;
+    target_long initrd_size = 0;
+    target_ulong cur_base = 0;
     int i = 0, j, k;
     unsigned int pci_irq_nrs[4] = {1, 2, 3, 4};
     qemu_irq **irqs, *mpic;
@@ -503,7 +505,7 @@ void ppce500_init(PPCE500Params *params)
         irqs[i][OPENPIC_OUTPUT_CINT] = input[PPCE500_INPUT_CINT];
         env->spr[SPR_BOOKE_PIR] = cs->cpu_index = i;
         env->mpic_iack = MPC8544_CCSRBAR_BASE +
-                         MPC8544_MPIC_REGS_OFFSET + 0x200A0;
+                         MPC8544_MPIC_REGS_OFFSET + 0xa0;
 
         ppc_booke_timers_init(cpu, 400000000, PPC_TIMER_E500);
 
@@ -543,9 +545,9 @@ void ppce500_init(PPCE500Params *params)
     mpic = g_new(qemu_irq, 256);
     dev = qdev_create(NULL, "openpic");
     qdev_prop_set_uint32(dev, "nb_cpus", smp_cpus);
-    qdev_prop_set_uint32(dev, "model", OPENPIC_MODEL_FSL_MPIC_20);
+    qdev_prop_set_uint32(dev, "model", params->mpic_version);
     qdev_init_nofail(dev);
-    s = sysbus_from_qdev(dev);
+    s = SYS_BUS_DEVICE(dev);
 
     k = 0;
     for (i = 0; i < smp_cpus; i++) {
@@ -597,7 +599,7 @@ void ppce500_init(PPCE500Params *params)
     if (!pci_bus)
         printf("couldn't create PCI controller!\n");
 
-    sysbus_mmio_map(sysbus_from_qdev(dev), 1, MPC8544_PCI_IO);
+    sysbus_mmio_map(SYS_BUS_DEVICE(dev), 1, MPC8544_PCI_IO);
 
     if (pci_bus) {
         /* Register network interfaces. */
@@ -626,12 +628,17 @@ void ppce500_init(PPCE500Params *params)
                     params->kernel_filename);
             exit(1);
         }
+
+        cur_base = loadaddr + kernel_size;
+
+        /* Reserve space for dtb */
+        dt_base = (cur_base + DTC_LOAD_PAD) & ~DTC_PAD_MASK;
+        cur_base += DTB_MAX_SIZE;
     }
 
     /* Load initrd. */
     if (params->initrd_filename) {
-        initrd_base = (loadaddr + kernel_size + INITRD_LOAD_PAD) &
-            ~INITRD_PAD_MASK;
+        initrd_base = (cur_base + INITRD_LOAD_PAD) & ~INITRD_PAD_MASK;
         initrd_size = load_image_targphys(params->initrd_filename, initrd_base,
                                           ram_size - initrd_base);
 
@@ -640,6 +647,8 @@ void ppce500_init(PPCE500Params *params)
                     params->initrd_filename);
             exit(1);
         }
+
+        cur_base = initrd_base + initrd_size;
     }
 
     /* If we're loading a kernel directly, we must load the device tree too. */
@@ -647,13 +656,13 @@ void ppce500_init(PPCE500Params *params)
         struct boot_info *boot_info;
         int dt_size;
 
-        dt_base = (loadaddr + kernel_size + DTC_LOAD_PAD) & ~DTC_PAD_MASK;
         dt_size = ppce500_load_device_tree(env, params, dt_base, initrd_base,
                                            initrd_size);
         if (dt_size < 0) {
             fprintf(stderr, "couldn't load device tree\n");
             exit(1);
         }
+        assert(dt_size < DTB_MAX_SIZE);
 
         boot_info = env->load_info;
         boot_info->entry = entry;

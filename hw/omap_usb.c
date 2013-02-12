@@ -77,7 +77,7 @@ static void omap3_hsusb_otg_stdby_update(OMAP3HSUSBOTGState *s)
 static void omap3_hsusb_otg_reset(DeviceState *dev)
 {
     OMAP3HSUSBOTGState *s = FROM_SYSBUS(OMAP3HSUSBOTGState,
-                                        sysbus_from_qdev(dev));
+                                        SYS_BUS_DEVICE(dev));
     s->rev = 0x33;
     s->sysconfig = 0;
     s->interfsel = 0x1;
@@ -285,7 +285,7 @@ static const VMStateDescription vmstate_omap3_hsusb_host = {
 static void omap3_hsusb_host_reset(DeviceState *dev)
 {
     OMAP3HSUSBHostState *s = FROM_SYSBUS(OMAP3HSUSBHostState,
-                                         sysbus_from_qdev(dev));
+                                         SYS_BUS_DEVICE(dev));
     s->uhh_sysconfig = 1;
     s->uhh_hostconfig = 0x700;
     s->uhh_debug_csr = 0x20;

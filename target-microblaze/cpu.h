@@ -274,7 +274,6 @@ struct CPUMBState {
 
 MicroBlazeCPU *cpu_mb_init(const char *cpu_model);
 int cpu_mb_exec(CPUMBState *s);
-void cpu_mb_close(CPUMBState *s);
 void do_interrupt(CPUMBState *env);
 /* you can call this signal handler from your SIGBUS and SIGSEGV
    signal handlers to inform the virtual CPU of exceptions. non zero
@@ -307,8 +306,6 @@ static inline CPUMBState *cpu_init(const char *cpu_model)
 #define cpu_exec cpu_mb_exec
 #define cpu_gen_code cpu_mb_gen_code
 #define cpu_signal_handler cpu_mb_signal_handler
-
-#define CPU_SAVE_VERSION 1
 
 /* MMU modes definitions */
 #define MMU_MODE0_SUFFIX _nommu

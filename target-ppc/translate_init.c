@@ -28,6 +28,7 @@
 #include <sysemu/kvm.h>
 #include "kvm_ppc.h"
 #include "sysemu/arch_init.h"
+#include "sysemu/cpus.h"
 
 //#define PPC_DUMP_CPU
 //#define PPC_DEBUG_SPR
@@ -6297,7 +6298,7 @@ static void init_proc_7457 (CPUPPCState *env)
                               PPC_FLOAT | PPC_FLOAT_FSEL | PPC_FLOAT_FRES |   \
                               PPC_FLOAT_FSQRT | PPC_FLOAT_FRSQRTE |           \
                               PPC_FLOAT_STFIWX |                              \
-                              PPC_CACHE | PPC_CACHE_ICBI | PPC_CACHE_DCBZT |  \
+                              PPC_CACHE | PPC_CACHE_ICBI | PPC_CACHE_DCBZ |  \
                               PPC_MEM_SYNC | PPC_MEM_EIEIO |                  \
                               PPC_MEM_TLBIE | PPC_MEM_TLBSYNC |               \
                               PPC_64B | PPC_ALTIVEC |                         \
@@ -6393,7 +6394,7 @@ static void init_proc_970 (CPUPPCState *env)
                               PPC_FLOAT | PPC_FLOAT_FSEL | PPC_FLOAT_FRES |   \
                               PPC_FLOAT_FSQRT | PPC_FLOAT_FRSQRTE |           \
                               PPC_FLOAT_STFIWX |                              \
-                              PPC_CACHE | PPC_CACHE_ICBI | PPC_CACHE_DCBZT |  \
+                              PPC_CACHE | PPC_CACHE_ICBI | PPC_CACHE_DCBZ |  \
                               PPC_MEM_SYNC | PPC_MEM_EIEIO |                  \
                               PPC_MEM_TLBIE | PPC_MEM_TLBSYNC |               \
                               PPC_64B | PPC_ALTIVEC |                         \
@@ -6495,7 +6496,7 @@ static void init_proc_970FX (CPUPPCState *env)
                               PPC_FLOAT | PPC_FLOAT_FSEL | PPC_FLOAT_FRES |   \
                               PPC_FLOAT_FSQRT | PPC_FLOAT_FRSQRTE |           \
                               PPC_FLOAT_STFIWX |                              \
-                              PPC_CACHE | PPC_CACHE_ICBI | PPC_CACHE_DCBZT |  \
+                              PPC_CACHE | PPC_CACHE_ICBI | PPC_CACHE_DCBZ |  \
                               PPC_MEM_SYNC | PPC_MEM_EIEIO |                  \
                               PPC_MEM_TLBIE | PPC_MEM_TLBSYNC |               \
                               PPC_64B | PPC_ALTIVEC |                         \
@@ -6585,7 +6586,7 @@ static void init_proc_970GX (CPUPPCState *env)
                               PPC_FLOAT | PPC_FLOAT_FSEL | PPC_FLOAT_FRES |   \
                               PPC_FLOAT_FSQRT | PPC_FLOAT_FRSQRTE |           \
                               PPC_FLOAT_STFIWX |                              \
-                              PPC_CACHE | PPC_CACHE_ICBI | PPC_CACHE_DCBZT |  \
+                              PPC_CACHE | PPC_CACHE_ICBI | PPC_CACHE_DCBZ |  \
                               PPC_MEM_SYNC | PPC_MEM_EIEIO |                  \
                               PPC_MEM_TLBIE | PPC_MEM_TLBSYNC |               \
                               PPC_64B | PPC_ALTIVEC |                         \
@@ -6676,7 +6677,7 @@ static void init_proc_970MP (CPUPPCState *env)
                               PPC_FLOAT | PPC_FLOAT_FSEL | PPC_FLOAT_FRES |   \
                               PPC_FLOAT_FSQRT | PPC_FLOAT_FRSQRTE |           \
                               PPC_FLOAT_STFIWX |                              \
-                              PPC_CACHE | PPC_CACHE_ICBI | PPC_CACHE_DCBZT |  \
+                              PPC_CACHE | PPC_CACHE_ICBI | PPC_CACHE_DCBZ |  \
                               PPC_MEM_SYNC | PPC_MEM_EIEIO |                  \
                               PPC_MEM_TLBIE | PPC_MEM_TLBSYNC |               \
                               PPC_64B | PPC_ALTIVEC |                         \
@@ -8633,9 +8634,9 @@ static const ppc_def_t ppc_defs[] = {
     POWERPC_DEF("e500v2_v22",    CPU_POWERPC_e500v2_v22,             e500v2),
     /* PowerPC e500v2 v3.0 core                                              */
     POWERPC_DEF("e500v2_v30",    CPU_POWERPC_e500v2_v30,             e500v2),
-    POWERPC_DEF("e500mc",        CPU_POWERPC_e500mc,                 e500mc),
+    POWERPC_DEF_SVR("e500mc", CPU_POWERPC_e500mc, POWERPC_SVR_E500,  e500mc),
 #ifdef TARGET_PPC64
-    POWERPC_DEF("e5500",         CPU_POWERPC_e5500,                  e5500),
+    POWERPC_DEF_SVR("e5500",    CPU_POWERPC_e5500, POWERPC_SVR_E500, e5500),
 #endif
     /* PowerPC e500 microcontrollers                                         */
     /* MPC8533                                                               */
@@ -9805,7 +9806,7 @@ static void create_ppc_opcodes(PowerPCCPU *cpu, Error **errp)
             ((opc->handler.type2 & def->insns_flags2) != 0)) {
             if (register_insn(env->opcodes, opc) < 0) {
                 error_setg(errp, "ERROR initializing PowerPC instruction "
-                           "0x%02x 0x%02x 0x%02x\n", opc->opc1, opc->opc2,
+                           "0x%02x 0x%02x 0x%02x", opc->opc1, opc->opc2,
                            opc->opc3);
                 return;
             }
@@ -10036,6 +10037,17 @@ static void ppc_cpu_realize(Object *obj, Error **errp)
     PowerPCCPUClass *pcc = POWERPC_CPU_GET_CLASS(cpu);
     ppc_def_t *def = pcc->info;
     Error *local_err = NULL;
+#if !defined(CONFIG_USER_ONLY)
+    int max_smt = kvm_enabled() ? kvmppc_smt_threads() : 1;
+#endif
+
+#if !defined(CONFIG_USER_ONLY)
+    if (smp_threads > max_smt) {
+        fprintf(stderr, "Cannot support more than %d threads on PPC with %s\n",
+                max_smt, kvm_enabled() ? "KVM" : "TCG");
+        exit(1);
+    }
+#endif
 
     if (kvm_enabled()) {
         if (kvmppc_fixup_cpu(cpu) != 0) {
@@ -10346,7 +10358,7 @@ PowerPCCPU *cpu_ppc_init(const char *cpu_model)
     if (err != NULL) {
         fprintf(stderr, "%s\n", error_get_pretty(err));
         error_free(err);
-        object_delete(OBJECT(cpu));
+        object_unref(OBJECT(cpu));
         return NULL;
     }
 
@@ -10566,6 +10578,8 @@ static void ppc_cpu_class_init(ObjectClass *oc, void *data)
 
     pcc->parent_reset = cc->reset;
     cc->reset = ppc_cpu_reset;
+
+    cc->class_by_name = ppc_cpu_class_by_name;
 }
 
 static const TypeInfo ppc_cpu_type_info = {

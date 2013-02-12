@@ -2,8 +2,8 @@
 #define BSWAP_H
 
 #include "config-host.h"
-
 #include <inttypes.h>
+#include <limits.h>
 #include "fpu/softfloat.h"
 
 #ifdef CONFIG_MACHINE_BSWAP_H
@@ -72,45 +72,45 @@ static inline void bswap64s(uint64_t *s)
 
 #if defined(HOST_WORDS_BIGENDIAN)
 #define be_bswap(v, size) (v)
-#define le_bswap(v, size) bswap ## size(v)
+#define le_bswap(v, size) glue(bswap, size)(v)
 #define be_bswaps(v, size)
-#define le_bswaps(p, size) *p = bswap ## size(*p);
+#define le_bswaps(p, size) do { *p = glue(bswap, size)(*p); } while(0)
 #else
 #define le_bswap(v, size) (v)
-#define be_bswap(v, size) bswap ## size(v)
+#define be_bswap(v, size) glue(bswap, size)(v)
 #define le_bswaps(v, size)
-#define be_bswaps(p, size) *p = bswap ## size(*p);
+#define be_bswaps(p, size) do { *p = glue(bswap, size)(*p); } while(0)
 #endif
 
 #define CPU_CONVERT(endian, size, type)\
 static inline type endian ## size ## _to_cpu(type v)\
 {\
-    return endian ## _bswap(v, size);\
+    return glue(endian, _bswap)(v, size);\
 }\
 \
 static inline type cpu_to_ ## endian ## size(type v)\
 {\
-    return endian ## _bswap(v, size);\
+    return glue(endian, _bswap)(v, size);\
 }\
 \
 static inline void endian ## size ## _to_cpus(type *p)\
 {\
-    endian ## _bswaps(p, size)\
+    glue(endian, _bswaps)(p, size);\
 }\
 \
 static inline void cpu_to_ ## endian ## size ## s(type *p)\
 {\
-    endian ## _bswaps(p, size)\
+    glue(endian, _bswaps)(p, size);\
 }\
 \
 static inline type endian ## size ## _to_cpup(const type *p)\
 {\
-    return endian ## size ## _to_cpu(*p);\
+    return glue(glue(endian, size), _to_cpu)(*p);\
 }\
 \
 static inline void cpu_to_ ## endian ## size ## w(type *p, type v)\
 {\
-     *p = cpu_to_ ## endian ## size(v);\
+    *p = glue(glue(cpu_to_, endian), size)(v);\
 }
 
 CPU_CONVERT(be, 16, uint16_t)
@@ -458,7 +458,15 @@ static inline void cpu_to_32wu(uint32_t *p, uint32_t v)
 
 static inline unsigned long leul_to_cpu(unsigned long v)
 {
-    return le_bswap(v, HOST_LONG_BITS);
+    /* In order to break an include loop between here and
+       qemu-common.h, don't rely on HOST_LONG_BITS.  */
+#if ULONG_MAX == UINT32_MAX
+    return le_bswap(v, 32);
+#elif ULONG_MAX == UINT64_MAX
+    return le_bswap(v, 64);
+#else
+# error Unknown sizeof long
+#endif
 }
 
 #undef le_bswap

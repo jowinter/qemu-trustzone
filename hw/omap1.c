@@ -529,6 +529,7 @@ static uint64_t omap_ulpd_pm_read(void *opaque, hwaddr addr,
     case 0x28:	/* Reserved */
     case 0x2c:	/* Reserved */
         OMAP_BAD_REG(addr);
+        /* fall through */
     case 0x00:	/* COUNTER_32_LSB */
     case 0x04:	/* COUNTER_32_MSB */
     case 0x08:	/* COUNTER_HIGH_FREQ_LSB */
@@ -633,6 +634,7 @@ static void omap_ulpd_pm_write(void *opaque, hwaddr addr,
     case 0x28:	/* Reserved */
     case 0x2c:	/* Reserved */
         OMAP_BAD_REG(addr);
+        /* fall through */
     case 0x24:	/* SETUP_ANALOG_CELL3_ULPD1 */
     case 0x38:	/* COUNTER_32_FIQ */
     case 0x48:	/* LOCL_TIME */
@@ -1089,6 +1091,7 @@ static void omap_mpui_write(void *opaque, hwaddr addr,
     /* Not in OMAP310 */
     case 0x14:	/* DSP_STATUS */
         OMAP_RO_REG(addr);
+        break;
     case 0x18:	/* DSP_BOOT_CONFIG */
     case 0x1c:	/* DSP_MPUI_CONFIG */
         break;
@@ -3856,7 +3859,7 @@ struct omap_mpu_state_s *omap310_mpu_init(MemoryRegion *system_memory,
     qdev_prop_set_uint32(s->ih[0], "size", 0x100);
     qdev_prop_set_ptr(s->ih[0], "clk", omap_findclk(s, "arminth_ck"));
     qdev_init_nofail(s->ih[0]);
-    busdev = sysbus_from_qdev(s->ih[0]);
+    busdev = SYS_BUS_DEVICE(s->ih[0]);
     sysbus_connect_irq(busdev, 0, cpu_irq[ARM_PIC_CPU_IRQ]);
     sysbus_connect_irq(busdev, 1, cpu_irq[ARM_PIC_CPU_FIQ]);
     sysbus_mmio_map(busdev, 0, 0xfffecb00);
@@ -3864,7 +3867,7 @@ struct omap_mpu_state_s *omap310_mpu_init(MemoryRegion *system_memory,
     qdev_prop_set_uint32(s->ih[1], "size", 0x800);
     qdev_prop_set_ptr(s->ih[1], "clk", omap_findclk(s, "arminth_ck"));
     qdev_init_nofail(s->ih[1]);
-    busdev = sysbus_from_qdev(s->ih[1]);
+    busdev = SYS_BUS_DEVICE(s->ih[1]);
     sysbus_connect_irq(busdev, 0,
                        qdev_get_gpio_in(s->ih[0], OMAP_INT_15XX_IH2_IRQ));
     /* The second interrupt controller's FIQ output is not wired up */
@@ -3936,7 +3939,7 @@ struct omap_mpu_state_s *omap310_mpu_init(MemoryRegion *system_memory,
                          omap_clk_getrate(omap_findclk(s, "uart1_ck")) / 16);
     qdev_prop_set_chr(s->uart[0], "chardev", serial_hds[0]);
     qdev_init_nofail(s->uart[0]);
-    busdev = sysbus_from_qdev(s->uart[0]);
+    busdev = SYS_BUS_DEVICE(s->uart[0]);
     sysbus_connect_irq(busdev, 0, qdev_get_gpio_in(s->ih[1], OMAP_INT_UART1));
     sysbus_connect_irq(busdev, 1, s->drq[OMAP_DMA_UART1_TX]);
     sysbus_connect_irq(busdev, 2, s->drq[OMAP_DMA_UART1_RX]);
@@ -3950,7 +3953,7 @@ struct omap_mpu_state_s *omap310_mpu_init(MemoryRegion *system_memory,
     qdev_prop_set_chr(s->uart[1], "chardev",
                       serial_hds[0] ? serial_hds[1] : NULL);
     qdev_init_nofail(s->uart[1]);
-    busdev = sysbus_from_qdev(s->uart[1]);
+    busdev = SYS_BUS_DEVICE(s->uart[1]);
     sysbus_connect_irq(busdev, 0, qdev_get_gpio_in(s->ih[1], OMAP_INT_UART2));
     sysbus_connect_irq(busdev, 1, s->drq[OMAP_DMA_UART2_TX]);
     sysbus_connect_irq(busdev, 2, s->drq[OMAP_DMA_UART2_RX]);
@@ -3964,7 +3967,7 @@ struct omap_mpu_state_s *omap310_mpu_init(MemoryRegion *system_memory,
     qdev_prop_set_chr(s->uart[2], "chardev",
                       serial_hds[0] && serial_hds[1] ? serial_hds[2] : NULL);
     qdev_init_nofail(s->uart[2]);
-    busdev = sysbus_from_qdev(s->uart[2]);
+    busdev = SYS_BUS_DEVICE(s->uart[2]);
     sysbus_connect_irq(busdev, 0, qdev_get_gpio_in(s->ih[0], OMAP_INT_UART3));
     sysbus_connect_irq(busdev, 1, s->drq[OMAP_DMA_UART3_TX]);
     sysbus_connect_irq(busdev, 2, s->drq[OMAP_DMA_UART3_RX]);
@@ -3996,9 +3999,9 @@ struct omap_mpu_state_s *omap310_mpu_init(MemoryRegion *system_memory,
     qdev_prop_set_int32(s->gpio, "mpu_model", s->mpu_model);
     qdev_prop_set_ptr(s->gpio, "clk", omap_findclk(s, "arm_gpio_ck"));
     qdev_init_nofail(s->gpio);
-    sysbus_connect_irq(sysbus_from_qdev(s->gpio), 0,
+    sysbus_connect_irq(SYS_BUS_DEVICE(s->gpio), 0,
                        qdev_get_gpio_in(s->ih[0], OMAP_INT_GPIO_BANK1));
-    sysbus_mmio_map(sysbus_from_qdev(s->gpio), 0, 0xfffce000);
+    sysbus_mmio_map(SYS_BUS_DEVICE(s->gpio), 0, 0xfffce000);
 
     s->microwire = omap_uwire_init(system_memory, 0xfffb3000,
                                    qdev_get_gpio_in(s->ih[1], OMAP_INT_uWireTX),
@@ -4014,7 +4017,7 @@ struct omap_mpu_state_s *omap310_mpu_init(MemoryRegion *system_memory,
     qdev_prop_set_uint8(s->i2c[0], "revision", 0x11);
     qdev_prop_set_ptr(s->i2c[0], "fclk", omap_findclk(s, "mpuper_ck"));
     qdev_init_nofail(s->i2c[0]);
-    busdev = sysbus_from_qdev(s->i2c[0]);
+    busdev = SYS_BUS_DEVICE(s->i2c[0]);
     sysbus_connect_irq(busdev, 0, qdev_get_gpio_in(s->ih[1], OMAP_INT_I2C));
     sysbus_connect_irq(busdev, 1, s->drq[OMAP_DMA_I2C_TX]);
     sysbus_connect_irq(busdev, 2, s->drq[OMAP_DMA_I2C_RX]);

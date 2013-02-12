@@ -1096,6 +1096,14 @@ client is specified by the @var{display}. For reverse network
 connections (@var{host}:@var{d},@code{reverse}), the @var{d} argument
 is a TCP port number, not a display number.
 
+@item websocket
+
+Opens an additional TCP listening port dedicated to VNC Websocket connections.
+By defintion the Websocket port is 5700+@var{display}. If @var{host} is
+specified connections will only be allowed from this host.
+As an alternative the Websocket port could be specified by using
+@code{websocket}=@var{port}.
+
 @item password
 
 Require that password based authentication is used for client connections.
@@ -1728,6 +1736,7 @@ DEF("chardev", HAS_ARG, QEMU_OPTION_chardev,
     "-chardev msmouse,id=id[,mux=on|off]\n"
     "-chardev vc,id=id[[,width=width][,height=height]][[,cols=cols][,rows=rows]]\n"
     "         [,mux=on|off]\n"
+    "-chardev ringbuf,id=id[,size=size]\n"
     "-chardev file,id=id,path=path[,mux=on|off]\n"
     "-chardev pipe,id=id,path=path[,mux=on|off]\n"
 #ifdef _WIN32
@@ -1769,6 +1778,7 @@ Backend is one of:
 @option{udp},
 @option{msmouse},
 @option{vc},
+@option{ringbuf},
 @option{file},
 @option{pipe},
 @option{console},
@@ -1876,6 +1886,11 @@ the console, in pixels.
 
 @option{cols} and @option{rows} specify that the console be sized to fit a text
 console with the given dimensions.
+
+@item -chardev ringbuf ,id=@var{id} [,size=@var{size}]
+
+Create a ring buffer with fixed size @option{size}.
+@var{size} must be a power of two, and defaults to @code{64K}).
 
 @item -chardev file ,id=@var{id} ,path=@var{path}
 

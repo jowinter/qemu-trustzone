@@ -216,13 +216,13 @@ static void nvram_init(M48t59State *nvram, uint8_t *macaddr,
 
 static DeviceState *slavio_intctl;
 
-void sun4m_pic_info(Monitor *mon)
+void sun4m_pic_info(Monitor *mon, const QDict *qdict)
 {
     if (slavio_intctl)
         slavio_pic_info(mon, slavio_intctl);
 }
 
-void sun4m_irq_info(Monitor *mon)
+void sun4m_irq_info(Monitor *mon, const QDict *qdict)
 {
     if (slavio_intctl)
         slavio_irq_info(mon, slavio_intctl);
@@ -381,7 +381,7 @@ static void *iommu_init(hwaddr addr, uint32_t version, qemu_irq irq)
     dev = qdev_create(NULL, "iommu");
     qdev_prop_set_uint32(dev, "version", version);
     qdev_init_nofail(dev);
-    s = sysbus_from_qdev(dev);
+    s = SYS_BUS_DEVICE(dev);
     sysbus_connect_irq(s, 0, irq);
     sysbus_mmio_map(s, 0, addr);
 
@@ -398,7 +398,7 @@ static void *sparc32_dma_init(hwaddr daddr, qemu_irq parent_irq,
     qdev_prop_set_ptr(dev, "iommu_opaque", iommu);
     qdev_prop_set_uint32(dev, "is_ledma", is_ledma);
     qdev_init_nofail(dev);
-    s = sysbus_from_qdev(dev);
+    s = SYS_BUS_DEVICE(dev);
     sysbus_connect_irq(s, 0, parent_irq);
     *dev_irq = qdev_get_gpio_in(dev, 0);
     sysbus_mmio_map(s, 0, daddr);
@@ -419,7 +419,7 @@ static void lance_init(NICInfo *nd, hwaddr leaddr,
     qdev_set_nic_properties(dev, nd);
     qdev_prop_set_ptr(dev, "dma", dma_opaque);
     qdev_init_nofail(dev);
-    s = sysbus_from_qdev(dev);
+    s = SYS_BUS_DEVICE(dev);
     sysbus_mmio_map(s, 0, leaddr);
     sysbus_connect_irq(s, 0, irq);
     reset = qdev_get_gpio_in(dev, 0);
@@ -437,7 +437,7 @@ static DeviceState *slavio_intctl_init(hwaddr addr,
     dev = qdev_create(NULL, "slavio_intctl");
     qdev_init_nofail(dev);
 
-    s = sysbus_from_qdev(dev);
+    s = SYS_BUS_DEVICE(dev);
 
     for (i = 0; i < MAX_CPUS; i++) {
         for (j = 0; j < MAX_PILS; j++) {
@@ -465,7 +465,7 @@ static void slavio_timer_init_all(hwaddr addr, qemu_irq master_irq,
     dev = qdev_create(NULL, "slavio_timer");
     qdev_prop_set_uint32(dev, "num_cpus", num_cpus);
     qdev_init_nofail(dev);
-    s = sysbus_from_qdev(dev);
+    s = SYS_BUS_DEVICE(dev);
     sysbus_connect_irq(s, 0, master_irq);
     sysbus_mmio_map(s, 0, addr + SYS_TIMER_OFFSET);
 
@@ -502,7 +502,7 @@ static void slavio_misc_init(hwaddr base,
 
     dev = qdev_create(NULL, "slavio_misc");
     qdev_init_nofail(dev);
-    s = sysbus_from_qdev(dev);
+    s = SYS_BUS_DEVICE(dev);
     if (base) {
         /* 8 bit registers */
         /* Slavio control */
@@ -540,7 +540,7 @@ static void ecc_init(hwaddr base, qemu_irq irq, uint32_t version)
     dev = qdev_create(NULL, "eccmemctl");
     qdev_prop_set_uint32(dev, "version", version);
     qdev_init_nofail(dev);
-    s = sysbus_from_qdev(dev);
+    s = SYS_BUS_DEVICE(dev);
     sysbus_connect_irq(s, 0, irq);
     sysbus_mmio_map(s, 0, base);
     if (version == 0) { // SS-600MP only
@@ -555,7 +555,7 @@ static void apc_init(hwaddr power_base, qemu_irq cpu_halt)
 
     dev = qdev_create(NULL, "apc");
     qdev_init_nofail(dev);
-    s = sysbus_from_qdev(dev);
+    s = SYS_BUS_DEVICE(dev);
     /* Power management (APC) XXX: not a Slavio device */
     sysbus_mmio_map(s, 0, power_base);
     sysbus_connect_irq(s, 0, cpu_halt);
@@ -574,7 +574,7 @@ static void tcx_init(hwaddr addr, int vram_size, int width,
     qdev_prop_set_uint16(dev, "height", height);
     qdev_prop_set_uint16(dev, "depth", depth);
     qdev_init_nofail(dev);
-    s = sysbus_from_qdev(dev);
+    s = SYS_BUS_DEVICE(dev);
     /* 8-bit plane */
     sysbus_mmio_map(s, 0, addr + 0x00800000ULL);
     /* DAC */
@@ -604,7 +604,7 @@ static void idreg_init(hwaddr addr)
 
     dev = qdev_create(NULL, "macio_idreg");
     qdev_init_nofail(dev);
-    s = sysbus_from_qdev(dev);
+    s = SYS_BUS_DEVICE(dev);
 
     sysbus_mmio_map(s, 0, addr);
     cpu_physical_memory_write_rom(addr, idreg_data, sizeof(idreg_data));
@@ -653,7 +653,7 @@ static void afx_init(hwaddr addr)
 
     dev = qdev_create(NULL, "tcx_afx");
     qdev_init_nofail(dev);
-    s = sysbus_from_qdev(dev);
+    s = SYS_BUS_DEVICE(dev);
 
     sysbus_mmio_map(s, 0, addr);
 }
@@ -703,7 +703,7 @@ static void prom_init(hwaddr addr, const char *bios_name)
 
     dev = qdev_create(NULL, "openprom");
     qdev_init_nofail(dev);
-    s = sysbus_from_qdev(dev);
+    s = SYS_BUS_DEVICE(dev);
 
     sysbus_mmio_map(s, 0, addr);
 
@@ -793,7 +793,7 @@ static void ram_init(hwaddr addr, ram_addr_t RAM_size,
         exit(1);
     }
     dev = qdev_create(NULL, "memory");
-    s = sysbus_from_qdev(dev);
+    s = SYS_BUS_DEVICE(dev);
 
     d = FROM_SYSBUS(RamDevice, s);
     d->size = RAM_size;
@@ -1021,6 +1021,7 @@ static void sun4m_hw_init(const struct sun4m_hwdef *hwdef, ram_addr_t RAM_size,
                  hwdef->ecc_version);
 
     fw_cfg = fw_cfg_init(0, 0, CFG_ADDR, CFG_ADDR + 2);
+    fw_cfg_add_i16(fw_cfg, FW_CFG_MAX_CPUS, (uint16_t)max_cpus);
     fw_cfg_add_i32(fw_cfg, FW_CFG_ID, 1);
     fw_cfg_add_i64(fw_cfg, FW_CFG_RAM_SIZE, (uint64_t)ram_size);
     fw_cfg_add_i16(fw_cfg, FW_CFG_MACHINE_ID, hwdef->machine_id);
@@ -1030,9 +1031,7 @@ static void sun4m_hw_init(const struct sun4m_hwdef *hwdef, ram_addr_t RAM_size,
     if (kernel_cmdline) {
         fw_cfg_add_i32(fw_cfg, FW_CFG_KERNEL_CMDLINE, CMDLINE_ADDR);
         pstrcpy_targphys("cmdline", CMDLINE_ADDR, TARGET_PAGE_SIZE, kernel_cmdline);
-        fw_cfg_add_bytes(fw_cfg, FW_CFG_CMDLINE_DATA,
-                         (uint8_t*)strdup(kernel_cmdline),
-                         strlen(kernel_cmdline) + 1);
+        fw_cfg_add_string(fw_cfg, FW_CFG_CMDLINE_DATA, kernel_cmdline);
         fw_cfg_add_i32(fw_cfg, FW_CFG_CMDLINE_SIZE,
                        strlen(kernel_cmdline) + 1);
     } else {
@@ -1562,7 +1561,7 @@ static DeviceState *sbi_init(hwaddr addr, qemu_irq **parent_irq)
     dev = qdev_create(NULL, "sbi");
     qdev_init_nofail(dev);
 
-    s = sysbus_from_qdev(dev);
+    s = SYS_BUS_DEVICE(dev);
 
     for (i = 0; i < MAX_CPUS; i++) {
         sysbus_connect_irq(s, i, *parent_irq[i]);
@@ -1667,6 +1666,7 @@ static void sun4d_hw_init(const struct sun4d_hwdef *hwdef, ram_addr_t RAM_size,
                "Sun4d");
 
     fw_cfg = fw_cfg_init(0, 0, CFG_ADDR, CFG_ADDR + 2);
+    fw_cfg_add_i16(fw_cfg, FW_CFG_MAX_CPUS, (uint16_t)max_cpus);
     fw_cfg_add_i32(fw_cfg, FW_CFG_ID, 1);
     fw_cfg_add_i64(fw_cfg, FW_CFG_RAM_SIZE, (uint64_t)ram_size);
     fw_cfg_add_i16(fw_cfg, FW_CFG_MACHINE_ID, hwdef->machine_id);
@@ -1676,9 +1676,7 @@ static void sun4d_hw_init(const struct sun4d_hwdef *hwdef, ram_addr_t RAM_size,
     if (kernel_cmdline) {
         fw_cfg_add_i32(fw_cfg, FW_CFG_KERNEL_CMDLINE, CMDLINE_ADDR);
         pstrcpy_targphys("cmdline", CMDLINE_ADDR, TARGET_PAGE_SIZE, kernel_cmdline);
-        fw_cfg_add_bytes(fw_cfg, FW_CFG_CMDLINE_DATA,
-                         (uint8_t*)strdup(kernel_cmdline),
-                         strlen(kernel_cmdline) + 1);
+        fw_cfg_add_string(fw_cfg, FW_CFG_CMDLINE_DATA, kernel_cmdline);
     } else {
         fw_cfg_add_i32(fw_cfg, FW_CFG_KERNEL_CMDLINE, 0);
     }
@@ -1765,7 +1763,7 @@ static DeviceState *sun4c_intctl_init(hwaddr addr,
     dev = qdev_create(NULL, "sun4c_intctl");
     qdev_init_nofail(dev);
 
-    s = sysbus_from_qdev(dev);
+    s = SYS_BUS_DEVICE(dev);
 
     for (i = 0; i < MAX_PILS; i++) {
         sysbus_connect_irq(s, i, parent_irq[i]);
@@ -1869,6 +1867,7 @@ static void sun4c_hw_init(const struct sun4c_hwdef *hwdef, ram_addr_t RAM_size,
                "Sun4c");
 
     fw_cfg = fw_cfg_init(0, 0, CFG_ADDR, CFG_ADDR + 2);
+    fw_cfg_add_i16(fw_cfg, FW_CFG_MAX_CPUS, (uint16_t)max_cpus);
     fw_cfg_add_i32(fw_cfg, FW_CFG_ID, 1);
     fw_cfg_add_i64(fw_cfg, FW_CFG_RAM_SIZE, (uint64_t)ram_size);
     fw_cfg_add_i16(fw_cfg, FW_CFG_MACHINE_ID, hwdef->machine_id);
@@ -1878,9 +1877,7 @@ static void sun4c_hw_init(const struct sun4c_hwdef *hwdef, ram_addr_t RAM_size,
     if (kernel_cmdline) {
         fw_cfg_add_i32(fw_cfg, FW_CFG_KERNEL_CMDLINE, CMDLINE_ADDR);
         pstrcpy_targphys("cmdline", CMDLINE_ADDR, TARGET_PAGE_SIZE, kernel_cmdline);
-        fw_cfg_add_bytes(fw_cfg, FW_CFG_CMDLINE_DATA,
-                         (uint8_t*)strdup(kernel_cmdline),
-                         strlen(kernel_cmdline) + 1);
+        fw_cfg_add_string(fw_cfg, FW_CFG_CMDLINE_DATA, kernel_cmdline);
     } else {
         fw_cfg_add_i32(fw_cfg, FW_CFG_KERNEL_CMDLINE, 0);
     }

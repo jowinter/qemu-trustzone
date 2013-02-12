@@ -324,7 +324,7 @@ static void omap_dss_framedone(void *opaque)
 static void omap_dsi_te_trigger(DeviceState *dev, int vc)
 {
     struct omap_dss_s *s = FROM_SYSBUS(struct omap_dss_s,
-                                       sysbus_from_qdev(dev));
+                                       SYS_BUS_DEVICE(dev));
     if ((s->dsi.ctrl & 1) &&        /* IF_EN */
         (s->dsi.vc[vc].ctrl & 1)) { /* VC_EN */
         s->dsi.irqst |= 1 << 16;    /* TE_TRIGGER_IRQ */
@@ -713,7 +713,7 @@ static void omap_dss_reset(DeviceState *dev)
     int i, j;
 
     struct omap_dss_s *s = FROM_SYSBUS(struct omap_dss_s,
-                                       sysbus_from_qdev(dev));
+                                       SYS_BUS_DEVICE(dev));
     s->autoidle = 0x10; /* was 0 for OMAP2 but bit4 must be set for OMAP3 */
     s->control = 0;
     if (s->mpu_model == omap3430) {
@@ -2555,7 +2555,7 @@ void omap_rfbi_attach(DeviceState *dev, int cs,
                       const struct rfbi_chip_s *chip)
 {
     struct omap_dss_s *s = FROM_SYSBUS(struct omap_dss_s,
-                                       sysbus_from_qdev(dev));
+                                       SYS_BUS_DEVICE(dev));
     if (cs < 0 || cs > 1) {
         hw_error("%s: wrong CS %i\n", __FUNCTION__, cs);
     }
@@ -2569,13 +2569,13 @@ void omap_rfbi_attach(DeviceState *dev, int cs,
 DSIHost *omap_dsi_host(DeviceState *dev)
 {
     return FROM_SYSBUS(struct omap_dss_s,
-                       sysbus_from_qdev(dev))->dsi.host;
+                       SYS_BUS_DEVICE(dev))->dsi.host;
 }
 
 void omap_lcd_panel_attach(DeviceState *dev)
 {
     struct omap_dss_s *s = FROM_SYSBUS(struct omap_dss_s,
-                                       sysbus_from_qdev(dev));
+                                       SYS_BUS_DEVICE(dev));
     if (!s->lcd.attached) {
         s->lcd.attached = 1;
         s->lcd.invalidate = 1;
@@ -2588,7 +2588,7 @@ void omap_lcd_panel_attach(DeviceState *dev)
 void omap_digital_panel_attach(DeviceState *dev)
 {
     struct omap_dss_s *s = FROM_SYSBUS(struct omap_dss_s,
-                                       sysbus_from_qdev(dev));
+                                       SYS_BUS_DEVICE(dev));
     if (!s->dig.attached) {
         s->dig.attached = 1;
         s->dig.invalidate = 1;

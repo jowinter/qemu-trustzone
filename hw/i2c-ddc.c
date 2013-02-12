@@ -226,7 +226,7 @@ typedef struct I2CDDCState_s {
 
 static void i2c_ddc_reset(DeviceState *ds)
 {
-    I2CDDCState *s = FROM_I2C_SLAVE(I2CDDCState, I2C_SLAVE_FROM_QDEV(ds));
+    I2CDDCState *s = FROM_I2C_SLAVE(I2CDDCState, I2C_SLAVE(ds));
     s->firstbyte = 0;
     s->reg = 0;
 }

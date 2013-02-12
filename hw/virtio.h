@@ -108,8 +108,17 @@ typedef struct {
 
 #define VIRTIO_NO_VECTOR 0xffff
 
+#define TYPE_VIRTIO_DEVICE "virtio-device"
+#define VIRTIO_DEVICE_GET_CLASS(obj) \
+        OBJECT_GET_CLASS(VirtioDeviceClass, obj, TYPE_VIRTIO_DEVICE)
+#define VIRTIO_DEVICE_CLASS(klass) \
+        OBJECT_CLASS_CHECK(VirtioDeviceClass, klass, TYPE_VIRTIO_DEVICE)
+#define VIRTIO_DEVICE(obj) \
+        OBJECT_CHECK(VirtIODevice, (obj), TYPE_VIRTIO_DEVICE)
+
 struct VirtIODevice
 {
+    DeviceState parent_obj;
     const char *name;
     uint8_t status;
     uint8_t isr;
@@ -119,6 +128,10 @@ struct VirtIODevice
     void *config;
     uint16_t config_vector;
     int nvectors;
+    /*
+     * Function pointers will be removed at the end of the series as they are in
+     * VirtioDeviceClass.
+     */
     uint32_t (*get_features)(VirtIODevice *vdev, uint32_t requested_features);
     uint32_t (*bad_features)(VirtIODevice *vdev);
     void (*set_features)(VirtIODevice *vdev, uint32_t val);
@@ -147,9 +160,28 @@ struct VirtIODevice
     VMChangeStateEntry *vmstate;
 };
 
+typedef struct VirtioDeviceClass {
+    /* This is what a VirtioDevice must implement */
+    DeviceClass parent;
+    int (*init)(VirtIODevice *vdev);
+    uint32_t (*get_features)(VirtIODevice *vdev, uint32_t requested_features);
+    uint32_t (*bad_features)(VirtIODevice *vdev);
+    void (*set_features)(VirtIODevice *vdev, uint32_t val);
+    void (*get_config)(VirtIODevice *vdev, uint8_t *config);
+    void (*set_config)(VirtIODevice *vdev, const uint8_t *config);
+    void (*reset)(VirtIODevice *vdev);
+    void (*set_status)(VirtIODevice *vdev, uint8_t val);
+} VirtioDeviceClass;
+
+void virtio_init(VirtIODevice *vdev, const char *name,
+                         uint16_t device_id, size_t config_size);
+void virtio_common_cleanup(VirtIODevice *vdev);
+
 VirtQueue *virtio_add_queue(VirtIODevice *vdev, int queue_size,
                             void (*handle_output)(VirtIODevice *,
                                                   VirtQueue *));
+
+void virtio_del_queue(VirtIODevice *vdev, int n);
 
 void virtqueue_push(VirtQueue *vq, const VirtQueueElement *elem,
                     unsigned int len);
@@ -211,7 +243,8 @@ typedef struct VirtIOBlkConf VirtIOBlkConf;
 VirtIODevice *virtio_blk_init(DeviceState *dev, VirtIOBlkConf *blk);
 struct virtio_net_conf;
 VirtIODevice *virtio_net_init(DeviceState *dev, NICConf *conf,
-                              struct virtio_net_conf *net);
+                              struct virtio_net_conf *net,
+                              uint32_t host_features);
 typedef struct virtio_serial_conf virtio_serial_conf;
 VirtIODevice *virtio_serial_init(DeviceState *dev, virtio_serial_conf *serial);
 VirtIODevice *virtio_balloon_init(DeviceState *dev);
@@ -248,6 +281,7 @@ hwaddr virtio_queue_get_ring_size(VirtIODevice *vdev, int n);
 uint16_t virtio_queue_get_last_avail_idx(VirtIODevice *vdev, int n);
 void virtio_queue_set_last_avail_idx(VirtIODevice *vdev, int n, uint16_t idx);
 VirtQueue *virtio_get_queue(VirtIODevice *vdev, int n);
+uint16_t virtio_get_queue_index(VirtQueue *vq);
 int virtio_queue_get_id(VirtQueue *vq);
 EventNotifier *virtio_queue_get_guest_notifier(VirtQueue *vq);
 void virtio_queue_set_guest_notifier_fd_handler(VirtQueue *vq, bool assign,

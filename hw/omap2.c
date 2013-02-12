@@ -2277,7 +2277,7 @@ struct omap_mpu_state_s *omap2420_mpu_init(MemoryRegion *sysmem,
     qdev_prop_set_ptr(s->ih[0], "fclk", omap_findclk(s, "mpu_intc_fclk"));
     qdev_prop_set_ptr(s->ih[0], "iclk", omap_findclk(s, "mpu_intc_iclk"));
     qdev_init_nofail(s->ih[0]);
-    busdev = sysbus_from_qdev(s->ih[0]);
+    busdev = SYS_BUS_DEVICE(s->ih[0]);
     sysbus_connect_irq(busdev, 0, cpu_irq[ARM_PIC_CPU_IRQ]);
     sysbus_connect_irq(busdev, 1, cpu_irq[ARM_PIC_CPU_FIQ]);
     sysbus_mmio_map(busdev, 0, 0x480fe000);
@@ -2311,7 +2311,7 @@ struct omap_mpu_state_s *omap2420_mpu_init(MemoryRegion *sysmem,
                          omap_clk_getrate(omap_findclk(s, "uart1_fclk")) / 16);
     qdev_prop_set_chr(s->uart[0], "chardev", serial_hds[0]);
     qdev_init_nofail(s->uart[0]);
-    busdev = sysbus_from_qdev(s->uart[0]);
+    busdev = SYS_BUS_DEVICE(s->uart[0]);
     sysbus_connect_irq(busdev, 0,
                        qdev_get_gpio_in(s->ih[0], OMAP_INT_24XX_UART1_IRQ));
     sysbus_connect_irq(busdev, 1, s->drq[OMAP24XX_DMA_UART1_TX]);
@@ -2326,7 +2326,7 @@ struct omap_mpu_state_s *omap2420_mpu_init(MemoryRegion *sysmem,
     qdev_prop_set_chr(s->uart[1], "chardev",
                       serial_hds[0] ? serial_hds[1] : NULL);
     qdev_init_nofail(s->uart[1]);
-    busdev = sysbus_from_qdev(s->uart[1]);
+    busdev = SYS_BUS_DEVICE(s->uart[1]);
     sysbus_connect_irq(busdev, 0,
                        qdev_get_gpio_in(s->ih[0], OMAP_INT_24XX_UART2_IRQ));
     sysbus_connect_irq(busdev, 1, s->drq[OMAP24XX_DMA_UART2_TX]);
@@ -2341,7 +2341,7 @@ struct omap_mpu_state_s *omap2420_mpu_init(MemoryRegion *sysmem,
     qdev_prop_set_chr(s->uart[2], "chardev",
                       serial_hds[0] && serial_hds[1] ? serial_hds[2] : NULL);
     qdev_init_nofail(s->uart[2]);
-    busdev = sysbus_from_qdev(s->uart[2]);
+    busdev = SYS_BUS_DEVICE(s->uart[2]);
     sysbus_connect_irq(busdev, 0,
                        qdev_get_gpio_in(s->ih[0], OMAP_INT_24XX_UART3_IRQ));
     sysbus_connect_irq(busdev, 1, s->drq[OMAP24XX_DMA_UART3_TX]);
@@ -2408,7 +2408,7 @@ struct omap_mpu_state_s *omap2420_mpu_init(MemoryRegion *sysmem,
     qdev_prop_set_ptr(s->i2c[0], "iclk", omap_findclk(s, "i2c1.iclk"));
     qdev_prop_set_ptr(s->i2c[0], "fclk", omap_findclk(s, "i2c1.fclk"));
     qdev_init_nofail(s->i2c[0]);
-    busdev = sysbus_from_qdev(s->i2c[0]);
+    busdev = SYS_BUS_DEVICE(s->i2c[0]);
     sysbus_connect_irq(busdev, 0,
                        qdev_get_gpio_in(s->ih[0], OMAP_INT_24XX_I2C1_IRQ));
     sysbus_connect_irq(busdev, 1, s->drq[OMAP24XX_DMA_I2C1_TX]);
@@ -2420,7 +2420,7 @@ struct omap_mpu_state_s *omap2420_mpu_init(MemoryRegion *sysmem,
     qdev_prop_set_ptr(s->i2c[1], "iclk", omap_findclk(s, "i2c2.iclk"));
     qdev_prop_set_ptr(s->i2c[1], "fclk", omap_findclk(s, "i2c2.fclk"));
     qdev_init_nofail(s->i2c[1]);
-    busdev = sysbus_from_qdev(s->i2c[1]);
+    busdev = SYS_BUS_DEVICE(s->i2c[1]);
     sysbus_connect_irq(busdev, 0,
                        qdev_get_gpio_in(s->ih[0], OMAP_INT_24XX_I2C2_IRQ));
     sysbus_connect_irq(busdev, 1, s->drq[OMAP24XX_DMA_I2C2_TX]);
@@ -2438,7 +2438,7 @@ struct omap_mpu_state_s *omap2420_mpu_init(MemoryRegion *sysmem,
         qdev_prop_set_ptr(s->gpio, "fclk4", omap_findclk(s, "gpio5_dbclk"));
     }
     qdev_init_nofail(s->gpio);
-    busdev = sysbus_from_qdev(s->gpio);
+    busdev = SYS_BUS_DEVICE(s->gpio);
     sysbus_connect_irq(busdev, 0,
                        qdev_get_gpio_in(s->ih[0], OMAP_INT_24XX_GPIO_BANK1));
     sysbus_connect_irq(busdev, 3,
@@ -2477,7 +2477,7 @@ struct omap_mpu_state_s *omap2420_mpu_init(MemoryRegion *sysmem,
     s->mcspi = qdev_create(NULL, "omap_mcspi");
     qdev_prop_set_int32(s->mcspi, "mpu_model", s->mpu_model);
     qdev_init_nofail(s->mcspi);
-    busdev = sysbus_from_qdev(s->mcspi);
+    busdev = SYS_BUS_DEVICE(s->mcspi);
     sysbus_connect_irq(busdev, 0,
                        qdev_get_gpio_in(s->ih[0], OMAP_INT_24XX_MCSPI1_IRQ));
     sysbus_connect_irq(busdev, 1, s->drq[OMAP24XX_DMA_SPI1_TX0]);
@@ -2500,7 +2500,7 @@ struct omap_mpu_state_s *omap2420_mpu_init(MemoryRegion *sysmem,
     s->dss = qdev_create(NULL, "omap_dss");
     qdev_prop_set_int32(s->dss, "mpu_model", s->mpu_model);
     qdev_init_nofail(s->dss);
-    busdev = sysbus_from_qdev(s->dss);
+    busdev = SYS_BUS_DEVICE(s->dss);
     sysbus_connect_irq(busdev, 0,
                        qdev_get_gpio_in(s->ih[0], OMAP_INT_24XX_DSS_IRQ));
     sysbus_connect_irq(busdev, 1, s->drq[OMAP24XX_DMA_DSS]);
