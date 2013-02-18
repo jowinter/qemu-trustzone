@@ -150,9 +150,9 @@ static const VMStateInfo vmstate_cpsr = {
 
 const VMStateDescription vmstate_arm_cpu = {
     .name = "cpu",
-    .version_id = 11,
-    .minimum_version_id = 11,
-    .minimum_version_id_old = 11,
+    .version_id = 12,
+    .minimum_version_id = 12,
+    .minimum_version_id_old = 12,
     .fields = (VMStateField[]) {
         VMSTATE_UINT32_ARRAY(env.regs, ARMCPU, 16),
         {
@@ -175,6 +175,8 @@ const VMStateDescription vmstate_arm_cpu = {
         VMSTATE_UINT32(env.cp15.c1_coproc, ARMCPU),
         VMSTATE_UINT32(env.cp15.c1_xscaleauxcr, ARMCPU),
         VMSTATE_UINT32(env.cp15.c1_scr, ARMCPU),
+        VMSTATE_UINT32(env.cp15.c1_sedbg, ARMCPU),
+        VMSTATE_UINT32(env.cp15.c1_nseac, ARMCPU),
         VMSTATE_UINT32(env.cp15.c2_base0, ARMCPU),
         VMSTATE_UINT32(env.cp15.c2_base0_hi, ARMCPU),
         VMSTATE_UINT32(env.cp15.c2_base1, ARMCPU),
