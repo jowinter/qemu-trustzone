@@ -12,6 +12,15 @@ here. For full change detail consult the git history:
 Bug numbers refer to Launchpad qemu-linaro bugs, eg:
 https://bugs.launchpad.net/qemu-linaro/+bug/703094
 
+version 2013.03:
+ - Rebased onto upstream v1.4.0.
+ - Fixes #1082292: warning messages from pflash_write during
+   Linux probe for flash type are now suppressed
+ - The ARM KVM support in this version is in sync with the
+   ABI as committed to the upstream Linux kernel for 3.9.
+   This feature is still under development but will no longer
+   be subject to kernel-vs-userspace ABI breaks.
+
 version 2012.12:
  - Rebased onto upstream v1.3.0.
  - Fixes #1009901: deleting a usb-storage device from the
