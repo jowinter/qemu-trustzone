@@ -217,7 +217,7 @@ spice=""
 rbd=""
 smartcard_nss=""
 usb_redir=""
-opengl=""
+glx=""
 zlib="yes"
 guest_agent="yes"
 want_tools="yes"
@@ -226,6 +226,9 @@ coroutine=""
 seccomp=""
 glusterfs=""
 virtio_blk_data_plane=""
+gtk=""
+gtkabi="2.0"
+tpm="no"
 
 # If this is a Linaro QEMU tarball then default the pkgversion
 # string to say so, so that we clearly distinguish ourselves
@@ -862,9 +865,9 @@ for opt do
   ;;
   --enable-vhost-net) vhost_net="yes"
   ;;
-  --disable-opengl) opengl="no"
+  --disable-glx) glx="no"
   ;;
-  --enable-opengl) opengl="yes"
+  --enable-glx) glx="yes"
   ;;
   --disable-rbd) rbd="no"
   ;;
@@ -903,6 +906,14 @@ for opt do
   --disable-virtio-blk-data-plane) virtio_blk_data_plane="no"
   ;;
   --enable-virtio-blk-data-plane) virtio_blk_data_plane="yes"
+  ;;
+  --disable-gtk) gtk="no"
+  ;;
+  --enable-gtk) gtk="yes"
+  ;;
+  --with-gtkabi=*) gtkabi="$optarg"
+  ;;
+  --enable-tpm) tpm="yes"
   ;;
   *) echo "ERROR: unknown option $opt"; show_help="yes"
   ;;
@@ -957,6 +968,7 @@ mips-softmmu \
 mipsel-softmmu \
 mips64-softmmu \
 mips64el-softmmu \
+moxie-softmmu \
 or32-softmmu \
 ppc-softmmu \
 ppcemb-softmmu \
@@ -985,6 +997,10 @@ microblaze-linux-user \
 microblazeel-linux-user \
 mips-linux-user \
 mipsel-linux-user \
+mips64-linux-user \
+mips64el-linux-user \
+mipsn32-linux-user \
+mipsn32el-linux-user \
 or32-linux-user \
 ppc-linux-user \
 ppc64-linux-user \
@@ -1042,6 +1058,7 @@ echo "  --mandir=PATH            install man pages in PATH"
 echo "  --datadir=PATH           install firmware in PATH$confsuffix"
 echo "  --docdir=PATH            install documentation in PATH$confsuffix"
 echo "  --bindir=PATH            install binaries in PATH"
+echo "  --libdir=PATH            install libraries in PATH"
 echo "  --sysconfdir=PATH        install config in PATH$confsuffix"
 echo "  --localstatedir=PATH     install local state in PATH"
 echo "  --with-confsuffix=SUFFIX suffix for QEMU data inside datadir and sysconfdir [$confsuffix]"
@@ -1054,6 +1071,8 @@ echo "  --disable-strip          disable stripping binaries"
 echo "  --disable-werror         disable compilation abort on warning"
 echo "  --disable-sdl            disable SDL"
 echo "  --enable-sdl             enable SDL"
+echo "  --disable-gtk            disable gtk UI"
+echo "  --enable-gtk             enable gtk UI"
 echo "  --disable-virtfs         disable VirtFS"
 echo "  --enable-virtfs          enable VirtFS"
 echo "  --disable-vnc            disable VNC"
@@ -1153,6 +1172,7 @@ echo "  --enable-glusterfs       enable GlusterFS backend"
 echo "  --disable-glusterfs      disable GlusterFS backend"
 echo "  --enable-gcov            enable test coverage analysis with gcov"
 echo "  --gcov=GCOV              use specified gcov [$gcov_tool]"
+echo "  --enable-tpm             enable TPM support"
 echo ""
 echo "NOTE: The object files are built at the place where configure is launched"
 exit 1
@@ -1640,6 +1660,36 @@ if test "$sparse" != "no" ; then
     fi
     sparse=no
   fi
+fi
+
+##########################################
+# GTK probe
+
+if test "$gtk" != "no"; then
+    gtkpackage="gtk+-$gtkabi"
+    if test "$gtkabi" = "3.0" ; then
+      gtkversion="3.0.0"
+      vtepackage="vte-2.90"
+      vteversion="0.32.0"
+    else
+      gtkversion="2.18.0"
+      vtepackage="vte"
+      vteversion="0.24.0"
+    fi
+    if $pkg_config --exists "$gtkpackage >= $gtkversion" && \
+       $pkg_config --exists "$vtepackage >= $vteversion"; then
+	gtk_cflags=`$pkg_config --cflags $gtkpackage 2>/dev/null`
+	gtk_libs=`$pkg_config --libs $gtkpackage 2>/dev/null`
+	vte_cflags=`$pkg_config --cflags $vtepackage 2>/dev/null`
+	vte_libs=`$pkg_config --libs $vtepackage 2>/dev/null`
+	libs_softmmu="$gtk_libs $vte_libs $libs_softmmu"
+	gtk="yes"
+    else
+	if test "$gtk" = "yes" ; then
+	    feature_not_found "gtk"
+	fi
+	gtk="no"
+    fi
 fi
 
 ##########################################
@@ -2383,6 +2433,7 @@ int main(void) { return 0; }
 EOF
   if compile_prog "" "$fdt_libs" ; then
     fdt=yes
+    libs_softmmu="$libs_softmmu $fdt_libs"
   else
     if test "$fdt" = "yes" ; then
       feature_not_found "fdt"
@@ -2393,23 +2444,23 @@ EOF
 fi
 
 ##########################################
-# opengl probe, used by milkymist-tmu2
-if test "$opengl" != "no" ; then
-  opengl_libs="-lGL -lX11"
+# GLX probe, used by milkymist-tmu2
+if test "$glx" != "no" ; then
+  glx_libs="-lGL -lX11"
   cat > $TMPC << EOF
 #include <X11/Xlib.h>
 #include <GL/gl.h>
 #include <GL/glx.h>
-int main(void) { return GL_VERSION != 0; }
+int main(void) { glBegin(0); glXQueryVersion(0,0,0); return 0; }
 EOF
-  if compile_prog "" "-lGL" ; then
-    opengl=yes
+  if compile_prog "" "-lGL -lX11" ; then
+    glx=yes
   else
-    if test "$opengl" = "yes" ; then
-      feature_not_found "opengl"
+    if test "$glx" = "yes" ; then
+      feature_not_found "glx"
     fi
-    opengl_libs=
-    opengl=no
+    glx_libs=
+    glx=no
   fi
 fi
 
@@ -2722,6 +2773,20 @@ if compile_prog "" "" ; then
   epoll_pwait=yes
 fi
 
+# check for sendfile support
+sendfile=no
+cat > $TMPC << EOF
+#include <sys/sendfile.h>
+
+int main(void)
+{
+    return sendfile(0, 0, 0, 0);
+}
+EOF
+if compile_prog "" "" ; then
+  sendfile=yes
+fi
+
 # Check if tools are available to build documentation.
 if test "$docs" != "no" ; then
   if has makeinfo && has pod2man; then
@@ -2766,7 +2831,13 @@ if test "$libiscsi" != "no" ; then
 #include <iscsi/iscsi.h>
 int main(void) { iscsi_unmap_sync(NULL,0,0,0,NULL,0); return 0; }
 EOF
-  if compile_prog "" "-liscsi" ; then
+  if $pkg_config --atleast-version=1.7.0 libiscsi --modversion >/dev/null 2>&1; then
+    libiscsi="yes"
+    libiscsi_cflags=$($pkg_config --cflags libiscsi 2>/dev/null)
+    libiscsi_libs=$($pkg_config --libs libiscsi 2>/dev/null)
+    CFLAGS="$CFLAGS $libiscsi_cflags"
+    LIBS="$LIBS $libiscsi_libs"
+  elif compile_prog "" "-liscsi" ; then
     libiscsi="yes"
     LIBS="$LIBS -liscsi"
   else
@@ -2834,7 +2905,7 @@ EOF
   spice_cflags=$($pkg_config --cflags spice-protocol spice-server 2>/dev/null)
   spice_libs=$($pkg_config --libs spice-protocol spice-server 2>/dev/null)
   if $pkg_config --atleast-version=0.12.0 spice-server >/dev/null 2>&1 && \
-     $pkg_config --atleast-version=0.12.2 spice-protocol > /dev/null 2>&1 && \
+     $pkg_config --atleast-version=0.12.3 spice-protocol > /dev/null 2>&1 && \
      compile_prog "$spice_cflags" "$spice_libs" ; then
     spice="yes"
     libs_softmmu="$libs_softmmu $spice_libs"
@@ -3097,20 +3168,27 @@ if compile_prog "" "" ; then
 fi
 
 ########################################
-# check whether we can disable the -Wunused-but-set-variable
-# option with a pragma (this is needed to silence a warning in
-# some versions of the valgrind VALGRIND_STACK_DEREGISTER macro.)
-# This test has to be compiled with -Werror as otherwise an
-# unknown pragma is only a warning.
+# check whether we can disable warning option with a pragma (this is needed
+# to silence warnings in the headers of some versions of external libraries).
+# This test has to be compiled with -Werror as otherwise an unknown pragma is
+# only a warning.
+#
+# If we can't selectively disable warning in the code, disable -Werror so that
+# the build doesn't fail anyway.
+
 pragma_disable_unused_but_set=no
 cat > $TMPC << EOF
 #pragma GCC diagnostic ignored "-Wunused-but-set-variable"
+#pragma GCC diagnostic ignored "-Wstrict-prototypes"
+
 int main(void) {
     return 0;
 }
 EOF
 if compile_prog "-Werror" "" ; then
     pragma_diagnostic_available=yes
+else
+    werror=no
 fi
 
 ########################################
@@ -3157,6 +3235,22 @@ if compile_prog "" "" ; then
     cpuid_h=yes
 fi
 
+########################################
+# check if __[u]int128_t is usable.
+
+int128=no
+cat > $TMPC << EOF
+__int128_t a;
+__uint128_t b;
+int main (void) {
+  a = a + b;
+  b = a * b;
+  return 0;
+}
+EOF
+if compile_prog "" "" ; then
+    int128=yes
+fi
 
 ##########################################
 # End of CC checks
@@ -3209,6 +3303,7 @@ fi
 
 qemu_confdir=$sysconfdir$confsuffix
 qemu_datadir=$datadir$confsuffix
+qemu_localedir="$datadir/locale"
 
 tools=""
 if test "$want_tools" = "yes" ; then
@@ -3292,6 +3387,7 @@ if test "$darwin" = "yes" ; then
 fi
 echo "pixman            $pixman"
 echo "SDL support       $sdl"
+echo "GTK support       $gtk"
 echo "curses support    $curses"
 echo "curl support      $curl"
 echo "mingw32 support   $mingw32"
@@ -3342,7 +3438,7 @@ echo "rbd support       $rbd"
 echo "xfsctl support    $xfs"
 echo "nss used          $smartcard_nss"
 echo "usb net redir     $usb_redir"
-echo "OpenGL support    $opengl"
+echo "GLX support       $glx"
 echo "libiscsi support  $libiscsi"
 echo "build guest agent $guest_agent"
 echo "seccomp support   $seccomp"
@@ -3351,6 +3447,7 @@ echo "GlusterFS support $glusterfs"
 echo "virtio-blk-data-plane $virtio_blk_data_plane"
 echo "gcov              $gcov_tool"
 echo "gcov enabled      $gcov"
+echo "TPM support       $tpm"
 
 if test "$sdl_too_old" = "yes"; then
 echo "-> Your SDL version is too old - please upgrade to have SDL support"
@@ -3381,6 +3478,7 @@ echo "qemu_localstatedir=$local_statedir" >> $config_host_mak
 echo "qemu_helperdir=$libexecdir" >> $config_host_mak
 echo "extra_cflags=$EXTRA_CFLAGS" >> $config_host_mak
 echo "extra_ldflags=$EXTRA_LDFLAGS" >> $config_host_mak
+echo "qemu_localedir=$qemu_localedir" >> $config_host_mak
 
 echo "ARCH=$ARCH" >> $config_host_mak
 if test "$debug_tcg" = "yes" ; then
@@ -3558,6 +3656,9 @@ fi
 if test "$epoll_pwait" = "yes" ; then
   echo "CONFIG_EPOLL_PWAIT=y" >> $config_host_mak
 fi
+if test "$sendfile" = "yes" ; then
+  echo "CONFIG_SENDFILE=y" >> $config_host_mak
+fi
 if test "$inotify" = "yes" ; then
   echo "CONFIG_INOTIFY=y" >> $config_host_mak
 fi
@@ -3582,6 +3683,11 @@ if test "$bluez" = "yes" ; then
   echo "BLUEZ_CFLAGS=$bluez_cflags" >> $config_host_mak
 fi
 echo "GLIB_CFLAGS=$glib_cflags" >> $config_host_mak
+if test "$gtk" = "yes" ; then
+  echo "CONFIG_GTK=y" >> $config_host_mak
+  echo "GTK_CFLAGS=$gtk_cflags" >> $config_host_mak
+  echo "VTE_CFLAGS=$vte_cflags" >> $config_host_mak
+fi
 if test "$xen" = "yes" ; then
   echo "CONFIG_XEN_BACKEND=y" >> $config_host_mak
   echo "CONFIG_XEN_CTRL_INTERFACE_VERSION=$xen_ctrl_version" >> $config_host_mak
@@ -3643,8 +3749,8 @@ if test "$usb_redir" = "yes" ; then
   echo "CONFIG_USB_REDIR=y" >> $config_host_mak
 fi
 
-if test "$opengl" = "yes" ; then
-  echo "CONFIG_OPENGL=y" >> $config_host_mak
+if test "$glx" = "yes" ; then
+  echo "CONFIG_GLX=y" >> $config_host_mak
 fi
 
 if test "$libiscsi" = "yes" ; then
@@ -3699,6 +3805,10 @@ if test "$cpuid_h" = "yes" ; then
   echo "CONFIG_CPUID_H=y" >> $config_host_mak
 fi
 
+if test "$int128" = "yes" ; then
+  echo "CONFIG_INT128=y" >> $config_host_mak
+fi
+
 if test "$glusterfs" = "yes" ; then
   echo "CONFIG_GLUSTERFS=y" >> $config_host_mak
 fi
@@ -3710,7 +3820,7 @@ fi
 # USB host support
 case "$usb" in
 linux)
-  echo "HOST_USB=linux" >> $config_host_mak
+  echo "HOST_USB=linux legacy" >> $config_host_mak
 ;;
 bsd)
   echo "HOST_USB=bsd" >> $config_host_mak
@@ -3845,7 +3955,7 @@ target_arch2=`echo $target | cut -d '-' -f 1`
 target_bigendian="no"
 
 case "$target_arch2" in
-  armeb|lm32|m68k|microblaze|mips|mipsn32|mips64|or32|ppc|ppcemb|ppc64|ppc64abi32|s390x|sh4eb|sparc|sparc64|sparc32plus|xtensaeb)
+  armeb|lm32|m68k|microblaze|mips|mipsn32|mips64|moxie|or32|ppc|ppcemb|ppc64|ppc64abi32|s390x|sh4eb|sparc|sparc64|sparc32plus|xtensaeb)
   target_bigendian=yes
   ;;
 esac
@@ -3913,13 +4023,12 @@ case "$target_arch2" in
     target_nptl="yes"
     gdb_xml_files="arm-core.xml arm-vfp.xml arm-vfp3.xml arm-neon.xml"
     target_llong_alignment=4
-    target_libs_softmmu="$fdt_libs"
   ;;
   cris)
     target_nptl="yes"
   ;;
   lm32)
-    target_libs_softmmu="$opengl_libs"
+    target_libs_softmmu="$glx_libs"
   ;;
   m68k)
     bflt="yes"
@@ -3932,7 +4041,6 @@ case "$target_arch2" in
     TARGET_ARCH=microblaze
     bflt="yes"
     target_nptl="yes"
-    target_libs_softmmu="$fdt_libs"
   ;;
   mips|mipsel)
     TARGET_ARCH=mips
@@ -3940,15 +4048,18 @@ case "$target_arch2" in
     target_nptl="yes"
   ;;
   mipsn32|mipsn32el)
-    TARGET_ARCH=mipsn32
+    TARGET_ARCH=mips64
     TARGET_BASE_ARCH=mips
     echo "TARGET_ABI_MIPSN32=y" >> $config_target_mak
+    echo "TARGET_ABI32=y" >> $config_target_mak
   ;;
   mips64|mips64el)
     TARGET_ARCH=mips64
     TARGET_BASE_ARCH=mips
     echo "TARGET_ABI_MIPSN64=y" >> $config_target_mak
     target_long_alignment=8
+  ;;
+  moxie)
   ;;
   or32)
     TARGET_ARCH=openrisc
@@ -3957,21 +4068,18 @@ case "$target_arch2" in
   ppc)
     gdb_xml_files="power-core.xml power-fpu.xml power-altivec.xml power-spe.xml"
     target_nptl="yes"
-    target_libs_softmmu="$fdt_libs"
   ;;
   ppcemb)
     TARGET_BASE_ARCH=ppc
     TARGET_ABI_DIR=ppc
     gdb_xml_files="power-core.xml power-fpu.xml power-altivec.xml power-spe.xml"
     target_nptl="yes"
-    target_libs_softmmu="$fdt_libs"
   ;;
   ppc64)
     TARGET_BASE_ARCH=ppc
     TARGET_ABI_DIR=ppc
     gdb_xml_files="power64-core.xml power-fpu.xml power-altivec.xml power-spe.xml"
     target_long_alignment=8
-    target_libs_softmmu="$fdt_libs"
   ;;
   ppc64abi32)
     TARGET_ARCH=ppc64
@@ -3979,7 +4087,6 @@ case "$target_arch2" in
     TARGET_ABI_DIR=ppc
     echo "TARGET_ABI32=y" >> $config_target_mak
     gdb_xml_files="power64-core.xml power-fpu.xml power-altivec.xml power-spe.xml"
-    target_libs_softmmu="$fdt_libs"
   ;;
   sh4|sh4eb)
     TARGET_ARCH=sh4
@@ -4081,9 +4188,6 @@ case "$target_arch2" in
   i386|x86_64)
     echo "CONFIG_HAVE_GET_MEMORY_MAPPING=y" >> $config_target_mak
 esac
-if test "$target_arch2" = "ppc64" -a "$fdt" = "yes"; then
-  echo "CONFIG_PSERIES=y" >> $config_target_mak
-fi
 if test "$target_bigendian" = "yes" ; then
   echo "TARGET_WORDS_BIGENDIAN=y" >> $config_target_mak
 fi
@@ -4194,6 +4298,10 @@ for i in $ARCH $TARGET_BASE_ARCH ; do
     echo "CONFIG_MIPS_DIS=y"  >> $config_target_mak
     echo "CONFIG_MIPS_DIS=y"  >> config-all-disas.mak
   ;;
+  moxie*)
+    echo "CONFIG_MOXIE_DIS=y"  >> $config_target_mak
+    echo "CONFIG_MOXIE_DIS=y"  >> config-all-disas.mak
+  ;;
   or32)
     echo "CONFIG_OPENRISC_DIS=y"  >> $config_target_mak
     echo "CONFIG_OPENRISC_DIS=y"  >> config-all-disas.mak
@@ -4258,6 +4366,12 @@ if test "$gprof" = "yes" ; then
   fi
 fi
 
+if test "$tpm" = "yes"; then
+  if test "$target_softmmu" = "yes" ; then
+    echo "CONFIG_TPM=y" >> $config_host_mak
+  fi
+fi
+
 if test "$ARCH" = "tci"; then
   linker_script=""
 else
@@ -4292,10 +4406,11 @@ DIRS="$DIRS roms/seabios roms/vgabios"
 DIRS="$DIRS qapi-generated"
 FILES="Makefile tests/tcg/Makefile qdict-test-data.txt"
 FILES="$FILES tests/tcg/cris/Makefile tests/tcg/cris/.gdbinit"
-FILES="$FILES tests/tcg/lm32/Makefile"
+FILES="$FILES tests/tcg/lm32/Makefile po/Makefile"
 FILES="$FILES pc-bios/optionrom/Makefile pc-bios/keymaps"
 FILES="$FILES pc-bios/spapr-rtas/Makefile"
 FILES="$FILES roms/seabios/Makefile roms/vgabios/Makefile"
+FILES="$FILES pc-bios/qemu-icon.bmp"
 for bios_file in \
     $source_path/pc-bios/*.bin \
     $source_path/pc-bios/*.aml \

@@ -25,9 +25,10 @@
    inherit from a particular bus (e.g. PCI or I2C) rather than
    this API directly.  */
 
-#include "qdev.h"
+#include "hw/qdev.h"
 #include "sysemu/sysemu.h"
 #include "qapi/error.h"
+#include "qapi/qmp/qerror.h"
 #include "qapi/visitor.h"
 
 int qdev_hotplug = 0;
@@ -116,11 +117,10 @@ DeviceState *qdev_create(BusState *bus, const char *name)
         if (bus) {
             error_report("Unknown device '%s' for bus '%s'", name,
                          object_get_typename(OBJECT(bus)));
-            abort();
         } else {
             error_report("Unknown device '%s' for default sysbus", name);
-            abort();
         }
+        abort();
     }
 
     return dev;

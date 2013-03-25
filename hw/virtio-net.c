@@ -12,69 +12,19 @@
  */
 
 #include "qemu/iov.h"
-#include "virtio.h"
+#include "hw/virtio.h"
 #include "net/net.h"
 #include "net/checksum.h"
 #include "net/tap.h"
 #include "qemu/error-report.h"
 #include "qemu/timer.h"
-#include "virtio-net.h"
-#include "vhost_net.h"
+#include "hw/virtio-net.h"
+#include "hw/vhost_net.h"
 
 #define VIRTIO_NET_VM_VERSION    11
 
 #define MAC_TABLE_ENTRIES    64
 #define MAX_VLAN    (1 << 12)   /* Per 802.1Q definition */
-
-typedef struct VirtIONetQueue {
-    VirtQueue *rx_vq;
-    VirtQueue *tx_vq;
-    QEMUTimer *tx_timer;
-    QEMUBH *tx_bh;
-    int tx_waiting;
-    struct {
-        VirtQueueElement elem;
-        ssize_t len;
-    } async_tx;
-    struct VirtIONet *n;
-} VirtIONetQueue;
-
-typedef struct VirtIONet
-{
-    VirtIODevice vdev;
-    uint8_t mac[ETH_ALEN];
-    uint16_t status;
-    VirtIONetQueue vqs[MAX_QUEUE_NUM];
-    VirtQueue *ctrl_vq;
-    NICState *nic;
-    uint32_t tx_timeout;
-    int32_t tx_burst;
-    uint32_t has_vnet_hdr;
-    size_t host_hdr_len;
-    size_t guest_hdr_len;
-    uint8_t has_ufo;
-    int mergeable_rx_bufs;
-    uint8_t promisc;
-    uint8_t allmulti;
-    uint8_t alluni;
-    uint8_t nomulti;
-    uint8_t nouni;
-    uint8_t nobcast;
-    uint8_t vhost_started;
-    struct {
-        int in_use;
-        int first_multi;
-        uint8_t multi_overflow;
-        uint8_t uni_overflow;
-        uint8_t *macs;
-    } mac_table;
-    uint32_t *vlans;
-    DeviceState *qdev;
-    int multiqueue;
-    uint16_t max_queues;
-    uint16_t curr_queues;
-    size_t config_size;
-} VirtIONet;
 
 /*
  * Calculate the number of bytes up to and including the given 'field' of
@@ -1326,8 +1276,9 @@ VirtIODevice *virtio_net_init(DeviceState *dev, NICConf *conf,
     n->vdev.set_status = virtio_net_set_status;
     n->vdev.guest_notifier_mask = virtio_net_guest_notifier_mask;
     n->vdev.guest_notifier_pending = virtio_net_guest_notifier_pending;
+    n->max_queues = MAX(conf->queues, 1);
+    n->vqs = g_malloc0(sizeof(VirtIONetQueue) * n->max_queues);
     n->vqs[0].rx_vq = virtio_add_queue(&n->vdev, 256, virtio_net_handle_rx);
-    n->max_queues = conf->queues;
     n->curr_queues = 1;
     n->vqs[0].n = n;
     n->tx_timeout = net->txtimer;
@@ -1412,6 +1363,7 @@ void virtio_net_exit(VirtIODevice *vdev)
         }
     }
 
+    g_free(n->vqs);
     qemu_del_nic(n->nic);
     virtio_cleanup(&n->vdev);
 }

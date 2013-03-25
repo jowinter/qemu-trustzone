@@ -115,8 +115,8 @@ virtio_blk_data_plane_complete_request(void *s, unsigned int head, int ret) "dat
 vring_setup(uint64_t physical, void *desc, void *avail, void *used) "vring physical %#"PRIx64" desc %p avail %p used %p"
 
 # thread-pool.c
-thread_pool_submit(void *req, void *opaque) "req %p opaque %p"
-thread_pool_complete(void *req, void *opaque, int ret) "req %p opaque %p ret %d"
+thread_pool_submit(void *pool, void *req, void *opaque) "pool %p req %p opaque %p"
+thread_pool_complete(void *pool, void *req, void *opaque, int ret) "pool %p req %p opaque %p ret %d"
 thread_pool_cancel(void *req, void *opaque) "req %p opaque %p"
 
 # posix-aio-compat.c
@@ -370,11 +370,11 @@ usb_xhci_slot_evaluate(uint32_t slotid) "slotid %d"
 usb_xhci_slot_reset(uint32_t slotid) "slotid %d"
 usb_xhci_ep_enable(uint32_t slotid, uint32_t epid) "slotid %d, epid %d"
 usb_xhci_ep_disable(uint32_t slotid, uint32_t epid) "slotid %d, epid %d"
-usb_xhci_ep_set_dequeue(uint32_t slotid, uint32_t epid, uint64_t param) "slotid %d, epid %d, ptr %016" PRIx64
-usb_xhci_ep_kick(uint32_t slotid, uint32_t epid) "slotid %d, epid %d"
+usb_xhci_ep_set_dequeue(uint32_t slotid, uint32_t epid, uint32_t streamid, uint64_t param) "slotid %d, epid %d, streamid %d, ptr %016" PRIx64
+usb_xhci_ep_kick(uint32_t slotid, uint32_t epid, uint32_t streamid) "slotid %d, epid %d, streamid %d"
 usb_xhci_ep_stop(uint32_t slotid, uint32_t epid) "slotid %d, epid %d"
 usb_xhci_ep_reset(uint32_t slotid, uint32_t epid) "slotid %d, epid %d"
-usb_xhci_xfer_start(void *xfer, uint32_t slotid, uint32_t epid) "%p: slotid %d, epid %d"
+usb_xhci_xfer_start(void *xfer, uint32_t slotid, uint32_t epid, uint32_t streamid) "%p: slotid %d, epid %d, streamid %d"
 usb_xhci_xfer_async(void *xfer) "%p"
 usb_xhci_xfer_nak(void *xfer) "%p"
 usb_xhci_xfer_retry(void *xfer) "%p"
@@ -460,6 +460,7 @@ scsi_req_data(int target, int lun, int tag, int len) "target %d lun %d tag %d le
 scsi_req_data_canceled(int target, int lun, int tag, int len) "target %d lun %d tag %d len %d"
 scsi_req_dequeue(int target, int lun, int tag) "target %d lun %d tag %d"
 scsi_req_continue(int target, int lun, int tag) "target %d lun %d tag %d"
+scsi_req_continue_canceled(int target, int lun, int tag) "target %d lun %d tag %d"
 scsi_req_parsed(int target, int lun, int tag, int cmd, int mode, int xfer) "target %d lun %d tag %d command %d dir %d length %d"
 scsi_req_parsed_lba(int target, int lun, int tag, int cmd, uint64_t lba) "target %d lun %d tag %d command %d lba %"PRIu64
 scsi_req_parse_bad(int target, int lun, int tag, int cmd) "target %d lun %d tag %d command %d"
@@ -472,6 +473,7 @@ scsi_request_sense(int target, int lun, int tag) "target %d lun %d tag %d"
 
 # vl.c
 vm_state_notify(int running, int reason) "running %d reason %d"
+load_file(const char *name, const char *path) "name %s location %s"
 
 # block/qcow2.c
 qcow2_writev_start_req(void *co, int64_t sector, int nb_sectors) "co %p sector %" PRIx64 " nb_sectors %d"
@@ -956,8 +958,11 @@ dma_bdrv_cb(void *dbs, int ret) "dbs=%p ret=%d"
 dma_map_wait(void *dbs) "dbs=%p"
 
 # console.h
-displaysurface_free(void *display_state, void *display_surface) "state=%p surface=%p"
-displaysurface_resize(void *display_state, void *display_surface, int width, int height) "state=%p surface=%p %dx%d"
+displaysurface_create(void *display_surface, int w, int h) "surface=%p, %dx%d"
+displaysurface_create_from(void *display_surface, int w, int h, int bpp, int swap) "surface=%p, %dx%d, bpp %d, bswap %d"
+displaysurface_free(void *display_surface) "surface=%p"
+displaychangelistener_register(void *dcl, const char *name) "%p [ %s ]"
+displaychangelistener_unregister(void *dcl, const char *name) "%p [ %s ]"
 
 # vga.c
 ppm_save(const char *filename, void *display_surface) "%s surface=%p"
@@ -1090,3 +1095,6 @@ css_io_interrupt(int cssid, int ssid, int schid, uint32_t intparm, uint8_t isc, 
 # hw/s390x/virtio-ccw.c
 virtio_ccw_interpret_ccw(int cssid, int ssid, int schid, int cmd_code) "VIRTIO-CCW: %x.%x.%04x: interpret command %x"
 virtio_ccw_new_device(int cssid, int ssid, int schid, int devno, const char *devno_mode) "VIRTIO-CCW: add subchannel %x.%x.%04x, devno %04x (%s)"
+
+# migration.c
+migrate_set_state(int new_state) "new state %d"

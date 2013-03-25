@@ -44,7 +44,8 @@ typedef union {
 
 /*** MIPS DSP internal functions begin ***/
 #define MIPSDSP_ABS(x) (((x) >= 0) ? x : -x)
-#define MIPSDSP_OVERFLOW(a, b, c, d) (!(!((a ^ b ^ -1) & (a ^ c) & d)))
+#define MIPSDSP_OVERFLOW_ADD(a, b, c, d) (~(a ^ b) & (a ^ c) & d)
+#define MIPSDSP_OVERFLOW_SUB(a, b, c, d) ((a ^ b) & (a ^ c) & d)
 
 static inline void set_DSPControl_overflow_flag(uint32_t flag, int position,
                                                 CPUMIPSState *env)
@@ -142,7 +143,7 @@ static inline int16_t mipsdsp_add_i16(int16_t a, int16_t b, CPUMIPSState *env)
 
     tempI = a + b;
 
-    if (MIPSDSP_OVERFLOW(a, b, tempI, 0x8000)) {
+    if (MIPSDSP_OVERFLOW_ADD(a, b, tempI, 0x8000)) {
         set_DSPControl_overflow_flag(1, 20, env);
     }
 
@@ -156,7 +157,7 @@ static inline int16_t mipsdsp_sat_add_i16(int16_t a, int16_t b,
 
     tempS = a + b;
 
-    if (MIPSDSP_OVERFLOW(a, b, tempS, 0x8000)) {
+    if (MIPSDSP_OVERFLOW_ADD(a, b, tempS, 0x8000)) {
         if (a > 0) {
             tempS = 0x7FFF;
         } else {
@@ -175,7 +176,7 @@ static inline int32_t mipsdsp_sat_add_i32(int32_t a, int32_t b,
 
     tempI = a + b;
 
-    if (MIPSDSP_OVERFLOW(a, b, tempI, 0x80000000)) {
+    if (MIPSDSP_OVERFLOW_ADD(a, b, tempI, 0x80000000)) {
         if (a > 0) {
             tempI = 0x7FFFFFFF;
         } else {
@@ -516,13 +517,8 @@ static inline void mipsdsp_rndrashift_short_acc(int64_t *p,
 
     acc = ((int64_t)env->active_tc.HI[ac] << 32) |
           ((int64_t)env->active_tc.LO[ac] & 0xFFFFFFFF);
-    if (shift == 0) {
-        p[0] = acc << 1;
-        p[1] = (acc >> 63) & 0x01;
-    } else {
-        p[0] = acc >> (shift - 1);
-        p[1] = 0;
-    }
+    p[0] = (shift == 0) ? (acc << 1) : (acc >> (shift - 1));
+    p[1] = (acc >> 63) & 0x01;
 }
 
 /* 128 bits long. p[0] is LO, p[1] is HI */
@@ -652,7 +648,7 @@ static inline int32_t mipsdsp_sat16_mul_q15_q15(uint16_t a, uint16_t b,
         temp = 0x7FFF0000;
         set_DSPControl_overflow_flag(1, 21, env);
     } else {
-        temp = ((uint32_t)a * (uint32_t)b);
+        temp = (int16_t)a * (int16_t)b;
         temp = temp << 1;
     }
 
@@ -858,7 +854,7 @@ static inline uint16_t mipsdsp_sub_i16(int16_t a, int16_t b, CPUMIPSState *env)
     int16_t  temp;
 
     temp = a - b;
-    if (MIPSDSP_OVERFLOW(a, -b, temp, 0x8000)) {
+    if (MIPSDSP_OVERFLOW_SUB(a, b, temp, 0x8000)) {
         set_DSPControl_overflow_flag(1, 20, env);
     }
 
@@ -871,8 +867,8 @@ static inline uint16_t mipsdsp_sat16_sub(int16_t a, int16_t b,
     int16_t  temp;
 
     temp = a - b;
-    if (MIPSDSP_OVERFLOW(a, -b, temp, 0x8000)) {
-        if (a > 0) {
+    if (MIPSDSP_OVERFLOW_SUB(a, b, temp, 0x8000)) {
+        if (a >= 0) {
             temp = 0x7FFF;
         } else {
             temp = 0x8000;
@@ -889,8 +885,8 @@ static inline uint32_t mipsdsp_sat32_sub(int32_t a, int32_t b,
     int32_t  temp;
 
     temp = a - b;
-    if (MIPSDSP_OVERFLOW(a, -b, temp, 0x80000000)) {
-        if (a > 0) {
+    if (MIPSDSP_OVERFLOW_SUB(a, b, temp, 0x80000000)) {
+        if (a >= 0) {
             temp = 0x7FFFFFFF;
         } else {
             temp = 0x80000000;
@@ -1004,7 +1000,7 @@ static inline uint32_t mipsdsp_sub32(int32_t a, int32_t b, CPUMIPSState *env)
     int32_t temp;
 
     temp = a - b;
-    if (MIPSDSP_OVERFLOW(a, -b, temp, 0x80000000)) {
+    if (MIPSDSP_OVERFLOW_SUB(a, b, temp, 0x80000000)) {
         set_DSPControl_overflow_flag(1, 20, env);
     }
 
@@ -1017,7 +1013,7 @@ static inline int32_t mipsdsp_add_i32(int32_t a, int32_t b, CPUMIPSState *env)
 
     temp = a + b;
 
-    if (MIPSDSP_OVERFLOW(a, b, temp, 0x80000000)) {
+    if (MIPSDSP_OVERFLOW_ADD(a, b, temp, 0x80000000)) {
         set_DSPControl_overflow_flag(1, 20, env);
     }
 
@@ -2488,37 +2484,42 @@ DP_QH(dpsq_s_w_qh, 0, 1);
 #endif
 
 #define DP_L_W(name, is_add) \
-void helper_##name(uint32_t ac, target_ulong rs, target_ulong rt,     \
-                   CPUMIPSState *env)                                 \
-{                                                                     \
-    int32_t temp63;                                                   \
-    int64_t dotp, acc;                                                \
-    uint64_t temp;                                                    \
-                                                                      \
-    dotp = mipsdsp_mul_q31_q31(ac, rs, rt, env);                      \
-    acc = ((uint64_t)env->active_tc.HI[ac] << 32) |                   \
-          ((uint64_t)env->active_tc.LO[ac] & MIPSDSP_LLO);            \
-    if (!is_add) {                                                    \
-        dotp = -dotp;                                                 \
-    }                                                                 \
-                                                                      \
-    temp = acc + dotp;                                                \
-    if (MIPSDSP_OVERFLOW((uint64_t)acc, (uint64_t)dotp, temp,         \
-                         (0x01ull << 63))) {                          \
-        temp63 = (temp >> 63) & 0x01;                                 \
-        if (temp63 == 1) {                                            \
-            temp = (0x01ull << 63) - 1;                               \
-        } else {                                                      \
-            temp = 0x01ull << 63;                                     \
-        }                                                             \
-                                                                      \
-        set_DSPControl_overflow_flag(1, 16 + ac, env);                \
-    }                                                                 \
-                                                                      \
-    env->active_tc.HI[ac] = (target_long)(int32_t)                    \
-        ((temp & MIPSDSP_LHI) >> 32);                                 \
-    env->active_tc.LO[ac] = (target_long)(int32_t)                    \
-        (temp & MIPSDSP_LLO);                                         \
+void helper_##name(uint32_t ac, target_ulong rs, target_ulong rt,      \
+                   CPUMIPSState *env)                                  \
+{                                                                      \
+    int32_t temp63;                                                    \
+    int64_t dotp, acc;                                                 \
+    uint64_t temp;                                                     \
+    bool overflow;                                                     \
+                                                                       \
+    dotp = mipsdsp_mul_q31_q31(ac, rs, rt, env);                       \
+    acc = ((uint64_t)env->active_tc.HI[ac] << 32) |                    \
+          ((uint64_t)env->active_tc.LO[ac] & MIPSDSP_LLO);             \
+    if (is_add) {                                                      \
+        temp = acc + dotp;                                             \
+        overflow = MIPSDSP_OVERFLOW_ADD((uint64_t)acc, (uint64_t)dotp, \
+                                        temp, (0x01ull << 63));        \
+    } else {                                                           \
+        temp = acc - dotp;                                             \
+        overflow = MIPSDSP_OVERFLOW_SUB((uint64_t)acc, (uint64_t)dotp, \
+                                        temp, (0x01ull << 63));        \
+    }                                                                  \
+                                                                       \
+    if (overflow) {                                                    \
+        temp63 = (temp >> 63) & 0x01;                                  \
+        if (temp63 == 1) {                                             \
+            temp = (0x01ull << 63) - 1;                                \
+        } else {                                                       \
+            temp = 0x01ull << 63;                                      \
+        }                                                              \
+                                                                       \
+        set_DSPControl_overflow_flag(1, 16 + ac, env);                 \
+    }                                                                  \
+                                                                       \
+    env->active_tc.HI[ac] = (target_long)(int32_t)                     \
+        ((temp & MIPSDSP_LHI) >> 32);                                  \
+    env->active_tc.LO[ac] = (target_long)(int32_t)                     \
+        (temp & MIPSDSP_LLO);                                          \
 }
 
 DP_L_W(dpaq_sa_l_w, 1);
@@ -2689,7 +2690,7 @@ MAQ_SA_W(maq_sa_w_phr, 0);
 target_ulong helper_##name(target_ulong rs, target_ulong rt,   \
                            CPUMIPSState *env)                  \
 {                                                              \
-    uint32_t rs_t, rt_t;                                       \
+    int32_t rs_t, rt_t;                                        \
     int32_t tempI;                                             \
     int64_t tempL;                                             \
                                                                \
@@ -3155,8 +3156,8 @@ target_ulong helper_extr_w(target_ulong ac, target_ulong shift,
         tempDL[1] += 1;
     }
 
-    if ((!(tempDL[1] == 0 && (tempDL[0] & MIPSDSP_LHI) == 0x00)) &&
-        (!(tempDL[1] == 1 && (tempDL[0] & MIPSDSP_LHI) == MIPSDSP_LHI))) {
+    if (((tempDL[1] & 0x01) != 0 || (tempDL[0] & MIPSDSP_LHI) != 0) &&
+        ((tempDL[1] & 0x01) != 1 || (tempDL[0] & MIPSDSP_LHI) != MIPSDSP_LHI)) {
         set_DSPControl_overflow_flag(1, 23, env);
     }
 
@@ -3181,8 +3182,8 @@ target_ulong helper_extr_r_w(target_ulong ac, target_ulong shift,
         tempDL[1] += 1;
     }
 
-    if ((tempDL[1] != 0 || (tempDL[0] & MIPSDSP_LHI) != 0) &&
-        (tempDL[1] != 1 && (tempDL[0] & MIPSDSP_LHI) != MIPSDSP_LHI)) {
+    if (((tempDL[1] & 0x01) != 0 || (tempDL[0] & MIPSDSP_LHI) != 0) &&
+        ((tempDL[1] & 0x01) != 1 || (tempDL[0] & MIPSDSP_LHI) != MIPSDSP_LHI)) {
         set_DSPControl_overflow_flag(1, 23, env);
     }
 
@@ -3208,9 +3209,9 @@ target_ulong helper_extr_rs_w(target_ulong ac, target_ulong shift,
     }
     tempI = tempDL[0] >> 1;
 
-    if ((tempDL[1] != 0 || (tempDL[0] & MIPSDSP_LHI) != 0) &&
-        (tempDL[1] != 1 || (tempDL[0] & MIPSDSP_LHI) != MIPSDSP_LHI)) {
-        temp64 = tempDL[1];
+    if (((tempDL[1] & 0x01) != 0 || (tempDL[0] & MIPSDSP_LHI) != 0) &&
+        ((tempDL[1] & 0x01) != 1 || (tempDL[0] & MIPSDSP_LHI) != MIPSDSP_LHI)) {
+        temp64 = tempDL[1] & 0x01;
         if (temp64 == 0) {
             tempI = 0x7FFFFFFF;
         } else {
@@ -3637,7 +3638,7 @@ void helper_dmthlip(target_ulong rs, target_ulong ac, CPUMIPSState *env)
 }
 #endif
 
-void helper_wrdsp(target_ulong rs, target_ulong mask_num, CPUMIPSState *env)
+void cpu_wrdsp(uint32_t rs, uint32_t mask_num, CPUMIPSState *env)
 {
     uint8_t  mask[6];
     uint8_t  i;
@@ -3703,7 +3704,12 @@ void helper_wrdsp(target_ulong rs, target_ulong mask_num, CPUMIPSState *env)
     env->active_tc.DSPControl = dsp;
 }
 
-target_ulong helper_rddsp(target_ulong masknum, CPUMIPSState *env)
+void helper_wrdsp(target_ulong rs, target_ulong mask_num, CPUMIPSState *env)
+{
+    return cpu_wrdsp(rs, mask_num, env);
+}
+
+uint32_t cpu_rddsp(uint32_t mask_num, CPUMIPSState *env)
 {
     uint8_t  mask[6];
     uint32_t ruler, i;
@@ -3712,7 +3718,7 @@ target_ulong helper_rddsp(target_ulong masknum, CPUMIPSState *env)
 
     ruler = 0x01;
     for (i = 0; i < 6; i++) {
-        mask[i] = (masknum & ruler) >> i ;
+        mask[i] = (mask_num & ruler) >> i ;
         ruler = ruler << 1;
     }
 
@@ -3752,6 +3758,11 @@ target_ulong helper_rddsp(target_ulong masknum, CPUMIPSState *env)
     }
 
     return temp;
+}
+
+target_ulong helper_rddsp(target_ulong mask_num, CPUMIPSState *env)
+{
+    return cpu_rddsp(mask_num, env);
 }
 
 

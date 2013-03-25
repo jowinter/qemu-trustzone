@@ -23,9 +23,9 @@
  */
 
 #include <sys/time.h>
-#include "hw.h"
+#include "hw/hw.h"
 #include "qemu/timer.h"
-#include "i2c.h"
+#include "hw/i2c.h"
 #include "sysemu/sysemu.h"
 #include "ui/console.h"
 #include "exec/cpu-all.h"

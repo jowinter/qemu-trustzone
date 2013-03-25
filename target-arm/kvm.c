@@ -88,6 +88,7 @@ static void kvm_arm_devlistener_add(MemoryListener *listener,
                                     MemoryRegionSection *section)
 {
     KVMDevice *kd;
+
     QSLIST_FOREACH(kd, &kvm_devices_head, entries) {
         if (section->mr == kd->mr) {
             kd->kda.addr = section->offset_within_address_space;
@@ -99,6 +100,7 @@ static void kvm_arm_devlistener_del(MemoryListener *listener,
                                     MemoryRegionSection *section)
 {
     KVMDevice *kd;
+
     QSLIST_FOREACH(kd, &kvm_devices_head, entries) {
         if (section->mr == kd->mr) {
             kd->kda.addr = -1;
@@ -114,6 +116,7 @@ static MemoryListener devlistener = {
 static void kvm_arm_machine_init_done(Notifier *notifier, void *data)
 {
     KVMDevice *kd, *tkd;
+
     memory_listener_unregister(&devlistener);
     QSLIST_FOREACH_SAFE(kd, &kvm_devices_head, entries, tkd) {
         if (kd->kda.addr != -1) {
@@ -249,7 +252,7 @@ int kvm_arch_put_registers(CPUState *cs, int level)
 
     /* Make sure the banked regs are properly set */
     mode = env->uncached_cpsr & CPSR_M;
-    bn = bank_number(env, mode);
+    bn = bank_number(mode);
     if (mode == ARM_CPU_MODE_FIQ) {
         memcpy(env->fiq_regs, env->regs + 8, 5 * sizeof(uint32_t));
     } else {
@@ -372,7 +375,7 @@ int kvm_arch_get_registers(CPUState *cs)
 
     /* Make sure the current mode regs are properly set */
     mode = env->uncached_cpsr & CPSR_M;
-    bn = bank_number(env, mode);
+    bn = bank_number(mode);
     if (mode == ARM_CPU_MODE_FIQ) {
         memcpy(env->regs + 8, env->fiq_regs, 5 * sizeof(uint32_t));
     } else {
@@ -424,9 +427,7 @@ void kvm_arch_post_run(CPUState *cs, struct kvm_run *run)
 
 int kvm_arch_handle_exit(CPUState *cs, struct kvm_run *run)
 {
-    int ret = 0;
-
-    return ret;
+    return 0;
 }
 
 void kvm_arch_reset_vcpu(CPUState *cs)

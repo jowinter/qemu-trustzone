@@ -17,8 +17,8 @@
  * You should have received a copy of the GNU Lesser General Public
  * License along with this library; if not, see <http://www.gnu.org/licenses/>
  */
-#include "apic.h"
-#include "apic_internal.h"
+#include "hw/apic.h"
+#include "hw/apic_internal.h"
 #include "trace.h"
 #include "sysemu/kvm.h"
 
@@ -103,7 +103,7 @@ void apic_handle_tpr_access_report(DeviceState *d, target_ulong ip,
 {
     APICCommonState *s = DO_UPCAST(APICCommonState, busdev.qdev, d);
 
-    vapic_report_tpr_access(s->vapic, &s->cpu->env, ip, access);
+    vapic_report_tpr_access(s->vapic, CPU(s->cpu), ip, access);
 }
 
 void apic_report_irq_delivered(int delivered)

@@ -26,7 +26,6 @@
 #include "config.h"
 #include <setjmp.h>
 #include <inttypes.h>
-#include <signal.h>
 #include "qemu/osdep.h"
 #include "qemu/queue.h"
 #include "exec/hwaddr.h"
@@ -149,7 +148,6 @@ typedef struct CPUWatchpoint {
 
 #define CPU_TEMP_BUF_NLONGS 128
 #define CPU_COMMON                                                      \
-    struct TranslationBlock *current_tb; /* currently executing TB  */  \
     /* soft mmu support */                                              \
     /* in order to avoid passing too many arguments to the MMIO         \
        helpers, we store some rarely used information in the CPU        \
@@ -158,9 +156,6 @@ typedef struct CPUWatchpoint {
                             accessed */                                 \
     target_ulong mem_io_vaddr; /* target virtual addr at which the      \
                                      memory was accessed */             \
-    uint32_t halted; /* Nonzero if the CPU is in suspend state */       \
-    uint32_t interrupt_request;                                         \
-    volatile sig_atomic_t exit_request;                                 \
     CPU_COMMON_TLB                                                      \
     struct TranslationBlock *tb_jmp_cache[TB_JMP_CACHE_SIZE];           \
     /* buffer for temporaries in the code generator */                  \
@@ -187,12 +182,10 @@ typedef struct CPUWatchpoint {
     struct GDBRegisterState *gdb_regs;                                  \
                                                                         \
     /* Core interrupt code */                                           \
-    jmp_buf jmp_env;                                                    \
+    sigjmp_buf jmp_env;                                                 \
     int exception_index;                                                \
                                                                         \
     CPUArchState *next_cpu; /* next CPU sharing TB cache */                 \
-    uint32_t host_tid; /* host thread ID */                             \
-    int running; /* Nonzero if cpu is currently running(usermode).  */  \
     /* user data */                                                     \
     void *opaque;                                                       \
                                                                         \

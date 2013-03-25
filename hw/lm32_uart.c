@@ -22,8 +22,8 @@
  */
 
 
-#include "hw.h"
-#include "sysbus.h"
+#include "hw/hw.h"
+#include "hw/sysbus.h"
 #include "trace.h"
 #include "char/char.h"
 #include "qemu/error-report.h"
@@ -137,6 +137,7 @@ static uint64_t uart_read(void *opaque, hwaddr addr,
         r = s->regs[R_RXTX];
         s->regs[R_LSR] &= ~LSR_DR;
         uart_update_irq(s);
+        qemu_chr_accept_input(s->chr);
         break;
     case R_IIR:
     case R_LSR:

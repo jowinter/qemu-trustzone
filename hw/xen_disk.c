@@ -35,9 +35,9 @@
 #include <sys/mman.h>
 #include <sys/uio.h>
 
-#include "hw.h"
-#include "xen_backend.h"
-#include "xen_blkif.h"
+#include "hw/hw.h"
+#include "hw/xen_backend.h"
+#include "hw/xen_blkif.h"
 #include "sysemu/blockdev.h"
 
 /* ------------------------------------------------------------- */
@@ -763,7 +763,7 @@ static int blk_init(struct XenDevice *xendev)
         xen_be_printf(&blkdev->xendev, 2, "create new bdrv (xenbus setup)\n");
         blkdev->bs = bdrv_new(blkdev->dev);
         if (blkdev->bs) {
-            if (bdrv_open(blkdev->bs, blkdev->filename, qflags,
+            if (bdrv_open(blkdev->bs, blkdev->filename, NULL, qflags,
                         bdrv_find_whitelisted_format(blkdev->fileproto)) != 0) {
                 bdrv_delete(blkdev->bs);
                 blkdev->bs = NULL;

@@ -13,7 +13,8 @@
  *
  */
 
-#include "virtio-scsi.h"
+#include "hw/virtio-scsi.h"
+#include "qemu/error-report.h"
 #include <hw/scsi.h>
 #include <hw/scsi-defs.h>
 
@@ -128,21 +129,6 @@ typedef struct {
     uint16_t max_target;
     uint32_t max_lun;
 } QEMU_PACKED VirtIOSCSIConfig;
-
-typedef struct {
-    VirtIODevice vdev;
-    DeviceState *qdev;
-    VirtIOSCSIConf *conf;
-
-    SCSIBus bus;
-    uint32_t sense_size;
-    uint32_t cdb_size;
-    int resetting;
-    bool events_dropped;
-    VirtQueue *ctrl_vq;
-    VirtQueue *event_vq;
-    VirtQueue *cmd_vqs[0];
-} VirtIOSCSI;
 
 typedef struct VirtIOSCSIReq {
     VirtIOSCSI *dev;

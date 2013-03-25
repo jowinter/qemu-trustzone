@@ -21,11 +21,11 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
-#include "hw.h"
-#include "pci/pci.h"
+#include "hw/hw.h"
+#include "hw/pci/pci.h"
 #include "net/net.h"
-#include "ne2000.h"
-#include "loader.h"
+#include "hw/ne2000.h"
+#include "hw/loader.h"
 #include "sysemu/sysemu.h"
 
 /* debug NE2000 card */
@@ -766,7 +766,7 @@ static void ne2000_class_init(ObjectClass *klass, void *data)
 
     k->init = pci_ne2000_init;
     k->exit = pci_ne2000_exit;
-    k->romfile = "pxe-ne2k_pci.rom",
+    k->romfile = "efi-ne2k_pci.rom",
     k->vendor_id = PCI_VENDOR_ID_REALTEK;
     k->device_id = PCI_DEVICE_ID_REALTEK_8029;
     k->class_id = PCI_CLASS_NETWORK_ETHERNET;

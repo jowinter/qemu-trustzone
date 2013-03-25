@@ -22,8 +22,8 @@
 #include "hw/irq.h"
 
 #include "sysemu/sysemu.h"
-#include "dsi.h"
-#include "spi.h"
+#include "hw/dsi.h"
+#include "hw/spi.h"
 
 # define OMAP_EMIFS_BASE	0x00000000
 # define OMAP2_Q0_BASE		0x00000000

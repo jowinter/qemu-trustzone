@@ -16,14 +16,16 @@
 #define QEMU_VIRTIO_PCI_H
 
 #include "hw/pci/msi.h"
-#include "virtio-blk.h"
-#include "virtio-net.h"
-#include "virtio-rng.h"
-#include "virtio-serial.h"
-#include "virtio-scsi.h"
-#include "virtio-bus.h"
+#include "hw/virtio-blk.h"
+#include "hw/virtio-net.h"
+#include "hw/virtio-rng.h"
+#include "hw/virtio-serial.h"
+#include "hw/virtio-scsi.h"
+#include "hw/virtio-bus.h"
+#include "hw/9pfs/virtio-9p-device.h"
 
 typedef struct VirtIOPCIProxy VirtIOPCIProxy;
+typedef struct VirtIOBlkPCI VirtIOBlkPCI;
 
 /* virtio-pci-bus */
 
@@ -72,10 +74,9 @@ struct VirtIOPCIProxy {
     uint32_t flags;
     uint32_t class_code;
     uint32_t nvectors;
-    VirtIOBlkConf blk;
     NICConf nic;
     uint32_t host_features;
-#ifdef CONFIG_LINUX
+#ifdef CONFIG_VIRTFS
     V9fsConf fsconf;
 #endif
     virtio_serial_conf serial;
@@ -89,8 +90,20 @@ struct VirtIOPCIProxy {
     VirtioBusState bus;
 };
 
+/*
+ * virtio-blk-pci: This extends VirtioPCIProxy.
+ */
+#define TYPE_VIRTIO_BLK_PCI "virtio-blk-pci"
+#define VIRTIO_BLK_PCI(obj) \
+        OBJECT_CHECK(VirtIOBlkPCI, (obj), TYPE_VIRTIO_BLK_PCI)
+
+struct VirtIOBlkPCI {
+    VirtIOPCIProxy parent_obj;
+    VirtIOBlock vdev;
+    VirtIOBlkConf blk;
+};
+
 void virtio_init_pci(VirtIOPCIProxy *proxy, VirtIODevice *vdev);
-void virtio_pci_reset(DeviceState *d);
 void virtio_pci_bus_new(VirtioBusState *bus, VirtIOPCIProxy *dev);
 
 /* Virtio ABI version, if we increment this, we break the guest driver. */

@@ -17,14 +17,14 @@
    - Remove all DisplayState knowledge from devices.
  */
 
-#include "hw.h"
+#include "hw/hw.h"
 #include "ui/console.h"
-#include "framebuffer.h"
+#include "hw/framebuffer.h"
 
 /* Render an image from a shared memory framebuffer.  */
    
 void framebuffer_update_display(
-    DisplayState *ds,
+    DisplaySurface *ds,
     MemoryRegion *address_space,
     hwaddr base,
     int cols, /* Width in pixels.  */
@@ -73,7 +73,7 @@ void framebuffer_update_display(
         return;
     }
     src = src_base;
-    dest = ds_get_data(ds);
+    dest = surface_data(ds);
     if (dest_col_pitch < 0)
         dest -= dest_col_pitch * (cols - 1);
     if (dest_row_pitch < 0) {

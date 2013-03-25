@@ -1,6 +1,7 @@
 # Default configuration for ppc64-softmmu
 
 include pci.mak
+include usb.mak
 CONFIG_GDBSTUB_XML=y
 CONFIG_ISA_MMIO=y
 CONFIG_ESCC=y
@@ -39,3 +40,5 @@ CONFIG_PFLASH_CFI02=y
 CONFIG_PTIMER=y
 CONFIG_I8259=y
 CONFIG_XILINX=y
+CONFIG_PSERIES=$(CONFIG_FDT)
+CONFIG_E500=$(CONFIG_FDT)

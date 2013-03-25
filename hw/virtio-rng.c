@@ -10,29 +10,11 @@
  */
 
 #include "qemu/iov.h"
-#include "qdev.h"
-#include "virtio.h"
-#include "virtio-rng.h"
+#include "hw/qdev.h"
+#include "qapi/qmp/qerror.h"
+#include "hw/virtio.h"
+#include "hw/virtio-rng.h"
 #include "qemu/rng.h"
-
-typedef struct VirtIORNG {
-    VirtIODevice vdev;
-
-    DeviceState *qdev;
-
-    /* Only one vq - guest puts buffer(s) on it when it needs entropy */
-    VirtQueue *vq;
-
-    VirtIORNGConf *conf;
-
-    RngBackend *rng;
-
-    /* We purposefully don't migrate this state.  The quota will reset on the
-     * destination as a result.  Rate limiting is host state, not guest state.
-     */
-    QEMUTimer *rate_limit_timer;
-    int64_t quota_remaining;
-} VirtIORNG;
 
 static bool is_guest_ready(VirtIORNG *vrng)
 {

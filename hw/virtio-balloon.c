@@ -16,11 +16,11 @@
 #include "qemu/iov.h"
 #include "qemu/timer.h"
 #include "qemu-common.h"
-#include "virtio.h"
-#include "pc.h"
+#include "hw/virtio.h"
+#include "hw/pc.h"
 #include "cpu.h"
 #include "sysemu/balloon.h"
-#include "virtio-balloon.h"
+#include "hw/virtio-balloon.h"
 #include "sysemu/kvm.h"
 #include "exec/address-spaces.h"
 #include "qapi/visitor.h"
@@ -28,21 +28,6 @@
 #if defined(__linux__)
 #include <sys/mman.h>
 #endif
-
-typedef struct VirtIOBalloon
-{
-    VirtIODevice vdev;
-    VirtQueue *ivq, *dvq, *svq;
-    uint32_t num_pages;
-    uint32_t actual;
-    uint64_t stats[VIRTIO_BALLOON_S_NR];
-    VirtQueueElement stats_vq_elem;
-    size_t stats_vq_offset;
-    QEMUTimer *stats_timer;
-    int64_t stats_last_update;
-    int64_t stats_poll_interval;
-    DeviceState *qdev;
-} VirtIOBalloon;
 
 static VirtIOBalloon *to_virtio_balloon(VirtIODevice *vdev)
 {

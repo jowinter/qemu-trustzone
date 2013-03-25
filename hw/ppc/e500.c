@@ -240,20 +240,15 @@ static int ppce500_load_device_tree(CPUPPCState *env,
     /* We need to generate the cpu nodes in reverse order, so Linux can pick
        the first node as boot node and be happy */
     for (i = smp_cpus - 1; i >= 0; i--) {
-        CPUState *cpu = NULL;
+        CPUState *cpu;
         char cpu_name[128];
         uint64_t cpu_release_addr = MPC8544_SPIN_BASE + (i * 0x20);
 
-        for (env = first_cpu; env != NULL; env = env->next_cpu) {
-            cpu = ENV_GET_CPU(env);
-            if (cpu->cpu_index == i) {
-                break;
-            }
-        }
-
+        cpu = qemu_get_cpu(i);
         if (cpu == NULL) {
             continue;
         }
+        env = cpu->env_ptr;
 
         snprintf(cpu_name, sizeof(cpu_name), "/cpus/PowerPC,8544@%x",
                  cpu->cpu_index);
@@ -425,26 +420,28 @@ static void mmubooke_create_initial_mapping(CPUPPCState *env)
 static void ppce500_cpu_reset_sec(void *opaque)
 {
     PowerPCCPU *cpu = opaque;
+    CPUState *cs = CPU(cpu);
     CPUPPCState *env = &cpu->env;
 
-    cpu_reset(CPU(cpu));
+    cpu_reset(cs);
 
     /* Secondary CPU starts in halted state for now. Needs to change when
        implementing non-kernel boot. */
-    env->halted = 1;
+    cs->halted = 1;
     env->exception_index = EXCP_HLT;
 }
 
 static void ppce500_cpu_reset(void *opaque)
 {
     PowerPCCPU *cpu = opaque;
+    CPUState *cs = CPU(cpu);
     CPUPPCState *env = &cpu->env;
     struct boot_info *bi = env->load_info;
 
-    cpu_reset(CPU(cpu));
+    cpu_reset(cs);
 
     /* Set initial guest state. */
-    env->halted = 0;
+    cs->halted = 0;
     env->gpr[1] = (16<<20) - 8;
     env->gpr[3] = bi->dt_base;
     env->nip = bi->entry;

@@ -33,7 +33,7 @@
 
 typedef struct KVMARMGICClass {
     ARMGICCommonClass parent_class;
-    int (*parent_init)(SysBusDevice *dev);
+    DeviceRealize parent_realize;
     void (*parent_reset)(DeviceState *dev);
 } KVMARMGICClass;
 
@@ -86,18 +86,22 @@ static void kvm_arm_gic_reset(DeviceState *dev)
 {
     GICState *s = ARM_GIC_COMMON(dev);
     KVMARMGICClass *kgc = KVM_ARM_GIC_GET_CLASS(s);
+
     kgc->parent_reset(dev);
     kvm_arm_gic_put(s);
 }
 
-static int kvm_arm_gic_init(SysBusDevice *dev)
+static void kvm_arm_gic_realize(DeviceState *dev, Error **errp)
 {
-    /* Device instance init function for the GIC sysbus device */
     int i;
-    GICState *s = FROM_SYSBUS(GICState, dev);
+    GICState *s = KVM_ARM_GIC(dev);
+    SysBusDevice *sbd = SYS_BUS_DEVICE(dev);
     KVMARMGICClass *kgc = KVM_ARM_GIC_GET_CLASS(s);
 
-    kgc->parent_init(dev);
+    kgc->parent_realize(dev, errp);
+    if (error_is_set(errp)) {
+        return;
+    }
 
     i = s->num_irq - GIC_INTERNAL;
     /* For the GIC, also expose incoming GPIO lines for PPIs for each CPU.
@@ -108,16 +112,16 @@ static int kvm_arm_gic_init(SysBusDevice *dev)
      *   ...
      */
     i += (GIC_INTERNAL * s->num_cpu);
-    qdev_init_gpio_in(&s->busdev.qdev, kvm_arm_gic_set_irq, i);
+    qdev_init_gpio_in(dev, kvm_arm_gic_set_irq, i);
     /* We never use our outbound IRQ lines but provide them so that
      * we maintain the same interface as the non-KVM GIC.
      */
     for (i = 0; i < s->num_cpu; i++) {
-        sysbus_init_irq(&s->busdev, &s->parent_irq[i]);
+        sysbus_init_irq(sbd, &s->parent_irq[i]);
     }
     /* Distributor */
     memory_region_init_reservation(&s->iomem, "kvm-gic_dist", 0x1000);
-    sysbus_init_mmio(dev, &s->iomem);
+    sysbus_init_mmio(sbd, &s->iomem);
     kvm_arm_register_device(&s->iomem,
                             (KVM_ARM_DEVICE_VGIC_V2 << KVM_ARM_DEVICE_ID_SHIFT)
                             | KVM_VGIC_V2_ADDR_TYPE_DIST);
@@ -126,29 +130,23 @@ static int kvm_arm_gic_init(SysBusDevice *dev)
      * cores with a VGIC don't have those.
      */
     memory_region_init_reservation(&s->cpuiomem[0], "kvm-gic_cpu", 0x1000);
-    sysbus_init_mmio(dev, &s->cpuiomem[0]);
+    sysbus_init_mmio(sbd, &s->cpuiomem[0]);
     kvm_arm_register_device(&s->cpuiomem[0],
                             (KVM_ARM_DEVICE_VGIC_V2 << KVM_ARM_DEVICE_ID_SHIFT)
                             | KVM_VGIC_V2_ADDR_TYPE_CPU);
-    /* TODO: we should tell the kernel at some point the address
-     * of the private peripheral base. However we don't currently have
-     * any convenient infrastructure to do that, and in any case the
-     * kernel doesn't yet implement an ioctl to let us tell it.
-     */
-    return 0;
 }
 
 static void kvm_arm_gic_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
-    SysBusDeviceClass *sbc = SYS_BUS_DEVICE_CLASS(klass);
     ARMGICCommonClass *agcc = ARM_GIC_COMMON_CLASS(klass);
     KVMARMGICClass *kgc = KVM_ARM_GIC_CLASS(klass);
+
     agcc->pre_save = kvm_arm_gic_get;
     agcc->post_load = kvm_arm_gic_put;
-    kgc->parent_init = sbc->init;
+    kgc->parent_realize = dc->realize;
     kgc->parent_reset = dc->reset;
-    sbc->init = kvm_arm_gic_init;
+    dc->realize = kvm_arm_gic_realize;
     dc->reset = kvm_arm_gic_reset;
     dc->no_user = 1;
 }

@@ -18,10 +18,10 @@
  * You should have received a copy of the GNU General Public License along
  * with this program; if not, see <http://www.gnu.org/licenses/>.
  */
-#include "omap.h"
-#include "sysbus.h"
+#include "hw/omap.h"
+#include "hw/sysbus.h"
 #include "ui/console.h"
-#include "dsi.h"
+#include "hw/dsi.h"
 
 //#define OMAP_DSS_DEBUG
 #define OMAP_DSS_DEBUG_DISPC
@@ -113,7 +113,7 @@ struct omap_dss_plane_s {
 struct omap_dss_panel_s {
     int attached;
     int invalidate;
-    DisplayState *ds;
+    QemuConsole *con;
     struct {
         uint32_t control;
         uint32_t width;
@@ -461,7 +461,8 @@ static void omap_dsi_transfer_start(struct omap_dss_s *s, int ch)
     }
 }
 
-static void omap_dss_panel_layer_update(DisplayState *ds, MemoryRegion *mr,
+static void omap_dss_panel_layer_update(DisplaySurface *surface,
+                                        MemoryRegion *mr,
                                         uint32_t panel_width,
                                         uint32_t panel_height,
                                         uint32_t posx,
@@ -480,7 +481,8 @@ static void omap_dss_panel_layer_update(DisplayState *ds, MemoryRegion *mr,
         hw_error("%s: unsupported layer attributes (0x%08x)\n",
                  __FUNCTION__, attrib);
     }
-    drawfn line_fn = omap_dss_linefn(NULL, format, ds_get_bits_per_pixel(ds));
+    drawfn line_fn = omap_dss_linefn(NULL, format,
+                                     surface_bits_per_pixel(surface));
     if (!line_fn) {
         hw_error("%s: unsupported omap dss color format: %d\n",
                  __FUNCTION__, format);
@@ -496,12 +498,12 @@ static void omap_dss_panel_layer_update(DisplayState *ds, MemoryRegion *mr,
                           ? (panel_width - posx) : width;
     uint32_t copy_height = ((*posy) + height) > panel_height
                            ? (panel_height - (*posy)) : height;
-    uint32_t linesize = ds_get_linesize(ds);
-    framebuffer_update_display(ds, mr, addr, copy_width, copy_height,
+    uint32_t linesize = surface_stride(surface);
+    framebuffer_update_display(surface, mr, addr, copy_width, copy_height,
                                (format < 3)
                                ? (width >> (3 - format))
                                : (width * omap_lcd_Bpp[format]),
-                               linesize, linesize / ds_get_width(ds),
+                               linesize, linesize / surface_width(surface),
                                full_update, line_fn, palette,
                                posy, endy);
 }
@@ -509,10 +511,12 @@ static void omap_dss_panel_layer_update(DisplayState *ds, MemoryRegion *mr,
 static void omap_dss_panel_update_display(struct omap_dss_panel_s *s,
                                           MemoryRegion *mr, int lcd)
 {
+    DisplaySurface *surface = qemu_console_surface(s->con);
     if (s->invalidate) {
-        if (s->shadow.width != ds_get_width(s->ds) 
-            || s->shadow.height != ds_get_height(s->ds)) {
-            qemu_console_resize(s->ds, s->shadow.width, s->shadow.height);
+        if (s->shadow.width != surface_width(surface)
+            || s->shadow.height != surface_height(surface)) {
+            qemu_console_resize(s->con, s->shadow.width, s->shadow.height);
+            surface = qemu_console_surface(s->con);
         }
         if ((s->shadow.gfx.attr >> 12) & 0x3) { /* GFXROTATION */
             hw_error("%s: GFX rotation is not supported", __FUNCTION__);
@@ -531,7 +535,7 @@ static void omap_dss_panel_update_display(struct omap_dss_panel_s *s,
                                      * sizeof(uint32_t));
         }
         first_row = s->shadow.gfx.posy;
-        omap_dss_panel_layer_update(s->ds, mr,
+        omap_dss_panel_layer_update(surface, mr,
                                     s->shadow.width, s->shadow.height,
                                     s->shadow.gfx.posx, &first_row, &last_row,
                                     s->shadow.gfx.nx, s->shadow.gfx.ny,
@@ -542,7 +546,7 @@ static void omap_dss_panel_update_display(struct omap_dss_panel_s *s,
     s->invalidate = 0;
 
     if (first_row >= 0) {
-        dpy_gfx_update(s->ds, 0, first_row, s->shadow.width,
+        dpy_gfx_update(s->con, 0, first_row, s->shadow.width,
                        last_row - first_row + 1);
     }
 }
@@ -550,7 +554,7 @@ static void omap_dss_panel_update_display(struct omap_dss_panel_s *s,
 static void omap_lcd_panel_update_display(void *opaque)
 {
     struct omap_dss_s *s = opaque;
-    if (!s->lcd.ds
+    if (!s->lcd.con
         || !(s->lcd.shadow.control & 1)           /* LCDENABLE */
         || (s->lcd.shadow.control & (1 << 11))) { /* STALLMODE */
         return;
@@ -568,7 +572,7 @@ static void omap_lcd_panel_invalidate_display(void *opaque)
 static void omap_dig_panel_update_display(void *opaque)
 {
     struct omap_dss_s *s = opaque;
-    if (!s->dig.ds || !(s->dig.shadow.control & 2)) { /* DIGITALENABLE */
+    if (!s->dig.con || !(s->dig.shadow.control & 2)) { /* DIGITALENABLE */
         return;
     }
     omap_dss_panel_update_display(&s->dig, sysbus_address_space(&s->busdev), 0);
@@ -2579,9 +2583,9 @@ void omap_lcd_panel_attach(DeviceState *dev)
     if (!s->lcd.attached) {
         s->lcd.attached = 1;
         s->lcd.invalidate = 1;
-        s->lcd.ds = graphic_console_init(omap_lcd_panel_update_display,
-                                         omap_lcd_panel_invalidate_display,
-                                         NULL, NULL, s);
+        s->lcd.con = graphic_console_init(omap_lcd_panel_update_display,
+                                          omap_lcd_panel_invalidate_display,
+                                          NULL, NULL, s);
     }
 }
 
@@ -2592,9 +2596,9 @@ void omap_digital_panel_attach(DeviceState *dev)
     if (!s->dig.attached) {
         s->dig.attached = 1;
         s->dig.invalidate = 1;
-        s->dig.ds = graphic_console_init(omap_dig_panel_update_display,
-                                         omap_dig_panel_invalidate_display,
-                                         NULL, NULL, s);
+        s->dig.con = graphic_console_init(omap_dig_panel_update_display,
+                                          omap_dig_panel_invalidate_display,
+                                          NULL, NULL, s);
     }
 }
 

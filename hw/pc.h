@@ -4,11 +4,11 @@
 #include "qemu-common.h"
 #include "exec/memory.h"
 #include "exec/ioport.h"
-#include "isa.h"
-#include "fdc.h"
+#include "hw/isa.h"
+#include "hw/fdc.h"
 #include "net/net.h"
 #include "exec/memory.h"
-#include "ioapic.h"
+#include "hw/ioapic.h"
 
 /* PC-style peripherals (also used by other machines).  */
 
@@ -186,5 +186,61 @@ void pc_system_firmware_init(MemoryRegion *rom_memory);
 #define E820_UNUSABLE   5
 
 int e820_add_entry(uint64_t, uint64_t, uint32_t);
+
+#define PC_COMPAT_1_4 \
+        {\
+            .driver   = "scsi-hd",\
+            .property = "discard_granularity",\
+            .value    = stringify(0),\
+	},{\
+            .driver   = "scsi-cd",\
+            .property = "discard_granularity",\
+            .value    = stringify(0),\
+	},{\
+            .driver   = "scsi-disk",\
+            .property = "discard_granularity",\
+            .value    = stringify(0),\
+	},{\
+            .driver   = "ide-hd",\
+            .property = "discard_granularity",\
+            .value    = stringify(0),\
+	},{\
+            .driver   = "ide-cd",\
+            .property = "discard_granularity",\
+            .value    = stringify(0),\
+	},{\
+            .driver   = "ide-drive",\
+            .property = "discard_granularity",\
+            .value    = stringify(0),\
+        },{\
+            .driver   = "virtio-blk-pci",\
+            .property = "discard_granularity",\
+            .value    = stringify(0),\
+	},{\
+            .driver   = "virtio-serial-pci",\
+            .property = "vectors",\
+            /* DEV_NVECTORS_UNSPECIFIED as a uint32_t string */\
+            .value    = stringify(0xFFFFFFFF),\
+        },{\
+            .driver   = "e1000",\
+            .property = "romfile",\
+            .value    = "pxe-e1000.rom",\
+        },{\
+            .driver   = "ne2k_pci",\
+            .property = "romfile",\
+            .value    = "pxe-ne2k_pci.rom",\
+        },{\
+            .driver   = "pcnet",\
+            .property = "romfile",\
+            .value    = "pxe-pcnet.rom",\
+        },{\
+            .driver   = "rtl8139",\
+            .property = "romfile",\
+            .value    = "pxe-rtl8139.rom",\
+        },{\
+            .driver   = "virtio-net-pci",\
+            .property = "romfile",\
+            .value    = "pxe-virtio.rom",\
+        }
 
 #endif

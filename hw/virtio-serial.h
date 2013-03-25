@@ -15,8 +15,8 @@
 #ifndef _QEMU_VIRTIO_SERIAL_H
 #define _QEMU_VIRTIO_SERIAL_H
 
-#include "qdev.h"
-#include "virtio.h"
+#include "hw/qdev.h"
+#include "hw/virtio.h"
 
 /* == Interface shared between the guest kernel and qemu == */
 
@@ -171,6 +171,47 @@ struct VirtIOSerialPort {
     bool host_connected;
     /* Do apps not want to receive data? */
     bool throttled;
+};
+
+/* The virtio-serial bus on top of which the ports will ride as devices */
+struct VirtIOSerialBus {
+    BusState qbus;
+
+    /* This is the parent device that provides the bus for ports. */
+    VirtIOSerial *vser;
+
+    /* The maximum number of ports that can ride on top of this bus */
+    uint32_t max_nr_ports;
+};
+
+typedef struct VirtIOSerialPostLoad {
+    QEMUTimer *timer;
+    uint32_t nr_active_ports;
+    struct {
+        VirtIOSerialPort *port;
+        uint8_t host_connected;
+    } *connected;
+} VirtIOSerialPostLoad;
+
+struct VirtIOSerial {
+    VirtIODevice vdev;
+
+    VirtQueue *c_ivq, *c_ovq;
+    /* Arrays of ivqs and ovqs: one per port */
+    VirtQueue **ivqs, **ovqs;
+
+    VirtIOSerialBus bus;
+
+    DeviceState *qdev;
+
+    QTAILQ_HEAD(, VirtIOSerialPort) ports;
+
+    /* bitmap for identifying active ports */
+    uint32_t *ports_map;
+
+    struct virtio_console_config config;
+
+    struct VirtIOSerialPostLoad *post_load;
 };
 
 /* Interface to the virtio-serial bus */

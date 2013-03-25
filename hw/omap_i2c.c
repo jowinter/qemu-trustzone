@@ -17,10 +17,10 @@
  * You should have received a copy of the GNU General Public License along
  * with this program; if not, see <http://www.gnu.org/licenses/>.
  */
-#include "hw.h"
-#include "i2c.h"
-#include "omap.h"
-#include "sysbus.h"
+#include "hw/hw.h"
+#include "hw/i2c.h"
+#include "hw/omap.h"
+#include "hw/sysbus.h"
 
 #define I2C_MAX_FIFO_SIZE (1 << 6)
 #define I2C_FIFO_SIZE_MASK ((I2C_MAX_FIFO_SIZE) - 1)

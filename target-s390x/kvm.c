@@ -103,13 +103,8 @@ unsigned long kvm_arch_vcpu_id(CPUState *cpu)
 
 int kvm_arch_init_vcpu(CPUState *cpu)
 {
-    int ret = 0;
-
-    if (kvm_vcpu_ioctl(cpu, KVM_S390_INITIAL_RESET, NULL) < 0) {
-        perror("cannot init reset vcpu");
-    }
-
-    return ret;
+    /* nothing todo yet */
+    return 0;
 }
 
 void kvm_arch_reset_vcpu(CPUState *cpu)
@@ -320,8 +315,7 @@ void kvm_arch_post_run(CPUState *cpu, struct kvm_run *run)
 
 int kvm_arch_process_async_events(CPUState *cs)
 {
-    S390CPU *cpu = S390_CPU(cs);
-    return cpu->env.halted;
+    return cs->halted;
 }
 
 void kvm_s390_interrupt_internal(S390CPU *cpu, int type, uint32_t parm,

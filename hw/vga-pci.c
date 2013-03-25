@@ -23,13 +23,13 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
-#include "hw.h"
+#include "hw/hw.h"
 #include "ui/console.h"
-#include "pci/pci.h"
-#include "vga_int.h"
+#include "hw/pci/pci.h"
+#include "hw/vga_int.h"
 #include "ui/pixel_ops.h"
 #include "qemu/timer.h"
-#include "loader.h"
+#include "hw/loader.h"
 
 #define PCI_VGA_IOPORT_OFFSET 0x400
 #define PCI_VGA_IOPORT_SIZE   (0x3e0 - 0x3c0)
@@ -150,8 +150,8 @@ static int pci_std_vga_initfn(PCIDevice *dev)
     vga_common_init(s);
     vga_init(s, pci_address_space(dev), pci_address_space_io(dev), true);
 
-    s->ds = graphic_console_init(s->update, s->invalidate,
-                                 s->screen_dump, s->text_update, s);
+    s->con = graphic_console_init(s->update, s->invalidate,
+                                  s->screen_dump, s->text_update, s);
 
     /* XXX: VGA_RAM_SIZE must be a power of two */
     pci_register_bar(&d->dev, 0, PCI_BASE_ADDRESS_MEM_PREFETCH, &s->vram);

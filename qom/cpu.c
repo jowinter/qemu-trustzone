@@ -21,6 +21,11 @@
 #include "qom/cpu.h"
 #include "qemu-common.h"
 
+void cpu_reset_interrupt(CPUState *cpu, int mask)
+{
+    cpu->interrupt_request &= ~mask;
+}
+
 void cpu_reset(CPUState *cpu)
 {
     CPUClass *klass = CPU_GET_CLASS(cpu);
@@ -32,6 +37,10 @@ void cpu_reset(CPUState *cpu)
 
 static void cpu_common_reset(CPUState *cpu)
 {
+    cpu->exit_request = 0;
+    cpu->interrupt_request = 0;
+    cpu->current_tb = NULL;
+    cpu->halted = 0;
 }
 
 ObjectClass *cpu_class_by_name(const char *typename, const char *cpu_model)
@@ -46,6 +55,10 @@ static ObjectClass *cpu_common_class_by_name(const char *cpu_model)
     return NULL;
 }
 
+static void cpu_common_realizefn(DeviceState *dev, Error **errp)
+{
+}
+
 static void cpu_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
@@ -53,6 +66,7 @@ static void cpu_class_init(ObjectClass *klass, void *data)
 
     k->class_by_name = cpu_common_class_by_name;
     k->reset = cpu_common_reset;
+    dc->realize = cpu_common_realizefn;
     dc->no_user = 1;
 }
 

@@ -23,7 +23,7 @@
  */
 #include <dirent.h>
 #include "hw/hw.h"
-#include "hw/qdev.h"
+#include "monitor/qdev.h"
 #include "hw/usb.h"
 #include "hw/pcmcia.h"
 #include "hw/pc.h"
@@ -47,6 +47,7 @@
 #include "migration/migration.h"
 #include "sysemu/kvm.h"
 #include "qemu/acl.h"
+#include "tpm/tpm.h"
 #include "qapi/qmp/qint.h"
 #include "qapi/qmp/qfloat.h"
 #include "qapi/qmp/qlist.h"
@@ -260,11 +261,30 @@ int monitor_read_password(Monitor *mon, ReadLineFunc *readline_func,
     }
 }
 
+static gboolean monitor_unblocked(GIOChannel *chan, GIOCondition cond,
+                                  void *opaque)
+{
+    monitor_flush(opaque);
+    return FALSE;
+}
+
 void monitor_flush(Monitor *mon)
 {
+    int rc;
+
     if (mon && mon->outbuf_index != 0 && !mon->mux_out) {
-        qemu_chr_fe_write(mon->chr, mon->outbuf, mon->outbuf_index);
-        mon->outbuf_index = 0;
+        rc = qemu_chr_fe_write(mon->chr, mon->outbuf, mon->outbuf_index);
+        if (rc == mon->outbuf_index) {
+            /* all flushed */
+            mon->outbuf_index = 0;
+            return;
+        }
+        if (rc > 0) {
+            /* partinal write */
+            memmove(mon->outbuf, mon->outbuf + rc, mon->outbuf_index - rc);
+            mon->outbuf_index -= rc;
+        }
+        qemu_chr_fe_add_watch(mon->chr, G_IO_OUT, monitor_unblocked, mon);
     }
 }
 
@@ -721,10 +741,10 @@ static void help_cmd(Monitor *mon, const char *name)
     } else {
         help_cmd_dump(mon, mon_cmds, "", name);
         if (name && !strcmp(name, "log")) {
-            const CPULogItem *item;
+            const QEMULogItem *item;
             monitor_printf(mon, "Log items (comma separated):\n");
             monitor_printf(mon, "%-10s %s\n", "none", "remove all logs");
-            for(item = cpu_log_items; item->mask != 0; item++) {
+            for (item = qemu_log_items; item->mask != 0; item++) {
                 monitor_printf(mon, "%-10s %s\n", item->name, item->help);
             }
         }
@@ -855,17 +875,14 @@ EventInfoList *qmp_query_events(Error **errp)
 /* set the current CPU defined by the user */
 int monitor_set_cpu(int cpu_index)
 {
-    CPUArchState *env;
     CPUState *cpu;
 
-    for (env = first_cpu; env != NULL; env = env->next_cpu) {
-        cpu = ENV_GET_CPU(env);
-        if (cpu->cpu_index == cpu_index) {
-            cur_mon->mon_cpu = env;
-            return 0;
-        }
+    cpu = qemu_get_cpu(cpu_index);
+    if (cpu == NULL) {
+        return -1;
     }
-    return -1;
+    cur_mon->mon_cpu = cpu->env_ptr;
+    return 0;
 }
 
 static CPUArchState *mon_get_cpu(void)
@@ -964,7 +981,7 @@ static int client_migrate_info(Monitor *mon, const QDict *qdict,
 
 static void do_logfile(Monitor *mon, const QDict *qdict)
 {
-    cpu_set_log_filename(qdict_get_str(qdict, "filename"));
+    qemu_set_log_filename(qdict_get_str(qdict, "filename"));
 }
 
 static void do_log(Monitor *mon, const QDict *qdict)
@@ -975,13 +992,13 @@ static void do_log(Monitor *mon, const QDict *qdict)
     if (!strcmp(items, "none")) {
         mask = 0;
     } else {
-        mask = cpu_str_to_log_mask(items);
+        mask = qemu_str_to_log_mask(items);
         if (!mask) {
             help_cmd(mon, "log");
             return;
         }
     }
-    cpu_set_log(mask);
+    qemu_set_log(mask);
 }
 
 static void do_singlestep(Monitor *mon, const QDict *qdict)
@@ -2722,6 +2739,13 @@ static mon_cmd_t info_cmds[] = {
         .mhandler.cmd = do_trace_print_events,
     },
     {
+        .name       = "tpm",
+        .args_type  = "",
+        .params     = "",
+        .help       = "show the TPM device",
+        .mhandler.cmd = hmp_info_tpm,
+    },
+    {
         .name       = NULL,
     },
 };
@@ -2740,7 +2764,7 @@ static const mon_cmd_t qmp_cmds[] = {
 /*******************************************************************/
 
 static const char *pch;
-static jmp_buf expr_env;
+static sigjmp_buf expr_env;
 
 #define MD_TLONG 0
 #define MD_I32   1
@@ -2936,10 +2960,6 @@ static const MonitorDef monitor_defs[] = {
     { "xer", 0, &monitor_get_xer, },
     { "tbu", 0, &monitor_get_tbu, },
     { "tbl", 0, &monitor_get_tbl, },
-#if defined(TARGET_PPC64)
-    /* Address space register */
-    { "asr", offsetof(CPUPPCState, asr) },
-#endif
     /* Segment registers */
     { "sdr1", offsetof(CPUPPCState, spr[SPR_SDR1]) },
     { "sr0", offsetof(CPUPPCState, sr[0]) },
@@ -3135,7 +3155,7 @@ static const MonitorDef monitor_defs[] = {
 static void expr_error(Monitor *mon, const char *msg)
 {
     monitor_printf(mon, "%s\n", msg);
-    longjmp(expr_env, 1);
+    siglongjmp(expr_env, 1);
 }
 
 /* return 0 if OK, -1 if not found */
@@ -3345,7 +3365,7 @@ static int64_t expr_sum(Monitor *mon)
 static int get_expr(Monitor *mon, int64_t *pval, const char **pp)
 {
     pch = *pp;
-    if (setjmp(expr_env)) {
+    if (sigsetjmp(expr_env, 0)) {
         *pp = pch;
         return -1;
     }
@@ -3536,10 +3556,10 @@ static const mon_cmd_t *qmp_find_cmd(const char *cmdname)
  * If @cmdline is blank, return NULL.
  * If it can't be parsed, report to @mon, and return NULL.
  * Else, insert command arguments into @qdict, and return the command.
- * If sub-command table exist, and if @cmdline contains addtional string for
- * sub-command, this function will try search sub-command table. if no
- * addtional string for sub-command exist, this function will return the found
- * one in @table.
+ * If a sub-command table exists, and if @cmdline contains an additional string
+ * for a sub-command, this function will try to search the sub-command table.
+ * If no additional string for a sub-command is present, this function will
+ * return the command found in @table.
  * Do not assume the returned command points into @table!  It doesn't
  * when the command is a sub-command.
  */

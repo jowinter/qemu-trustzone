@@ -21,8 +21,8 @@
  *   http://www.milkymist.org/socdoc/uart.pdf
  */
 
-#include "hw.h"
-#include "sysbus.h"
+#include "hw/hw.h"
+#include "hw/sysbus.h"
 #include "trace.h"
 #include "char/char.h"
 #include "qemu/error-report.h"
@@ -132,6 +132,7 @@ static void uart_write(void *opaque, hwaddr addr, uint64_t value,
     case R_STAT:
         /* write one to clear bits */
         s->regs[addr] &= ~(value & (STAT_RX_EVT | STAT_TX_EVT));
+        qemu_chr_accept_input(s->chr);
         break;
 
     default:

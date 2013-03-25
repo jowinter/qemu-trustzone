@@ -142,6 +142,18 @@ int qemu_main(int argc, char **argv, char **envp);
 void qemu_get_timedate(struct tm *tm, int offset);
 int qemu_timedate_diff(struct tm *tm);
 
+#if !GLIB_CHECK_VERSION(2, 20, 0)
+/*
+ * Glib before 2.20.0 doesn't implement g_poll, so wrap it to compile properly
+ * on older systems.
+ */
+static inline gint g_poll(GPollFD *fds, guint nfds, gint timeout)
+{
+    GMainContext *ctx = g_main_context_default();
+    return g_main_context_get_poll_func(ctx)(fds, nfds, timeout);
+}
+#endif
+
 /**
  * is_help_option:
  * @s: string to test
@@ -429,5 +441,11 @@ int64_t pow2floor(int64_t value);
 
 int uleb128_encode_small(uint8_t *out, uint32_t n);
 int uleb128_decode_small(const uint8_t *in, uint32_t *n);
+
+/*
+ * Hexdump a buffer to a file. An optional string prefix is added to every line
+ */
+
+void hexdump(const char *buf, FILE *fp, const char *prefix, size_t size);
 
 #endif

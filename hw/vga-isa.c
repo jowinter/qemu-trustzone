@@ -23,13 +23,13 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
-#include "hw.h"
+#include "hw/hw.h"
 #include "ui/console.h"
-#include "pc.h"
-#include "vga_int.h"
+#include "hw/pc.h"
+#include "hw/vga_int.h"
 #include "ui/pixel_ops.h"
 #include "qemu/timer.h"
-#include "loader.h"
+#include "hw/loader.h"
 
 typedef struct ISAVGAState {
     ISADevice dev;
@@ -62,8 +62,8 @@ static int vga_initfn(ISADevice *dev)
                                         isa_mem_base + 0x000a0000,
                                         vga_io_memory, 1);
     memory_region_set_coalescing(vga_io_memory);
-    s->ds = graphic_console_init(s->update, s->invalidate,
-                                 s->screen_dump, s->text_update, s);
+    s->con = graphic_console_init(s->update, s->invalidate,
+                                  s->screen_dump, s->text_update, s);
 
     vga_init_vbe(s, isa_address_space(dev));
     /* ROM BIOS */
