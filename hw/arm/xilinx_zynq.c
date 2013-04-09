@@ -16,12 +16,12 @@
  */
 
 #include "hw/sysbus.h"
-#include "hw/arm-misc.h"
+#include "hw/arm.h"
 #include "net/net.h"
 #include "exec/address-spaces.h"
 #include "sysemu/sysemu.h"
 #include "hw/boards.h"
-#include "hw/flash.h"
+#include "hw/block/flash.h"
 #include "sysemu/blockdev.h"
 #include "hw/loader.h"
 #include "hw/ssi.h"
@@ -86,8 +86,7 @@ static inline void zynq_init_spi_flashes(uint32_t base_addr, qemu_irq irq,
         spi = (SSIBus *)qdev_get_child_bus(dev, bus_name);
 
         for (j = 0; j < num_ss; ++j) {
-            flash_dev = ssi_create_slave_no_init(spi, "n25q128");
-            qdev_init_nofail(flash_dev);
+            flash_dev = ssi_create_slave(spi, "n25q128");
 
             cs_line = qdev_get_gpio_in(flash_dev, 0);
             sysbus_connect_irq(busdev, i * num_ss + j + 1, cs_line);
