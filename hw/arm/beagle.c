@@ -22,7 +22,7 @@
 #include "qemu-common.h"
 #include "sysemu/sysemu.h"
 #include "hw/arm/omap.h"
-#include "hw/arm.h"
+#include "hw/arm/arm.h"
 #include "hw/boards.h"
 #include "hw/i2c/i2c.h"
 #include "net/net.h"

@@ -24,16 +24,17 @@
 #include "hw/hw.h"
 #include "sysemu/blockdev.h"
 #include "hw/ssi.h"
-#include "hw/arm/devices.h"
 
-#ifdef M25P80_ERR_DEBUG
-#define DB_PRINT(...) do { \
-    fprintf(stderr,  ": %s: ", __func__); \
-    fprintf(stderr, ## __VA_ARGS__); \
-    } while (0);
-#else
-    #define DB_PRINT(...)
+#ifndef M25P80_ERR_DEBUG
+#define M25P80_ERR_DEBUG 0
 #endif
+
+#define DB_PRINT_L(level, ...) do { \
+    if (M25P80_ERR_DEBUG > (level)) { \
+        fprintf(stderr,  ": %s: ", __func__); \
+        fprintf(stderr, ## __VA_ARGS__); \
+    } \
+} while (0);
 
 /* Fields for FlashPartInfo->flags */
 
@@ -90,18 +91,27 @@ static const FlashPartInfo known_devices[] = {
     { INFO("at26df161a",  0x1f4601,      0,  64 << 10,  32, ER_4K) },
     { INFO("at26df321",   0x1f4700,      0,  64 << 10,  64, ER_4K) },
 
+    { INFO("at45db081d",  0x1f2500,      0,  64 << 10,  16, ER_4K) },
+
     /* EON -- en25xxx */
     { INFO("en25f32",     0x1c3116,      0,  64 << 10,  64, ER_4K) },
     { INFO("en25p32",     0x1c2016,      0,  64 << 10,  64, 0) },
     { INFO("en25q32b",    0x1c3016,      0,  64 << 10,  64, 0) },
     { INFO("en25p64",     0x1c2017,      0,  64 << 10, 128, 0) },
+    { INFO("en25q64",     0x1c3017,      0,  64 << 10, 128, ER_4K) },
+
+    /* GigaDevice */
+    { INFO("gd25q32",     0xc84016,      0,  64 << 10,  64, ER_4K) },
+    { INFO("gd25q64",     0xc84017,      0,  64 << 10, 128, ER_4K) },
 
     /* Intel/Numonyx -- xxxs33b */
     { INFO("160s33b",     0x898911,      0,  64 << 10,  32, 0) },
     { INFO("320s33b",     0x898912,      0,  64 << 10,  64, 0) },
     { INFO("640s33b",     0x898913,      0,  64 << 10, 128, 0) },
+    { INFO("n25q064",     0x20ba17,      0,  64 << 10, 128, 0) },
 
     /* Macronix */
+    { INFO("mx25l2005a",  0xc22012,      0,  64 << 10,   4, ER_4K) },
     { INFO("mx25l4005a",  0xc22013,      0,  64 << 10,   8, ER_4K) },
     { INFO("mx25l8005",   0xc22014,      0,  64 << 10,  16, 0) },
     { INFO("mx25l1606e",  0xc22015,      0,  64 << 10,  32, ER_4K) },
@@ -112,15 +122,16 @@ static const FlashPartInfo known_devices[] = {
     { INFO("mx25l25635e", 0xc22019,      0,  64 << 10, 512, 0) },
     { INFO("mx25l25655e", 0xc22619,      0,  64 << 10, 512, 0) },
 
+    /* Micron */
+    { INFO("n25q128a11",  0x20bb18,      0,  64 << 10, 256, 0) },
+    { INFO("n25q128a13",  0x20ba18,      0,  64 << 10, 256, 0) },
+    { INFO("n25q256a",    0x20ba19,      0,  64 << 10, 512, ER_4K) },
+
     /* Spansion -- single (large) sector size only, at least
      * for the chips listed here (without boot sectors).
      */
-    { INFO("s25sl004a",   0x010212,      0,  64 << 10,   8, 0) },
-    { INFO("s25sl008a",   0x010213,      0,  64 << 10,  16, 0) },
-    { INFO("s25sl016a",   0x010214,      0,  64 << 10,  32, 0) },
-    { INFO("s25sl032a",   0x010215,      0,  64 << 10,  64, 0) },
     { INFO("s25sl032p",   0x010215, 0x4d00,  64 << 10,  64, ER_4K) },
-    { INFO("s25sl064a",   0x010216,      0,  64 << 10, 128, 0) },
+    { INFO("s25sl064p",   0x010216, 0x4d00,  64 << 10, 128, ER_4K) },
     { INFO("s25fl256s0",  0x010219, 0x4d00, 256 << 10, 128, 0) },
     { INFO("s25fl256s1",  0x010219, 0x4d01,  64 << 10, 512, 0) },
     { INFO("s25fl512s",   0x010220, 0x4d00, 256 << 10, 256, 0) },
@@ -129,6 +140,11 @@ static const FlashPartInfo known_devices[] = {
     { INFO("s25sl12801",  0x012018, 0x0301,  64 << 10, 256, 0) },
     { INFO("s25fl129p0",  0x012018, 0x4d00, 256 << 10,  64, 0) },
     { INFO("s25fl129p1",  0x012018, 0x4d01,  64 << 10, 256, 0) },
+    { INFO("s25sl004a",   0x010212,      0,  64 << 10,   8, 0) },
+    { INFO("s25sl008a",   0x010213,      0,  64 << 10,  16, 0) },
+    { INFO("s25sl016a",   0x010214,      0,  64 << 10,  32, 0) },
+    { INFO("s25sl032a",   0x010215,      0,  64 << 10,  64, 0) },
+    { INFO("s25sl064a",   0x010216,      0,  64 << 10, 128, 0) },
     { INFO("s25fl016k",   0xef4015,      0,  64 << 10,  32, ER_4K | ER_32K) },
     { INFO("s25fl064k",   0xef4017,      0,  64 << 10, 128, ER_4K | ER_32K) },
 
@@ -152,11 +168,13 @@ static const FlashPartInfo known_devices[] = {
     { INFO("m25p32",      0x202016,      0,  64 << 10,  64, 0) },
     { INFO("m25p64",      0x202017,      0,  64 << 10, 128, 0) },
     { INFO("m25p128",     0x202018,      0, 256 << 10,  64, 0) },
+    { INFO("n25q032",     0x20ba16,      0,  64 << 10,  64, 0) },
 
     { INFO("m45pe10",     0x204011,      0,  64 << 10,   2, 0) },
     { INFO("m45pe80",     0x204014,      0,  64 << 10,  16, 0) },
     { INFO("m45pe16",     0x204015,      0,  64 << 10,  32, 0) },
 
+    { INFO("m25pe20",     0x208012,      0,  64 << 10,   4, 0) },
     { INFO("m25pe80",     0x208014,      0,  64 << 10,  16, 0) },
     { INFO("m25pe16",     0x208015,      0,  64 << 10,  32, ER_4K) },
 
@@ -173,8 +191,12 @@ static const FlashPartInfo known_devices[] = {
     { INFO("w25x16",      0xef3015,      0,  64 << 10,  32, ER_4K) },
     { INFO("w25x32",      0xef3016,      0,  64 << 10,  64, ER_4K) },
     { INFO("w25q32",      0xef4016,      0,  64 << 10,  64, ER_4K) },
+    { INFO("w25q32dw",    0xef6016,      0,  64 << 10,  64, ER_4K) },
     { INFO("w25x64",      0xef3017,      0,  64 << 10, 128, ER_4K) },
     { INFO("w25q64",      0xef4017,      0,  64 << 10, 128, ER_4K) },
+    { INFO("w25q80",      0xef5014,      0,  64 << 10,  16, ER_4K) },
+    { INFO("w25q80bl",    0xef4014,      0,  64 << 10,  16, ER_4K) },
+    { INFO("w25q256",     0xef4019,      0,  64 << 10, 512, ER_4K) },
 
     /* Numonyx -- n25q128 */
     { INFO("n25q128",      0x20ba18,      0,  64 << 10, 256, 0) },
@@ -317,13 +339,14 @@ static void flash_erase(Flash *s, int offset, FlashCMD cmd)
         abort();
     }
 
-    DB_PRINT("offset = %#x, len = %d\n", offset, len);
+    DB_PRINT_L(0, "offset = %#x, len = %d\n", offset, len);
     if ((s->pi->flags & capa_to_assert) != capa_to_assert) {
-        hw_error("m25p80: %dk erase size not supported by device\n", len);
+        qemu_log_mask(LOG_GUEST_ERROR, "M25P80: %d erase size not supported by"
+                      " device\n", len);
     }
 
     if (!s->write_enable) {
-        DB_PRINT("erase with write protect!\n");
+        qemu_log_mask(LOG_GUEST_ERROR, "M25P80: erase with write protect!\n");
         return;
     }
     memset(s->storage + offset, 0xff, len);
@@ -345,12 +368,12 @@ void flash_write8(Flash *s, uint64_t addr, uint8_t data)
     uint8_t prev = s->storage[s->cur_addr];
 
     if (!s->write_enable) {
-        DB_PRINT("write with write protect!\n");
+        qemu_log_mask(LOG_GUEST_ERROR, "M25P80: write with write protect!\n");
     }
 
     if ((prev ^ data) & data) {
-        DB_PRINT("programming zero to one! addr=%lx  %x -> %x\n",
-                  addr, prev, data);
+        DB_PRINT_L(1, "programming zero to one! addr=%" PRIx64 "  %" PRIx8
+                   " -> %" PRIx8 "\n", addr, prev, data);
     }
 
     if (s->pi->flags & WR_1) {
@@ -403,7 +426,7 @@ static void complete_collecting_data(Flash *s)
 static void decode_new_cmd(Flash *s, uint32_t value)
 {
     s->cmd_in_progress = value;
-    DB_PRINT("decoded new command:%x\n", value);
+    DB_PRINT_L(0, "decoded new command:%x\n", value);
 
     switch (value) {
 
@@ -483,7 +506,7 @@ static void decode_new_cmd(Flash *s, uint32_t value)
         break;
 
     case JEDEC_READ:
-        DB_PRINT("populated jedec code\n");
+        DB_PRINT_L(0, "populated jedec code\n");
         s->data[0] = (s->pi->jedec >> 16) & 0xff;
         s->data[1] = (s->pi->jedec >> 8) & 0xff;
         s->data[2] = s->pi->jedec & 0xff;
@@ -500,16 +523,17 @@ static void decode_new_cmd(Flash *s, uint32_t value)
 
     case BULK_ERASE:
         if (s->write_enable) {
-            DB_PRINT("chip erase\n");
+            DB_PRINT_L(0, "chip erase\n");
             flash_erase(s, 0, BULK_ERASE);
         } else {
-            DB_PRINT("chip erase with write protect!\n");
+            qemu_log_mask(LOG_GUEST_ERROR, "M25P80: chip erase with write "
+                          "protect!\n");
         }
         break;
     case NOP:
         break;
     default:
-        DB_PRINT("Unknown cmd %x\n", value);
+        qemu_log_mask(LOG_GUEST_ERROR, "M25P80: Unknown cmd %x\n", value);
         break;
     }
 }
@@ -525,7 +549,7 @@ static int m25p80_cs(SSISlave *ss, bool select)
         flash_sync_dirty(s, -1);
     }
 
-    DB_PRINT("%sselect\n", select ? "de" : "");
+    DB_PRINT_L(0, "%sselect\n", select ? "de" : "");
 
     return 0;
 }
@@ -538,15 +562,16 @@ static uint32_t m25p80_transfer8(SSISlave *ss, uint32_t tx)
     switch (s->state) {
 
     case STATE_PAGE_PROGRAM:
-        DB_PRINT("page program cur_addr=%lx data=%x\n", s->cur_addr,
-                 (uint8_t)tx);
+        DB_PRINT_L(1, "page program cur_addr=%#" PRIx64 " data=%" PRIx8 "\n",
+                   s->cur_addr, (uint8_t)tx);
         flash_write8(s, s->cur_addr, (uint8_t)tx);
         s->cur_addr++;
         break;
 
     case STATE_READ:
         r = s->storage[s->cur_addr];
-        DB_PRINT("READ 0x%lx=%x\n", s->cur_addr, r);
+        DB_PRINT_L(1, "READ 0x%" PRIx64 "=%" PRIx8 "\n", s->cur_addr,
+                   (uint8_t)r);
         s->cur_addr = (s->cur_addr + 1) % s->size;
         break;
 
@@ -592,7 +617,7 @@ static int m25p80_init(SSISlave *ss)
     dinfo = drive_get_next(IF_MTD);
 
     if (dinfo && dinfo->bdrv) {
-        DB_PRINT("Binding to IF_MTD drive\n");
+        DB_PRINT_L(0, "Binding to IF_MTD drive\n");
         s->bdrv = dinfo->bdrv;
         /* FIXME: Move to late init */
         if (bdrv_read(s->bdrv, 0, s->storage, DIV_ROUND_UP(s->size,
@@ -601,6 +626,7 @@ static int m25p80_init(SSISlave *ss)
             return 1;
         }
     } else {
+        DB_PRINT_L(0, "No BDRV - binding to RAM\n");
         memset(s->storage, 0xFF, s->size);
     }
 

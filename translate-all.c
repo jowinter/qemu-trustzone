@@ -35,9 +35,6 @@
 #include "cpu.h"
 #include "disas/disas.h"
 #include "tcg.h"
-#include "qemu/timer.h"
-#include "exec/memory.h"
-#include "exec/address-spaces.h"
 #if defined(CONFIG_USER_ONLY)
 #include "qemu.h"
 #if defined(__FreeBSD__) || defined(__FreeBSD_kernel__)
@@ -55,10 +52,14 @@
 #include <libutil.h>
 #endif
 #endif
+#else
+#include "exec/address-spaces.h"
 #endif
+#include "qemu/timer.h"
 
 #include "exec/cputlb.h"
 #include "translate-all.h"
+#include "qemu/timer.h"
 
 //#define DEBUG_TB_INVALIDATE
 //#define DEBUG_FLUSH

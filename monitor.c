@@ -33,7 +33,7 @@
 #include "exec/gdbstub.h"
 #include "net/net.h"
 #include "net/slirp.h"
-#include "char/char.h"
+#include "sysemu/char.h"
 #include "ui/qemu-spice.h"
 #include "sysemu/sysemu.h"
 #include "monitor/monitor.h"
@@ -47,7 +47,7 @@
 #include "migration/migration.h"
 #include "sysemu/kvm.h"
 #include "qemu/acl.h"
-#include "tpm/tpm.h"
+#include "sysemu/tpm.h"
 #include "qapi/qmp/qint.h"
 #include "qapi/qmp/qfloat.h"
 #include "qapi/qmp/qlist.h"
@@ -496,6 +496,7 @@ static const char *monitor_event_names[] = {
     [QEVENT_WAKEUP] = "WAKEUP",
     [QEVENT_BALLOON_CHANGE] = "BALLOON_CHANGE",
     [QEVENT_SPICE_MIGRATE_COMPLETED] = "SPICE_MIGRATE_COMPLETED",
+    [QEVENT_GUEST_PANICKED] = "GUEST_PANICKED",
 };
 QEMU_BUILD_BUG_ON(ARRAY_SIZE(monitor_event_names) != QEVENT_MAX)
 
@@ -1862,7 +1863,6 @@ static void do_info_capture(Monitor *mon, const QDict *qdict)
     }
 }
 
-#ifdef HAS_AUDIO
 static void do_stop_capture(Monitor *mon, const QDict *qdict)
 {
     int i;
@@ -1903,7 +1903,6 @@ static void do_wav_capture(Monitor *mon, const QDict *qdict)
     }
     QLIST_INSERT_HEAD (&capture_head, s, entries);
 }
-#endif
 
 static qemu_acl *find_acl(Monitor *mon, const char *name)
 {
@@ -2763,13 +2762,6 @@ static mon_cmd_t info_cmds[] = {
         .params     = "",
         .help       = "show the TPM device",
         .mhandler.cmd = hmp_info_tpm,
-    },
-    {
-        .name       = "cpu_max",
-        .args_type  = "",
-        .params     = "",
-        .help       = "Get maximum number of VCPUs supported by machine",
-        .mhandler.cmd = hmp_query_cpu_max,
     },
     {
         .name       = NULL,

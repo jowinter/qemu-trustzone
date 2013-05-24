@@ -29,7 +29,6 @@
 
 #include "monitor/monitor.h"
 #include "sysemu/dma.h"
-#include "exec/cpu-common.h"
 #include "internal.h"
 #include <hw/ide/pci.h>
 #include <hw/ide/ahci.h>
@@ -1164,7 +1163,7 @@ void ahci_init(AHCIState *s, DeviceState *qdev, DMAContext *dma, int ports)
     for (i = 0; i < s->ports; i++) {
         AHCIDevice *ad = &s->dev[i];
 
-        ide_bus_new(&ad->port, qdev, i);
+        ide_bus_new(&ad->port, qdev, i, 1);
         ide_init2(&ad->port, irqs[i]);
 
         ad->hba = s;

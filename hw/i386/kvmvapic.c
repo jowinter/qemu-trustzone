@@ -12,6 +12,7 @@
 #include "sysemu/cpus.h"
 #include "sysemu/kvm.h"
 #include "hw/i386/apic_internal.h"
+#include "hw/sysbus.h"
 
 #define VAPIC_IO_PORT           0x7e
 
@@ -59,6 +60,9 @@ typedef struct VAPICROMState {
     size_t rom_size;
     bool rom_mapped_writable;
 } VAPICROMState;
+
+#define TYPE_VAPIC "kvmvapic"
+#define VAPIC(obj) OBJECT_CHECK(VAPICROMState, (obj), TYPE_VAPIC)
 
 #define TPR_INSTR_ABS_MODRM             0x1
 #define TPR_INSTR_MATCH_MODRM_REG       0x2
@@ -683,14 +687,20 @@ static void vapic_write(void *opaque, hwaddr addr, uint64_t data,
     }
 }
 
+static uint64_t vapic_read(void *opaque, hwaddr addr, unsigned size)
+{
+    return 0xffffffff;
+}
+
 static const MemoryRegionOps vapic_ops = {
     .write = vapic_write,
+    .read = vapic_read,
     .endianness = DEVICE_NATIVE_ENDIAN,
 };
 
 static int vapic_init(SysBusDevice *dev)
 {
-    VAPICROMState *s = FROM_SYSBUS(VAPICROMState, dev);
+    VAPICROMState *s = VAPIC(dev);
 
     memory_region_init_io(&s->io, &vapic_ops, s, "kvmvapic", 2);
     sysbus_add_io(dev, VAPIC_IO_PORT, &s->io);
@@ -806,7 +816,7 @@ static void vapic_class_init(ObjectClass *klass, void *data)
 }
 
 static const TypeInfo vapic_type = {
-    .name          = "kvmvapic",
+    .name          = TYPE_VAPIC,
     .parent        = TYPE_SYS_BUS_DEVICE,
     .instance_size = sizeof(VAPICROMState),
     .class_init    = vapic_class_init,

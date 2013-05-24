@@ -21,7 +21,7 @@
 #include "hw/hw.h"
 #include "qemu/timer.h"
 #include "ui/console.h"
-#include "hw/arm/devices.h"
+#include "hw/devices.h"
 #include "hw/spi.h"
 
 //#define TSC2005_DEBUG

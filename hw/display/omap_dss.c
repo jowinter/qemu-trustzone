@@ -2577,6 +2577,16 @@ DSIHost *omap_dsi_host(DeviceState *dev)
                        SYS_BUS_DEVICE(dev))->dsi.host;
 }
 
+static const GraphicHwOps omap_lcd_panel_ops = {
+    .invalidate = omap_lcd_panel_invalidate_display,
+    .gfx_update = omap_lcd_panel_update_display,
+};
+
+static const GraphicHwOps omap_digital_panel_ops = {
+    .invalidate = omap_dig_panel_invalidate_display,
+    .gfx_update = omap_dig_panel_update_display,
+};
+
 void omap_lcd_panel_attach(DeviceState *dev)
 {
     struct omap_dss_s *s = FROM_SYSBUS(struct omap_dss_s,
@@ -2584,9 +2594,7 @@ void omap_lcd_panel_attach(DeviceState *dev)
     if (!s->lcd.attached) {
         s->lcd.attached = 1;
         s->lcd.invalidate = 1;
-        s->lcd.con = graphic_console_init(omap_lcd_panel_update_display,
-                                          omap_lcd_panel_invalidate_display,
-                                          NULL, NULL, s);
+        s->lcd.con = graphic_console_init(dev, &omap_lcd_panel_ops, s);
     }
 }
 
@@ -2597,9 +2605,7 @@ void omap_digital_panel_attach(DeviceState *dev)
     if (!s->dig.attached) {
         s->dig.attached = 1;
         s->dig.invalidate = 1;
-        s->dig.con = graphic_console_init(omap_dig_panel_update_display,
-                                          omap_dig_panel_invalidate_display,
-                                          NULL, NULL, s);
+        s->dig.con = graphic_console_init(dev, &omap_digital_panel_ops, s);
     }
 }
 

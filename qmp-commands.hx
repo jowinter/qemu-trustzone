@@ -385,24 +385,25 @@ Note: CPUs' indexes are obtained with the 'query-cpus' command.
 EQMP
 
     {
-        .name       = "query-cpu-max",
-        .args_type  = "",
-        .mhandler.cmd_new = qmp_marshal_input_query_cpu_max,
+        .name       = "cpu-add",
+        .args_type  = "id:i",
+        .mhandler.cmd_new = qmp_marshal_input_cpu_add,
     },
 
 SQMP
-query-cpu-max
--------------
+cpu-add
+-------
 
-Get the maximum CPUs supported by the machine being currently
-emulated.
+Adds virtual cpu
 
-Returns json-int.
+Arguments:
+
+- "id": cpu id (json-int)
 
 Example:
 
--> { "execute": "query-cpu-max" }
-<- { "return": 255 }
+-> { "execute": "cpu-add", "arguments": { "id": 2 } }
+<- { "return": {} }
 
 EQMP
 
@@ -2438,6 +2439,53 @@ EQMP
     },
 
 SQMP
+query-command-line-options
+--------------------------
+
+Show command line option schema.
+
+Return a json-array of command line option schema for all options (or for
+the given option), returning an error if the given option doesn't exist.
+
+Each array entry contains the following:
+
+- "option": option name (json-string)
+- "parameters": a json-array describes all parameters of the option:
+    - "name": parameter name (json-string)
+    - "type": parameter type (one of 'string', 'boolean', 'number',
+              or 'size')
+    - "help": human readable description of the parameter
+              (json-string, optional)
+
+Example:
+
+-> { "execute": "query-command-line-options", "arguments": { "option": "option-rom" } }
+<- { "return": [
+        {
+            "parameters": [
+                {
+                    "name": "romfile",
+                    "type": "string"
+                },
+                {
+                    "name": "bootindex",
+                    "type": "number"
+                }
+            ],
+            "option": "option-rom"
+        }
+     ]
+   }
+
+EQMP
+
+    {
+        .name       = "query-command-line-options",
+        .args_type  = "option:s?",
+        .mhandler.cmd_new = qmp_marshal_input_query_command_line_options,
+    },
+
+SQMP
 query-migrate
 -------------
 
@@ -2468,7 +2516,7 @@ The main json-object contains the following:
             byte (json-int)
             These are sent over the wire much more efficiently.
          - "skipped": number of skipped zero pages (json-int)
-         - "normal" : number of whole pages transfered.  I.e. they
+         - "normal" : number of whole pages transferred.  I.e. they
             were not sent as duplicate or xbzrle pages (json-int)
          - "normal-bytes" : number of bytes transferred in whole
             pages. This is just normal pages times size of one page,

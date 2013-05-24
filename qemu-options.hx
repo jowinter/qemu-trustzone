@@ -1127,6 +1127,8 @@ By definition the Websocket port is 5700+@var{display}. If @var{host} is
 specified connections will only be allowed from this host.
 As an alternative the Websocket port could be specified by using
 @code{websocket}=@var{port}.
+TLS encryption for the Websocket connection is supported if the required
+certificates are specified with the VNC option @option{x509}.
 
 @item password
 
@@ -2107,6 +2109,18 @@ Example for Unix Domain Sockets
 qemu-system-i386 --drive file=nbd:unix:/tmp/nbd-socket
 @end example
 
+@item SSH
+QEMU supports SSH (Secure Shell) access to remote disks.
+
+Examples:
+@example
+qemu-system-i386 -drive file=ssh://user@@host/path/to/disk.img
+qemu-system-i386 -drive file.driver=ssh,file.user=user,file.host=host,file.port=22,file.path=/path/to/disk.img
+@end example
+
+Currently authentication must be done using ssh-agent.  Other
+authentication methods may be supported in future.
+
 @item Sheepdog
 Sheepdog is a distributed storage system for QEMU.
 QEMU supports using either local sheepdog devices or remote networked
@@ -2569,6 +2583,19 @@ STEXI
 @item -S
 @findex -S
 Do not start CPU at startup (you must type 'c' in the monitor).
+ETEXI
+
+DEF("realtime", HAS_ARG, QEMU_OPTION_realtime,
+    "-realtime [mlock=on|off]\n"
+    "                run qemu with realtime features\n"
+    "                mlock=on|off controls mlock support (default: on)\n",
+    QEMU_ARCH_ALL)
+STEXI
+@item -realtime mlock=on|off
+@findex -realtime
+Run qemu with realtime features.
+mlocking qemu and guest memory can be enabled via @option{mlock=on}
+(enabled by default).
 ETEXI
 
 DEF("gdb", HAS_ARG, QEMU_OPTION_gdb, \

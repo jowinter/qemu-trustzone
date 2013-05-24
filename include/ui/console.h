@@ -2,6 +2,7 @@
 #define CONSOLE_H
 
 #include "ui/qemu-pixman.h"
+#include "qom/object.h"
 #include "qapi/qmp/qdict.h"
 #include "qemu/notify.h"
 #include "monitor/monitor.h"
@@ -21,38 +22,20 @@
 #define QEMU_CAPS_LOCK_LED   (1 << 2)
 
 /* in ms */
-#define GUI_REFRESH_INTERVAL 30
+#define GUI_REFRESH_INTERVAL_DEFAULT    30
+#define GUI_REFRESH_INTERVAL_IDLE     3000
 
 typedef void QEMUPutKBDEvent(void *opaque, int keycode);
 typedef void QEMUPutLEDEvent(void *opaque, int ledstate);
 typedef void QEMUPutMouseEvent(void *opaque, int dx, int dy, int dz, int buttons_state);
 
-typedef struct QEMUPutMouseEntry {
-    QEMUPutMouseEvent *qemu_put_mouse_event;
-    void *qemu_put_mouse_event_opaque;
-    int qemu_put_mouse_event_absolute;
-    char *qemu_put_mouse_event_name;
+typedef struct QEMUPutMouseEntry QEMUPutMouseEntry;
+typedef struct QEMUPutKbdEntry QEMUPutKbdEntry;
+typedef struct QEMUPutLEDEntry QEMUPutLEDEntry;
 
-    int index;
-
-    /* used internally by qemu for handling mice */
-    QTAILQ_ENTRY(QEMUPutMouseEntry) node;
-} QEMUPutMouseEntry;
-
-typedef struct QEMUPutKBDEntry {
-    QEMUPutKBDEvent *put_kbd_event;
-    void *opaque;
-    QTAILQ_ENTRY(QEMUPutKBDEntry) next;
-} QEMUPutKBDEntry;
-
-typedef struct QEMUPutLEDEntry {
-    QEMUPutLEDEvent *put_led;
-    void *opaque;
-    QTAILQ_ENTRY(QEMUPutLEDEntry) next;
-} QEMUPutLEDEntry;
-
-void qemu_add_kbd_event_handler(QEMUPutKBDEvent *func, void *opaque);
-void qemu_remove_kbd_event_handler(QEMUPutKBDEvent *func, void *opaque);
+QEMUPutKbdEntry *qemu_add_kbd_event_handler(QEMUPutKBDEvent *func,
+                                            void *opaque);
+void qemu_remove_kbd_event_handler(QEMUPutKbdEntry *entry);
 QEMUPutMouseEntry *qemu_add_mouse_event_handler(QEMUPutMouseEvent *func,
                                                 void *opaque, int absolute,
                                                 const char *name);
@@ -110,6 +93,20 @@ void do_mouse_set(Monitor *mon, const QDict *qdict);
 void kbd_put_keysym(int keysym);
 
 /* consoles */
+
+#define TYPE_QEMU_CONSOLE "qemu-console"
+#define QEMU_CONSOLE(obj) \
+    OBJECT_CHECK(QemuConsole, (obj), TYPE_QEMU_CONSOLE)
+#define QEMU_CONSOLE_GET_CLASS(obj) \
+    OBJECT_GET_CLASS(QemuConsoleClass, (obj), TYPE_QEMU_CONSOLE)
+#define QEMU_CONSOLE_CLASS(klass) \
+    OBJECT_CLASS_CHECK(QemuConsoleClass, (klass), TYPE_QEMU_CONSOLE)
+
+typedef struct QemuConsoleClass QemuConsoleClass;
+
+struct QemuConsoleClass {
+    ObjectClass parent_class;
+};
 
 #define QEMU_BIG_ENDIAN_FLAG    0x01
 #define QEMU_ALLOCATED_FLAG     0x02
@@ -180,27 +177,15 @@ typedef struct DisplayChangeListenerOps {
 } DisplayChangeListenerOps;
 
 struct DisplayChangeListener {
-    int idle;
-    uint64_t gui_timer_interval;
+    uint64_t update_interval;
     const DisplayChangeListenerOps *ops;
     DisplayState *ds;
+    QemuConsole *con;
 
     QLIST_ENTRY(DisplayChangeListener) next;
 };
 
-struct DisplayState {
-    struct DisplaySurface *surface;
-    struct QEMUTimer *gui_timer;
-    bool have_gfx;
-    bool have_text;
-
-    QLIST_HEAD(, DisplayChangeListener) listeners;
-
-    struct DisplayState *next;
-};
-
-void register_displaystate(DisplayState *ds);
-DisplayState *get_displaystate(void);
+DisplayState *init_displaystate(void);
 DisplaySurface* qemu_create_displaysurface_from(int width, int height, int bpp,
                                                 int linesize, uint8_t *data,
                                                 bool byteswap);
@@ -223,16 +208,14 @@ static inline int is_buffer_shared(DisplaySurface *surface)
     return !(surface->flags & QEMU_ALLOCATED_FLAG);
 }
 
-void gui_setup_refresh(DisplayState *ds);
-
-void register_displaychangelistener(DisplayState *ds,
-                                    DisplayChangeListener *dcl);
+void register_displaychangelistener(DisplayChangeListener *dcl);
+void update_displaychangelistener(DisplayChangeListener *dcl,
+                                  uint64_t interval);
 void unregister_displaychangelistener(DisplayChangeListener *dcl);
 
 void dpy_gfx_update(QemuConsole *con, int x, int y, int w, int h);
 void dpy_gfx_replace_surface(QemuConsole *con,
                              DisplaySurface *surface);
-void dpy_refresh(DisplayState *s);
 void dpy_gfx_copy(QemuConsole *con, int src_x, int src_y,
                   int dst_x, int dst_y, int w, int h);
 void dpy_text_cursor(QemuConsole *con, int x, int y);
@@ -287,24 +270,27 @@ static inline void console_write_ch(console_ch_t *dest, uint32_t ch)
     *dest = ch;
 }
 
-typedef void (*vga_hw_update_ptr)(void *);
-typedef void (*vga_hw_invalidate_ptr)(void *);
-typedef void (*vga_hw_screen_dump_ptr)(void *, const char *, bool cswitch,
-                                       Error **errp);
-typedef void (*vga_hw_text_update_ptr)(void *, console_ch_t *);
+typedef struct GraphicHwOps {
+    void (*invalidate)(void *opaque);
+    void (*gfx_update)(void *opaque);
+    void (*text_update)(void *opaque, console_ch_t *text);
+    void (*update_interval)(void *opaque, uint64_t interval);
+} GraphicHwOps;
 
-QemuConsole *graphic_console_init(vga_hw_update_ptr update,
-                                  vga_hw_invalidate_ptr invalidate,
-                                  vga_hw_screen_dump_ptr screen_dump,
-                                  vga_hw_text_update_ptr text_update,
+QemuConsole *graphic_console_init(DeviceState *dev,
+                                  const GraphicHwOps *ops,
                                   void *opaque);
 
-void vga_hw_update(void);
-void vga_hw_invalidate(void);
-void vga_hw_text_update(console_ch_t *chardata);
+void graphic_hw_update(QemuConsole *con);
+void graphic_hw_invalidate(QemuConsole *con);
+void graphic_hw_text_update(QemuConsole *con, console_ch_t *chardata);
 
-int is_graphic_console(void);
-int is_fixedsize_console(void);
+QemuConsole *qemu_console_lookup_by_index(unsigned int index);
+QemuConsole *qemu_console_lookup_by_device(DeviceState *dev);
+bool qemu_console_is_visible(QemuConsole *con);
+bool qemu_console_is_graphic(QemuConsole *con);
+bool qemu_console_is_fixedsize(QemuConsole *con);
+
 void text_consoles_set_display(DisplayState *ds);
 void console_select(unsigned int index);
 void console_color_init(DisplayState *ds);

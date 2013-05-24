@@ -48,23 +48,6 @@ int virtio_bus_plug_device(VirtIODevice *vdev)
 
     bus->vdev = vdev;
 
-    /*
-     * The lines below will disappear when we drop VirtIOBindings, at the end
-     * of the series.
-     */
-    bus->bindings.notify = klass->notify;
-    bus->bindings.save_config = klass->save_config;
-    bus->bindings.save_queue = klass->save_queue;
-    bus->bindings.load_config = klass->load_config;
-    bus->bindings.load_queue = klass->load_queue;
-    bus->bindings.load_done = klass->load_done;
-    bus->bindings.get_features = klass->get_features;
-    bus->bindings.query_guest_notifiers = klass->query_guest_notifiers;
-    bus->bindings.set_guest_notifiers = klass->set_guest_notifiers;
-    bus->bindings.set_host_notifier = klass->set_host_notifier;
-    bus->bindings.vmstate_change = klass->vmstate_change;
-    virtio_bind_device(bus->vdev, &bus->bindings, qbus->parent);
-
     if (klass->device_plugged != NULL) {
         klass->device_plugged(qbus->parent);
     }
@@ -124,6 +107,18 @@ uint32_t virtio_bus_get_vdev_features(VirtioBusState *bus,
     return k->get_features(bus->vdev, requested_features);
 }
 
+/* Set the features of the plugged device. */
+void virtio_bus_set_vdev_features(VirtioBusState *bus,
+                                      uint32_t requested_features)
+{
+    VirtioDeviceClass *k;
+    assert(bus->vdev != NULL);
+    k = VIRTIO_DEVICE_GET_CLASS(bus->vdev);
+    if (k->set_features != NULL) {
+        k->set_features(bus->vdev, requested_features);
+    }
+}
+
 /* Get bad features of the plugged device. */
 uint32_t virtio_bus_get_vdev_bad_features(VirtioBusState *bus)
 {
@@ -148,12 +143,37 @@ void virtio_bus_get_vdev_config(VirtioBusState *bus, uint8_t *config)
     }
 }
 
+/* Set config of the plugged device. */
+void virtio_bus_set_vdev_config(VirtioBusState *bus, uint8_t *config)
+{
+    VirtioDeviceClass *k;
+    assert(bus->vdev != NULL);
+    k = VIRTIO_DEVICE_GET_CLASS(bus->vdev);
+    if (k->set_config != NULL) {
+        k->set_config(bus->vdev, config);
+    }
+}
+
+static char *virtio_bus_get_dev_path(DeviceState *dev)
+{
+    BusState *bus = qdev_get_parent_bus(dev);
+    DeviceState *proxy = DEVICE(bus->parent);
+    return qdev_get_dev_path(proxy);
+}
+
+static void virtio_bus_class_init(ObjectClass *klass, void *data)
+{
+    BusClass *bus_class = BUS_CLASS(klass);
+    bus_class->get_dev_path = virtio_bus_get_dev_path;
+}
+
 static const TypeInfo virtio_bus_info = {
     .name = TYPE_VIRTIO_BUS,
     .parent = TYPE_BUS,
     .instance_size = sizeof(VirtioBusState),
     .abstract = true,
     .class_size = sizeof(VirtioBusClass),
+    .class_init = virtio_bus_class_init
 };
 
 static void virtio_register_types(void)

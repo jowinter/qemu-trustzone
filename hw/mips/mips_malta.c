@@ -34,7 +34,7 @@
 #include "hw/mips/mips.h"
 #include "hw/mips/cpudevs.h"
 #include "hw/pci/pci.h"
-#include "char/char.h"
+#include "sysemu/char.h"
 #include "sysemu/sysemu.h"
 #include "sysemu/arch_init.h"
 #include "hw/boards.h"
@@ -984,9 +984,6 @@ void mips_malta_init(QEMUMachineInitArgs *args)
         fd[i] = drive_get(IF_FLOPPY, 0, i);
     }
     fdctrl_init_isa(isa_bus, fd);
-
-    /* Sound card */
-    audio_init(isa_bus, pci_bus);
 
     /* Network card */
     network_init();

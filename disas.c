@@ -227,6 +227,7 @@ void target_disas(FILE *out, CPUArchState *env, target_ulong code,
         s.info.mach = bfd_mach_ppc;
 #endif
     }
+    s.info.disassembler_options = (char *)"any";
     print_insn = print_insn_ppc;
 #elif defined(TARGET_M68K)
     print_insn = print_insn_m68k;
@@ -325,6 +326,7 @@ void disas(FILE *out, void *code, unsigned long size)
     s.info.mach = bfd_mach_x86_64;
     print_insn = print_insn_i386;
 #elif defined(_ARCH_PPC)
+    s.info.disassembler_options = (char *)"any";
     print_insn = print_insn_ppc;
 #elif defined(__alpha__)
     print_insn = print_insn_alpha;

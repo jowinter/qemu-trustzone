@@ -494,10 +494,10 @@ static void virtio_blk_update_config(VirtIODevice *vdev, uint8_t *config)
     blkcfg.heads = s->conf->heads;
     /*
      * We must ensure that the block device capacity is a multiple of
-     * the logical block size. If that is not the case, lets use
+     * the logical block size. If that is not the case, let's use
      * sector_mask to adopt the geometry to have a correct picture.
      * For those devices where the capacity is ok for the given geometry
-     * we dont touch the sector value of the geometry, since some devices
+     * we don't touch the sector value of the geometry, since some devices
      * (like s390 dasd) need a specific value. Here the capacity is already
      * cyls*heads*secs*blk_size and the sector value is not block size
      * divided by 512 - instead it is the amount of blk_size blocks
@@ -652,11 +652,6 @@ static int virtio_blk_device_init(VirtIODevice *vdev)
     virtio_init(vdev, "virtio-blk", VIRTIO_ID_BLOCK,
                 sizeof(struct virtio_blk_config));
 
-    vdev->get_config = virtio_blk_update_config;
-    vdev->set_config = virtio_blk_set_config;
-    vdev->get_features = virtio_blk_get_features;
-    vdev->set_status = virtio_blk_set_status;
-    vdev->reset = virtio_blk_reset;
     s->bs = blk->conf.bs;
     s->conf = &blk->conf;
     memcpy(&(s->blk), blk, sizeof(struct VirtIOBlkConf));
@@ -666,7 +661,7 @@ static int virtio_blk_device_init(VirtIODevice *vdev)
     s->vq = virtio_add_queue(vdev, 128, virtio_blk_handle_output);
 #ifdef CONFIG_VIRTIO_BLK_DATA_PLANE
     if (!virtio_blk_data_plane_create(vdev, blk, &s->dataplane)) {
-        virtio_common_cleanup(vdev);
+        virtio_cleanup(vdev);
         return -1;
     }
 #endif
@@ -694,7 +689,7 @@ static int virtio_blk_device_exit(DeviceState *dev)
     qemu_del_vm_change_state_handler(s->change);
     unregister_savevm(dev, "virtio-blk", s);
     blockdev_mark_auto_del(s->bs);
-    virtio_common_cleanup(vdev);
+    virtio_cleanup(vdev);
     return 0;
 }
 

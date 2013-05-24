@@ -250,8 +250,13 @@ typedef struct PCICirrusVGAState {
     CirrusVGAState cirrus_vga;
 } PCICirrusVGAState;
 
+#define TYPE_ISA_CIRRUS_VGA "isa-cirrus-vga"
+#define ISA_CIRRUS_VGA(obj) \
+    OBJECT_CHECK(ISACirrusVGAState, (obj), TYPE_ISA_CIRRUS_VGA)
+
 typedef struct ISACirrusVGAState {
-    ISADevice dev;
+    ISADevice parent_obj;
+
     CirrusVGAState cirrus_vga;
 } ISACirrusVGAState;
 
@@ -720,7 +725,7 @@ static void cirrus_do_copy(CirrusVGAState *s, int dst, int src, int w, int h)
     /* we have to flush all pending changes so that the copy
        is generated at the appropriate moment in time */
     if (notify)
-	vga_hw_update();
+        graphic_hw_update(s->vga.con);
 
     (*s->cirrus_rop) (s, s->vga.vram_ptr +
 		      (s->cirrus_blt_dstaddr & s->cirrus_addr_mask),
@@ -2904,22 +2909,20 @@ static void cirrus_init_common(CirrusVGAState * s, int device_id, int is_pci,
 
 static int vga_initfn(ISADevice *dev)
 {
-    ISACirrusVGAState *d = DO_UPCAST(ISACirrusVGAState, dev, dev);
+    ISACirrusVGAState *d = ISA_CIRRUS_VGA(dev);
     VGACommonState *s = &d->cirrus_vga.vga;
 
     vga_common_init(s);
     cirrus_init_common(&d->cirrus_vga, CIRRUS_ID_CLGD5430, 0,
                        isa_address_space(dev), isa_address_space_io(dev));
-    s->con = graphic_console_init(s->update, s->invalidate,
-                                  s->screen_dump, s->text_update,
-                                  s);
+    s->con = graphic_console_init(DEVICE(dev), s->hw_ops, s);
     rom_add_vga(VGABIOS_CIRRUS_FILENAME);
     /* XXX ISA-LFB support */
     /* FIXME not qdev yet */
     return 0;
 }
 
-static Property isa_vga_cirrus_properties[] = {
+static Property isa_cirrus_vga_properties[] = {
     DEFINE_PROP_UINT32("vgamem_mb", struct ISACirrusVGAState,
                        cirrus_vga.vga.vram_size_mb, 8),
     DEFINE_PROP_END_OF_LIST(),
@@ -2932,11 +2935,11 @@ static void isa_cirrus_vga_class_init(ObjectClass *klass, void *data)
 
     dc->vmsd  = &vmstate_cirrus_vga;
     k->init   = vga_initfn;
-    dc->props = isa_vga_cirrus_properties;
+    dc->props = isa_cirrus_vga_properties;
 }
 
 static const TypeInfo isa_cirrus_vga_info = {
-    .name          = "isa-cirrus-vga",
+    .name          = TYPE_ISA_CIRRUS_VGA,
     .parent        = TYPE_ISA_DEVICE,
     .instance_size = sizeof(ISACirrusVGAState),
     .class_init = isa_cirrus_vga_class_init,
@@ -2959,9 +2962,7 @@ static int pci_cirrus_vga_initfn(PCIDevice *dev)
      vga_common_init(&s->vga);
      cirrus_init_common(s, device_id, 1, pci_address_space(dev),
                         pci_address_space_io(dev));
-     s->vga.con = graphic_console_init(s->vga.update, s->vga.invalidate,
-                                       s->vga.screen_dump, s->vga.text_update,
-                                       &s->vga);
+     s->vga.con = graphic_console_init(DEVICE(dev), s->vga.hw_ops, &s->vga);
 
      /* setup PCI */
 

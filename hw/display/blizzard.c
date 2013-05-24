@@ -20,7 +20,7 @@
 
 #include "qemu-common.h"
 #include "ui/console.h"
-#include "hw/arm/devices.h"
+#include "hw/devices.h"
 #include "vga_int.h"
 #include "ui/pixel_ops.h"
 
@@ -982,17 +982,10 @@ static void blizzard_update_display(void *opaque)
     s->my[1] = 0;
 }
 
-static void blizzard_screen_dump(void *opaque, const char *filename,
-                                 bool cswitch, Error **errp)
-{
-    BlizzardState *s = (BlizzardState *) opaque;
-    DisplaySurface *surface = qemu_console_surface(s->con);
-
-    blizzard_update_display(opaque);
-    if (s && surface_data(surface)) {
-        ppm_save(filename, surface, errp);
-    }
-}
+static const GraphicHwOps blizzard_ops = {
+    .invalidate  = blizzard_invalidate_display,
+    .gfx_update  = blizzard_update_display,
+};
 
 void *s1d13745_init(qemu_irq gpio_int)
 {
@@ -1004,9 +997,7 @@ void *s1d13745_init(qemu_irq gpio_int)
      * This is supposedly ok since nseries.c is the only user of blizzard.c */
     memset(s->fb, 0xff, 0x180000);
 
-    s->con = graphic_console_init(blizzard_update_display,
-                                  blizzard_invalidate_display,
-                                  blizzard_screen_dump, NULL, s);
+    s->con = graphic_console_init(NULL, &blizzard_ops, s);
 
     blizzard_reset(s);
     return s;

@@ -78,7 +78,8 @@ extern int fd_bootchk;
 void pc_register_ferr_irq(qemu_irq irq);
 void pc_acpi_smi_interrupt(void *opaque, int irq, int level);
 
-void pc_cpus_init(const char *cpu_model);
+void pc_cpus_init(const char *cpu_model, DeviceState *icc_bridge);
+void pc_hot_add_cpu(const int64_t id, Error **errp);
 void pc_acpi_init(const char *default_dsdt);
 void *pc_memory_init(MemoryRegion *system_memory,
                     const char *kernel_filename,
@@ -106,14 +107,6 @@ typedef void (*cpu_set_smm_t)(int smm, void *arg);
 void cpu_smm_register(cpu_set_smm_t callback, void *arg);
 
 void ioapic_init_gsi(GSIState *gsi_state, const char *parent_name);
-
-/* acpi.c */
-extern int acpi_enabled;
-extern char unsigned *acpi_tables;
-extern size_t acpi_tables_len;
-
-void acpi_bios_init(void);
-void acpi_table_add(const QemuOpts *opts, Error **errp);
 
 /* acpi_piix.c */
 
@@ -178,6 +171,9 @@ static inline bool isa_ne2000_init(ISABus *bus, int base, int irq, NICInfo *nd)
 /* pc_sysfw.c */
 void pc_system_firmware_init(MemoryRegion *rom_memory);
 
+/* pvpanic.c */
+int pvpanic_init(ISABus *bus);
+
 /* e820 types */
 #define E820_RAM        1
 #define E820_RESERVED   2
@@ -241,6 +237,10 @@ int e820_add_entry(uint64_t, uint64_t, uint32_t);
             .driver   = "virtio-net-pci",\
             .property = "romfile",\
             .value    = "pxe-virtio.rom",\
+        },{\
+            .driver   = "486-" TYPE_X86_CPU,\
+            .property = "model",\
+            .value    = stringify(0),\
         }
 
 #endif

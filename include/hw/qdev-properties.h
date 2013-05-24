@@ -6,6 +6,7 @@
 /*** qdev-properties.c ***/
 
 extern PropertyInfo qdev_prop_bit;
+extern PropertyInfo qdev_prop_bool;
 extern PropertyInfo qdev_prop_uint8;
 extern PropertyInfo qdev_prop_uint16;
 extern PropertyInfo qdev_prop_uint32;
@@ -48,6 +49,15 @@ extern PropertyInfo qdev_prop_arraylen;
         .bitnr    = (_bit),                                      \
         .offset    = offsetof(_state, _field)                    \
             + type_check(uint32_t,typeof_field(_state, _field)), \
+        .qtype     = QTYPE_QBOOL,                                \
+        .defval    = (bool)_defval,                              \
+        }
+
+#define DEFINE_PROP_BOOL(_name, _state, _field, _defval) {       \
+        .name      = (_name),                                    \
+        .info      = &(qdev_prop_bool),                          \
+        .offset    = offsetof(_state, _field)                    \
+            + type_check(bool, typeof_field(_state, _field)),    \
         .qtype     = QTYPE_QBOOL,                                \
         .defval    = (bool)_defval,                              \
         }
@@ -138,7 +148,8 @@ extern PropertyInfo qdev_prop_arraylen;
 
 /* Set properties between creation and init.  */
 void *qdev_get_prop_ptr(DeviceState *dev, Property *prop);
-int qdev_prop_parse(DeviceState *dev, const char *name, const char *value);
+void qdev_prop_parse(DeviceState *dev, const char *name, const char *value,
+                     Error **errp);
 void qdev_prop_set_bit(DeviceState *dev, const char *name, bool value);
 void qdev_prop_set_uint8(DeviceState *dev, const char *name, uint8_t value);
 void qdev_prop_set_uint16(DeviceState *dev, const char *name, uint16_t value);
@@ -157,7 +168,9 @@ void qdev_prop_set_ptr(DeviceState *dev, const char *name, void *value);
 
 void qdev_prop_register_global(GlobalProperty *prop);
 void qdev_prop_register_global_list(GlobalProperty *props);
-void qdev_prop_set_globals(DeviceState *dev);
+void qdev_prop_set_globals(DeviceState *dev, Error **errp);
+void qdev_prop_set_globals_for_type(DeviceState *dev, const char *typename,
+                                    Error **errp);
 void error_set_from_qdev_prop_error(Error **errp, int ret, DeviceState *dev,
                                     Property *prop, const char *value);
 

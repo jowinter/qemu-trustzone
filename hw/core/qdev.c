@@ -162,6 +162,7 @@ int qdev_init(DeviceState *dev)
 
     object_property_set_bool(OBJECT(dev), true, "realized", &local_err);
     if (local_err != NULL) {
+        qerror_report_err(local_err);
         error_free(local_err);
         qdev_free(dev);
         return -1;
@@ -182,6 +183,19 @@ static void device_realize(DeviceState *dev, Error **err)
     }
 }
 
+static void device_unrealize(DeviceState *dev, Error **errp)
+{
+    DeviceClass *dc = DEVICE_GET_CLASS(dev);
+
+    if (dc->exit) {
+        int rc = dc->exit(dev);
+        if (rc < 0) {
+            error_setg(errp, "Device exit failed.");
+            return;
+        }
+    }
+}
+
 void qdev_set_legacy_instance_id(DeviceState *dev, int alias_id,
                                  int required_for_version)
 {
@@ -194,7 +208,7 @@ void qdev_unplug(DeviceState *dev, Error **errp)
 {
     DeviceClass *dc = DEVICE_GET_CLASS(dev);
 
-    if (!dev->parent_bus->allow_hotplug) {
+    if (dev->parent_bus && !dev->parent_bus->allow_hotplug) {
         error_set(errp, QERR_BUS_NO_HOTPLUG, dev->parent_bus->name);
         return;
     }
@@ -671,10 +685,6 @@ static void device_set_realized(Object *obj, bool value, Error **err)
     Error *local_err = NULL;
 
     if (value && !dev->realized) {
-        if (dc->realize) {
-            dc->realize(dev, &local_err);
-        }
-
         if (!obj->parent && local_err == NULL) {
             static int unattached_count;
             gchar *name = g_strdup_printf("device[%d]", unattached_count++);
@@ -683,6 +693,10 @@ static void device_set_realized(Object *obj, bool value, Error **err)
                                                     "/unattached"),
                                       name, obj, &local_err);
             g_free(name);
+        }
+
+        if (dc->realize) {
+            dc->realize(dev, &local_err);
         }
 
         if (qdev_get_vmsd(dev) && local_err == NULL) {
@@ -694,6 +708,9 @@ static void device_set_realized(Object *obj, bool value, Error **err)
             device_reset(dev);
         }
     } else if (!value && dev->realized) {
+        if (qdev_get_vmsd(dev)) {
+            vmstate_unregister(dev, qdev_get_vmsd(dev), dev);
+        }
         if (dc->unrealize) {
             dc->unrealize(dev, &local_err);
         }
@@ -735,7 +752,12 @@ static void device_initfn(Object *obj)
         }
         class = object_class_get_parent(class);
     } while (class != object_class_by_name(TYPE_DEVICE));
-    qdev_prop_set_globals(dev);
+    qdev_prop_set_globals(dev, &err);
+    if (err != NULL) {
+        qerror_report_err(err);
+        error_free(err);
+        exit(1);
+    }
 
     object_property_add_link(OBJECT(dev), "parent_bus", TYPE_BUS,
                              (Object **)&dev->parent_bus, &err);
@@ -764,7 +786,6 @@ static void device_class_base_init(ObjectClass *class, void *data)
 static void device_unparent(Object *obj)
 {
     DeviceState *dev = DEVICE(obj);
-    DeviceClass *dc = DEVICE_GET_CLASS(dev);
     BusState *bus;
     QObject *event_data;
     bool have_realized = dev->realized;
@@ -774,12 +795,7 @@ static void device_unparent(Object *obj)
         qbus_free(bus);
     }
     if (dev->realized) {
-        if (qdev_get_vmsd(dev)) {
-            vmstate_unregister(dev, qdev_get_vmsd(dev), dev);
-        }
-        if (dc->exit) {
-            dc->exit(dev);
-        }
+        object_property_set_bool(obj, false, "realized", NULL);
     }
     if (dev->parent_bus) {
         bus_remove_child(dev->parent_bus, dev);
@@ -809,6 +825,7 @@ static void device_class_init(ObjectClass *class, void *data)
 
     class->unparent = device_unparent;
     dc->realize = device_realize;
+    dc->unrealize = device_unrealize;
 }
 
 void device_reset(DeviceState *dev)

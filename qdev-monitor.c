@@ -18,6 +18,7 @@
  */
 
 #include "hw/qdev.h"
+#include "hw/sysbus.h"
 #include "monitor/monitor.h"
 #include "monitor/qdev.h"
 #include "qmp-commands.h"
@@ -104,13 +105,17 @@ static void qdev_print_devinfo(ObjectClass *klass, void *opaque)
 static int set_property(const char *name, const char *value, void *opaque)
 {
     DeviceState *dev = opaque;
+    Error *err = NULL;
 
     if (strcmp(name, "driver") == 0)
         return 0;
     if (strcmp(name, "bus") == 0)
         return 0;
 
-    if (qdev_prop_parse(dev, name, value) == -1) {
+    qdev_prop_parse(dev, name, value, &err);
+    if (err != NULL) {
+        qerror_report_err(err);
+        error_free(err);
         return -1;
     }
     return 0;
@@ -291,11 +296,9 @@ static BusState *qbus_find_recursive(BusState *bus, const char *name,
 
     if (name && (strcmp(bus->name, name) != 0)) {
         match = 0;
-    }
-    if (bus_typename && !object_dynamic_cast(OBJECT(bus), bus_typename)) {
+    } else if (bus_typename && !object_dynamic_cast(OBJECT(bus), bus_typename)) {
         match = 0;
-    }
-    if ((bus_class->max_dev != 0) && (bus_class->max_dev <= bus->max_index)) {
+    } else if ((bus_class->max_dev != 0) && (bus_class->max_dev <= bus->max_index)) {
         if (name != NULL) {
             /* bus was explicitly specified: return an error. */
             qerror_report(ERROR_CLASS_GENERIC_ERROR, "Bus '%s' is full",
@@ -415,7 +418,7 @@ DeviceState *qdev_device_add(QemuOpts *opts)
     DeviceClass *k;
     const char *driver, *path, *id;
     DeviceState *qdev;
-    BusState *bus;
+    BusState *bus = NULL;
 
     driver = qemu_opt_get(opts, "driver");
     if (!driver) {
@@ -453,7 +456,7 @@ DeviceState *qdev_device_add(QemuOpts *opts)
                           driver, object_get_typename(OBJECT(bus)));
             return NULL;
         }
-    } else {
+    } else if (k->bus_type != NULL) {
         bus = qbus_find_recursive(sysbus_get_default(), NULL, k->bus_type);
         if (!bus) {
             qerror_report(QERR_NO_BUS_FOR_DEVICE,
@@ -461,18 +464,17 @@ DeviceState *qdev_device_add(QemuOpts *opts)
             return NULL;
         }
     }
-    if (qdev_hotplug && !bus->allow_hotplug) {
+    if (qdev_hotplug && bus && !bus->allow_hotplug) {
         qerror_report(QERR_BUS_NO_HOTPLUG, bus->name);
         return NULL;
     }
 
-    if (!bus) {
-        bus = sysbus_get_default();
-    }
-
     /* create device, set properties */
     qdev = DEVICE(object_new(driver));
-    qdev_set_parent_bus(qdev, bus);
+
+    if (bus) {
+        qdev_set_parent_bus(qdev, bus);
+    }
 
     id = qemu_opts_id(opts);
     if (id) {

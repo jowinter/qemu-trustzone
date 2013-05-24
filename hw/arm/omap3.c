@@ -21,18 +21,17 @@
  * MA 02111-1307 USA
  */
 
-#include "hw/hw.h"
-#include "hw/arm.h"
-#include "hw/arm/omap.h"
-#include "sysemu/sysemu.h"
 #include "qemu/timer.h"
-#include "char/char.h"
-#include "hw/block/flash.h"
-#include "hw/arm/soc_dma.h"
-#include "hw/sysbus.h"
 #include "audio/audio.h"
 #include "block/block.h"
-#include "hw/qdev-addr.h"
+#include "sysemu/sysemu.h"
+#include "sysemu/char.h"
+#include "hw/hw.h"
+#include "hw/arm/arm.h"
+#include "hw/arm/omap.h"
+#include "hw/arm/soc_dma.h"
+#include "hw/block/flash.h"
+#include "hw/sysbus.h"
 
 //#define OMAP3_DEBUG
 //#define OMAP3_DEBUG_SCM
@@ -4432,7 +4431,7 @@ struct omap_mpu_state_s *omap3_mpu_init(MemoryRegion *sysmem,
 
     s->omap3_usb_ohci = qdev_create(NULL, "sysbus-ohci");
     qdev_prop_set_uint32(s->omap3_usb_ohci, "num-ports", 3);
-    qdev_prop_set_taddr(s->omap3_usb_ohci, "dma-offset", 0);
+    qdev_prop_set_uint64(s->omap3_usb_ohci, "dma-offset", 0);
     qdev_init_nofail(s->omap3_usb_ohci);
     busdev = SYS_BUS_DEVICE(s->omap3_usb_ohci);
     sysbus_mmio_map(busdev, 0, omap_l4_region_base(usbhost_ta, 1));

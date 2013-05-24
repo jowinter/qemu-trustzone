@@ -4,6 +4,7 @@ common-obj-$(CONFIG_TMP105) += tmp105.o
 common-obj-$(CONFIG_ISA_DEBUG) += debugexit.o
 common-obj-$(CONFIG_SGA) += sga.o
 common-obj-$(CONFIG_ISA_TESTDEV) += pc-testdev.o
+common-obj-$(CONFIG_PCI_TESTDEV) += pci-testdev.o
 
 obj-$(CONFIG_VMPORT) += vmport.o
 
@@ -40,3 +41,5 @@ obj-$(CONFIG_OMAP) += twl4030.o
 obj-$(CONFIG_PXA2XX) += pxa2xx_pcmcia.o
 obj-$(CONFIG_SLAVIO) += slavio_misc.o
 obj-$(CONFIG_ZYNQ) += zynq_slcr.o
+
+obj-$(CONFIG_PVPANIC) += pvpanic.o

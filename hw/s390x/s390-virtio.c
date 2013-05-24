@@ -49,6 +49,7 @@
 #endif
 
 #define MAX_BLK_DEVS                    10
+#define ZIPL_FILENAME                   "s390-zipl.rom"
 
 static VirtIOS390Bus *s390_bus;
 static S390CPU **ipi_states;
@@ -158,7 +159,8 @@ unsigned s390_del_running_cpu(S390CPU *cpu)
 
 void s390_init_ipl_dev(const char *kernel_filename,
                        const char *kernel_cmdline,
-                       const char *initrd_filename)
+                       const char *initrd_filename,
+                       const char *firmware)
 {
     DeviceState *dev;
 
@@ -170,6 +172,7 @@ void s390_init_ipl_dev(const char *kernel_filename,
         qdev_prop_set_string(dev, "initrd", initrd_filename);
     }
     qdev_prop_set_string(dev, "cmdline", kernel_cmdline);
+    qdev_prop_set_string(dev, "firmware", firmware);
     qdev_init_nofail(dev);
 }
 
@@ -240,14 +243,14 @@ static void s390_init(QEMUMachineInitArgs *args)
     }
     my_ram_size = my_ram_size >> (20 + shift) << (20 + shift);
 
-    /* lets propagate the changed ram size into the global variable. */
+    /* let's propagate the changed ram size into the global variable. */
     ram_size = my_ram_size;
 
     /* get a BUS */
     s390_bus = s390_virtio_bus_init(&my_ram_size);
     s390_sclp_init();
     s390_init_ipl_dev(args->kernel_filename, args->kernel_cmdline,
-                      args->initrd_filename);
+                      args->initrd_filename, ZIPL_FILENAME);
 
     /* register hypercalls */
     s390_virtio_register_hcalls();

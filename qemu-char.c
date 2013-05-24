@@ -26,7 +26,7 @@
 #include "ui/console.h"
 #include "sysemu/sysemu.h"
 #include "qemu/timer.h"
-#include "char/char.h"
+#include "sysemu/char.h"
 #include "hw/usb.h"
 #include "qmp-commands.h"
 
@@ -53,13 +53,6 @@
 #include <sys/select.h>
 #ifdef CONFIG_BSD
 #include <sys/stat.h>
-#if defined(__GLIBC__)
-#include <pty.h>
-#elif defined(__FreeBSD__) || defined(__FreeBSD_kernel__) || defined(__DragonFly__)
-#include <libutil.h>
-#else
-#include <util.h>
-#endif
 #if defined(__FreeBSD__) || defined(__FreeBSD_kernel__)
 #include <dev/ppbus/ppi.h>
 #include <dev/ppbus/ppbconf.h>
@@ -69,8 +62,6 @@
 #endif
 #else
 #ifdef __linux__
-#include <pty.h>
-
 #include <linux/ppdev.h>
 #include <linux/parport.h>
 #endif
@@ -87,7 +78,6 @@
 #include <netinet/tcp.h>
 #include <net/if.h>
 #include <syslog.h>
-#include <stropts.h>
 #endif
 #endif
 #endif
@@ -643,10 +633,18 @@ static gboolean io_watch_poll_dispatch(GSource *source, GSourceFunc callback,
 
 static void io_watch_poll_finalize(GSource *source)
 {
+    /* Due to a glib bug, removing the last reference to a source
+     * inside a finalize callback causes recursive locking (and a
+     * deadlock).  This is not a problem inside other callbacks,
+     * including dispatch callbacks, so we call io_remove_watch_poll
+     * to remove this source.  At this point, iwp->src must
+     * be NULL, or we would leak it.
+     *
+     * This would be solved much more elegantly by child sources,
+     * but we support older glib versions that do not have them.
+     */
     IOWatchPoll *iwp = io_watch_poll_from_source(source);
-    g_source_destroy(iwp->src);
-    g_source_unref(iwp->src);
-    iwp->src = NULL;
+    assert(iwp->src == NULL);
 }
 
 static GSourceFuncs io_watch_poll_funcs = {
@@ -663,6 +661,7 @@ static guint io_add_watch_poll(GIOChannel *channel,
                                gpointer user_data)
 {
     IOWatchPoll *iwp;
+    int tag;
 
     iwp = (IOWatchPoll *) g_source_new(&io_watch_poll_funcs, sizeof(IOWatchPoll));
     iwp->fd_can_read = fd_can_read;
@@ -671,7 +670,28 @@ static guint io_add_watch_poll(GIOChannel *channel,
     iwp->fd_read = (GSourceFunc) fd_read;
     iwp->src = NULL;
 
-    return g_source_attach(&iwp->parent, NULL);
+    tag = g_source_attach(&iwp->parent, NULL);
+    g_source_unref(&iwp->parent);
+    return tag;
+}
+
+static void io_remove_watch_poll(guint tag)
+{
+    GSource *source;
+    IOWatchPoll *iwp;
+
+    g_return_if_fail (tag > 0);
+
+    source = g_main_context_find_source_by_id(NULL, tag);
+    g_return_if_fail (source != NULL);
+
+    iwp = io_watch_poll_from_source(source);
+    if (iwp->src) {
+        g_source_destroy(iwp->src);
+        g_source_unref(iwp->src);
+        iwp->src = NULL;
+    }
+    g_source_destroy(&iwp->parent);
 }
 
 #ifndef _WIN32
@@ -776,12 +796,16 @@ static gboolean fd_chr_read(GIOChannel *chan, GIOCondition cond, void *opaque)
         len = s->max_size;
     }
     if (len == 0) {
-        return FALSE;
+        return TRUE;
     }
 
     status = g_io_channel_read_chars(chan, (gchar *)buf,
                                      len, &bytes_read, NULL);
     if (status == G_IO_STATUS_EOF) {
+        if (s->fd_in_tag) {
+            io_remove_watch_poll(s->fd_in_tag);
+            s->fd_in_tag = 0;
+        }
         qemu_chr_be_event(chr, CHR_EVENT_CLOSED);
         return FALSE;
     }
@@ -812,7 +836,8 @@ static void fd_chr_update_read_handler(CharDriverState *chr)
     FDCharDriver *s = chr->opaque;
 
     if (s->fd_in_tag) {
-        g_source_remove(s->fd_in_tag);
+        io_remove_watch_poll(s->fd_in_tag);
+        s->fd_in_tag = 0;
     }
 
     if (s->fd_in) {
@@ -825,7 +850,7 @@ static void fd_chr_close(struct CharDriverState *chr)
     FDCharDriver *s = chr->opaque;
 
     if (s->fd_in_tag) {
-        g_source_remove(s->fd_in_tag);
+        io_remove_watch_poll(s->fd_in_tag);
         s->fd_in_tag = 0;
     }
 
@@ -1022,7 +1047,6 @@ typedef struct {
     GIOChannel *fd;
     guint fd_tag;
     int connected;
-    int polling;
     int read_bytes;
     guint timer_tag;
 } PtyCharDriver;
@@ -1038,17 +1062,12 @@ static gboolean pty_chr_timer(gpointer opaque)
     if (s->connected) {
         goto out;
     }
-    if (s->polling) {
-        /* If we arrive here without polling being cleared due
-         * read returning -EIO, then we are (re-)connected */
-        pty_chr_state(chr, 1);
-        goto out;
-    }
 
     /* Next poll ... */
     pty_chr_update_read_handler(chr);
 
 out:
+    s->timer_tag = 0;
     return FALSE;
 }
 
@@ -1106,8 +1125,9 @@ static gboolean pty_chr_read(GIOChannel *chan, GIOCondition cond, void *opaque)
     len = sizeof(buf);
     if (len > s->read_bytes)
         len = s->read_bytes;
-    if (len == 0)
-        return FALSE;
+    if (len == 0) {
+        return TRUE;
+    }
     status = g_io_channel_read_chars(s->fd, (gchar *)buf, len, &size, NULL);
     if (status != G_IO_STATUS_NORMAL) {
         pty_chr_state(chr, 0);
@@ -1122,22 +1142,17 @@ static gboolean pty_chr_read(GIOChannel *chan, GIOCondition cond, void *opaque)
 static void pty_chr_update_read_handler(CharDriverState *chr)
 {
     PtyCharDriver *s = chr->opaque;
+    GPollFD pfd;
 
-    if (s->fd_tag) {
-        g_source_remove(s->fd_tag);
+    pfd.fd = g_io_channel_unix_get_fd(s->fd);
+    pfd.events = G_IO_OUT;
+    pfd.revents = 0;
+    g_poll(&pfd, 1, 0);
+    if (pfd.revents & G_IO_HUP) {
+        pty_chr_state(chr, 0);
+    } else {
+        pty_chr_state(chr, 1);
     }
-
-    s->fd_tag = io_add_watch_poll(s->fd, pty_chr_read_poll, pty_chr_read, chr);
-    s->polling = 1;
-    /*
-     * Short timeout here: just need wait long enougth that qemu makes
-     * it through the poll loop once.  When reconnected we want a
-     * short timeout so we notice it almost instantly.  Otherwise
-     * read() gives us -EIO instantly, making pty_chr_state() reset the
-     * timeout to the normal (much longer) poll interval before the
-     * timer triggers.
-     */
-    pty_chr_rearm_timer(chr, 10);
 }
 
 static void pty_chr_state(CharDriverState *chr, int connected)
@@ -1145,18 +1160,25 @@ static void pty_chr_state(CharDriverState *chr, int connected)
     PtyCharDriver *s = chr->opaque;
 
     if (!connected) {
-        g_source_remove(s->fd_tag);
-        s->fd_tag = 0;
+        if (s->fd_tag) {
+            io_remove_watch_poll(s->fd_tag);
+            s->fd_tag = 0;
+        }
         s->connected = 0;
-        s->polling = 0;
         /* (re-)connect poll interval for idle guests: once per second.
          * We check more frequently in case the guests sends data to
          * the virtual device linked to our pty. */
         pty_chr_rearm_timer(chr, 1000);
     } else {
-        if (!s->connected)
+        if (s->timer_tag) {
+            g_source_remove(s->timer_tag);
+            s->timer_tag = 0;
+        }
+        if (!s->connected) {
             qemu_chr_be_generic_open(chr);
-        s->connected = 1;
+            s->connected = 1;
+            s->fd_tag = io_add_watch_poll(s->fd, pty_chr_read_poll, pty_chr_read, chr);
+        }
     }
 }
 
@@ -1167,13 +1189,15 @@ static void pty_chr_close(struct CharDriverState *chr)
     int fd;
 
     if (s->fd_tag) {
-        g_source_remove(s->fd_tag);
+        io_remove_watch_poll(s->fd_tag);
+        s->fd_tag = 0;
     }
     fd = g_io_channel_unix_get_fd(s->fd);
     g_io_channel_unref(s->fd);
     close(fd);
     if (s->timer_tag) {
         g_source_remove(s->timer_tag);
+        s->timer_tag = 0;
     }
     g_free(s);
     qemu_chr_be_event(chr, CHR_EVENT_CLOSED);
@@ -2235,13 +2259,18 @@ static gboolean udp_chr_read(GIOChannel *chan, GIOCondition cond, void *opaque)
     gsize bytes_read = 0;
     GIOStatus status;
 
-    if (s->max_size == 0)
-        return FALSE;
+    if (s->max_size == 0) {
+        return TRUE;
+    }
     status = g_io_channel_read_chars(s->chan, (gchar *)s->buf, sizeof(s->buf),
                                      &bytes_read, NULL);
     s->bufcnt = bytes_read;
     s->bufptr = s->bufcnt;
     if (status != G_IO_STATUS_NORMAL) {
+        if (s->tag) {
+            io_remove_watch_poll(s->tag);
+            s->tag = 0;
+        }
         return FALSE;
     }
 
@@ -2260,7 +2289,7 @@ static void udp_chr_update_read_handler(CharDriverState *chr)
     NetCharDriver *s = chr->opaque;
 
     if (s->tag) {
-        g_source_remove(s->tag);
+        io_remove_watch_poll(s->tag);
         s->tag = 0;
     }
 
@@ -2273,7 +2302,8 @@ static void udp_chr_close(CharDriverState *chr)
 {
     NetCharDriver *s = chr->opaque;
     if (s->tag) {
-        g_source_remove(s->tag);
+        io_remove_watch_poll(s->tag);
+        s->tag = 0;
     }
     if (s->chan) {
         g_io_channel_unref(s->chan);
@@ -2493,7 +2523,7 @@ static gboolean tcp_chr_read(GIOChannel *chan, GIOCondition cond, void *opaque)
     int len, size;
 
     if (!s->connected || s->max_size <= 0) {
-        return FALSE;
+        return TRUE;
     }
     len = sizeof(buf);
     if (len > s->max_size)
@@ -2505,8 +2535,10 @@ static gboolean tcp_chr_read(GIOChannel *chan, GIOCondition cond, void *opaque)
         if (s->listen_chan) {
             s->listen_tag = g_io_add_watch(s->listen_chan, G_IO_IN, tcp_chr_accept, chr);
         }
-        g_source_remove(s->tag);
-        s->tag = 0;
+        if (s->tag) {
+            io_remove_watch_poll(s->tag);
+            s->tag = 0;
+        }
         g_io_channel_unref(s->chan);
         s->chan = NULL;
         closesocket(s->fd);
@@ -2567,8 +2599,10 @@ static int tcp_chr_add_client(CharDriverState *chr, int fd)
         socket_set_nodelay(fd);
     s->fd = fd;
     s->chan = io_channel_from_socket(fd);
-    g_source_remove(s->listen_tag);
-    s->listen_tag = 0;
+    if (s->listen_tag) {
+        g_source_remove(s->listen_tag);
+        s->listen_tag = 0;
+    }
     tcp_chr_connect(chr);
 
     return 0;
@@ -2599,6 +2633,7 @@ static gboolean tcp_chr_accept(GIOChannel *channel, GIOCondition cond, void *opa
 	}
         fd = qemu_accept(s->listen_fd, addr, &len);
         if (fd < 0 && errno != EINTR) {
+            s->listen_tag = 0;
             return FALSE;
         } else if (fd >= 0) {
             if (s->do_telnetopt)
@@ -2617,7 +2652,8 @@ static void tcp_chr_close(CharDriverState *chr)
     TCPCharDriver *s = chr->opaque;
     if (s->fd >= 0) {
         if (s->tag) {
-            g_source_remove(s->tag);
+            io_remove_watch_poll(s->tag);
+            s->tag = 0;
         }
         if (s->chan) {
             g_io_channel_unref(s->chan);
@@ -2627,6 +2663,7 @@ static void tcp_chr_close(CharDriverState *chr)
     if (s->listen_fd >= 0) {
         if (s->listen_tag) {
             g_source_remove(s->listen_tag);
+            s->listen_tag = 0;
         }
         if (s->listen_chan) {
             g_io_channel_unref(s->listen_chan);
@@ -3661,12 +3698,12 @@ static CharDriverState *qmp_chardev_open_socket(ChardevSocket *sock,
                                    is_telnet, is_waitconnect, errp);
 }
 
-static CharDriverState *qmp_chardev_open_dgram(ChardevDgram *dgram,
-                                               Error **errp)
+static CharDriverState *qmp_chardev_open_udp(ChardevUdp *udp,
+                                             Error **errp)
 {
     int fd;
 
-    fd = socket_dgram(dgram->remote, dgram->local, errp);
+    fd = socket_dgram(udp->remote, udp->local, errp);
     if (error_is_set(errp)) {
         return NULL;
     }
@@ -3702,8 +3739,8 @@ ChardevReturn *qmp_chardev_add(const char *id, ChardevBackend *backend,
     case CHARDEV_BACKEND_KIND_SOCKET:
         chr = qmp_chardev_open_socket(backend->socket, errp);
         break;
-    case CHARDEV_BACKEND_KIND_DGRAM:
-        chr = qmp_chardev_open_dgram(backend->dgram, errp);
+    case CHARDEV_BACKEND_KIND_UDP:
+        chr = qmp_chardev_open_udp(backend->udp, errp);
         break;
 #ifdef HAVE_CHARDEV_TTY
     case CHARDEV_BACKEND_KIND_PTY:
