@@ -12,6 +12,14 @@ here. For full change detail consult the git history:
 Bug numbers refer to Launchpad qemu-linaro bugs, eg:
 https://bugs.launchpad.net/qemu-linaro/+bug/703094
 
+version 2013.06:
+ - Rebased onto upstream v1.5.0.
+ - Interesting ARM related upstream changes include
+   fixes to the VersatilePB and Realview model PCI controller,
+   improved performance of emulation of ARM targets,
+   and working VM save/load for vexpress-a15 and vexpress-a9
+   board models.
+
 version 2013.03:
  - Rebased onto upstream v1.4.0.
  - Fixes #1082292: warning messages from pflash_write during
