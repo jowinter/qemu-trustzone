@@ -59,6 +59,18 @@
 /* ARM-specific interrupt pending bits.  */
 #define CPU_INTERRUPT_FIQ   CPU_INTERRUPT_TGT_EXT_1
 
+/*
+ * ARM specific coprocessor register banks.
+ */
+typedef struct {
+  uint32_t secure;
+  uint32_t normal;
+} arm_banked32_t;
+
+typedef struct {
+  uint64_t secure;
+  uint64_t normal;
+} arm_banked64_t;
 
 typedef void ARMWriteCPFunc(void *opaque, int cp_info,
                             int srcreg, int operand, uint32_t value);
@@ -420,6 +432,7 @@ void armv7m_nvic_complete_irq(void *opaque, int irq);
 
 /* When looking up a coprocessor register we look for it
  * via an integer which encodes all of:
+ *  secure/normal world bank
  *  coprocessor number
  *  Crn, Crm, opc1, opc2 fields
  *  32 or 64 bit register (ie is it accessed via MRC/MCR
@@ -427,8 +440,8 @@ void armv7m_nvic_complete_irq(void *opaque, int irq);
  * We allow 4 bits for opc1 because MRRC/MCRR have a 4 bit field.
  * (In this case crn and opc2 should be zero.)
  */
-#define ENCODE_CP_REG(cp, is64, crn, crm, opc1, opc2)   \
-    (((cp) << 16) | ((is64) << 15) | ((crn) << 11) |    \
+#define ENCODE_CP_REG(bank, cp, is64, crn, crm, opc1, opc2)           \
+    (((bank) << 29) | ((cp) << 16) | ((is64) << 15) | ((crn) << 11) | \
      ((crm) << 7) | ((opc1) << 3) | (opc2))
 
 /* ARMCPRegInfo type field bits. If the SPECIAL bit is set this is a
@@ -441,19 +454,34 @@ void armv7m_nvic_complete_irq(void *opaque, int irq);
  * a register definition to override a previous definition for the
  * same (cp, is64, crn, crm, opc1, opc2) tuple: either the new or the
  * old must have the OVERRIDE bit set.
+ *
+ * On TrustZone systems each coprocessor register may exist in a secure
+ * and a normal world variant. The BANKED bit elects the physical storage
+ * implementation of these normal and secure world views: Simple banked
+ * coprocessor registers are implemented as arm_banked32_t (or arm_banked64_t)
+ * fields and have the BANKED bit set when define_one_arm_cp_reg_with_opaque()
+ * is called. Common coprocessor registers, which are available in both worlds
+ * or in secure-world only, are implemented as uint32_t (or uint64_t) fields
+ * and do not define the BANKED bit.
+ *
+ * The define_one_arm_cp_reg_with_opaque() function takes care of replicating
+ * the secure and the normal world version coprocessor register definitions as
+ * needed. Currently all registers are replicated in both worlds, to simplify
+ * implementation of MCR/MRC in secure monitor mode.
  */
 #define ARM_CP_SPECIAL 1
 #define ARM_CP_CONST 2
 #define ARM_CP_64BIT 4
 #define ARM_CP_SUPPRESS_TB_END 8
 #define ARM_CP_OVERRIDE 16
+#define ARM_CP_BANKED   32
 #define ARM_CP_NOP (ARM_CP_SPECIAL | (1 << 8))
 #define ARM_CP_WFI (ARM_CP_SPECIAL | (2 << 8))
 #define ARM_LAST_SPECIAL ARM_CP_WFI
 /* Used only as a terminator for ARMCPRegInfo lists */
 #define ARM_CP_SENTINEL 0xffff
 /* Mask of only the flag bits in a type field */
-#define ARM_CP_FLAG_MASK 0x1f
+#define ARM_CP_FLAG_MASK 0x3f
 
 /* Return true if cptype is a valid type field. This is used to try to
  * catch errors where the sentinel has been accidentally left off the end
@@ -604,6 +632,28 @@ struct ARMCPRegInfo {
     (*(uint64_t *)((char *)(env) + (ri)->fieldoffset))
 
 #define REGINFO_SENTINEL { .type = ARM_CP_SENTINEL }
+
+/* Macros which are lvalues for accessing the secure or normal
+ * world banks of arm_banked32_t and arm_banked32_t CP15 registers.
+ *
+ * These macros may evaluate the "env" parameter twice.
+ */
+#define CP15_BANK32(env,name,bank) \
+  (*(uint32_t*) ((bank) ? &(env)->cp15.name.secure : &(env)->cp15.name.normal))
+
+#define CP15_BANK64(env,name,bank) \
+  (*(uint64_t*) ((bank) ? &(env)->name.secure : &(env)->name.normal))
+
+/*
+ * The CPREG_IS_NORMAL() and CPREG_IS_SECURE() macros can be used inside read
+ * and write callbacks to test wether a given coprocessor register instance
+ * describes the normal or secure world view.
+ */
+#define CPREG_IS_SECURE(ri) \
+  (!((ri)->type & ARM_CP_NORMAL))
+
+#define CPREG_IS_NORMAL(ri) \
+  (!CPREG_IS_SECURE(ri))
 
 void define_arm_cp_regs_with_opaque(ARMCPU *cpu,
                                     const ARMCPRegInfo *regs, void *opaque);
