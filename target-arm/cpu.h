@@ -497,6 +497,12 @@ static inline bool cptype_valid(int cptype)
 
 /* Secure configuration register (SCR) bits */
 #define SCR_NS  (1 << 0)
+#define SCR_IRQ (1 << 1)
+#define SCR_FIQ (1 << 2)
+#define SCR_EA  (1 << 3)
+#define SCR_FW  (1 << 4)
+#define SCR_AW  (1 << 5)
+#define SCR_nET (1 << 6)
 
 static inline int arm_current_secure(CPUARMState *env)
 {
