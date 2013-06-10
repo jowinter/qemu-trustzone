@@ -10135,6 +10135,19 @@ void cpu_dump_state(CPUARMState *env, FILE *f, fprintf_function cpu_fprintf,
                 psr & CPSR_T ? 'T' : 'A',
                 cpu_mode_names[psr & 0xf], (psr & 0x10) ? 32 : 26);
 
+    if (arm_feature(env, ARM_FEATURE_TRUSTZONE)) {
+        uint32_t scr = env->cp15.c1_scr;
+        cpu_fprintf(f, "SCR=%08x %c%c%c%c%c%c%c\n",
+                    scr,
+                    (scr & SCR_nET) ? 'e' : '-',
+                    (scr & SCR_AW)  ? 'a' : '-',
+                    (scr & SCR_FW)  ? 'f' : '-',
+                    (scr & SCR_EA)  ? 'A' : '-',
+                    (scr & SCR_FIQ) ? 'F' : '-',
+                    (scr & SCR_IRQ) ? 'I' : '-',
+                    (scr & SCR_NS)  ? 'N' : 'S');
+    }
+
     if (flags & CPU_DUMP_FPU) {
         int numvfpregs = 0;
         if (arm_feature(env, ARM_FEATURE_VFP)) {
