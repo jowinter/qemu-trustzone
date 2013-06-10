@@ -1040,7 +1040,7 @@ static const ARMCPRegInfo trustzone_cp_reginfo[] = {
       .resetvalue = 0 },
     { .name = "VBAR", .cp = 15, .crn = 12, .crm = 0, .opc1 = 0, .opc2 = 0,
       .access = PL1_RW, .fieldoffset = offsetof(CPUARMState, cp15.c12_vbar),
-      .writefn = vbar_write, .resetvalue = 0 },
+      .writefn = vbar_write, .resetvalue = 0, .type = ARM_CP_BANKED },
     { .name = "MVBAR", .cp = 15, .crn = 12, .crm = 0, .opc1 = 0, .opc2 = 1,
       .access = PL3_RW, .fieldoffset = offsetof(CPUARMState, cp15.c12_mvbar),
       .writefn = vbar_write, .resetvalue = 0 },
@@ -1992,7 +1992,8 @@ void arm_cpu_do_interrupt(CPUState *cs)
         return; /* Never happens.  Keep compiler happy.  */
     }
     if (arm_feature(env, ARM_FEATURE_TRUSTZONE)) {
-        if (new_mode != ARM_CPU_MODE_SMC && (env->cp15.c1_scr & SCR_NS)) {
+        int to_secure = (new_mode == ARM_CPU_MODE_SMC) || !(env->cp15.c1_scr & SCR_NS);
+        if (!to_secure) {
             /* Honor SCR.AW/SCR.FW in normal world */
             if (!(env->cp15.c1_scr & SCR_FW)) {
                 mask &= ~CPSR_F;
@@ -2008,7 +2009,7 @@ void arm_cpu_do_interrupt(CPUState *cs)
             if (env->cp15.c1_sys & (1 << 13)) {
                 addr += 0xffff0000;
             } else {
-                addr += env->cp15.c12_vbar;
+                addr += CP15_BANK32(env, c12_vbar, to_secure);
             }
         }
     } else {
