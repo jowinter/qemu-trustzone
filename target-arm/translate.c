@@ -62,6 +62,10 @@ typedef struct DisasContext {
     int bswap_code;
 #if !defined(CONFIG_USER_ONLY)
     int user;
+    /* Nonzero if code is to be translated with normal world privileges. */
+    int nwd_priv;
+    /* Nonzero if coprocessor operations target the normal world bank. */
+    int nwd_cpacc;
 #endif
     int vfp_enabled;
     int vec_len;
@@ -72,8 +76,12 @@ static uint32_t gen_opc_condexec_bits[OPC_BUF_SIZE];
 
 #if defined(CONFIG_USER_ONLY)
 #define IS_USER(s) 1
+#define IS_NWD_CPACC(c) 0
+#define IS_NWD_PRIV(c)  0
 #else
 #define IS_USER(s) (s->user)
+#define IS_NWD_CPACC(c) (s->nwd_cpacc)
+#define IS_NWD_PRIV(c) (s->nwd_priv)
 #endif
 
 /* These instructions trap after executing, so defer them until after the
@@ -9846,6 +9854,8 @@ static inline void gen_intermediate_code_internal(CPUARMState *env,
     dc->condexec_cond = ARM_TBFLAG_CONDEXEC(tb->flags) >> 4;
 #if !defined(CONFIG_USER_ONLY)
     dc->user = (ARM_TBFLAG_PRIV(tb->flags) == 0);
+    dc->nwd_priv = (ARM_TBFLAG_NWD_PRIV(tb->flags) != 0);
+    dc->nwd_cpacc = (ARM_TBFLAG_NWD_CPACC(tb->flags) != 0);
 #endif
     dc->vfp_enabled = ARM_TBFLAG_VFPEN(tb->flags);
     dc->vec_len = ARM_TBFLAG_VECLEN(tb->flags);
