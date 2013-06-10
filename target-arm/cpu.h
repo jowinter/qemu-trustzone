@@ -701,7 +701,11 @@ static inline void cpu_clone_regs(CPUARMState *env, target_ulong newsp)
 #define ARM_TBFLAG_CONDEXEC_MASK    (0xff << ARM_TBFLAG_CONDEXEC_SHIFT)
 #define ARM_TBFLAG_BSWAP_CODE_SHIFT 16
 #define ARM_TBFLAG_BSWAP_CODE_MASK  (1 << ARM_TBFLAG_BSWAP_CODE_SHIFT)
-/* Bits 31..17 are currently unused. */
+#define ARM_TBFLAG_NWD_PRIV_SHIFT   17
+#define ARM_TBFLAG_NWD_PRIV_MASK    (1 << ARM_TBFLAG_NWD_PRIV_SHIFT)
+#define ARM_TBFLAG_NWD_CPACC_SHIFT  18
+#define ARM_TBFLAG_NWD_CPACC_MASK   (1 << ARM_TBFLAG_NWD_CPACC_SHIFT)
+/* Bits 31..19 are currently unused. */
 
 /* some convenience accessor macros */
 #define ARM_TBFLAG_THUMB(F) \
@@ -718,6 +722,10 @@ static inline void cpu_clone_regs(CPUARMState *env, target_ulong newsp)
     (((F) & ARM_TBFLAG_CONDEXEC_MASK) >> ARM_TBFLAG_CONDEXEC_SHIFT)
 #define ARM_TBFLAG_BSWAP_CODE(F) \
     (((F) & ARM_TBFLAG_BSWAP_CODE_MASK) >> ARM_TBFLAG_BSWAP_CODE_SHIFT)
+#define ARM_TBFLAG_NWD_PRIV(F) \
+    (((F) & ARM_TBFLAG_NWD_PRIV_MASK) >> ARM_TBFLAG_NWD_PRIV_SHIFT)
+#define ARM_TBFLAG_NWD_CPACC(F) \
+    (((F) & ARM_TBFLAG_NWD_CPACC_MASK) >> ARM_TBFLAG_NWD_CPACC_SHIFT)
 
 static inline void cpu_get_tb_cpu_state(CPUARMState *env, target_ulong *pc,
                                         target_ulong *cs_base, int *flags)
@@ -740,6 +748,16 @@ static inline void cpu_get_tb_cpu_state(CPUARMState *env, target_ulong *pc,
     }
     if (env->vfp.xregs[ARM_VFP_FPEXC] & (1 << 30)) {
         *flags |= ARM_TBFLAG_VFPEN_MASK;
+    }
+    if (arm_feature(env, ARM_FEATURE_TRUSTZONE)) {
+        if (!arm_current_secure(env)) {
+            /* CPU is in non-secure state */
+            *flags |= ARM_TBFLAG_NWD_PRIV_MASK;
+        }
+        if ((env->cp15.c1_scr & SCR_NS) == SCR_NS) {
+            /* MRC/MCR operates on normal world bank */
+            *flags |= ARM_TBFLAG_NWD_CPACC_MASK;
+        }
     }
 }
 
