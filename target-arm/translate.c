@@ -6312,7 +6312,8 @@ static int disas_coproc_insn(CPUARMState * env, DisasContext *s, uint32_t insn)
     rt = (insn >> 12) & 0xf;
 
     ri = get_arm_cp_reginfo(cpu,
-                            ENCODE_CP_REG(cpnum, is64, crn, crm, opc1, opc2));
+                            ENCODE_CP_REG(IS_NWD_CPACC(s), cpnum, is64,
+                                          crn, crm, opc1, opc2));
     if (ri) {
         /* Check access permissions */
         if (!cp_access_ok(env, ri, isread)) {
