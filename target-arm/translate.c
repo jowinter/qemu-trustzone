@@ -10091,6 +10091,13 @@ done_generating:
     if (qemu_loglevel_mask(CPU_LOG_TB_IN_ASM)) {
         qemu_log("----------------\n");
         qemu_log("IN: %s\n", lookup_symbol(pc_start));
+#if !defined(CONFIG_USER_ONLY)
+        if (arm_feature(env, ARM_FEATURE_TRUSTZONE)) {
+          qemu_log("WORLD: CPU:%s CP:%s\n",
+                   dc->nwd_priv ? "normal" : "secure",
+                   dc->nwd_cpacc ? "normal" : "secure");
+        }
+#endif
         log_target_disas(env, pc_start, dc->pc - pc_start,
                          dc->thumb | (dc->bswap_code << 1));
         qemu_log("\n");
