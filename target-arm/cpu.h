@@ -495,15 +495,28 @@ static inline bool cptype_valid(int cptype)
 #define PL1_RW (PL1_R | PL1_W)
 #define PL0_RW (PL0_R | PL0_W)
 
+/* Secure configuration register (SCR) bits */
+#define SCR_NS  (1 << 0)
+
+static inline int arm_current_secure(CPUARMState *env)
+{
+    uint32_t mode = (env->uncached_cpsr & 0x1f);
+
+    /* PL3 (secure privileged) or PL0 (user) and SCR.NS==0 */
+    return (mode == ARM_CPU_MODE_SMC) || !(env->cp15.c1_scr & SCR_NS);
+}
+
 static inline int arm_current_pl(CPUARMState *env)
 {
     if ((env->uncached_cpsr & 0x1f) == ARM_CPU_MODE_USR) {
-        return 0;
+        return 0; /* Secure or normal user mode (PL0) */
+    } else if (arm_current_secure(env)) {
+        return 3; /* Secure privileged/monitor (PL3) */
     }
     /* We don't currently implement the Virtualization or TrustZone
-     * extensions, so PL2 and PL3 don't exist for us.
+     * extensions, so PL2 doesn't exist for us.
      */
-    return 1;
+    return 1; /* Normal Privileged (PL1) */
 }
 
 typedef struct ARMCPRegInfo ARMCPRegInfo;
