@@ -1018,25 +1018,31 @@ static int vbar_write(CPUARMState *env, const ARMCPRegInfo *ri, uint64_t value)
     return 0;
 }
 
+static int scr_write(CPUARMState *env, const ARMCPRegInfo *ri, uint64_t value)
+{
+    CPREG_FIELD32(env, ri) = value & 0x7f;
+    return 0;
+}
+
 static const ARMCPRegInfo trustzone_cp_reginfo[] = {
     /* Dummy implementations of registers; we don't enforce the
      * 'secure mode only' access checks. TODO: revisit as part of
      * proper fake-trustzone support.
      */
     { .name = "SCR", .cp = 15, .crn = 1, .crm = 1, .opc1 = 0, .opc2 = 0,
-      .access = PL1_RW, .fieldoffset = offsetof(CPUARMState, cp15.c1_scr),
-      .resetvalue = 0 },
+      .access = PL3_RW, .fieldoffset = offsetof(CPUARMState, cp15.c1_scr),
+      .writefn = scr_write, .resetvalue = 0 },
     { .name = "SDER", .cp = 15, .crn = 1, .crm = 1, .opc1 = 0, .opc2 = 1,
-      .access = PL1_RW, .fieldoffset = offsetof(CPUARMState, cp15.c1_sedbg),
+      .access = PL3_RW, .fieldoffset = offsetof(CPUARMState, cp15.c1_sedbg),
       .resetvalue = 0 },
     { .name = "NSACR", .cp = 15, .crn = 1, .crm = 1, .opc1 = 0, .opc2 = 2,
-      .access = PL1_RW, .fieldoffset = offsetof(CPUARMState, cp15.c1_nseac),
+      .access = PL3_RW, .fieldoffset = offsetof(CPUARMState, cp15.c1_nseac),
       .resetvalue = 0 },
     { .name = "VBAR", .cp = 15, .crn = 12, .crm = 0, .opc1 = 0, .opc2 = 0,
       .access = PL1_RW, .fieldoffset = offsetof(CPUARMState, cp15.c12_vbar),
       .writefn = vbar_write, .resetvalue = 0 },
     { .name = "MVBAR", .cp = 15, .crn = 12, .crm = 0, .opc1 = 0, .opc2 = 1,
-      .access = PL1_RW, .fieldoffset = offsetof(CPUARMState, cp15.c12_mvbar),
+      .access = PL3_RW, .fieldoffset = offsetof(CPUARMState, cp15.c12_mvbar),
       .writefn = vbar_write, .resetvalue = 0 },
     REGINFO_SENTINEL
 };
