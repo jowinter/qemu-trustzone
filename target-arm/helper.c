@@ -73,12 +73,13 @@ static int dacr_write(CPUARMState *env, const ARMCPRegInfo *ri, uint64_t value)
 
 static int fcse_write(CPUARMState *env, const ARMCPRegInfo *ri, uint64_t value)
 {
-    if (env->cp15.c13_fcse != value) {
+    int bank = arm_current_secure(env);
+    if (CP15_BANK32(env, c13_fcse, bank) != value) {
         /* Unlike real hardware the qemu TLB uses virtual addresses,
          * not modified virtual addresses, so this causes a TLB flush.
          */
         tlb_flush(env, 1);
-        env->cp15.c13_fcse = value;
+        CP15_BANK32(env, c13_fcse, bank) = value;
     }
     return 0;
 }
@@ -143,7 +144,7 @@ static const ARMCPRegInfo cp_reginfo[] = {
       .resetvalue = 0, .writefn = dacr_write },
     { .name = "FCSEIDR", .cp = 15, .crn = 13, .crm = 0, .opc1 = 0, .opc2 = 0,
       .access = PL1_RW, .fieldoffset = offsetof(CPUARMState, cp15.c13_fcse),
-      .resetvalue = 0, .writefn = fcse_write },
+      .resetvalue = 0, .writefn = fcse_write, .type = ARM_CP_BANKED },
     { .name = "CONTEXTIDR", .cp = 15, .crn = 13, .crm = 0, .opc1 = 0, .opc2 = 1,
       .access = PL1_RW, .fieldoffset = offsetof(CPUARMState, cp15.c13_context),
       .resetvalue = 0, .writefn = contextidr_write, .type = ARM_CP_BANKED },
@@ -2581,9 +2582,12 @@ static inline int get_phys_addr(CPUARMState *env, uint32_t address,
                                 hwaddr *phys_ptr, int *prot,
                                 target_ulong *page_size)
 {
+    /* TrustZone: More work needed for MMU (N/S tables, ATS translation in other world) */
+    int is_secure = arm_current_secure(env);
+
     /* Fast Context Switch Extension.  */
     if (address < 0x02000000)
-        address += env->cp15.c13_fcse;
+        address += CP15_BANK32(env, c13_fcse, is_secure);
 
     if ((env->cp15.c1_sys & 1) == 0) {
         /* MMU/MPU disabled.  */

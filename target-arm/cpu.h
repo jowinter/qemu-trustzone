@@ -155,7 +155,7 @@ typedef struct CPUARMState {
         uint32_t c9_pminten; /* perf monitor interrupt enables */
         arm_banked32_t c12_vbar; /* secure/nonsecure vector base address register. */
         uint32_t c12_mvbar; /* monitor vector base address register. */
-        uint32_t c13_fcse; /* FCSE PID.  */
+        arm_banked32_t c13_fcse; /* FCSE PID.  */
         arm_banked32_t c13_context; /* Context ID.  */
         arm_banked32_t c13_tls1; /* User RW Thread register.  */
         arm_banked32_t c13_tls2; /* User RO Thread register.  */
