@@ -7,7 +7,7 @@
 
 #ifndef CONFIG_USER_ONLY
 static inline int get_phys_addr(CPUARMState *env, uint32_t address,
-                                int access_type, int is_user,
+                                int access_type, int is_user, int is_secure,
                                 hwaddr *phys_ptr, int *prot,
                                 target_ulong *page_size);
 #endif
@@ -66,7 +66,7 @@ static int vfp_gdb_set_reg(CPUARMState *env, uint8_t *buf, int reg)
 
 static int dacr_write(CPUARMState *env, const ARMCPRegInfo *ri, uint64_t value)
 {
-    env->cp15.c3 = value;
+    CPREG_FIELD32(env, ri) = value; /* cp15.c3 */
     tlb_flush(env, 1); /* Flush TLB as domain not tracked in TLB */
     return 0;
 }
@@ -492,11 +492,11 @@ static const ARMCPRegInfo generic_timer_cp_reginfo[] = {
 static int par_write(CPUARMState *env, const ARMCPRegInfo *ri, uint64_t value)
 {
     if (arm_feature(env, ARM_FEATURE_LPAE)) {
-        env->cp15.c7_par = value;
+        CPREG_FIELD32(env, ri) = value; /* cp15.c7_par */
     } else if (arm_feature(env, ARM_FEATURE_V7)) {
-        env->cp15.c7_par = value & 0xfffff6ff;
+        CPREG_FIELD32(env, ri) = value & 0xfffff6ff; /* cp15.c7_par */
     } else {
-        env->cp15.c7_par = value & 0xfffff1ff;
+        CPREG_FIELD32(env, ri) = value & 0xfffff1ff; /* cp15.c7_par */
     }
     return 0;
 }
@@ -508,10 +508,10 @@ static int par_write(CPUARMState *env, const ARMCPRegInfo *ri, uint64_t value)
  * LPAE implementation and we are using the long-descriptor translation
  * table format because the TTBCR EAE bit is set.
  */
-static inline bool extended_addresses_enabled(CPUARMState *env)
+static inline bool extended_addresses_enabled(CPUARMState *env, int is_secure)
 {
     return arm_feature(env, ARM_FEATURE_LPAE)
-        && (env->cp15.c2_control & (1 << 31));
+        && (CP15_BANK32(env, c2_control, is_secure) & (1 << 31));
 }
 
 static int ats_write(CPUARMState *env, const ARMCPRegInfo *ri, uint64_t value)
@@ -521,14 +521,20 @@ static int ats_write(CPUARMState *env, const ARMCPRegInfo *ri, uint64_t value)
     int prot;
     int ret, is_user = ri->opc2 & 2;
     int access_type = ri->opc2 & 1;
-
+    int core_is_secure = arm_current_secure(env);
+    int ats_is_secure = core_is_secure;
     if (ri->opc2 & 4) {
-        /* Other states are only available with TrustZone */
-        return EXCP_UDEF;
+        if (!core_is_secure || !arm_feature(env, ARM_FEATURE_TRUSTZONE)) {
+            /* Other states are only available with TrustZone */
+            return EXCP_UDEF;
+        }
+
+        /* VA-to-PA in other world */
+        ats_is_secure = 0;
     }
-    ret = get_phys_addr(env, value, access_type, is_user,
+    ret = get_phys_addr(env, value, access_type, is_user, ats_is_secure,
                         &phys_addr, &prot, &page_size);
-    if (extended_addresses_enabled(env)) {
+    if (extended_addresses_enabled(env, ats_is_secure)) {
         /* ret is a DFSR/IFSR value for the long descriptor
          * translation table format, but with WnR always clear.
          * Convert it to a 64-bit PAR.
@@ -545,8 +551,8 @@ static int ats_write(CPUARMState *env, const ARMCPRegInfo *ri, uint64_t value)
              * fault.
              */
         }
-        env->cp15.c7_par = par64;
-        env->cp15.c7_par_hi = par64 >> 32;
+        CP15_BANK32(env, c7_par, core_is_secure) = par64;
+        CP15_BANK32(env, c7_par_hi, core_is_secure) = par64 >> 32;
     } else {
         /* ret is a DFSR/IFSR value for the short descriptor
          * translation table format (with WnR always clear).
@@ -556,16 +562,19 @@ static int ats_write(CPUARMState *env, const ARMCPRegInfo *ri, uint64_t value)
             /* We do not set any attribute bits in the PAR */
             if (page_size == (1 << 24)
                 && arm_feature(env, ARM_FEATURE_V7)) {
-                env->cp15.c7_par = (phys_addr & 0xff000000) | 1 << 1;
+                CP15_BANK32(env, c7_par, core_is_secure) =
+                    (phys_addr & 0xff000000) | 1 << 1;
             } else {
-                env->cp15.c7_par = phys_addr & 0xfffff000;
+                CP15_BANK32(env, c7_par, core_is_secure) =
+                    phys_addr & 0xfffff000;
             }
         } else {
-            env->cp15.c7_par = ((ret & (10 << 1)) >> 5) |
+            CP15_BANK32(env, c7_par, core_is_secure) =
+                ((ret & (10 << 1)) >> 5) |
                 ((ret & (12 << 1)) >> 6) |
                 ((ret & 0xf) << 1) | 1;
         }
-        env->cp15.c7_par_hi = 0;
+        CP15_BANK32(env, c7_par_hi, core_is_secure) = 0;
     }
     return 0;
 }
@@ -616,28 +625,32 @@ static uint32_t extended_mpu_ap_bits(uint32_t val)
 static int pmsav5_data_ap_write(CPUARMState *env, const ARMCPRegInfo *ri,
                                 uint64_t value)
 {
-    env->cp15.c5_data = extended_mpu_ap_bits(value);
+    /* PMSAv5: cp15.c5_data.secure holds access permissions */
+    env->cp15.c5_data.secure = extended_mpu_ap_bits(value);
     return 0;
 }
 
 static int pmsav5_data_ap_read(CPUARMState *env, const ARMCPRegInfo *ri,
                                uint64_t *value)
 {
-    *value = simple_mpu_ap_bits(env->cp15.c5_data);
+    /* PMSAv5: cp15.c5_data.secure holds access permissions */
+    *value = simple_mpu_ap_bits(env->cp15.c5_data.secure);
     return 0;
 }
 
 static int pmsav5_insn_ap_write(CPUARMState *env, const ARMCPRegInfo *ri,
                                 uint64_t value)
 {
-    env->cp15.c5_insn = extended_mpu_ap_bits(value);
+    /* PMSAv5: cp15.c5_insn.secure holds access permissions */
+    env->cp15.c5_insn.secure = extended_mpu_ap_bits(value);
     return 0;
 }
 
 static int pmsav5_insn_ap_read(CPUARMState *env, const ARMCPRegInfo *ri,
                                uint64_t *value)
 {
-    *value = simple_mpu_ap_bits(env->cp15.c5_insn);
+    /* PMSAv5: cp15.c5_insn.secure holds access permissions */
+    *value = simple_mpu_ap_bits(env->cp15.c5_insn.secure);
     return 0;
 }
 
@@ -661,21 +674,26 @@ static int arm946_prbs_write(CPUARMState *env, const ARMCPRegInfo *ri,
     return 0;
 }
 
+/*
+ * PMSAv5 emulation uses the "secure" half of the cp15.c5_insn and cp15.c5_data fields
+ * to hold the access permission control bits. (The "normal" half is unused on these
+ * systems)
+ */
 static const ARMCPRegInfo pmsav5_cp_reginfo[] = {
     { .name = "DATA_AP", .cp = 15, .crn = 5, .crm = 0, .opc1 = 0, .opc2 = 0,
       .access = PL1_RW,
-      .fieldoffset = offsetof(CPUARMState, cp15.c5_data), .resetvalue = 0,
+      .fieldoffset = offsetof(CPUARMState, cp15.c5_data.secure), .resetvalue = 0,
       .readfn = pmsav5_data_ap_read, .writefn = pmsav5_data_ap_write, },
     { .name = "INSN_AP", .cp = 15, .crn = 5, .crm = 0, .opc1 = 0, .opc2 = 1,
       .access = PL1_RW,
-      .fieldoffset = offsetof(CPUARMState, cp15.c5_insn), .resetvalue = 0,
+      .fieldoffset = offsetof(CPUARMState, cp15.c5_insn.secure), .resetvalue = 0,
       .readfn = pmsav5_insn_ap_read, .writefn = pmsav5_insn_ap_write, },
     { .name = "DATA_EXT_AP", .cp = 15, .crn = 5, .crm = 0, .opc1 = 0, .opc2 = 2,
       .access = PL1_RW,
-      .fieldoffset = offsetof(CPUARMState, cp15.c5_data), .resetvalue = 0, },
+      .fieldoffset = offsetof(CPUARMState, cp15.c5_data.secure), .resetvalue = 0, },
     { .name = "INSN_EXT_AP", .cp = 15, .crn = 5, .crm = 0, .opc1 = 0, .opc2 = 3,
       .access = PL1_RW,
-      .fieldoffset = offsetof(CPUARMState, cp15.c5_insn), .resetvalue = 0, },
+      .fieldoffset = offsetof(CPUARMState, cp15.c5_insn.secure), .resetvalue = 0, },
     { .name = "DCACHE_CFG", .cp = 15, .crn = 2, .crm = 0, .opc1 = 0, .opc2 = 0,
       .access = PL1_RW,
       .fieldoffset = offsetof(CPUARMState, cp15.c2_data), .resetvalue = 0, },
@@ -706,39 +724,41 @@ static int vmsa_ttbcr_write(CPUARMState *env, const ARMCPRegInfo *ri,
      * for long-descriptor tables the TTBCR fields are used differently
      * and the c2_mask and c2_base_mask values are meaningless.
      */
-    env->cp15.c2_control = value;
-    env->cp15.c2_mask = ~(((uint32_t)0xffffffffu) >> value);
-    env->cp15.c2_base_mask = ~((uint32_t)0x3fffu >> value);
+    int is_secure = CPREG_IS_SECURE(ri);
+    CP15_BANK32(env, c2_control, is_secure) = value;
+    CP15_BANK32(env, c2_mask, is_secure) = ~(((uint32_t)0xffffffffu) >> value);
+    CP15_BANK32(env, c2_base_mask, is_secure) = ~((uint32_t)0x3fffu >> value);
     return 0;
 }
 
 static void vmsa_ttbcr_reset(CPUARMState *env, const ARMCPRegInfo *ri)
 {
-    env->cp15.c2_base_mask = 0xffffc000u;
-    env->cp15.c2_control = 0;
-    env->cp15.c2_mask = 0;
+    int is_secure = CPREG_IS_SECURE(ri);
+    CP15_BANK32(env, c2_base_mask, is_secure) = 0xffffc000u;
+    CP15_BANK32(env, c2_control, is_secure) = 0;
+    CP15_BANK32(env, c2_mask, is_secure) = 0;
 }
 
 static const ARMCPRegInfo vmsa_cp_reginfo[] = {
     { .name = "DFSR", .cp = 15, .crn = 5, .crm = 0, .opc1 = 0, .opc2 = 0,
-      .access = PL1_RW,
+      .access = PL1_RW, .type = ARM_CP_BANKED,
       .fieldoffset = offsetof(CPUARMState, cp15.c5_data), .resetvalue = 0, },
     { .name = "IFSR", .cp = 15, .crn = 5, .crm = 0, .opc1 = 0, .opc2 = 1,
-      .access = PL1_RW,
+      .access = PL1_RW, .type = ARM_CP_BANKED,
       .fieldoffset = offsetof(CPUARMState, cp15.c5_insn), .resetvalue = 0, },
     { .name = "TTBR0", .cp = 15, .crn = 2, .crm = 0, .opc1 = 0, .opc2 = 0,
-      .access = PL1_RW,
+      .access = PL1_RW, .type = ARM_CP_BANKED,
       .fieldoffset = offsetof(CPUARMState, cp15.c2_base0), .resetvalue = 0, },
     { .name = "TTBR1", .cp = 15, .crn = 2, .crm = 0, .opc1 = 0, .opc2 = 1,
-      .access = PL1_RW,
+      .access = PL1_RW, .type = ARM_CP_BANKED,
       .fieldoffset = offsetof(CPUARMState, cp15.c2_base1), .resetvalue = 0, },
     { .name = "TTBCR", .cp = 15, .crn = 2, .crm = 0, .opc1 = 0, .opc2 = 2,
       .access = PL1_RW, .writefn = vmsa_ttbcr_write,
-      .resetfn = vmsa_ttbcr_reset,
+      .resetfn = vmsa_ttbcr_reset, .type = ARM_CP_BANKED,
       .fieldoffset = offsetof(CPUARMState, cp15.c2_control) },
     { .name = "DFAR", .cp = 15, .crn = 6, .crm = 0, .opc1 = 0, .opc2 = 0,
       .access = PL1_RW, .fieldoffset = offsetof(CPUARMState, cp15.c6_data),
-      .resetvalue = 0, },
+      .resetvalue = 0, .type = ARM_CP_BANKED, },
     REGINFO_SENTINEL
 };
 
@@ -926,35 +946,42 @@ static const ARMCPRegInfo mpidr_cp_reginfo[] = {
 
 static int par64_read(CPUARMState *env, const ARMCPRegInfo *ri, uint64_t *value)
 {
-    *value = ((uint64_t)env->cp15.c7_par_hi << 32) | env->cp15.c7_par;
+    int bank = CPREG_IS_SECURE(ri);
+    *value = ((uint64_t) CP15_BANK32(env, c7_par_hi, bank) << 32) |
+        CP15_BANK32(env, c7_par, bank);
     return 0;
 }
 
 static int par64_write(CPUARMState *env, const ARMCPRegInfo *ri, uint64_t value)
 {
-    env->cp15.c7_par_hi = value >> 32;
-    env->cp15.c7_par = value;
+    int bank = CPREG_IS_SECURE(ri);
+    CP15_BANK32(env, c7_par_hi, bank) = value >> 32;
+    CP15_BANK32(env, c7_par, bank) = value;
     return 0;
 }
 
 static void par64_reset(CPUARMState *env, const ARMCPRegInfo *ri)
 {
-    env->cp15.c7_par_hi = 0;
-    env->cp15.c7_par = 0;
+    int bank = CPREG_IS_SECURE(ri);
+    CP15_BANK32(env, c7_par_hi, bank) = 0;
+    CP15_BANK32(env, c7_par, bank) = 0;
 }
 
 static int ttbr064_read(CPUARMState *env, const ARMCPRegInfo *ri,
                         uint64_t *value)
 {
-    *value = ((uint64_t)env->cp15.c2_base0_hi << 32) | env->cp15.c2_base0;
+    int bank = CPREG_IS_SECURE(ri);
+    *value = ((uint64_t)CP15_BANK32(env, c2_base0_hi, bank) << 32) |
+        CP15_BANK32(env, c2_base0, bank);
     return 0;
 }
 
 static int ttbr064_write(CPUARMState *env, const ARMCPRegInfo *ri,
                          uint64_t value)
 {
-    env->cp15.c2_base0_hi = value >> 32;
-    env->cp15.c2_base0 = value;
+    int bank = CPREG_IS_SECURE(ri);
+    CP15_BANK32(env, c2_base0_hi, bank) = value >> 32;
+    CP15_BANK32(env, c2_base0, bank) = value;
     /* Writes to the 64 bit format TTBRs may change the ASID */
     tlb_flush(env, 1);
     return 0;
@@ -962,29 +989,34 @@ static int ttbr064_write(CPUARMState *env, const ARMCPRegInfo *ri,
 
 static void ttbr064_reset(CPUARMState *env, const ARMCPRegInfo *ri)
 {
-    env->cp15.c2_base0_hi = 0;
-    env->cp15.c2_base0 = 0;
+    int bank = CPREG_IS_SECURE(ri);
+    CP15_BANK32(env, c2_base0_hi, bank) = 0;
+    CP15_BANK32(env, c2_base0, bank) = 0;
 }
 
 static int ttbr164_read(CPUARMState *env, const ARMCPRegInfo *ri,
                         uint64_t *value)
 {
-    *value = ((uint64_t)env->cp15.c2_base1_hi << 32) | env->cp15.c2_base1;
+    int bank = CPREG_IS_SECURE(ri);
+    *value = ((uint64_t)CP15_BANK32(env, c2_base1_hi, bank) << 32) |
+        CP15_BANK32(env, c2_base1, bank);
     return 0;
 }
 
 static int ttbr164_write(CPUARMState *env, const ARMCPRegInfo *ri,
                          uint64_t value)
 {
-    env->cp15.c2_base1_hi = value >> 32;
-    env->cp15.c2_base1 = value;
+    int bank = CPREG_IS_SECURE(ri);
+    CP15_BANK32(env, c2_base1_hi, bank) = value >> 32;
+    CP15_BANK32(env, c2_base1, bank) = value;
     return 0;
 }
 
 static void ttbr164_reset(CPUARMState *env, const ARMCPRegInfo *ri)
 {
-    env->cp15.c2_base1_hi = 0;
-    env->cp15.c2_base1 = 0;
+    int bank = CPREG_IS_SECURE(ri);
+    CP15_BANK32(env, c2_base1_hi, bank) = 0;
+    CP15_BANK32(env, c2_base1, bank) = 0;
 }
 
 static const ARMCPRegInfo lpae_cp_reginfo[] = {
@@ -1654,10 +1686,10 @@ int cpu_arm_handle_mmu_fault (CPUARMState *env, target_ulong address, int rw,
 {
     if (rw == 2) {
         env->exception_index = EXCP_PREFETCH_ABORT;
-        env->cp15.c6_insn = address;
+        CP15_BANK32(env, c6_insn, arm_current_secure(env)) = address;
     } else {
         env->exception_index = EXCP_DATA_ABORT;
-        env->cp15.c6_data = address;
+        CP15_BANK32(env, c6_data, arm_current_secure(env)) = address;
     }
     return 1;
 }
@@ -1943,7 +1975,7 @@ void arm_cpu_do_interrupt(CPUState *cs)
                 return;
             }
         }
-        env->cp15.c5_insn = 2;
+        CP15_BANK32(env, c5_insn, arm_current_secure(env)) = 2;
         /* Fall through to prefetch abort.  */
     case EXCP_PREFETCH_ABORT:
         new_mode = ARM_CPU_MODE_ABT;
@@ -2098,21 +2130,21 @@ static inline int check_ap(CPUARMState *env, int ap, int domain_prot,
   }
 }
 
-static uint32_t get_level1_table_address(CPUARMState *env, uint32_t address)
+static uint32_t get_level1_table_address(CPUARMState *env, uint32_t address, int is_secure)
 {
     uint32_t table;
 
-    if (address & env->cp15.c2_mask)
-        table = env->cp15.c2_base1 & 0xffffc000;
+    if (address & CP15_BANK32(env, c2_mask, is_secure))
+        table = CP15_BANK32(env, c2_base1, is_secure) & 0xffffc000;
     else
-        table = env->cp15.c2_base0 & env->cp15.c2_base_mask;
+        table = CP15_BANK32(env, c2_base0, is_secure) & CP15_BANK32(env, c2_base_mask, is_secure);
 
     table |= (address >> 18) & 0x3ffc;
     return table;
 }
 
 static int get_phys_addr_v5(CPUARMState *env, uint32_t address, int access_type,
-                            int is_user, hwaddr *phys_ptr,
+                            int is_user, int is_secure, hwaddr *phys_ptr,
                             int *prot, target_ulong *page_size)
 {
     int code;
@@ -2126,11 +2158,11 @@ static int get_phys_addr_v5(CPUARMState *env, uint32_t address, int access_type,
 
     /* Pagetable walk.  */
     /* Lookup l1 descriptor.  */
-    table = get_level1_table_address(env, address);
+    table = get_level1_table_address(env, address, is_secure);
     desc = ldl_phys(table);
     type = (desc & 3);
     domain = (desc >> 5) & 0x0f;
-    domain_prot = (env->cp15.c3 >> (domain * 2)) & 3;
+    domain_prot = (CP15_BANK32(env, c3, is_secure) >> (domain * 2)) & 3;
     if (type == 0) {
         /* Section translation fault.  */
         code = 5;
@@ -2207,7 +2239,7 @@ do_fault:
 }
 
 static int get_phys_addr_v6(CPUARMState *env, uint32_t address, int access_type,
-                            int is_user, hwaddr *phys_ptr,
+                            int is_user, int is_secure, hwaddr *phys_ptr,
                             int *prot, target_ulong *page_size)
 {
     int code;
@@ -2220,11 +2252,10 @@ static int get_phys_addr_v6(CPUARMState *env, uint32_t address, int access_type,
     int domain = 0;
     int domain_prot;
     hwaddr phys_addr;
-    int core_is_secure = arm_current_secure(env);
 
     /* Pagetable walk.  */
     /* Lookup l1 descriptor.  */
-    table = get_level1_table_address(env, address);
+    table = get_level1_table_address(env, address, is_secure);
     desc = ldl_phys(table);
     type = (desc & 3);
     if (type == 0 || (type == 3 && !arm_feature(env, ARM_FEATURE_PXN))) {
@@ -2238,7 +2269,7 @@ static int get_phys_addr_v6(CPUARMState *env, uint32_t address, int access_type,
         /* Page or Section.  */
         domain = (desc >> 5) & 0x0f;
     }
-    domain_prot = (env->cp15.c3 >> (domain * 2)) & 3;
+    domain_prot = (CP15_BANK32(env, c3, is_secure) >> (domain * 2)) & 3;
     if (domain_prot == 0 || domain_prot == 2) {
         if (type != 1) {
             code = 9; /* Section domain fault.  */
@@ -2299,7 +2330,7 @@ static int get_phys_addr_v6(CPUARMState *env, uint32_t address, int access_type,
             goto do_fault;
 
         /* The simplified model uses AP[0] as an access control bit.  */
-        if ((CP15_BANK32(env, c1_sys, core_is_secure) & (1 << 29)) && (ap & 1) == 0) {
+        if ((CP15_BANK32(env, c1_sys, is_secure) & (1 << 29)) && (ap & 1) == 0) {
             /* Access flag fault.  */
             code = (code == 15) ? 6 : 3;
             goto do_fault;
@@ -2329,7 +2360,7 @@ typedef enum {
 } MMUFaultType;
 
 static int get_phys_addr_lpae(CPUARMState *env, uint32_t address,
-                              int access_type, int is_user,
+                              int access_type, int is_user, int is_secure,
                               hwaddr *phys_ptr, int *prot,
                               target_ulong *page_size_ptr)
 {
@@ -2351,8 +2382,8 @@ static int get_phys_addr_lpae(CPUARMState *env, uint32_t address,
      * This is a Non-secure PL0/1 stage 1 translation, so controlled by
      * TTBCR/TTBR0/TTBR1 in accordance with ARM ARM DDI0406C table B-32:
      */
-    uint32_t t0sz = extract32(env->cp15.c2_control, 0, 3);
-    uint32_t t1sz = extract32(env->cp15.c2_control, 16, 3);
+    uint32_t t0sz = extract32(CP15_BANK32(env, c2_control, is_secure), 0, 3);
+    uint32_t t1sz = extract32(CP15_BANK32(env, c2_control, is_secure), 16, 3);
     if (t0sz && !extract32(address, 32 - t0sz, t0sz)) {
         /* there is a ttbr0 region and we are in it (high bits all zero) */
         ttbr_select = 0;
@@ -2379,12 +2410,14 @@ static int get_phys_addr_lpae(CPUARMState *env, uint32_t address,
      * we will always flush the TLB any time the ASID is changed).
      */
     if (ttbr_select == 0) {
-        ttbr = ((uint64_t)env->cp15.c2_base0_hi << 32) | env->cp15.c2_base0;
-        epd = extract32(env->cp15.c2_control, 7, 1);
+        ttbr = ((uint64_t)CP15_BANK32(env, c2_base0_hi, is_secure) << 32) |
+            CP15_BANK32(env, c2_base0, is_secure);
+        epd = extract32(CP15_BANK32(env, c2_control, is_secure), 7, 1);
         tsz = t0sz;
     } else {
-        ttbr = ((uint64_t)env->cp15.c2_base1_hi << 32) | env->cp15.c2_base1;
-        epd = extract32(env->cp15.c2_control, 23, 1);
+        ttbr = ((uint64_t)CP15_BANK32(env, c2_base1_hi, is_secure) << 32) |
+            CP15_BANK32(env, c2_base1, is_secure);
+        epd = extract32(CP15_BANK32(env, c2_control, is_secure), 23, 1);
         tsz = t1sz;
     }
 
@@ -2521,9 +2554,9 @@ static int get_phys_addr_mpu(CPUARMState *env, uint32_t address,
 	return 2;
 
     if (access_type == 2) {
-	mask = env->cp15.c5_insn;
+	mask = env->cp15.c5_insn.secure;
     } else {
-	mask = env->cp15.c5_data;
+	mask = env->cp15.c5_data.secure;
     }
     mask = (mask >> (n * 4)) & 0xf;
     switch (mask) {
@@ -2577,18 +2610,16 @@ static int get_phys_addr_mpu(CPUARMState *env, uint32_t address,
  * @address: virtual address to get physical address for
  * @access_type: 0 for read, 1 for write, 2 for execute
  * @is_user: 0 for privileged access, 1 for user
+ * @is_other: 0 for translation in normal world, 1 for secure world
  * @phys_ptr: set to the physical address corresponding to the virtual address
  * @prot: set to the permissions for the page containing phys_ptr
  * @page_size: set to the size of the page containing phys_ptr
  */
 static inline int get_phys_addr(CPUARMState *env, uint32_t address,
-                                int access_type, int is_user,
+                                int access_type, int is_user, int is_secure,
                                 hwaddr *phys_ptr, int *prot,
                                 target_ulong *page_size)
 {
-    /* TrustZone: More work needed for MMU (N/S tables, ATS translation in other world) */
-    int is_secure = arm_current_secure(env);
-
     /* Fast Context Switch Extension.  */
     if (address < 0x02000000)
         address += CP15_BANK32(env, c13_fcse, is_secure);
@@ -2601,17 +2632,16 @@ static inline int get_phys_addr(CPUARMState *env, uint32_t address,
         return 0;
     } else if (arm_feature(env, ARM_FEATURE_MPU)) {
         *page_size = TARGET_PAGE_SIZE;
-	return get_phys_addr_mpu(env, address, access_type, is_user, phys_ptr,
-				 prot);
-    } else if (extended_addresses_enabled(env)) {
-        return get_phys_addr_lpae(env, address, access_type, is_user, phys_ptr,
-                                  prot, page_size);
+        return get_phys_addr_mpu(env, address, access_type, is_user, phys_ptr, prot);
+    } else if (extended_addresses_enabled(env, is_secure)) {
+        return get_phys_addr_lpae(env, address, access_type, is_user, is_secure,
+                                  phys_ptr, prot, page_size);
     } else if (CP15_BANK32(env, c1_sys, is_secure) & (1 << 23)) {
-        return get_phys_addr_v6(env, address, access_type, is_user, phys_ptr,
-                                prot, page_size);
+        return get_phys_addr_v6(env, address, access_type, is_user, is_secure,
+                                phys_ptr, prot, page_size);
     } else {
-        return get_phys_addr_v5(env, address, access_type, is_user, phys_ptr,
-                                prot, page_size);
+        return get_phys_addr_v5(env, address, access_type, is_user, is_secure,
+                                phys_ptr, prot, page_size);
     }
 }
 
@@ -2622,9 +2652,11 @@ int cpu_arm_handle_mmu_fault (CPUARMState *env, target_ulong address,
     target_ulong page_size;
     int prot;
     int ret, is_user;
+    int is_secure = (mmu_idx == MMU_USER_IDX) || (mmu_idx == MMU_KERNEL_IDX);
+    assert (is_secure == arm_current_secure(env));
 
-    is_user = mmu_idx == MMU_USER_IDX;
-    ret = get_phys_addr(env, address, access_type, is_user, &phys_addr, &prot,
+    is_user = (mmu_idx == MMU_USER_IDX) || (mmu_idx == MMU_N_USER_IDX);
+    ret = get_phys_addr(env, address, access_type, is_user, is_secure, &phys_addr, &prot,
                         &page_size);
     if (ret == 0) {
         /* Map a single [sub]page.  */
@@ -2635,14 +2667,14 @@ int cpu_arm_handle_mmu_fault (CPUARMState *env, target_ulong address,
     }
 
     if (access_type == 2) {
-        env->cp15.c5_insn = ret;
-        env->cp15.c6_insn = address;
+        CP15_BANK32(env, c5_insn, is_secure) = ret;
+        CP15_BANK32(env, c6_insn, is_secure) = address;
         env->exception_index = EXCP_PREFETCH_ABORT;
     } else {
-        env->cp15.c5_data = ret;
+        CP15_BANK32(env, c5_data, is_secure) = ret;
         if (access_type == 1 && arm_feature(env, ARM_FEATURE_V6))
-            env->cp15.c5_data |= (1 << 11);
-        env->cp15.c6_data = address;
+            CP15_BANK32(env, c5_data, is_secure) |= (1 << 11);
+        CP15_BANK32(env, c6_data, is_secure) = address;
         env->exception_index = EXCP_DATA_ABORT;
     }
     return 1;
@@ -2654,8 +2686,9 @@ hwaddr cpu_get_phys_page_debug(CPUARMState *env, target_ulong addr)
     target_ulong page_size;
     int prot;
     int ret;
+    int is_secure = arm_current_secure(env);
 
-    ret = get_phys_addr(env, addr, 0, 0, &phys_addr, &prot, &page_size);
+    ret = get_phys_addr(env, addr, 0, 0, is_secure, &phys_addr, &prot, &page_size);
 
     if (ret != 0)
         return -1;
