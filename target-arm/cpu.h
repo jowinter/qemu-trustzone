@@ -79,7 +79,7 @@ typedef uint32_t ARMReadCPFunc(void *opaque, int cp_info,
 
 struct arm_boot_info;
 
-#define NB_MMU_MODES 2
+#define NB_MMU_MODES 4
 
 /* We currently assume float and double are IEEE single and double
    precision respectively.
@@ -127,24 +127,24 @@ typedef struct CPUARMState {
         uint32_t c1_scr; /* secure config register.  */
         uint32_t c1_sedbg; /* Secure debug enable register. */
         uint32_t c1_nseac; /* Non-secure access control register. */
-        uint32_t c2_base0; /* MMU translation table base 0.  */
-        uint32_t c2_base0_hi; /* MMU translation table base 0, high 32 bits */
-        uint32_t c2_base1; /* MMU translation table base 0.  */
-        uint32_t c2_base1_hi; /* MMU translation table base 1, high 32 bits */
-        uint32_t c2_control; /* MMU translation table base control.  */
-        uint32_t c2_mask; /* MMU translation table base selection mask.  */
-        uint32_t c2_base_mask; /* MMU translation table base 0 mask. */
+        arm_banked32_t c2_base0; /* MMU translation table base 0.  */
+        arm_banked32_t c2_base0_hi; /* MMU translation table base 0, high 32 bits */
+        arm_banked32_t c2_base1; /* MMU translation table base 0.  */
+        arm_banked32_t c2_base1_hi; /* MMU translation table base 1, high 32 bits */
+        arm_banked32_t c2_control; /* MMU translation table base control.  */
+        arm_banked32_t c2_mask; /* MMU translation table base selection mask.  */
+        arm_banked32_t c2_base_mask; /* MMU translation table base 0 mask. */
         uint32_t c2_data; /* MPU data cachable bits.  */
         uint32_t c2_insn; /* MPU instruction cachable bits.  */
-        uint32_t c3; /* MMU domain access control register
+        arm_banked32_t c3; /* MMU domain access control register
                         MPU write buffer control.  */
-        uint32_t c5_insn; /* Fault status registers.  */
-        uint32_t c5_data;
+        arm_banked32_t c5_insn; /* Fault status registers. */
+        arm_banked32_t c5_data;
         uint32_t c6_region[8]; /* MPU base/size registers.  */
-        uint32_t c6_insn; /* Fault address registers.  */
-        uint32_t c6_data;
-        uint32_t c7_par;  /* Translation result. */
-        uint32_t c7_par_hi;  /* Translation result, high 32 bits */
+        arm_banked32_t c6_insn; /* Fault address registers.  */
+        arm_banked32_t c6_data;
+        arm_banked32_t c7_par;  /* Translation result. */
+        arm_banked32_t c7_par_hi;  /* Translation result, high 32 bits */
         uint32_t c9_insn; /* Cache lockdown registers.  */
         uint32_t c9_data;
         uint32_t c9_pmcr; /* performance monitor control register */
@@ -716,10 +716,26 @@ static inline CPUARMState *cpu_init(const char *cpu_model)
 /* MMU modes definitions */
 #define MMU_MODE0_SUFFIX _kernel
 #define MMU_MODE1_SUFFIX _user
-#define MMU_USER_IDX 1
+#define MMU_MODE2_SUFFIX _n_kernel
+#define MMU_MODE3_SUFFIX _n_user
+#define MMU_KERNEL_IDX 0    /* Secure privileged (PL3)  */
+#define MMU_USER_IDX   1    /* Secure user (PL0 secure) */
+#define MMU_N_KERNEL_IDX 2  /* Normal privileged (PL1)  */
+#define MMU_N_USER_IDX   3  /* Normal user (PL0 normal) */
+
 static inline int cpu_mmu_index (CPUARMState *env)
 {
-    return (env->uncached_cpsr & CPSR_M) == ARM_CPU_MODE_USR ? 1 : 0;
+    bool is_secure = arm_current_secure(env);
+    bool is_user = (env->uncached_cpsr & CPSR_M) == ARM_CPU_MODE_USR;
+    int index;
+
+    if (is_secure) {
+        index = is_user ? MMU_USER_IDX : MMU_KERNEL_IDX;
+    } else {
+        index = is_user ? MMU_N_USER_IDX : MMU_N_KERNEL_IDX;
+    }
+
+    return index;
 }
 
 #if defined(CONFIG_USER_ONLY)

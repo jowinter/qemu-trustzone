@@ -503,6 +503,7 @@ static void arm_kernel_cmpxchg64_helper(CPUARMState *env)
     uint64_t oldval, newval, val;
     uint32_t addr, cpsr;
     target_siginfo_t info;
+    int bank = arm_current_secure(env);
 
     /* Based on the 32 bit code in do_kernel_trap */
 
@@ -515,17 +516,17 @@ static void arm_kernel_cmpxchg64_helper(CPUARMState *env)
     addr = env->regs[2];
 
     if (get_user_u64(oldval, env->regs[0])) {
-        env->cp15.c6_data = env->regs[0];
+        CP15_BANK32(env, c6_data, bank) = env->regs[0];
         goto segv;
     };
 
     if (get_user_u64(newval, env->regs[1])) {
-        env->cp15.c6_data = env->regs[1];
+        CP15_BANK32(env, c6_data, bank) = env->regs[1];
         goto segv;
     };
 
     if (get_user_u64(val, addr)) {
-        env->cp15.c6_data = addr;
+        CP15_BANK32(env, c6_data, bank) = addr;
         goto segv;
     }
 
@@ -533,7 +534,7 @@ static void arm_kernel_cmpxchg64_helper(CPUARMState *env)
         val = newval;
 
         if (put_user_u64(val, addr)) {
-            env->cp15.c6_data = addr;
+            CP15_BANK32(env, c6_data, bank) = addr;
             goto segv;
         };
 
@@ -555,7 +556,7 @@ segv:
     info.si_errno = 0;
     /* XXX: check env->error_code */
     info.si_code = TARGET_SEGV_MAPERR;
-    info._sifields._sigfault._addr = env->cp15.c6_data;
+    info._sifields._sigfault._addr = CP15_BANK32(env, c6_data, bank);
     queue_signal(env, info.si_signo, &info);
 
     end_exclusive();
@@ -625,6 +626,7 @@ static int do_strex(CPUARMState *env)
     int rc = 1;
     int segv = 0;
     uint32_t addr;
+    int bank = arm_current_secure(env);
     start_exclusive();
     addr = env->exclusive_addr;
     if (addr != env->exclusive_test) {
@@ -646,7 +648,7 @@ static int do_strex(CPUARMState *env)
         abort();
     }
     if (segv) {
-        env->cp15.c6_data = addr;
+        CP15_BANK32(env, c6_data, bank) = addr;
         goto done;
     }
     if (val != env->exclusive_val) {
@@ -655,7 +657,7 @@ static int do_strex(CPUARMState *env)
     if (size == 3) {
         segv = get_user_u32(val, addr + 4);
         if (segv) {
-            env->cp15.c6_data = addr + 4;
+            CP15_BANK32(env, c6_data, bank) = addr + 4;
             goto done;
         }
         if (val != env->exclusive_high) {
@@ -676,14 +678,14 @@ static int do_strex(CPUARMState *env)
         break;
     }
     if (segv) {
-        env->cp15.c6_data = addr;
+        CP15_BANK32(env, c6_data, bank) = addr;
         goto done;
     }
     if (size == 3) {
         val = env->regs[(env->exclusive_info >> 12) & 0xf];
         segv = put_user_u32(val, addr + 4);
         if (segv) {
-            env->cp15.c6_data = addr + 4;
+            CP15_BANK32(env, c6_data, bank) = addr + 4;
             goto done;
         }
     }
@@ -859,10 +861,10 @@ void cpu_loop(CPUARMState *env)
             /* just indicate that signals should be handled asap */
             break;
         case EXCP_PREFETCH_ABORT:
-            addr = env->cp15.c6_insn;
+            addr = CP15_BANK32(env, c6_insn, arm_current_secure(env));
             goto do_segv;
         case EXCP_DATA_ABORT:
-            addr = env->cp15.c6_data;
+            addr = CP15_BANK32(env, c6_data, arm_current_secure(env));
         do_segv:
             {
                 info.si_signo = SIGSEGV;
@@ -893,7 +895,7 @@ void cpu_loop(CPUARMState *env)
             break;
         case EXCP_STREX:
             if (do_strex(env)) {
-                addr = env->cp15.c6_data;
+                addr = CP15_BANK32(env, c6_data, arm_current_secure(env));
                 goto do_segv;
             }
             break;
