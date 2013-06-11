@@ -647,7 +647,7 @@ struct ARMCPRegInfo {
  * describes the normal or secure world view.
  */
 #define CPREG_IS_SECURE(ri) \
-  (!((ri)->type & ARM_CP_NORMAL))
+  (!((ri)->type & ARM_CP_BANKED))
 
 #define CPREG_IS_NORMAL(ri) \
   (!CPREG_IS_SECURE(ri))
