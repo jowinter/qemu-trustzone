@@ -277,7 +277,7 @@ static int pxa2xx_pwrmode_write(CPUARMState *env, const ARMCPRegInfo *ri,
     case 3:
         s->cpu->env.uncached_cpsr =
             ARM_CPU_MODE_SVC | CPSR_A | CPSR_F | CPSR_I;
-        s->cpu->env.cp15.c1_sys = 0;
+        s->cpu->env.cp15.c1_sys.secure = 0;
         s->cpu->env.cp15.c1_coproc = 0;
         s->cpu->env.cp15.c2_base0 = 0;
         s->cpu->env.cp15.c3 = 0;
