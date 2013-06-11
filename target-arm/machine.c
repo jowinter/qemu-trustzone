@@ -136,6 +136,7 @@ static const VMStateDescription vmstate_normal_world = {
     .minimum_version_id = 1,
     .minimum_version_id_old = 1,
     .fields = (VMStateField[]) {
+        VMSTATE_UINT32(env.cp15.c12_vbar.normal, ARMCPU),
         VMSTATE_UINT32(env.cp15.c13_context.normal, ARMCPU),
         VMSTATE_UINT32(env.cp15.c13_tls1.normal, ARMCPU),
         VMSTATE_UINT32(env.cp15.c13_tls2.normal, ARMCPU),
@@ -173,7 +174,7 @@ static const VMStateInfo vmstate_cpsr = {
 
 const VMStateDescription vmstate_arm_cpu = {
     .name = "cpu",
-    .version_id = 12,
+    .version_id = 13,
     .minimum_version_id = 12,
     .minimum_version_id_old = 12,
     .fields = (VMStateField[]) {
@@ -225,6 +226,8 @@ const VMStateDescription vmstate_arm_cpu = {
         VMSTATE_UINT32(env.cp15.c9_pmxevtyper, ARMCPU),
         VMSTATE_UINT32(env.cp15.c9_pmuserenr, ARMCPU),
         VMSTATE_UINT32(env.cp15.c9_pminten, ARMCPU),
+        VMSTATE_UINT32_V(env.cp15.c12_vbar.secure, ARMCPU, 13),
+        VMSTATE_UINT32_V(env.cp15.c12_mvbar, ARMCPU, 13),
         VMSTATE_UINT32(env.cp15.c13_fcse, ARMCPU),
         VMSTATE_UINT32(env.cp15.c13_context.secure, ARMCPU),
         VMSTATE_UINT32(env.cp15.c13_tls1.secure, ARMCPU),
