@@ -85,14 +85,15 @@ static int fcse_write(CPUARMState *env, const ARMCPRegInfo *ri, uint64_t value)
 static int contextidr_write(CPUARMState *env, const ARMCPRegInfo *ri,
                             uint64_t value)
 {
-    if (env->cp15.c13_context != value && !arm_feature(env, ARM_FEATURE_MPU)) {
+    int bank = arm_current_secure(env);
+    if (CP15_BANK32(env, c13_context, bank) != value && !arm_feature(env, ARM_FEATURE_MPU)) {
         /* For VMSA (when not using the LPAE long descriptor page table
          * format) this register includes the ASID, so do a TLB flush.
          * For PMSA it is purely a process ID and no action is needed.
          */
         tlb_flush(env, 1);
     }
-    env->cp15.c13_context = value;
+    CP15_BANK32(env, c13_context, bank) = value;
     return 0;
 }
 
@@ -144,8 +145,8 @@ static const ARMCPRegInfo cp_reginfo[] = {
       .access = PL1_RW, .fieldoffset = offsetof(CPUARMState, cp15.c13_fcse),
       .resetvalue = 0, .writefn = fcse_write },
     { .name = "CONTEXTIDR", .cp = 15, .crn = 13, .crm = 0, .opc1 = 0, .opc2 = 1,
-      .access = PL1_RW, .fieldoffset = offsetof(CPUARMState, cp15.c13_fcse),
-      .resetvalue = 0, .writefn = contextidr_write },
+      .access = PL1_RW, .fieldoffset = offsetof(CPUARMState, cp15.c13_context),
+      .resetvalue = 0, .writefn = contextidr_write, .type = ARM_CP_BANKED },
     /* ??? This covers not just the impdef TLB lockdown registers but also
      * some v7VMSA registers relating to TEX remap, so it is overly broad.
      */
@@ -467,15 +468,15 @@ static const ARMCPRegInfo v6k_cp_reginfo[] = {
     { .name = "TPIDRURW", .cp = 15, .crn = 13, .crm = 0, .opc1 = 0, .opc2 = 2,
       .access = PL0_RW,
       .fieldoffset = offsetof(CPUARMState, cp15.c13_tls1),
-      .resetvalue = 0 },
+      .resetvalue = 0, .type = ARM_CP_BANKED },
     { .name = "TPIDRURO", .cp = 15, .crn = 13, .crm = 0, .opc1 = 0, .opc2 = 3,
       .access = PL0_R|PL1_W,
       .fieldoffset = offsetof(CPUARMState, cp15.c13_tls2),
-      .resetvalue = 0 },
+      .resetvalue = 0, .type = ARM_CP_BANKED },
     { .name = "TPIDRPRW", .cp = 15, .crn = 13, .crm = 0, .opc1 = 0, .opc2 = 4,
       .access = PL1_RW,
       .fieldoffset = offsetof(CPUARMState, cp15.c13_tls3),
-      .resetvalue = 0 },
+      .resetvalue = 0, .type = ARM_CP_BANKED },
     REGINFO_SENTINEL
 };
 
@@ -1656,6 +1657,11 @@ int cpu_arm_handle_mmu_fault (CPUARMState *env, target_ulong address, int rw,
         env->cp15.c6_data = address;
     }
     return 1;
+}
+
+void cpu_set_tls(CPUARMState *env, target_ulong newtls)
+{
+    CP15_BANK32(env, c13_tls2, arm_current_secure(env)) = newtls;
 }
 
 /* These should probably raise undefined insn exceptions.  */

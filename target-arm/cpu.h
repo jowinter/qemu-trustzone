@@ -156,10 +156,10 @@ typedef struct CPUARMState {
         arm_banked32_t c12_vbar; /* secure/nonsecure vector base address register. */
         uint32_t c12_mvbar; /* monitor vector base address register. */
         uint32_t c13_fcse; /* FCSE PID.  */
-        uint32_t c13_context; /* Context ID.  */
-        uint32_t c13_tls1; /* User RW Thread register.  */
-        uint32_t c13_tls2; /* User RO Thread register.  */
-        uint32_t c13_tls3; /* Privileged Thread register.  */
+        arm_banked32_t c13_context; /* Context ID.  */
+        arm_banked32_t c13_tls1; /* User RW Thread register.  */
+        arm_banked32_t c13_tls2; /* User RO Thread register.  */
+        arm_banked32_t c13_tls3; /* Privileged Thread register.  */
         uint32_t c15_cpar; /* XScale Coprocessor Access Register */
         uint32_t c15_ticonfig; /* TI925T configuration byte.  */
         uint32_t c15_i_max; /* Maximum D-cache dirty line index.  */
@@ -266,10 +266,7 @@ int cpu_arm_handle_mmu_fault (CPUARMState *env, target_ulong address, int rw,
                               int mmu_idx);
 #define cpu_handle_mmu_fault cpu_arm_handle_mmu_fault
 
-static inline void cpu_set_tls(CPUARMState *env, target_ulong newtls)
-{
-  env->cp15.c13_tls2 = newtls;
-}
+void cpu_set_tls(CPUARMState *env, target_ulong newtls);
 
 #define CPSR_M (0x1f)
 #define CPSR_T (1 << 5)
