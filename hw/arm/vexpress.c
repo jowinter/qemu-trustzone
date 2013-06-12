@@ -242,9 +242,23 @@ static void a9_daughterboard_init(const VEDBoardInfo *daughterboard,
     sysbus_create_simple("sp804", 0x100e4000, pic[48]);
     /* 0x100e5000 SP805 Watchdog module */
     /* 0x100e6000 BP147 TrustZone Protection Controller */
+    dev = qdev_create(NULL, "bp147");
+    qdev_prop_set_uint32(dev, "len-decprot", 3);
+    qdev_prop_set_uint32(dev, "decprot-mask", 0x0000ffff);
+    qdev_prop_set_uint32(dev, "decprot[0]", 0x000000000);
+    qdev_prop_set_uint32(dev, "decprot[1]", 0x000000000);
+    qdev_prop_set_uint32(dev, "decprot[2]", 0x000000000);
+    qdev_init_nofail(dev);
+    sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, 0x100e6000);
+
     /* 0x100e9000 PL301 'Fast' AXI matrix */
     /* 0x100ea000 PL301 'Slow' AXI matrix */
     /* 0x100ec000 TrustZone Address Space Controller */
+    dev = qdev_create(NULL, "tzc380");
+    qdev_prop_set_uint32(dev, "num-regions", 16);
+    qdev_init_nofail(dev);
+    sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, 0x100ec000);
+
     /* 0x10200000 CoreSight debug APB */
     /* 0x1e00a000 PL310 L2 Cache Controller */
     sysbus_create_varargs("l2x0", 0x1e00a000, NULL);
