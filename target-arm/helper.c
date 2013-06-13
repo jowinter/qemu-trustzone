@@ -202,8 +202,8 @@ static const ARMCPRegInfo not_v7_cp_reginfo[] = {
 
 static int cpacr_write(CPUARMState *env, const ARMCPRegInfo *ri, uint64_t value)
 {
-    if (env->cp15.c1_coproc != value) {
-        env->cp15.c1_coproc = value;
+    if (CPREG_FIELD32(env, ri) != value) {
+        CPREG_FIELD32(env, ri) = value;
         /* ??? Is this safe when called from within a TB?  */
         tb_flush(env);
     }
@@ -231,7 +231,7 @@ static const ARMCPRegInfo v6_cp_reginfo[] = {
       .access = PL1_RW, .type = ARM_CP_CONST, .resetvalue = 0, },
     { .name = "CPACR", .cp = 15, .crn = 1, .crm = 0, .opc1 = 0, .opc2 = 2,
       .access = PL1_RW, .fieldoffset = offsetof(CPUARMState, cp15.c1_coproc),
-      .resetvalue = 0, .writefn = cpacr_write },
+      .resetvalue = 0, .writefn = cpacr_write, .type = ARM_CP_BANKED },
     REGINFO_SENTINEL
 };
 

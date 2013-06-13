@@ -136,6 +136,7 @@ static const VMStateDescription vmstate_normal_world = {
     .minimum_version_id = 1,
     .minimum_version_id_old = 1,
     .fields = (VMStateField[]) {
+        VMSTATE_UINT32(env.cp15.c1_coproc.normal, ARMCPU),
         VMSTATE_UINT32(env.cp15.c2_base0.normal, ARMCPU),
         VMSTATE_UINT32(env.cp15.c2_base0_hi.normal, ARMCPU),
         VMSTATE_UINT32(env.cp15.c2_base1.normal, ARMCPU),
@@ -211,7 +212,7 @@ const VMStateDescription vmstate_arm_cpu = {
         VMSTATE_UINT32(env.cp15.c0_cpuid, ARMCPU),
         VMSTATE_UINT32(env.cp15.c0_cssel, ARMCPU),
         VMSTATE_UINT32(env.cp15.c1_sys.secure, ARMCPU),
-        VMSTATE_UINT32(env.cp15.c1_coproc, ARMCPU),
+        VMSTATE_UINT32(env.cp15.c1_coproc.secure, ARMCPU),
         VMSTATE_UINT32(env.cp15.c1_xscaleauxcr, ARMCPU),
         VMSTATE_UINT32(env.cp15.c1_scr, ARMCPU),
         VMSTATE_UINT32(env.cp15.c1_sedbg, ARMCPU),
