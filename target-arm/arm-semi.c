@@ -35,6 +35,8 @@
 #include "qemu-common.h"
 #include "exec/gdbstub.h"
 #include "hw/arm/arm.h"
+#include "sysemu/sysemu.h"
+#include "qemu/config-file.h"
 #endif
 
 #define TARGET_SYS_OPEN        0x01
@@ -553,3 +555,49 @@ uint32_t do_arm_semihosting(CPUARMState *env)
         abort();
     }
 }
+
+#if !defined(CONFIG_USER_ONLY)
+void arm_semihosting_setmode(CPUARMState *cpu)
+{
+    QemuOpts *machine_opts = qemu_opts_find(qemu_find_opts("machine"), 0);
+    const char *mode = NULL;
+
+    if (machine_opts != NULL) {
+        mode = qemu_opt_get(machine_opts, "semihosting-model");
+    }
+
+    if (mode == NULL || !strcmp(mode, "compat")) {
+        /* Compatibility mode (allow semihosting; abort on SMCs) */
+        cpu->semihosting_mode = ARM_SEMI_SECURE | ARM_SEMI_NORMAL;
+
+    } else if (!strcmp(mode, "secure")) {
+        /* Semihosting in secure world only */
+        cpu->semihosting_mode = ARM_SEMI_SECURE | ARM_SEMI_ALLOW_SMC;
+
+    } else if (!strcmp(mode, "normal")) {
+        /* Semihosting in normal world only */
+        cpu->semihosting_mode = ARM_SEMI_NORMAL | ARM_SEMI_ALLOW_SMC;
+
+    } else if (!strcmp(mode, "both")) {
+        /* Semihosting in both worlds */
+        cpu->semihosting_mode = ARM_SEMI_SECURE | ARM_SEMI_NORMAL |
+            ARM_SEMI_ALLOW_SMC;
+
+    } else {
+        hw_error("unimplemented/unsupport semihosting mode '%s'", mode);
+    }
+}
+
+bool arm_semihosting_enabled(CPUARMState *env)
+{
+    bool enabled = false;
+
+    if (semihosting_enabled) {
+        /* Test if semihosting is enabled in the current world */
+        uint32_t flag = arm_current_secure(env) ? ARM_SEMI_SECURE : ARM_SEMI_NORMAL;
+        enabled = (env->semihosting_mode & flag) != 0;
+    }
+
+    return enabled;
+}
+#endif

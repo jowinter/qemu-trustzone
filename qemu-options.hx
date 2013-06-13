@@ -2964,6 +2964,42 @@ STEXI
 @findex -semihosting
 Semihosting mode (ARM, M68K, Xtensa only).
 ETEXI
+DEF("semihosting-model", HAS_ARG, QEMU_OPTION_semihosting_model,
+    "-semihosting-model <model>\n"
+    "                semihosting model (default: 'compat')\n", QEMU_ARCH_ARM)
+STEXI
+@item -semihosting-model @var{model}
+@findex -semihosting-model
+Sets the semihosting model to be used. (ARM only)
+
+The following values are currently supported for @var{model}:
+@table @option
+@item compat
+Enables semihosting calls from secure and from normal world. Any
+attempts to execute secure monitor calls abort the simulation.
+(This mode mimics the behavior of older QEMU releases.)
+
+@item secure
+Enables semihosting calls from secure world only. SVC and BKPT
+instructions executed in normal world are always dispatched using
+their default (normal world) exception handlers. Secure monitor
+calls are dispatched to secure world monitor vector handlers.
+
+@item normal
+Enables semihosting calls from normal world only. SVC and BKPT
+instructions executed in normal world are always dispatched using
+their default (secure world) exception handlers. Secure monitor
+calls are dispatched to secure world monitor vector handlers.
+
+@item both
+Enables semihosting calls from both worlds. Secure monitor
+calls are dispatched to secure world monitor vector handlers.
+Side-effects of semihosted syscalls (e.g. closing a file descriptor)
+are visible to both worlds, when this mode is used.
+
+@end table
+
+ETEXI
 DEF("old-param", 0, QEMU_OPTION_old_param,
     "-old-param      old param mode\n", QEMU_ARCH_ARM)
 STEXI
