@@ -6647,6 +6647,7 @@ static void gen_srs(DisasContext *s,
     int32_t offset;
     TCGv_i32 addr = tcg_temp_new_i32();
     TCGv_i32 tmp = tcg_const_i32(mode);
+    int mmu = MMU_KERNEL(s);
     gen_helper_get_r13_banked(addr, cpu_env, tmp);
     tcg_temp_free_i32(tmp);
     switch (amode) {
@@ -6667,10 +6668,10 @@ static void gen_srs(DisasContext *s,
     }
     tcg_gen_addi_i32(addr, addr, offset);
     tmp = load_reg(s, 14);
-    gen_st32(tmp, addr, 0);
+    gen_st32(tmp, addr, mmu);
     tmp = load_cpu_field(spsr);
     tcg_gen_addi_i32(addr, addr, 4);
-    gen_st32(tmp, addr, 0);
+    gen_st32(tmp, addr, mmu);
     if (writeback) {
         switch (amode) {
         case 0:
@@ -6797,6 +6798,7 @@ static void disas_arm_insn(CPUARMState * env, DisasContext *s)
         } else if ((insn & 0x0e50ffe0) == 0x08100a00) {
             /* rfe */
             int32_t offset;
+            int mmu = MMU_KERNEL(s);
             if (IS_USER(s))
                 goto illegal_op;
             ARCH(6);
@@ -6813,9 +6815,9 @@ static void disas_arm_insn(CPUARMState * env, DisasContext *s)
             if (offset)
                 tcg_gen_addi_i32(addr, addr, offset);
             /* Load PC into tmp and CPSR into tmp2.  */
-            tmp = gen_ld32(addr, 0);
+            tmp = gen_ld32(addr, mmu);
             tcg_gen_addi_i32(addr, addr, 4);
-            tmp2 = gen_ld32(addr, 0);
+            tmp2 = gen_ld32(addr, mmu);
             if (insn & (1 << 21)) {
                 /* Base writeback.  */
                 switch (i) {
@@ -8228,13 +8230,14 @@ static int disas_thumb2_insn(CPUARMState *env, DisasContext *s, uint16_t insn_hw
                 }
                 if (insn & (1 << 20)) {
                     /* rfe */
+                    int mmu = MMU_KERNEL(s);
                     addr = load_reg(s, rn);
                     if ((insn & (1 << 24)) == 0)
                         tcg_gen_addi_i32(addr, addr, -8);
                     /* Load PC into tmp and CPSR into tmp2.  */
-                    tmp = gen_ld32(addr, 0);
+                    tmp = gen_ld32(addr, mmu);
                     tcg_gen_addi_i32(addr, addr, 4);
-                    tmp2 = gen_ld32(addr, 0);
+                    tmp2 = gen_ld32(addr, mmu);
                     if (insn & (1 << 21)) {
                         /* Base writeback.  */
                         if (insn & (1 << 24)) {
