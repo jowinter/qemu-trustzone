@@ -223,7 +223,7 @@ static const ARMCPRegInfo v6_cp_reginfo[] = {
       .access = PL0_W, .type = ARM_CP_NOP },
     { .name = "IFAR", .cp = 15, .crn = 6, .crm = 0, .opc1 = 0, .opc2 = 2,
       .access = PL1_RW, .fieldoffset = offsetof(CPUARMState, cp15.c6_insn),
-      .resetvalue = 0, },
+      .resetvalue = 0, .type = ARM_CP_BANKED },
     /* Watchpoint Fault Address Register : should actually only be present
      * for 1136, 1176, 11MPCore.
      */
@@ -679,28 +679,28 @@ static int arm946_prbs_write(CPUARMState *env, const ARMCPRegInfo *ri,
  */
 static const ARMCPRegInfo pmsav5_cp_reginfo[] = {
     { .name = "DATA_AP", .cp = 15, .crn = 5, .crm = 0, .opc1 = 0, .opc2 = 0,
-      .access = PL1_RW,
+      .access = PL1_RW, .type = ARM_CP_BANKED,
       .fieldoffset = offsetof(CPUARMState, cp15.c5_data.secure), .resetvalue = 0,
       .readfn = pmsav5_data_ap_read, .writefn = pmsav5_data_ap_write, },
     { .name = "INSN_AP", .cp = 15, .crn = 5, .crm = 0, .opc1 = 0, .opc2 = 1,
-      .access = PL1_RW,
+      .access = PL1_RW, .type = ARM_CP_BANKED,
       .fieldoffset = offsetof(CPUARMState, cp15.c5_insn.secure), .resetvalue = 0,
       .readfn = pmsav5_insn_ap_read, .writefn = pmsav5_insn_ap_write, },
     { .name = "DATA_EXT_AP", .cp = 15, .crn = 5, .crm = 0, .opc1 = 0, .opc2 = 2,
-      .access = PL1_RW,
+      .access = PL1_RW, .type = ARM_CP_BANKED,
       .fieldoffset = offsetof(CPUARMState, cp15.c5_data.secure), .resetvalue = 0, },
     { .name = "INSN_EXT_AP", .cp = 15, .crn = 5, .crm = 0, .opc1 = 0, .opc2 = 3,
-      .access = PL1_RW,
+      .access = PL1_RW, .type = ARM_CP_BANKED,
       .fieldoffset = offsetof(CPUARMState, cp15.c5_insn.secure), .resetvalue = 0, },
     { .name = "DCACHE_CFG", .cp = 15, .crn = 2, .crm = 0, .opc1 = 0, .opc2 = 0,
-      .access = PL1_RW,
+      .access = PL1_RW, .type = ARM_CP_BANKED,
       .fieldoffset = offsetof(CPUARMState, cp15.c2_data), .resetvalue = 0, },
     { .name = "ICACHE_CFG", .cp = 15, .crn = 2, .crm = 0, .opc1 = 0, .opc2 = 1,
-      .access = PL1_RW,
+      .access = PL1_RW, .type = ARM_CP_BANKED,
       .fieldoffset = offsetof(CPUARMState, cp15.c2_insn), .resetvalue = 0, },
     /* Protection region base and size registers */
     { .name = "946_PRBS", .cp = 15, .crn = 6, .crm = CP_ANY, .opc1 = 0,
-      .opc2 = CP_ANY, .access = PL1_RW,
+      .opc2 = CP_ANY, .access = PL1_RW, .type = ARM_CP_BANKED,
       .readfn = arm946_prbs_read, .writefn = arm946_prbs_write, },
     REGINFO_SENTINEL
 };
