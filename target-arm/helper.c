@@ -73,28 +73,26 @@ static int dacr_write(CPUARMState *env, const ARMCPRegInfo *ri, uint64_t value)
 
 static int fcse_write(CPUARMState *env, const ARMCPRegInfo *ri, uint64_t value)
 {
-    int bank = arm_current_secure(env);
-    if (CP15_BANK32(env, c13_fcse, bank) != value) {
+    if (CPREG_FIELD32(env, ri) != value) {
         /* Unlike real hardware the qemu TLB uses virtual addresses,
          * not modified virtual addresses, so this causes a TLB flush.
          */
         tlb_flush(env, 1);
-        CP15_BANK32(env, c13_fcse, bank) = value;
+        CPREG_FIELD32(env, ri) = value;
     }
     return 0;
 }
 static int contextidr_write(CPUARMState *env, const ARMCPRegInfo *ri,
                             uint64_t value)
 {
-    int bank = arm_current_secure(env);
-    if (CP15_BANK32(env, c13_context, bank) != value && !arm_feature(env, ARM_FEATURE_MPU)) {
+    if (CPREG_FIELD32(env, ri) != value && !arm_feature(env, ARM_FEATURE_MPU)) {
         /* For VMSA (when not using the LPAE long descriptor page table
          * format) this register includes the ASID, so do a TLB flush.
          * For PMSA it is purely a process ID and no action is needed.
          */
         tlb_flush(env, 1);
     }
-    CP15_BANK32(env, c13_context, bank) = value;
+    CPREG_FIELD32(env, ri) = value;
     return 0;
 }
 
@@ -141,7 +139,7 @@ static const ARMCPRegInfo cp_reginfo[] = {
     { .name = "DACR", .cp = 15,
       .crn = 3, .crm = CP_ANY, .opc1 = CP_ANY, .opc2 = CP_ANY,
       .access = PL1_RW, .fieldoffset = offsetof(CPUARMState, cp15.c3),
-      .resetvalue = 0, .writefn = dacr_write },
+      .resetvalue = 0, .writefn = dacr_write, .type = ARM_CP_BANKED },
     { .name = "FCSEIDR", .cp = 15, .crn = 13, .crm = 0, .opc1 = 0, .opc2 = 0,
       .access = PL1_RW, .fieldoffset = offsetof(CPUARMState, cp15.c13_fcse),
       .resetvalue = 0, .writefn = fcse_write, .type = ARM_CP_BANKED },
