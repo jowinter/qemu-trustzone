@@ -81,6 +81,11 @@ struct arm_boot_info;
 
 #define NB_MMU_MODES 4
 
+/* ARM semihosting mode bits */
+#define ARM_SEMI_SECURE    (1 << 0) /* Enable in secure world */
+#define ARM_SEMI_NORMAL    (1 << 1) /* Enable in normal world */
+#define ARM_SEMI_ALLOW_SMC (1 << 2) /* Allow SMCs when enabled */
+
 /* We currently assume float and double are IEEE single and double
    precision respectively.
    Doing runtime conversions is tricky because VFP registers may contain
@@ -245,6 +250,10 @@ typedef struct CPUARMState {
 
     void *nvic;
     const struct arm_boot_info *boot_info;
+
+#if !defined(CONFIG_USER_ONLY)
+    uint32_t semihosting_mode;
+#endif
 } CPUARMState;
 
 #include "cpu-qom.h"
@@ -256,6 +265,11 @@ int cpu_arm_exec(CPUARMState *s);
 int bank_number(int mode);
 void switch_mode(CPUARMState *, int);
 uint32_t do_arm_semihosting(CPUARMState *env);
+
+#if !defined(CONFIG_USER_ONLY)
+void arm_semihosting_setmode(CPUARMState *env);
+bool arm_semihosting_enabled(CPUARMState *env);
+#endif
 
 /* you can call this signal handler from your SIGBUS and SIGSEGV
    signal handlers to inform the virtual CPU of exceptions. non zero

@@ -204,6 +204,10 @@ static void arm_cpu_realizefn(DeviceState *dev, Error **errp)
     register_cp_regs_for_features(cpu);
     arm_cpu_register_gdb_regs_for_features(cpu);
 
+#if !defined(CONFIG_USER_ONLY)
+    arm_semihosting_setmode(env);
+#endif
+
     cpu_reset(CPU(cpu));
     qemu_init_vcpu(env);
 

@@ -1869,7 +1869,7 @@ void arm_v7m_cpu_do_interrupt(CPUState *cs)
         armv7m_nvic_set_pending(env->nvic, ARMV7M_EXCP_MEM);
         return;
     case EXCP_BKPT:
-        if (semihosting_enabled) {
+        if (arm_semihosting_enabled(env)) {
             int nr;
             nr = arm_lduw_code(env, env->regs[15], env->bswap_code) & 0xff;
             if (nr == 0xab) {
@@ -1940,7 +1940,7 @@ void arm_cpu_do_interrupt(CPUState *cs)
             offset = 4;
         break;
     case EXCP_SWI:
-        if (semihosting_enabled) {
+        if (arm_semihosting_enabled(env)) {
             /* Check for semihosting interrupt.  */
             if (env->thumb) {
                 mask = arm_lduw_code(env, env->regs[15] - 2, env->bswap_code)
@@ -1966,7 +1966,7 @@ void arm_cpu_do_interrupt(CPUState *cs)
         break;
     case EXCP_BKPT:
         /* See if this is a semihosting syscall.  */
-        if (env->thumb && semihosting_enabled) {
+        if (env->thumb && arm_semihosting_enabled(env)) {
             mask = arm_lduw_code(env, env->regs[15], env->bswap_code) & 0xff;
             if (mask == 0xab
                   && (env->uncached_cpsr & CPSR_M) != ARM_CPU_MODE_USR) {
@@ -2016,7 +2016,8 @@ void arm_cpu_do_interrupt(CPUState *cs)
         offset = 4;
         break;
     case EXCP_SMC:
-        if (semihosting_enabled) {
+        if (arm_semihosting_enabled(env) &&
+            !(env->semihosting_mode & ARM_SEMI_ALLOW_SMC)) {
             cpu_abort(env, "SMC handling under semihosting not implemented\n");
             return;
         }
