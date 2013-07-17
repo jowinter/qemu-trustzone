@@ -2021,9 +2021,6 @@ void arm_cpu_do_interrupt(CPUState *cs)
             cpu_abort(env, "SMC handling under semihosting not implemented\n");
             return;
         }
-        if ((env->uncached_cpsr & CPSR_M) == ARM_CPU_MODE_SMC) {
-            env->cp15.c1_scr &= ~SCR_NS;
-        }
         offset = env->thumb ? 2 : 0;
         new_mode = ARM_CPU_MODE_SMC;
         addr = 0x08;
@@ -2035,6 +2032,13 @@ void arm_cpu_do_interrupt(CPUState *cs)
     }
     int to_secure = (new_mode == ARM_CPU_MODE_SMC) || !(env->cp15.c1_scr & SCR_NS);
     if (arm_feature(env, ARM_FEATURE_TRUSTZONE)) {
+        if ((env->uncached_cpsr & CPSR_M) == ARM_CPU_MODE_SMC) {
+            /* Exceptions taken in secure monitor mode always go
+             * to secure world. */
+            env->cp15.c1_scr &= ~SCR_NS;
+            to_secure = 1;
+        }
+
         if (!to_secure) {
             /* Honor SCR.AW/SCR.FW in normal world */
             if (!(env->cp15.c1_scr & SCR_FW)) {
