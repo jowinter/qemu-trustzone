@@ -1,0 +1,6 @@
+<?xml version="1.0"?>
+<!DOCTYPE feature SYSTEM "gdb-target.dtd">
+<feature name="qemu.arm.trustzone">
+  <!-- TrustZone specific core registers -->
+  <reg name="scr" bitsize="32" />
+</feature>

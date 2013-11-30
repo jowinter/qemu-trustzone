@@ -10,6 +10,9 @@ static inline int get_phys_addr(CPUARMState *env, uint32_t address,
                                 int access_type, int is_user, int is_secure,
                                 hwaddr *phys_ptr, int *prot,
                                 target_ulong *page_size);
+
+static int trustzone_gdb_get_reg(CPUARMState *env, uint8_t *buf, int reg);
+static int trustzone_gdb_set_reg(CPUARMState *env, uint8_t *buf, int reg);
 #endif
 
 static int vfp_gdb_get_reg(CPUARMState *env, uint8_t *buf, int reg)
@@ -1089,6 +1092,31 @@ static int sctlr_write(CPUARMState *env, const ARMCPRegInfo *ri, uint64_t value)
     return 0;
 }
 
+static int trustzone_gdb_get_reg(CPUARMState *env, uint8_t *buf, int reg)
+{
+  switch (reg) {
+  case 0: /* Secure Configuration Register (SCR) */
+    stl_p(buf, env->cp15.c1_scr);
+    return 4;
+
+  default: /* Unhandled */
+    return 0;
+  }
+}
+
+static int trustzone_gdb_set_reg(CPUARMState *env, uint8_t *buf, int reg)
+{
+  switch (reg) {
+  case 0: /* Secure Configuration Register (SCR) */
+    env->cp15.c1_scr = ldl_p(buf) & 0x7F;
+    tb_flush(env);
+    return 4;
+
+  default: /* Unhandled */
+    return 0;
+  }
+}
+
 void register_cp_regs_for_features(ARMCPU *cpu)
 {
     /* Register all the coprocessor registers based on feature bits */
@@ -1361,6 +1389,13 @@ void arm_cpu_register_gdb_regs_for_features(ARMCPU *cpu)
         gdb_register_coprocessor(env, vfp_gdb_get_reg, vfp_gdb_set_reg,
                                  19, "arm-vfp.xml", 0);
     }
+
+#ifndef CONFIG_USER_ONLY
+    if (arm_feature(env, ARM_FEATURE_TRUSTZONE)) {
+        gdb_register_coprocessor(env, trustzone_gdb_get_reg, trustzone_gdb_set_reg,
+                                 7, "arm-trustzone.xml", 0);
+    }
+#endif
 }
 
 /* Sort alphabetically by type name, except for "any". */

@@ -4210,7 +4210,7 @@ case "$target_arch2" in
     TARGET_ARCH=arm
     bflt="yes"
     target_nptl="yes"
-    gdb_xml_files="arm-core.xml arm-vfp.xml arm-vfp3.xml arm-neon.xml"
+    gdb_xml_files="arm-core.xml arm-vfp.xml arm-vfp3.xml arm-neon.xml arm-trustzone.xml"
   ;;
   cris)
     target_nptl="yes"
