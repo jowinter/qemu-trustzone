@@ -168,6 +168,18 @@ static void arm_semi_flen_cb(CPUARMState *env, target_ulong ret, target_ulong er
 #endif
 }
 
+/* Test for GDB bypass mode */
+static inline int arm_use_gdb_syscalls(CPUARMState *env)
+{
+#ifndef CONFIG_USER_ONLY
+  if ((env->semihosting_mode & ARM_SEMI_NOGDB) != 0) {
+    /* GDB bypass mode is active, always force QEMU's internals */
+    return 0;
+  }
+#endif
+  return use_gdb_syscalls();
+}
+
 /* Read the input value from the argument block; fail the semihosting
  * call if the memory read fails.
  */
@@ -213,7 +225,7 @@ uint32_t do_arm_semihosting(CPUARMState *env)
             unlock_user(s, arg0, 0);
             return result_fileno;
         }
-        if (use_gdb_syscalls()) {
+        if (arm_use_gdb_syscalls(env)) {
             gdb_do_syscall(arm_semi_cb, "open,%s,%x,1a4", arg0,
                            (int)arg2+1, gdb_open_modeflags[arg1]);
             ret = env->regs[0];
@@ -224,7 +236,7 @@ uint32_t do_arm_semihosting(CPUARMState *env)
         return ret;
     case TARGET_SYS_CLOSE:
         GET_ARG(0);
-        if (use_gdb_syscalls()) {
+        if (arm_use_gdb_syscalls(env)) {
             gdb_do_syscall(arm_semi_cb, "close,%x", arg0);
             return env->regs[0];
         } else {
@@ -238,7 +250,7 @@ uint32_t do_arm_semihosting(CPUARMState *env)
               /* FIXME - should this error code be -TARGET_EFAULT ? */
               return (uint32_t)-1;
           /* Write to debug console.  stderr is near enough.  */
-          if (use_gdb_syscalls()) {
+          if (arm_use_gdb_syscalls(env)) {
                 gdb_do_syscall(arm_semi_cb, "write,2,%x,1", args);
                 return env->regs[0];
           } else {
@@ -250,7 +262,7 @@ uint32_t do_arm_semihosting(CPUARMState *env)
             /* FIXME - should this error code be -TARGET_EFAULT ? */
             return (uint32_t)-1;
         len = strlen(s);
-        if (use_gdb_syscalls()) {
+        if (arm_use_gdb_syscalls(env)) {
             gdb_do_syscall(arm_semi_cb, "write,2,%x,%x\n", args, len);
             ret = env->regs[0];
         } else {
@@ -263,7 +275,7 @@ uint32_t do_arm_semihosting(CPUARMState *env)
         GET_ARG(1);
         GET_ARG(2);
         len = arg2;
-        if (use_gdb_syscalls()) {
+        if (arm_use_gdb_syscalls(env)) {
             arm_semi_syscall_len = len;
             gdb_do_syscall(arm_semi_cb, "write,%x,%x,%x", arg0, arg1, len);
             return env->regs[0];
@@ -284,7 +296,7 @@ uint32_t do_arm_semihosting(CPUARMState *env)
         GET_ARG(1);
         GET_ARG(2);
         len = arg2;
-        if (use_gdb_syscalls()) {
+        if (arm_use_gdb_syscalls(env)) {
             arm_semi_syscall_len = len;
             gdb_do_syscall(arm_semi_cb, "read,%x,%x,%x", arg0, arg1, len);
             return env->regs[0];
@@ -307,7 +319,7 @@ uint32_t do_arm_semihosting(CPUARMState *env)
         return 0;
     case TARGET_SYS_ISTTY:
         GET_ARG(0);
-        if (use_gdb_syscalls()) {
+        if (arm_use_gdb_syscalls(env)) {
             gdb_do_syscall(arm_semi_cb, "isatty,%x", arg0);
             return env->regs[0];
         } else {
@@ -316,7 +328,7 @@ uint32_t do_arm_semihosting(CPUARMState *env)
     case TARGET_SYS_SEEK:
         GET_ARG(0);
         GET_ARG(1);
-        if (use_gdb_syscalls()) {
+        if (arm_use_gdb_syscalls(env)) {
             gdb_do_syscall(arm_semi_cb, "lseek,%x,%x,0", arg0, arg1);
             return env->regs[0];
         } else {
@@ -327,7 +339,7 @@ uint32_t do_arm_semihosting(CPUARMState *env)
         }
     case TARGET_SYS_FLEN:
         GET_ARG(0);
-        if (use_gdb_syscalls()) {
+        if (arm_use_gdb_syscalls(env)) {
             gdb_do_syscall(arm_semi_flen_cb, "fstat,%x,%x",
                            arg0, env->regs[13]-64);
             return env->regs[0];
@@ -344,7 +356,7 @@ uint32_t do_arm_semihosting(CPUARMState *env)
     case TARGET_SYS_REMOVE:
         GET_ARG(0);
         GET_ARG(1);
-        if (use_gdb_syscalls()) {
+        if (arm_use_gdb_syscalls(env)) {
             gdb_do_syscall(arm_semi_cb, "unlink,%s", arg0, (int)arg1+1);
             ret = env->regs[0];
         } else {
@@ -362,7 +374,7 @@ uint32_t do_arm_semihosting(CPUARMState *env)
         GET_ARG(1);
         GET_ARG(2);
         GET_ARG(3);
-        if (use_gdb_syscalls()) {
+        if (arm_use_gdb_syscalls(env)) {
             gdb_do_syscall(arm_semi_cb, "rename,%s,%s",
                            arg0, (int)arg1+1, arg2, (int)arg3+1);
             return env->regs[0];
@@ -388,7 +400,7 @@ uint32_t do_arm_semihosting(CPUARMState *env)
     case TARGET_SYS_SYSTEM:
         GET_ARG(0);
         GET_ARG(1);
-        if (use_gdb_syscalls()) {
+        if (arm_use_gdb_syscalls(env)) {
             gdb_do_syscall(arm_semi_cb, "system,%s", arg0, (int)arg1+1);
             return env->regs[0];
         } else {
@@ -561,31 +573,40 @@ void arm_semihosting_setmode(CPUARMState *cpu)
 {
     QemuOpts *machine_opts = qemu_opts_find(qemu_find_opts("machine"), 0);
     const char *mode = NULL;
+    uint32_t semihosting_mode = 0;
 
     if (machine_opts != NULL) {
         mode = qemu_opt_get(machine_opts, "semihosting-model");
     }
 
+    if (mode != NULL && !strncmp(mode, "nogdb+", 6)) {
+        /* GDB bypass mode (QEMU acts as semihosting server) */
+        semihosting_mode |= ARM_SEMI_NOGDB;
+        mode += 6;
+    }
+
     if (mode == NULL || !strcmp(mode, "compat")) {
         /* Compatibility mode (allow semihosting; abort on SMCs) */
-        cpu->semihosting_mode = ARM_SEMI_SECURE | ARM_SEMI_NORMAL;
+        semihosting_mode |= ARM_SEMI_SECURE | ARM_SEMI_NORMAL;
 
     } else if (!strcmp(mode, "secure")) {
         /* Semihosting in secure world only */
-        cpu->semihosting_mode = ARM_SEMI_SECURE | ARM_SEMI_ALLOW_SMC;
+        semihosting_mode |= ARM_SEMI_SECURE | ARM_SEMI_ALLOW_SMC;
 
     } else if (!strcmp(mode, "normal")) {
         /* Semihosting in normal world only */
-        cpu->semihosting_mode = ARM_SEMI_NORMAL | ARM_SEMI_ALLOW_SMC;
+        semihosting_mode |= ARM_SEMI_NORMAL | ARM_SEMI_ALLOW_SMC;
 
     } else if (!strcmp(mode, "both")) {
         /* Semihosting in both worlds */
-        cpu->semihosting_mode = ARM_SEMI_SECURE | ARM_SEMI_NORMAL |
+        semihosting_mode |= ARM_SEMI_SECURE | ARM_SEMI_NORMAL |
             ARM_SEMI_ALLOW_SMC;
 
     } else {
         hw_error("unimplemented/unsupport semihosting mode '%s'", mode);
     }
+
+    cpu->semihosting_mode = semihosting_mode;
 }
 
 bool arm_semihosting_enabled(CPUARMState *env)

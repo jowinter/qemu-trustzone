@@ -154,8 +154,8 @@ Set default value of @var{driver}'s property @var{prop} to @var{value}, e.g.:
 qemu-system-i386 -global ide-drive.physical_block_size=4096 -drive file=file,if=ide,index=0,media=disk
 @end example
 
-In particular, you can use this to set driver properties for devices which are 
-created automatically by the machine model. To create a device which is not 
+In particular, you can use this to set driver properties for devices which are
+created automatically by the machine model. To create a device which is not
 created automatically and set properties on it, use -@option{device}.
 ETEXI
 
@@ -2997,6 +2997,11 @@ Side-effects of semihosted syscalls (e.g. closing a file descriptor)
 are visible to both worlds, when this mode is used.
 
 @end table
+
+Each of the semihosting models can be optionally prefixed with "nogdb+"
+to force use of QEMU's builtin semihosting implementation, even when
+a remote GDB is attached during startup. (e.g. to debug early secure world
+code with QEMU's internal implementation, one could use "nogdb+secure")
 
 ETEXI
 DEF("old-param", 0, QEMU_OPTION_old_param,

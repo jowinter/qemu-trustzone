@@ -85,6 +85,7 @@ struct arm_boot_info;
 #define ARM_SEMI_SECURE    (1 << 0) /* Enable in secure world */
 #define ARM_SEMI_NORMAL    (1 << 1) /* Enable in normal world */
 #define ARM_SEMI_ALLOW_SMC (1 << 2) /* Allow SMCs when enabled */
+#define ARM_SEMI_NOGDB     (1 << 3) /* Bypass GDB semihosting (always QEMU's implementation) */
 
 /* We currently assume float and double are IEEE single and double
    precision respectively.
