@@ -2,5 +2,15 @@
 <!DOCTYPE feature SYSTEM "gdb-target.dtd">
 <feature name="qemu.arm.trustzone">
   <!-- TrustZone specific core registers -->
-  <reg name="scr" bitsize="32" />
+  <reg name="scr"   bitsize="32" />
+  <reg name="sder"  bitsize="32" group="system" />
+  <reg name="nsacr" bitsize="32" group="system" />
+  <reg name="vbar"  bitsize="32" group="system" />
+  <reg name="mvbar" bitsize="32" group="system" />
+
+  <!-- Banked register for system control and MMUs -->
+  <reg name="sctlr" bitsize="32" group="system" />
+  <reg name="ttbcr" bitsize="32" group="system" />
+  <reg name="ttbr0" bitsize="32" group="system" />
+  <reg name="ttbr1" bitsize="32" group="system" />
 </feature>

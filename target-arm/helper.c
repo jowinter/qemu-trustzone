@@ -11,8 +11,10 @@ static inline int get_phys_addr(CPUARMState *env, uint32_t address,
                                 hwaddr *phys_ptr, int *prot,
                                 target_ulong *page_size);
 
+#define TRUSTZONE_GDB_NUM_REGS 9
 static int trustzone_gdb_get_reg(CPUARMState *env, uint8_t *buf, int reg);
 static int trustzone_gdb_set_reg(CPUARMState *env, uint8_t *buf, int reg);
+
 #endif
 
 static int vfp_gdb_get_reg(CPUARMState *env, uint8_t *buf, int reg)
@@ -1092,29 +1094,121 @@ static int sctlr_write(CPUARMState *env, const ARMCPRegInfo *ri, uint64_t value)
     return 0;
 }
 
+/*
+ * Mapping of GDB register to coprocessor registers
+ * (aligned with gdb-xml/arm-trustzone.xml)
+ */
+static const uint32_t trustzone_gdb_cpregs32[TRUSTZONE_GDB_NUM_REGS] = {
+  ENCODE_CP_REG(0, 15, 0,  1,  1,  0,  0), /* SCR */
+  ENCODE_CP_REG(0, 15, 0,  1,  1,  0,  1), /* SDER */
+  ENCODE_CP_REG(0, 15, 0,  1,  1,  0,  2), /* NSACR */
+  ENCODE_CP_REG(0, 15, 0, 12,  0,  0,  0), /* VBAR */
+  ENCODE_CP_REG(0, 15, 0, 12,  0,  0,  1), /* MVBAR */
+  ENCODE_CP_REG(0, 15, 0,  1,  0,  0,  0), /* SCTLR */
+  ENCODE_CP_REG(0, 15, 0,  2,  0,  0,  2), /* TTBCR */
+  ENCODE_CP_REG(0, 15, 0,  2,  0,  0,  0), /* TTBR0 */
+  ENCODE_CP_REG(0, 15, 0,  2,  0,  0,  1), /* TTBR1 */
+};
+
+static const ARMCPRegInfo* trustzone_gdb_translate_reg(CPUARMState *env, int reg)
+{
+  uint32_t encoded;
+
+  /* Translate from GDB to QEMU CP encoding (secure world) */
+  if (reg < 0 || reg > TRUSTZONE_GDB_NUM_REGS) {
+    return NULL; /* Bad request from GDB */
+  }
+
+  encoded = trustzone_gdb_cpregs32[reg];
+
+  /* Determine bank to access based on SCR.NS */
+  if ((env->cp15.c1_scr & SCR_NS) != 0) {
+    encoded |= ENCODE_CP_REG(1, 0, 0, 0, 0, 0, 0);
+  }
+
+  /* And lookup the register */
+  return get_arm_cp_reginfo(arm_env_get_cpu(env), encoded);
+}
+
 static int trustzone_gdb_get_reg(CPUARMState *env, uint8_t *buf, int reg)
 {
-  switch (reg) {
-  case 0: /* Secure Configuration Register (SCR) */
-    stl_p(buf, env->cp15.c1_scr);
-    return 4;
+  const ARMCPRegInfo* ri = trustzone_gdb_translate_reg(env, reg);
+  uint64_t value = 0;
+  int is64;
 
-  default: /* Unhandled */
+  if (!ri || (ri->type & ARM_CP_SPECIAL)) {
     return 0;
+  }
+
+  is64 = (ri->type & ARM_CP_64BIT) != 0;
+
+  if (ri->type & ARM_CP_CONST) {
+    /* Constant (32-bit or 64-bit) */
+    value = ri->resetvalue;
+
+  } else if (ri->readfn) {
+    /* Read callback (32-bit or 64-bit) */
+    if ((ri->readfn)(env, ri, &value) != 0) {
+      return 0;
+    }
+
+  } else if (is64) {
+    /* 64-bit field */
+    value = CPREG_FIELD64(env, ri);
+
+  } else {
+    /* 32-bit field */
+    value = CPREG_FIELD32(env, ri);
+  }
+
+  if (is64) {
+    /* 64-bit result */
+    stq_p(buf, value);
+    return 8;
+
+  } else {
+    /* 32-bit result */
+    stl_p(buf, value);
+    return 4;
   }
 }
 
 static int trustzone_gdb_set_reg(CPUARMState *env, uint8_t *buf, int reg)
 {
-  switch (reg) {
-  case 0: /* Secure Configuration Register (SCR) */
-    env->cp15.c1_scr = ldl_p(buf) & 0x7F;
-    tb_flush(env);
-    return 4;
+  const ARMCPRegInfo* ri = trustzone_gdb_translate_reg(env, reg);
+  uint64_t value = 0;
+  int is64;
 
-  default: /* Unhandled */
+  if (!ri || (ri->type & (ARM_CP_SPECIAL | ARM_CP_CONST))) {
     return 0;
   }
+
+  is64 = (ri->type & ARM_CP_64BIT) != 0;
+
+  if (is64) {
+    /* 64-bit value */
+    value = ldq_p(buf);
+  } else {
+    /* 32-bit value */
+    value = ldl_p(buf);
+  }
+
+  if (ri->writefn) {
+    /* Write callback (32-bit or 64-bit) */
+    if ((ri->writefn)(env, ri, value) != 0) {
+      return 0;
+    }
+
+  } else if (is64) {
+    /* 64-bit field */
+    CPREG_FIELD64(env, ri) = value;
+
+  } else {
+    /* 32-bit field */
+    CPREG_FIELD32(env, ri) = value;
+  }
+
+  return is64 ? 8 : 4;
 }
 
 void register_cp_regs_for_features(ARMCPU *cpu)
@@ -1393,7 +1487,7 @@ void arm_cpu_register_gdb_regs_for_features(ARMCPU *cpu)
 #ifndef CONFIG_USER_ONLY
     if (arm_feature(env, ARM_FEATURE_TRUSTZONE)) {
         gdb_register_coprocessor(env, trustzone_gdb_get_reg, trustzone_gdb_set_reg,
-                                 7, "arm-trustzone.xml", 0);
+                                 TRUSTZONE_GDB_NUM_REGS, "arm-trustzone.xml", 0);
     }
 #endif
 }
